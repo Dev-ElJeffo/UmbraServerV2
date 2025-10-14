@@ -85,7 +85,7 @@ define('DB_HOST', 'localhost');
 define('DB_PORT', 3306);
 define('DB_NAME', 'umbra_eternum');
 define('DB_USER', 'root');
-define('DB_PASS', ''); // Senha vazia (ou sua senha)
+define('DB_PASS', '!Mister4126'); // Senha vazia (ou sua senha)
 
 class Database {
     private $conn;
