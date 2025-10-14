@@ -22,6 +22,22 @@ Request->SetTimeout(10.0f);
 
 ## ✅ SOLUÇÃO APLICADA
 
+### 0. **Correção Self-Reference em UmbraGameInstance**
+
+**Erro**: Dentro da classe `UUmbraGameInstance` (que **é** uma `UGameInstance`), estava chamando `GetGameInstance()` que não existe.
+
+```cpp
+// ❌ ERRADO (dentro de UUmbraGameInstance):
+UVaRestSubsystem* VaRest = GetGameInstance()->GetSubsystem<UVaRestSubsystem>();
+// ↑ GetGameInstance() não existe dentro da própria GameInstance!
+
+// ✅ CORRETO:
+UVaRestSubsystem* VaRest = GetSubsystem<UVaRestSubsystem>();
+// ↑ Usa 'this' implicitamente
+```
+
+---
+
 ### 1. **Correção do Build.cs do VaRest**
 
 **Arquivo**: `Plugins/VaRest/Source/VaRest/VaRest.Build.cs`
