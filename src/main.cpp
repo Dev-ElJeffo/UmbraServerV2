@@ -52,9 +52,6 @@ int main(int argc, char* argv[]) {
     Umbra::Core::Logger::getInstance().warn("Database connection failed, continuing anyway");
   }
   
-  // Initialize servers
-  std::vector<std::unique_ptr<void>> servers;
-  
   // Auth Server
   Umbra::Auth::AuthServer::Config authConfig;
   authConfig.port = configManager.get<uint16_t>("auth.port", 8080);
