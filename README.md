@@ -129,24 +129,51 @@ openssl rand -base64 64 > config/jwt_secret.key
 ./build/bin/gateway_server
 ```
 
-## Integração com Unreal Engine 5
+## 🎮 Integração com Unreal Engine 5
+
+### 📚 Documentação Completa
+
+**Guia Rápido (5 minutos)**: [`UE5_QUICKSTART.md`](UE5_QUICKSTART.md)  
+**Guia Completo**: [`UE5_API_INTEGRATION.md`](UE5_API_INTEGRATION.md)  
+**Arquitetura Visual**: [`FULL_ARCHITECTURE.md`](FULL_ARCHITECTURE.md)  
+**Código C++**: [`UE5_CPP_EXAMPLES.h`](UE5_CPP_EXAMPLES.h) / [`.cpp`](UE5_CPP_EXAMPLES.cpp)
+
+### Stack de Integração
+
+```
+UE5 Client (VaRest/Sockets)
+    ↓ HTTP/REST (Login/Register)
+PHP APIs (localhost/umbra_api)
+    ↓ MySQL
+Database (umbra_eternum)
+    ↓ Validação
+C++ Servers (Auth/World/Gateway)
+    ↓ TCP/UDP
+Game Synchronization
+```
 
 ### 1. Login Flow
 
-O cliente UE5 usa VaRestX para autenticação:
+O cliente UE5 usa VaRest para autenticação:
 ```
-Cliente UE5 → (REST) → Auth Server → MySQL
-               ← JWT Token + Server Info ←
+Cliente UE5 → (REST) → PHP API → MySQL
+               ← JWT Token + Account Data ←
+Cliente UE5 → (TCP) → C++ Gateway → Zone Server
 ```
 
-### 2. Conexão ao Jogo
+### 2. Fluxo Completo
 
 ```
-Cliente UE5 → (WebSocket/TCP) → Gateway → Zone Server
+1. UE5: Widget Login → VaRest POST /api/login.php
+2. PHP: Valida credenciais → Retorna token + personagens
+3. UE5: Salva na Game Instance → Conecta Gateway (TCP 9000)
+4. C++: Gateway valida token → Redireciona para Zone Server
+5. UE5: Spawna personagem → Gameplay inicia
 ```
 
 ### 3. Comunicação em Tempo Real
 
+- **HTTP/REST**: Login, registro, APIs PHP (VaRest plugin)
 - **WebSocket**: Para eventos gerais e chat
 - **TCP**: Para ações críticas (inventário, trade)
 - **UDP**: Para movimentação (com ACK customizado)
