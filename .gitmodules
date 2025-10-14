@@ -1,0 +1,25 @@
+# Git submodules for third-party libraries
+# Run: git submodule update --init --recursive
+
+# Example submodule entries (uncomment when adding)
+
+# [submodule "third_party/json"]
+#   path = third_party/json
+#   url = https://github.com/nlohmann/json.git
+#   branch = develop
+
+# [submodule "third_party/spdlog"]
+#   path = third_party/spdlog
+#   url = https://github.com/gabime/spdlog.git
+#   branch = v1.x
+
+# [submodule "third_party/googletest"]
+#   path = third_party/googletest
+#   url = https://github.com/google/googletest.git
+#   branch = main
+
+# [submodule "third_party/jwt-cpp"]
+#   path = third_party/jwt-cpp
+#   url = https://github.com/Thalhammer/jwt-cpp.git
+#   branch = master
+

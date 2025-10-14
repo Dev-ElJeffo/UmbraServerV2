@@ -1,0 +1,3 @@
+# Placeholder para googletest
+# Execute: git submodule add https://github.com/google/googletest.git third_party/googletest
+

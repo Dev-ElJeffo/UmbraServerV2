@@ -1,0 +1,417 @@
+#include "WebSocketServer.hpp"
+#include "core/Logger.hpp"
+#include "core/Utils.hpp"
+#include <cstring>
+#include <sstream>
+
+#ifdef _WIN32
+  #include <winsock2.h>
+  #include <ws2tcpip.h>
+  #define CLOSE_SOCKET closesocket
+#else
+  #include <sys/socket.h>
+  #include <netinet/in.h>
+  #include <arpa/inet.h>
+  #include <unistd.h>
+  #define SOCKET int
+  #define INVALID_SOCKET -1
+  #define SOCKET_ERROR -1
+  #define CLOSE_SOCKET close
+#endif
+
+namespace Umbra {
+namespace Network {
+
+WebSocketServer::WebSocketServer(uint16_t port)
+    : port_(port),
+      serverSocket_(INVALID_SOCKET),
+      running_(false),
+      nextClientId_(1) {
+#ifdef _WIN32
+  WSADATA wsaData;
+  WSAStartup(MAKEWORD(2, 2), &wsaData);
+#endif
+}
+
+WebSocketServer::~WebSocketServer() {
+  stop();
+#ifdef _WIN32
+  WSACleanup();
+#endif
+}
+
+bool WebSocketServer::start() {
+  if (running_) {
+    Core::Logger::getInstance().warn("WebSocketServer already running");
+    return false;
+  }
+  
+  if (!initializeSocket()) {
+    return false;
+  }
+  
+  running_ = true;
+  acceptThread_ = std::make_unique<std::thread>(&WebSocketServer::acceptLoop, this);
+  
+  Core::Logger::getInstance().info("WebSocketServer started on port {}", port_);
+  return true;
+}
+
+void WebSocketServer::stop() {
+  if (!running_) {
+    return;
+  }
+  
+  running_ = false;
+  
+  if (acceptThread_ && acceptThread_->joinable()) {
+    acceptThread_->join();
+  }
+  
+  for (auto& thread : workerThreads_) {
+    if (thread && thread->joinable()) {
+      thread->join();
+    }
+  }
+  workerThreads_.clear();
+  
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    for (auto& [id, client] : clients_) {
+      closeSocket(client.socket);
+    }
+    clients_.clear();
+  }
+  
+  if (serverSocket_ != INVALID_SOCKET) {
+    closeSocket(serverSocket_);
+    serverSocket_ = INVALID_SOCKET;
+  }
+  
+  Core::Logger::getInstance().info("WebSocketServer stopped");
+}
+
+bool WebSocketServer::isRunning() const {
+  return running_;
+}
+
+void WebSocketServer::setMessageCallback(MessageCallback callback) {
+  messageCallback_ = callback;
+}
+
+void WebSocketServer::setBinaryCallback(BinaryCallback callback) {
+  binaryCallback_ = callback;
+}
+
+void WebSocketServer::setConnectionCallback(ConnectionCallback callback) {
+  connectionCallback_ = callback;
+}
+
+bool WebSocketServer::sendText(uint32_t clientId, const std::string& message) {
+  std::lock_guard<std::mutex> lock(clientsMutex_);
+  
+  auto it = clients_.find(clientId);
+  if (it == clients_.end() || !it->second.handshakeComplete) {
+    return false;
+  }
+  
+  WebSocketFrame frame;
+  frame.opcode = WebSocketFrame::OpCode::TEXT;
+  frame.fin = true;
+  frame.payload.assign(message.begin(), message.end());
+  
+  return sendFrame(it->second.socket, frame);
+}
+
+bool WebSocketServer::sendBinary(uint32_t clientId, const std::vector<uint8_t>& data) {
+  std::lock_guard<std::mutex> lock(clientsMutex_);
+  
+  auto it = clients_.find(clientId);
+  if (it == clients_.end() || !it->second.handshakeComplete) {
+    return false;
+  }
+  
+  WebSocketFrame frame;
+  frame.opcode = WebSocketFrame::OpCode::BINARY;
+  frame.fin = true;
+  frame.payload = data;
+  
+  return sendFrame(it->second.socket, frame);
+}
+
+void WebSocketServer::broadcastText(const std::string& message) {
+  std::lock_guard<std::mutex> lock(clientsMutex_);
+  
+  WebSocketFrame frame;
+  frame.opcode = WebSocketFrame::OpCode::TEXT;
+  frame.fin = true;
+  frame.payload.assign(message.begin(), message.end());
+  
+  for (auto& [id, client] : clients_) {
+    if (client.handshakeComplete) {
+      sendFrame(client.socket, frame);
+    }
+  }
+}
+
+void WebSocketServer::disconnect(uint32_t clientId) {
+  std::lock_guard<std::mutex> lock(clientsMutex_);
+  
+  auto it = clients_.find(clientId);
+  if (it != clients_.end()) {
+    closeSocket(it->second.socket);
+    clients_.erase(it);
+    
+    if (connectionCallback_) {
+      connectionCallback_(clientId, false);
+    }
+  }
+}
+
+size_t WebSocketServer::getClientCount() const {
+  std::lock_guard<std::mutex> lock(clientsMutex_);
+  return clients_.size();
+}
+
+bool WebSocketServer::initializeSocket() {
+  serverSocket_ = socket(AF_INET, SOCK_STREAM, 0);
+  
+  if (serverSocket_ == INVALID_SOCKET) {
+    Core::Logger::getInstance().error("Failed to create WebSocket server socket");
+    return false;
+  }
+  
+  int opt = 1;
+  setsockopt(serverSocket_, SOL_SOCKET, SO_REUSEADDR, 
+             reinterpret_cast<const char*>(&opt), sizeof(opt));
+  
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = INADDR_ANY;
+  address.sin_port = htons(port_);
+  
+  if (bind(serverSocket_, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == SOCKET_ERROR) {
+    Core::Logger::getInstance().error("Failed to bind WebSocket server to port {}", port_);
+    closeSocket(serverSocket_);
+    return false;
+  }
+  
+  if (listen(serverSocket_, SOMAXCONN) == SOCKET_ERROR) {
+    Core::Logger::getInstance().error("Failed to listen on WebSocket server");
+    closeSocket(serverSocket_);
+    return false;
+  }
+  
+  return true;
+}
+
+void WebSocketServer::acceptLoop() {
+  while (running_) {
+    sockaddr_in clientAddr{};
+    socklen_t clientLen = sizeof(clientAddr);
+    
+    int clientSocket = accept(serverSocket_, 
+                               reinterpret_cast<sockaddr*>(&clientAddr), 
+                               &clientLen);
+    
+    if (clientSocket == INVALID_SOCKET) {
+      if (running_) {
+        Core::Logger::getInstance().warn("WebSocket accept failed");
+      }
+      continue;
+    }
+    
+    std::string clientAddress = inet_ntoa(clientAddr.sin_addr);
+    uint16_t clientPort = ntohs(clientAddr.sin_port);
+    
+    Core::Logger::getInstance().info("New WebSocket connection from {}:{}", 
+                                     clientAddress, clientPort);
+    
+    auto thread = std::make_unique<std::thread>(
+      &WebSocketServer::handleClient, this, clientSocket, clientAddress, clientPort);
+    workerThreads_.push_back(std::move(thread));
+  }
+}
+
+void WebSocketServer::handleClient(int clientSocket, 
+                                   const std::string& address, 
+                                   uint16_t port) {
+  if (!performHandshake(clientSocket)) {
+    closeSocket(clientSocket);
+    return;
+  }
+  
+  uint32_t clientId = nextClientId_++;
+  
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    ClientState state;
+    state.id = clientId;
+    state.socket = clientSocket;
+    state.handshakeComplete = true;
+    state.address = address;
+    state.port = port;
+    clients_[clientId] = state;
+  }
+  
+  if (connectionCallback_) {
+    connectionCallback_(clientId, true);
+  }
+  
+  while (running_) {
+    WebSocketFrame frame = receiveFrame(clientSocket);
+    
+    if (frame.opcode == WebSocketFrame::OpCode::CLOSE) {
+      break;
+    }
+    
+    if (frame.opcode == WebSocketFrame::OpCode::TEXT && messageCallback_) {
+      std::string message(frame.payload.begin(), frame.payload.end());
+      messageCallback_(clientId, message);
+    } else if (frame.opcode == WebSocketFrame::OpCode::BINARY && binaryCallback_) {
+      binaryCallback_(clientId, frame.payload);
+    } else if (frame.opcode == WebSocketFrame::OpCode::PING) {
+      WebSocketFrame pong;
+      pong.opcode = WebSocketFrame::OpCode::PONG;
+      pong.fin = true;
+      pong.payload = frame.payload;
+      sendFrame(clientSocket, pong);
+    }
+  }
+  
+  disconnect(clientId);
+  Core::Logger::getInstance().info("WebSocket client {} disconnected", clientId);
+}
+
+bool WebSocketServer::performHandshake(int clientSocket) {
+  char buffer[4096];
+  int bytesReceived = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
+  
+  if (bytesReceived <= 0) {
+    return false;
+  }
+  
+  buffer[bytesReceived] = '\0';
+  std::string request(buffer);
+  
+  // Extract Sec-WebSocket-Key
+  size_t keyPos = request.find("Sec-WebSocket-Key: ");
+  if (keyPos == std::string::npos) {
+    return false;
+  }
+  
+  keyPos += 19;
+  size_t keyEnd = request.find("\r\n", keyPos);
+  std::string clientKey = request.substr(keyPos, keyEnd - keyPos);
+  
+  std::string acceptKey = generateAcceptKey(clientKey);
+  
+  std::ostringstream response;
+  response << "HTTP/1.1 101 Switching Protocols\r\n"
+           << "Upgrade: websocket\r\n"
+           << "Connection: Upgrade\r\n"
+           << "Sec-WebSocket-Accept: " << acceptKey << "\r\n"
+           << "\r\n";
+  
+  std::string responseStr = response.str();
+  send(clientSocket, responseStr.c_str(), static_cast<int>(responseStr.size()), 0);
+  
+  return true;
+}
+
+WebSocketFrame WebSocketServer::receiveFrame(int clientSocket) {
+  WebSocketFrame frame;
+  frame.opcode = WebSocketFrame::OpCode::CLOSE;
+  
+  uint8_t header[2];
+  if (recv(clientSocket, reinterpret_cast<char*>(header), 2, 0) != 2) {
+    return frame;
+  }
+  
+  frame.fin = (header[0] & 0x80) != 0;
+  frame.opcode = static_cast<WebSocketFrame::OpCode>(header[0] & 0x0F);
+  
+  bool masked = (header[1] & 0x80) != 0;
+  uint64_t payloadLen = header[1] & 0x7F;
+  
+  if (payloadLen == 126) {
+    uint8_t len[2];
+    recv(clientSocket, reinterpret_cast<char*>(len), 2, 0);
+    payloadLen = (len[0] << 8) | len[1];
+  } else if (payloadLen == 127) {
+    uint8_t len[8];
+    recv(clientSocket, reinterpret_cast<char*>(len), 8, 0);
+    payloadLen = 0;
+    for (int i = 0; i < 8; ++i) {
+      payloadLen = (payloadLen << 8) | len[i];
+    }
+  }
+  
+  uint8_t maskKey[4] = {0};
+  if (masked) {
+    recv(clientSocket, reinterpret_cast<char*>(maskKey), 4, 0);
+  }
+  
+  frame.payload.resize(payloadLen);
+  if (payloadLen > 0) {
+    recv(clientSocket, reinterpret_cast<char*>(frame.payload.data()), 
+         static_cast<int>(payloadLen), 0);
+    
+    if (masked) {
+      for (size_t i = 0; i < payloadLen; ++i) {
+        frame.payload[i] ^= maskKey[i % 4];
+      }
+    }
+  }
+  
+  return frame;
+}
+
+bool WebSocketServer::sendFrame(int clientSocket, const WebSocketFrame& frame) {
+  std::vector<uint8_t> data;
+  
+  uint8_t header = (frame.fin ? 0x80 : 0x00) | static_cast<uint8_t>(frame.opcode);
+  data.push_back(header);
+  
+  size_t payloadLen = frame.payload.size();
+  if (payloadLen < 126) {
+    data.push_back(static_cast<uint8_t>(payloadLen));
+  } else if (payloadLen < 65536) {
+    data.push_back(126);
+    data.push_back(static_cast<uint8_t>((payloadLen >> 8) & 0xFF));
+    data.push_back(static_cast<uint8_t>(payloadLen & 0xFF));
+  } else {
+    data.push_back(127);
+    for (int i = 7; i >= 0; --i) {
+      data.push_back(static_cast<uint8_t>((payloadLen >> (i * 8)) & 0xFF));
+    }
+  }
+  
+  data.insert(data.end(), frame.payload.begin(), frame.payload.end());
+  
+  int result = send(clientSocket, 
+                    reinterpret_cast<const char*>(data.data()), 
+                    static_cast<int>(data.size()), 
+                    0);
+  
+  return result != SOCKET_ERROR;
+}
+
+std::string WebSocketServer::generateAcceptKey(const std::string& clientKey) {
+  static const std::string magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+  std::string combined = clientKey + magic;
+  
+  // TODO: Use proper SHA-1 implementation
+  // For now, using base64 of the combined string as placeholder
+  return Core::Utils::base64Encode(combined);
+}
+
+void WebSocketServer::closeSocket(int socket) {
+  if (socket != INVALID_SOCKET) {
+    CLOSE_SOCKET(socket);
+  }
+}
+
+}  // namespace Network
+}  // namespace Umbra
+
