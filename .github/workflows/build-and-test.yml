@@ -1,0 +1,135 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build-linux:
+    name: Build on Ubuntu
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cmake \
+          build-essential \
+          libmysqlclient-dev \
+          libssl-dev \
+          pkg-config
+    
+    - name: Configure CMake
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+    
+    - name: Build
+      run: cmake --build build --config Release --parallel
+    
+    - name: Run tests
+      run: |
+        cd build
+        ctest -C Release --output-on-failure
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ubuntu-binaries
+        path: build/bin/
+
+  build-windows:
+    name: Build on Windows
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Configure CMake
+      run: cmake -B build -G "Visual Studio 17 2022" -A x64
+    
+    - name: Build
+      run: cmake --build build --config Release --parallel
+    
+    - name: Run tests
+      run: |
+        cd build
+        ctest -C Release --output-on-failure
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: windows-binaries
+        path: build/bin/Release/
+
+  lint:
+    name: Code Quality Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Check file formatting
+      run: |
+        # Verificar se há arquivos com espaços em branco no final
+        ! git grep -I --line-number --perl-regexp '\s+$' -- '*.cpp' '*.hpp' || \
+          (echo "Trailing whitespace found!" && exit 1)
+    
+    - name: Check line endings
+      run: |
+        # Verificar CRLF/LF consistency
+        git ls-files '*.cpp' '*.hpp' | xargs file | grep CRLF && exit 1 || exit 0
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cmake \
+          build-essential \
+          libmysqlclient-dev \
+          lcov
+    
+    - name: Configure with coverage
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="--coverage"
+    
+    - name: Build
+      run: cmake --build build --parallel
+    
+    - name: Run tests
+      run: |
+        cd build
+        ctest --output-on-failure
+    
+    - name: Generate coverage report
+      run: |
+        cd build
+        lcov --capture --directory . --output-file coverage.info
+        lcov --remove coverage.info '/usr/*' '*/third_party/*' '*/tests/*' --output-file coverage.info
+        lcov --list coverage.info
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./build/coverage.info
+        fail_ci_if_error: false
+
