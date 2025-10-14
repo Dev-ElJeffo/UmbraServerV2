@@ -1,5 +1,12 @@
 # UmbraEternum Server - Arquitetura de Micro-Serviços
 
+![Build Status](https://github.com/Dev-ElJeffo/UmbraServerV2/workflows/Build%20and%20Test/badge.svg)
+![Release](https://img.shields.io/github/v/release/Dev-ElJeffo/UmbraServerV2?include_prereleases)
+![License](https://img.shields.io/badge/license-Proprietary-red)
+![C++](https://img.shields.io/badge/C%2B%2B-17-blue)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
+![MySQL](https://img.shields.io/badge/MySQL-8.0%2B-blue)
+
 Arquitetura de servidores C++17 para o MMORPG UmbraEternum com Unreal Engine 5.
 
 ## Visão Geral
