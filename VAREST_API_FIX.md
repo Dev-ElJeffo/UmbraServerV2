@@ -22,18 +22,31 @@ Request->SetTimeout(10.0f);
 
 ## ✅ SOLUÇÃO APLICADA
 
-### 0. **Correção Self-Reference em UmbraGameInstance**
+### 0. **Correção Tipo de Subsystem - ENGINE vs GAME INSTANCE**
 
-**Erro**: Dentro da classe `UUmbraGameInstance` (que **é** uma `UGameInstance`), estava chamando `GetGameInstance()` que não existe.
+**Erro 1**: Dentro da classe `UUmbraGameInstance`, estava chamando `GetGameInstance()` que não existe.
+
+**Erro 2**: `UVaRestSubsystem` herda de `UEngineSubsystem`, **NÃO** de `UGameInstanceSubsystem`!
 
 ```cpp
-// ❌ ERRADO (dentro de UUmbraGameInstance):
+// ❌ ERRADO (tentativa 1):
 UVaRestSubsystem* VaRest = GetGameInstance()->GetSubsystem<UVaRestSubsystem>();
 // ↑ GetGameInstance() não existe dentro da própria GameInstance!
 
-// ✅ CORRETO:
+// ❌ ERRADO (tentativa 2):
 UVaRestSubsystem* VaRest = GetSubsystem<UVaRestSubsystem>();
-// ↑ Usa 'this' implicitamente
+// ↑ Procura por UGameInstanceSubsystem, mas VaRest é UEngineSubsystem!
+
+// ✅ CORRETO:
+UVaRestSubsystem* VaRest = GEngine->GetEngineSubsystem<UVaRestSubsystem>();
+// ↑ Acessa o ENGINE Subsystem corretamente!
+```
+
+**VaRestSubsystem.h linha 36:**
+```cpp
+class VAREST_API UVaRestSubsystem : public UEngineSubsystem
+                                            ^^^^^^^^^^^^^^^^
+                                            É um ENGINE Subsystem!
 ```
 
 ---
