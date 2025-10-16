@@ -178,6 +178,36 @@ Cliente UE5 → (TCP) → C++ Gateway → Zone Server
 - **TCP**: Para ações críticas (inventário, trade)
 - **UDP**: Para movimentação (com ACK customizado)
 
+### 📦 Sistema de Personagens
+
+**Guia Completo Passo-a-Passo**: [`INTEGRACAO_COMPLETA_PERSONAGENS_UE5.md`](INTEGRACAO_COMPLETA_PERSONAGENS_UE5.md)  
+**Referência Rápida**: [`REFERENCIA_RAPIDA_PERSONAGENS.md`](REFERENCIA_RAPIDA_PERSONAGENS.md)  
+**Documentação das APIs**: [`SISTEMA_PERSONAGENS.md`](SISTEMA_PERSONAGENS.md)
+
+#### Funcionalidades Implementadas
+
+```
+✅ Login de usuário
+✅ Listagem de personagens da conta
+✅ Criação de personagem (validação 3-20 chars, máx 5 por conta)
+✅ Seleção de personagem para jogar
+✅ Exclusão de personagem
+✅ Stats completos (HP, Mana, Stamina, STR, DEX, INT, VIT)
+✅ Sincronização com MySQL via PHP APIs
+✅ Widgets UE5 prontos (CharacterSelection, CharacterItem, CreateCharacter)
+```
+
+#### APIs de Personagens
+
+| **Endpoint**                          | **Método** | **Descrição**                     |
+|---------------------------------------|------------|-----------------------------------|
+| `/api/character/list_characters.php`  | POST       | Lista personagens da conta        |
+| `/api/character/create_character.php` | POST       | Cria novo personagem              |
+| `/api/character/select_character.php` | POST       | Marca personagem como ativo       |
+| `/api/character/delete_character.php` | POST       | Remove personagem                 |
+
+**Teste Online**: `http://localhost/umbra_api/test_character.html`
+
 ## Testes
 
 ### Executar testes unitários
