@@ -83,6 +83,13 @@ int main(int argc, char* argv[]) {
   Umbra::Gateway::GatewayServer::Config gatewayConfig;
   gatewayConfig.port = configManager.get<uint16_t>("gateway.port", 9000);
   gatewayConfig.jwtSecret = authConfig.jwtSecret;
+  gatewayConfig.authHost = configManager.get<std::string>("gateway.auth_host", "localhost");
+  gatewayConfig.authPort = configManager.get<uint16_t>("gateway.auth_port", 8080);
+  gatewayConfig.authTimeoutMs = configManager.get<uint32_t>("gateway.auth_timeout_ms", 5000);
+  gatewayConfig.rateLimitPerSecond = configManager.get<uint32_t>("gateway.rate_limit", 100);
+  gatewayConfig.useConnectionPool = configManager.get<bool>("gateway.use_connection_pool", true);
+  gatewayConfig.maxConnectionsPerHost = configManager.get<uint32_t>("gateway.max_connections_per_host", 3);
+  gatewayConfig.healthCheckIntervalMs = configManager.get<uint32_t>("gateway.health_check_interval_ms", 30000);
   
   auto gatewayServer = std::make_unique<Umbra::Gateway::GatewayServer>(gatewayConfig);
   

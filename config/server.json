@@ -52,7 +52,13 @@
     "port": 9000,
     "rate_limit_per_second": 100,
     "max_connections": 10000,
-    "connection_timeout": 30
+    "connection_timeout": 30,
+    "auth_host": "localhost",
+    "auth_port": 8080,
+    "auth_timeout_ms": 5000,
+    "use_connection_pool": true,
+    "max_connections_per_host": 3,
+    "health_check_interval_ms": 30000
   },
   
   "logging": {
