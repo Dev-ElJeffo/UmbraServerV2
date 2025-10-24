@@ -1,0 +1,16 @@
+{
+  "database": {
+    "host": "localhost",
+    "port": 3306,
+    "name": "umbra_eternum",
+    "user": "umbra_user",
+    "password": "YOUR_SECURE_PASSWORD_HERE"
+  },
+  "redis": {
+    "host": "localhost",
+    "port": 6379,
+    "password": "YOUR_REDIS_PASSWORD_HERE",
+    "db": 0
+  }
+}
+

@@ -1,0 +1,79 @@
+{
+  "version": "1.3.0",
+  "environment": "development",
+  
+  "database": {
+    "host": "localhost",
+    "port": 3306,
+    "name": "umbra_eternum",
+    "user": "root",
+    "password": "",
+    "max_connections": 500,
+    "connection_timeout": 10,
+    "auto_reconnect": true
+  },
+  
+  "redis": {
+    "host": "localhost",
+    "port": 6379,
+    "password": "",
+    "db": 0,
+    "session_ttl": 3600
+  },
+  
+  "auth": {
+    "port": 8080,
+    "jwt_secret": "CHANGE_ME_IN_PRODUCTION_USE_JWT_SECRET_KEY_FILE",
+    "session_duration": 60,
+    "max_login_attempts": 5,
+    "login_attempt_window": 300
+  },
+  
+  "world": {
+    "port": 8081,
+    "tick_rate": 20,
+    "max_events_per_tick": 1000
+  },
+  
+  "zone": {
+    "base_port": 8082,
+    "max_players_per_zone": 1000,
+    "tick_rate": 60,
+    "position_sync_rate": 20
+  },
+  
+  "chat": {
+    "port": 8083,
+    "max_message_length": 500,
+    "rate_limit_per_minute": 30
+  },
+  
+  "gateway": {
+    "port": 9000,
+    "rate_limit_per_second": 100,
+    "max_connections": 10000,
+    "connection_timeout": 30
+  },
+  
+  "logging": {
+    "level": "DEBUG",
+    "file": "logs/umbra_server.log",
+    "max_file_size_mb": 10,
+    "max_files": 5,
+    "console_output": true
+  },
+  
+  "network": {
+    "max_packet_size": 65536,
+    "compression_enabled": true,
+    "encryption_enabled": true
+  },
+  
+  "gameplay": {
+    "max_level": 100,
+    "starting_zone": "Zone_1",
+    "respawn_time_seconds": 10,
+    "max_inventory_slots": 50
+  }
+}
+

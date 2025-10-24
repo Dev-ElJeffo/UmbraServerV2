@@ -1,0 +1,45 @@
+# Build artifacts
+build/
+bin/
+lib/
+*.o
+*.a
+*.so
+*.dll
+*.exe
+
+# IDE
+.vscode/
+.vs/
+*.swp
+*.swo
+*~
+
+# Config secrets
+config/jwt_secret.key
+config/db.json
+
+# Logs
+*.log
+logs/
+
+# Cache
+*.cache
+.cache/
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Coverage
+*.gcda
+*.gcno
+*.gcov
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db
+
