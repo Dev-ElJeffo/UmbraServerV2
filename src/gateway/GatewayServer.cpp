@@ -1,5 +1,9 @@
 #include "GatewayServer.hpp"
 #include "core/Logger.hpp"
+#include "core/Utils.hpp"
+#include <nlohmann/json.hpp>
+#include <thread>
+#include <chrono>
 
 namespace Umbra {
 namespace Gateway {
@@ -8,6 +12,52 @@ GatewayServer::GatewayServer(const Config& config)
     : config_(config), running_(false) {
   loadBalancer_ = std::make_unique<LoadBalancer>();
   jwtManager_ = std::make_unique<Auth::JWTManager>(config.jwtSecret);
+  
+  if (config.useConnectionPool) {
+    // Configure Auth Connection Pool
+    AuthConnectionPool::Config poolConfig;
+    poolConfig.authHosts = {config.authHost};
+    poolConfig.authPorts = {config.authPort};
+    poolConfig.maxConnectionsPerHost = config.maxConnectionsPerHost;
+    poolConfig.connectionTimeoutMs = config.authTimeoutMs;
+    poolConfig.requestTimeoutMs = 3000;
+    poolConfig.maxRetries = 3;
+    poolConfig.reconnectIntervalMs = 1000;
+    poolConfig.healthCheckIntervalMs = config.healthCheckIntervalMs;
+    
+    authPool_ = std::make_unique<AuthConnectionPool>(poolConfig);
+  } else {
+    // Configure single Auth Client
+    AuthClient::Config authConfig;
+    authConfig.host = config.authHost;
+    authConfig.port = config.authPort;
+    authConfig.connectionTimeoutMs = config.authTimeoutMs;
+    authConfig.requestTimeoutMs = 3000;
+    authConfig.maxRetries = 3;
+    authConfig.reconnectIntervalMs = 1000;
+    
+    authClient_ = std::make_unique<AuthClient>(authConfig);
+  }
+  
+  // Configure Network Server
+  networkServer_ = std::make_unique<Network::SocketServer>(
+    Network::ProtocolType::TCP, config.port);
+  
+  networkServer_->setMessageCallback(
+    [this](uint32_t clientId, const std::vector<uint8_t>& data) {
+      handleClientMessage(clientId, data);
+    });
+  
+  networkServer_->setConnectionCallback(
+    [this](uint32_t clientId, bool connected) {
+      if (connected) {
+        Core::Logger::getInstance().info("Client {} connected", clientId);
+      } else {
+        Core::Logger::getInstance().info("Client {} disconnected", clientId);
+      }
+    });
+  
+  networkServer_->setRateLimit(config.rateLimitPerSecond);
 }
 
 GatewayServer::~GatewayServer() {
@@ -15,13 +65,89 @@ GatewayServer::~GatewayServer() {
 }
 
 bool GatewayServer::start() {
+  if (running_) {
+    Core::Logger::getInstance().warn("GatewayServer already running");
+    return false;
+  }
+  
+  // Start Auth Client or Pool
+  if (config_.useConnectionPool) {
+    if (!authPool_->start()) {
+      Core::Logger::getInstance().error("Failed to start Auth Connection Pool");
+      return false;
+    }
+    
+    // Wait for pool to have active connections
+    int retries = 0;
+    while (!authPool_->hasActiveConnections() && retries < 10) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      retries++;
+    }
+    
+    if (!authPool_->hasActiveConnections()) {
+      Core::Logger::getInstance().warn("Auth Pool has no active connections, continuing anyway");
+    }
+  } else {
+    if (!authClient_->start()) {
+      Core::Logger::getInstance().error("Failed to start Auth Client");
+      return false;
+    }
+    
+    // Wait for auth client connection
+    int retries = 0;
+    while (!authClient_->isConnected() && retries < 10) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      retries++;
+    }
+    
+    if (!authClient_->isConnected()) {
+      Core::Logger::getInstance().warn("Auth Client not connected, continuing anyway");
+    }
+  }
+  
+  // Start Network Server
+  if (!networkServer_->start()) {
+    Core::Logger::getInstance().error("Failed to start Network Server");
+    if (config_.useConnectionPool) {
+      authPool_->stop();
+    } else {
+      authClient_->stop();
+    }
+    return false;
+  }
+  
   running_ = true;
+  
+  // Start session cleanup thread
+  std::thread cleanupThread([this]() {
+    while (running_) {
+      cleanupExpiredSessions();
+      std::this_thread::sleep_for(std::chrono::minutes(5));
+    }
+  });
+  cleanupThread.detach();
+  
   Core::Logger::getInstance().info("GatewayServer started on port {}", config_.port);
   return true;
 }
 
 void GatewayServer::stop() {
+  if (!running_) {
+    return;
+  }
+  
   running_ = false;
+  
+  if (networkServer_) {
+    networkServer_->stop();
+  }
+  
+  if (config_.useConnectionPool && authPool_) {
+    authPool_->stop();
+  } else if (authClient_) {
+    authClient_->stop();
+  }
+  
   Core::Logger::getInstance().info("GatewayServer stopped");
 }
 
@@ -33,9 +159,193 @@ LoadBalancer& GatewayServer::getLoadBalancer() {
   return *loadBalancer_;
 }
 
+bool GatewayServer::validateToken(const std::string& token) {
+  bool hasConnection = false;
+  
+  if (config_.useConnectionPool) {
+    hasConnection = authPool_->hasActiveConnections();
+  } else {
+    hasConnection = authClient_->isConnected();
+  }
+  
+  if (!hasConnection) {
+    Core::Logger::getInstance().warn("Auth client not connected, using local validation");
+    
+    // Fallback to local JWT validation
+    auto payload = jwtManager_->validateToken(token);
+    return payload.has_value() && !payload->isExpired();
+  }
+  
+  // Use TCP validation
+  std::optional<AuthResponse> response;
+  
+  if (config_.useConnectionPool) {
+    response = authPool_->validateTokenSync(token);
+  } else {
+    response = authClient_->validateTokenSync(token);
+  }
+  
+  if (!response) {
+    return false;
+  }
+  
+  // Cache valid sessions
+  if (response->success && response->valid) {
+    std::lock_guard<std::mutex> lock(sessionsMutex_);
+    clientSessions_[token] = *response;
+  }
+  
+  return response->success && response->valid;
+}
+
+std::optional<AuthResponse> GatewayServer::getClientInfo(const std::string& token) {
+  // Check cached session first
+  {
+    std::lock_guard<std::mutex> lock(sessionsMutex_);
+    auto it = clientSessions_.find(token);
+    if (it != clientSessions_.end()) {
+      return it->second;
+    }
+  }
+  
+  // Validate via TCP
+  bool hasConnection = false;
+  
+  if (config_.useConnectionPool) {
+    hasConnection = authPool_->hasActiveConnections();
+  } else {
+    hasConnection = authClient_->isConnected();
+  }
+  
+  if (!hasConnection) {
+    return std::nullopt;
+  }
+  
+  std::optional<AuthResponse> response;
+  
+  if (config_.useConnectionPool) {
+    response = authPool_->validateTokenSync(token);
+  } else {
+    response = authClient_->validateTokenSync(token);
+  }
+  
+  if (response && response->success && response->valid) {
+    // Cache the response
+    std::lock_guard<std::mutex> lock(sessionsMutex_);
+    clientSessions_[token] = *response;
+  }
+  
+  return response;
+}
+
 void GatewayServer::handleConnection(uint32_t clientId) {
-  // TODO: Validate JWT and route to appropriate zone server
   Core::Logger::getInstance().debug("Handling connection for client {}", clientId);
+  
+  // Send welcome message
+  nlohmann::json welcome;
+  welcome["type"] = "welcome";
+  welcome["message"] = "Connected to UmbraEternum Gateway";
+  welcome["client_id"] = clientId;
+  
+  sendResponse(clientId, welcome.dump());
+}
+
+void GatewayServer::handleClientMessage(uint32_t clientId, 
+                                        const std::vector<uint8_t>& data) {
+  try {
+    std::string message(data.begin(), data.end());
+    auto json = nlohmann::json::parse(message);
+    
+    std::string action = json.value("action", "");
+    
+    if (action == "authenticate") {
+      std::string token = json.value("token", "");
+      
+      if (token.empty()) {
+        nlohmann::json response;
+        response["success"] = false;
+        response["message"] = "Token required";
+        sendResponse(clientId, response.dump());
+        return;
+      }
+      
+      bool isValid = validateToken(token);
+      
+      nlohmann::json response;
+      response["success"] = isValid;
+      response["message"] = isValid ? "Authentication successful" : "Invalid token";
+      
+      if (isValid) {
+        auto clientInfo = getClientInfo(token);
+        if (clientInfo) {
+          response["account_id"] = clientInfo->accountId;
+          response["player_id"] = clientInfo->playerId;
+          response["username"] = clientInfo->username;
+        }
+      }
+      
+      sendResponse(clientId, response.dump());
+      
+    } else if (action == "get_server_info") {
+      nlohmann::json response;
+      response["success"] = true;
+      response["server_count"] = loadBalancer_->getServerCount();
+      
+      if (config_.useConnectionPool) {
+        response["auth_connected"] = authPool_->hasActiveConnections();
+        response["auth_stats"] = nlohmann::json::parse(authPool_->getStats());
+      } else {
+        response["auth_connected"] = authClient_->isConnected();
+        response["auth_stats"] = nlohmann::json::parse(authClient_->getStats());
+      }
+      
+      sendResponse(clientId, response.dump());
+      
+    } else if (action == "ping") {
+      nlohmann::json response;
+      response["type"] = "pong";
+      response["timestamp"] = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+      
+      sendResponse(clientId, response.dump());
+      
+    } else {
+      nlohmann::json response;
+      response["success"] = false;
+      response["message"] = "Unknown action: " + action;
+      sendResponse(clientId, response.dump());
+    }
+    
+  } catch (const std::exception& e) {
+    Core::Logger::getInstance().error("Error handling client message: {}", e.what());
+    
+    nlohmann::json response;
+    response["success"] = false;
+    response["message"] = "Invalid message format";
+    sendResponse(clientId, response.dump());
+  }
+}
+
+void GatewayServer::sendResponse(uint32_t clientId, const std::string& response) {
+  std::vector<uint8_t> data(response.begin(), response.end());
+  networkServer_->sendToClient(clientId, data);
+}
+
+void GatewayServer::cleanupExpiredSessions() {
+  std::lock_guard<std::mutex> lock(sessionsMutex_);
+  
+  auto now = std::chrono::system_clock::now();
+  auto it = clientSessions_.begin();
+  
+  while (it != clientSessions_.end()) {
+    // Simple cleanup - remove sessions older than 1 hour
+    // In a real implementation, you'd check JWT expiration
+    if (now - std::chrono::system_clock::time_point{} > std::chrono::hours(1)) {
+      it = clientSessions_.erase(it);
+    } else {
+      ++it;
+    }
+  }
 }
 
 }  // namespace Gateway

@@ -1,0 +1,46 @@
+# Configuração de labels automáticos baseado em arquivos modificados
+
+documentation:
+  - docs/**/*
+  - '*.md'
+
+core:
+  - src/core/**/*
+
+network:
+  - src/network/**/*
+
+database:
+  - src/database/**/*
+  - scripts/migrate_db.sql
+
+auth:
+  - src/auth/**/*
+
+world:
+  - src/world/**/*
+
+zone:
+  - src/zone/**/*
+
+chat:
+  - src/chat/**/*
+
+gateway:
+  - src/gateway/**/*
+
+services:
+  - src/services/**/*
+
+tests:
+  - tests/**/*
+
+build:
+  - CMakeLists.txt
+  - '**/CMakeLists.txt'
+  - scripts/**/*
+
+dependencies:
+  - third_party/**/*
+  - .gitmodules
+
