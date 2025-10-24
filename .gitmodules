@@ -38,6 +38,3 @@
 [submodule "UmbraEternumUE"]
 	path = UmbraEternumUE
 	url = https://github.com/Dev-ElJeffo/UmbraEternumUE.git
-[submodule "UmbraServer"]
-	path = UmbraServer
-	url = https://github.com/Dev-ElJeffo/UmbraServer.git
