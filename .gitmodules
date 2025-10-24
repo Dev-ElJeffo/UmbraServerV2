@@ -35,3 +35,9 @@
 [submodule "third_party/jwt-cpp"]
 	path = third_party/jwt-cpp
 	url = https://github.com/Thalhammer/jwt-cpp.git
+[submodule "UmbraEternumUE"]
+	path = UmbraEternumUE
+	url = https://github.com/Dev-ElJeffo/UmbraEternumUE.git
+[submodule "UmbraServer"]
+	path = UmbraServer
+	url = https://github.com/Dev-ElJeffo/UmbraServer.git
