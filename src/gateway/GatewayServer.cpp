@@ -253,7 +253,28 @@ void GatewayServer::handleConnection(uint32_t clientId) {
 void GatewayServer::handleClientMessage(uint32_t clientId, 
                                         const std::vector<uint8_t>& data) {
   try {
+    // Verificar se há dados recebidos
+    if (data.empty()) {
+      Core::Logger::getInstance().warn("Received empty message from client {}", clientId);
+      nlohmann::json response;
+      response["success"] = false;
+      response["message"] = "Empty message";
+      sendResponse(clientId, response.dump());
+      return;
+    }
+    
     std::string message(data.begin(), data.end());
+    
+    // Verificar se a mensagem está vazia ou só contém espaços
+    if (message.empty() || message.find_first_not_of(" \t\n\r") == std::string::npos) {
+      Core::Logger::getInstance().warn("Received empty or whitespace-only message from client {}", clientId);
+      nlohmann::json response;
+      response["success"] = false;
+      response["message"] = "Invalid message: empty or whitespace only";
+      sendResponse(clientId, response.dump());
+      return;
+    }
+    
     auto json = nlohmann::json::parse(message);
     
     std::string action = json.value("action", "");
