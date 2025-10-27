@@ -308,7 +308,16 @@ void GatewayServer::handleClientMessage(uint32_t clientId,
           throw std::runtime_error("Decoded message is empty");
         }
         
-        json = nlohmann::json::parse(decoded);
+        // Descriptografar XOR
+        std::string encryptionKey = "UmbraEternum2025SecretKey123456789";
+        std::string decrypted = decoded;
+        for (size_t i = 0; i < decrypted.length(); i++) {
+          decrypted[i] = decrypted[i] ^ encryptionKey[i % encryptionKey.length()];
+        }
+        
+        Core::Logger::getInstance().debug("Decrypted message from client {}: {}", clientId, decrypted.substr(0, std::min(static_cast<size_t>(100), decrypted.size())));
+        
+        json = nlohmann::json::parse(decrypted);
       } catch (const std::exception&) {
         Core::Logger::getInstance().warn("Failed to decode and parse message from client {}: {}", clientId, e.what());
         nlohmann::json response;
