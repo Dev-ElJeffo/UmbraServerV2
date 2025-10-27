@@ -307,6 +307,15 @@ void GatewayServer::handleClientMessage(uint32_t clientId,
         std::string decoded = Core::Utils::base64Decode(cleaned);
         Core::Logger::getInstance().debug("Decoded Base64 message from client {}: size={}", clientId, decoded.size());
         
+        // Log dos primeiros bytes decodificados
+        std::string hexPreview;
+        for (size_t i = 0; i < std::min(static_cast<size_t>(20), decoded.size()); i++) {
+          char hex[4];
+          sprintf_s(hex, sizeof(hex), "%02X ", static_cast<unsigned char>(decoded[i]));
+          hexPreview += hex;
+        }
+        Core::Logger::getInstance().debug("First 20 bytes (hex): {}", hexPreview);
+        
         if (decoded.empty()) {
           throw std::runtime_error("Decoded message is empty");
         }
@@ -322,13 +331,16 @@ void GatewayServer::handleClientMessage(uint32_t clientId,
           decrypted += decryptedChar;
         }
         
-        Core::Logger::getInstance().debug("Decrypted message from client {}: size={}, preview='{}'", 
+        Core::Logger::getInstance().debug("Decrypted message from client {}: size={}, first_100_chars='{}'", 
                                           clientId, decrypted.size(), 
                                           decrypted.substr(0, std::min(static_cast<size_t>(100), decrypted.size())));
         
         if (decrypted.empty()) {
           throw std::runtime_error("Decrypted message is empty after XOR");
         }
+        
+        // Log completo da mensagem descriptografada
+        Core::Logger::getInstance().info("Full decrypted message from client {}: {}", clientId, decrypted);
         
         // Tentar fazer parse do JSON
         json = nlohmann::json::parse(decrypted);
