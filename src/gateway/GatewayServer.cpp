@@ -265,6 +265,10 @@ void GatewayServer::handleClientMessage(uint32_t clientId,
     
     std::string message(data.begin(), data.end());
     
+    // Debug: logar o tamanho e conteúdo da mensagem
+    Core::Logger::getInstance().debug("Received message from client {}: size={}, content='{}'", 
+                                       clientId, message.size(), message);
+    
     // Verificar se a mensagem está vazia ou só contém espaços
     if (message.empty() || message.find_first_not_of(" \t\n\r") == std::string::npos) {
       Core::Logger::getInstance().warn("Received empty or whitespace-only message from client {}", clientId);
@@ -275,7 +279,27 @@ void GatewayServer::handleClientMessage(uint32_t clientId,
       return;
     }
     
-    auto json = nlohmann::json::parse(message);
+    // Tentar fazer parse do JSON
+    nlohmann::json json;
+    try {
+      json = nlohmann::json::parse(message);
+    } catch (const nlohmann::json::parse_error& e) {
+      // Se falhar, tentar decodificar Base64 (caso o cliente tenha enviado dados criptografados)
+      Core::Logger::getInstance().debug("First parse failed for client {}, trying Base64 decode", clientId);
+      
+      try {
+        std::string decoded = Core::Utils::base64Decode(message);
+        Core::Logger::getInstance().debug("Decoded Base64 message from client {}: {}", clientId, decoded);
+        json = nlohmann::json::parse(decoded);
+      } catch (const std::exception&) {
+        Core::Logger::getInstance().warn("Failed to decode and parse message from client {}: {}", clientId, e.what());
+        nlohmann::json response;
+        response["success"] = false;
+        response["message"] = "Invalid message format";
+        sendResponse(clientId, response.dump());
+        return;
+      }
+    }
     
     std::string action = json.value("action", "");
     
