@@ -288,8 +288,26 @@ void GatewayServer::handleClientMessage(uint32_t clientId,
       Core::Logger::getInstance().debug("First parse failed for client {}, trying Base64 decode", clientId);
       
       try {
-        std::string decoded = Core::Utils::base64Decode(message);
-        Core::Logger::getInstance().debug("Decoded Base64 message from client {}: {}", clientId, decoded);
+        // Limpar a mensagem removendo caracteres inválidos de Base64
+        std::string cleaned = message;
+        // Remover caracteres não Base64 válidos
+        cleaned.erase(std::remove_if(cleaned.begin(), cleaned.end(), 
+                                     [](char c) { 
+                                       return !std::isalnum(static_cast<unsigned char>(c)) && 
+                                              c != '+' && c != '/' && c != '=';
+                                     }), 
+                     cleaned.end());
+        
+        Core::Logger::getInstance().debug("Cleaned Base64 message: size={}, prefix='{}'", 
+                                           cleaned.size(), cleaned.substr(0, std::min(static_cast<size_t>(50), cleaned.size())));
+        
+        std::string decoded = Core::Utils::base64Decode(cleaned);
+        Core::Logger::getInstance().debug("Decoded Base64 message from client {}: size={}", clientId, decoded.size());
+        
+        if (decoded.empty()) {
+          throw std::runtime_error("Decoded message is empty");
+        }
+        
         json = nlohmann::json::parse(decoded);
       } catch (const std::exception&) {
         Core::Logger::getInstance().warn("Failed to decode and parse message from client {}: {}", clientId, e.what());
