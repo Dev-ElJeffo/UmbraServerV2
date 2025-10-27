@@ -4,6 +4,9 @@
 #include <nlohmann/json.hpp>
 #include <thread>
 #include <chrono>
+#include <cwchar>
+#include <string>
+#include <algorithm>
 
 namespace Umbra {
 namespace Gateway {
@@ -309,14 +312,25 @@ void GatewayServer::handleClientMessage(uint32_t clientId,
         }
         
         // Descriptografar XOR
+        // O Base64 do UE5 retorna bytes, então descriptografamos byte por byte
         std::string encryptionKey = "UmbraEternum2025SecretKey123456789";
-        std::string decrypted = decoded;
-        for (size_t i = 0; i < decrypted.length(); i++) {
-          decrypted[i] = decrypted[i] ^ encryptionKey[i % encryptionKey.length()];
+        std::string decrypted;
+        
+        // Descriptografar XOR byte por byte
+        for (size_t i = 0; i < decoded.length(); i++) {
+          char decryptedChar = decoded[i] ^ encryptionKey[i % encryptionKey.length()];
+          decrypted += decryptedChar;
         }
         
-        Core::Logger::getInstance().debug("Decrypted message from client {}: {}", clientId, decrypted.substr(0, std::min(static_cast<size_t>(100), decrypted.size())));
+        Core::Logger::getInstance().debug("Decrypted message from client {}: size={}, preview='{}'", 
+                                          clientId, decrypted.size(), 
+                                          decrypted.substr(0, std::min(static_cast<size_t>(100), decrypted.size())));
         
+        if (decrypted.empty()) {
+          throw std::runtime_error("Decrypted message is empty after XOR");
+        }
+        
+        // Tentar fazer parse do JSON
         json = nlohmann::json::parse(decrypted);
       } catch (const std::exception&) {
         Core::Logger::getInstance().warn("Failed to decode and parse message from client {}: {}", clientId, e.what());
