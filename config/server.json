@@ -7,7 +7,7 @@
     "port": 3306,
     "name": "umbra_eternum",
     "user": "root",
-    "password": "",
+    "password": "!Mister4126",
     "max_connections": 500,
     "connection_timeout": 10,
     "auto_reconnect": true

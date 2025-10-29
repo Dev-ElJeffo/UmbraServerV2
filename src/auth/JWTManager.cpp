@@ -3,6 +3,10 @@
 #include "core/Utils.hpp"
 #include <sstream>
 #include <nlohmann/json.hpp>
+#include <openssl/hmac.h>
+#include <openssl/sha.h>
+#include <openssl/evp.h>
+#include <cstring>
 
 namespace Umbra {
 namespace Auth {
@@ -161,10 +165,23 @@ std::string JWTManager::base64UrlDecode(const std::string& input) {
 }
 
 std::string JWTManager::hmacSha256(const std::string& data, const std::string& key) {
-  // TODO: Implement proper HMAC-SHA256
-  // This is a placeholder using simple hash
-  std::string combined = data + key;
-  return Core::Utils::hashPassword(combined);
+  // Implementação real usando OpenSSL HMAC-SHA256
+  unsigned char digest[EVP_MAX_MD_SIZE];
+  unsigned int digestLen = 0;
+  
+  const unsigned char* result = HMAC(EVP_sha256(),
+                                      key.data(), static_cast<int>(key.length()),
+                                      reinterpret_cast<const unsigned char*>(data.data()), 
+                                      static_cast<int>(data.length()),
+                                      digest, &digestLen);
+  
+  if (result == nullptr || digestLen == 0) {
+    Core::Logger::getInstance().error("HMAC-SHA256 computation failed");
+    return "";
+  }
+  
+  // Retornar hash binário como string (será codificado em Base64 depois)
+  return std::string(reinterpret_cast<const char*>(digest), digestLen);
 }
 
 std::string JWTManager::createHeader() {

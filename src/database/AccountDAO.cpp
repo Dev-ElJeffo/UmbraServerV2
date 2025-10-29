@@ -1,7 +1,9 @@
 #include "AccountDAO.hpp"
 #include "core/Logger.hpp"
 #include "core/Utils.hpp"
+#include <mysql.h>
 #include <sstream>
+#include <ctime>
 
 namespace Umbra {
 namespace Database {
@@ -40,16 +42,7 @@ std::optional<Account> AccountDAO::getAccountById(uint64_t id) {
   query << "SELECT id, username, email, password_hash, salt, banned, ban_reason, "
         << "created_at, last_login_at FROM accounts WHERE id = " << id;
   
-  auto result = connector_->executeScalar(query.str());
-  if (!result) {
-    return std::nullopt;
-  }
-  
-  // TODO: Parse actual result set
-  Account account;
-  account.id = id;
-  
-  return account;
+  return parseAccountFromQuery(query.str());
 }
 
 std::optional<Account> AccountDAO::getAccountByUsername(const std::string& username) {
@@ -58,16 +51,7 @@ std::optional<Account> AccountDAO::getAccountByUsername(const std::string& usern
         << "created_at, last_login_at FROM accounts WHERE username = '"
         << connector_->escapeString(username) << "'";
   
-  auto result = connector_->executeScalar(query.str());
-  if (!result) {
-    return std::nullopt;
-  }
-  
-  // TODO: Parse actual result set
-  Account account;
-  account.username = username;
-  
-  return account;
+  return parseAccountFromQuery(query.str());
 }
 
 std::optional<Account> AccountDAO::getAccountByEmail(const std::string& email) {
@@ -76,16 +60,7 @@ std::optional<Account> AccountDAO::getAccountByEmail(const std::string& email) {
         << "created_at, last_login_at FROM accounts WHERE email = '"
         << connector_->escapeString(email) << "'";
   
-  auto result = connector_->executeScalar(query.str());
-  if (!result) {
-    return std::nullopt;
-  }
-  
-  // TODO: Parse actual result set
-  Account account;
-  account.email = email;
-  
-  return account;
+  return parseAccountFromQuery(query.str());
 }
 
 bool AccountDAO::updateAccount(const Account& account) {
@@ -164,10 +139,41 @@ bool AccountDAO::updateLastLogin(uint64_t id) {
   return connector_->execute(query.str());
 }
 
-Account AccountDAO::resultToAccount(const std::string& result) {
-  // TODO: Implement proper result parsing
+std::optional<Account> AccountDAO::parseAccountFromQuery(const std::string& query) {
+  auto results = connector_->executeQuery(query);
+  
+  if (results.empty() || results[0].size() < 9) {
+    return std::nullopt;
+  }
+  
   Account account;
-  return account;
+  const auto& row = results[0];
+  
+  // Parse dos campos: id, username, email, password_hash, salt, banned, ban_reason, created_at, last_login_at
+  try {
+    account.id = std::stoull(row[0]);
+    account.username = row[1];
+    account.email = row[2];
+    account.passwordHash = row[3];
+    account.salt = row[4];
+    account.banned = (row[5] == "1" || row[5] == "true" || !row[5].empty());
+    account.banReason = row[6];
+    
+    // Parse de timestamps (formato MySQL: YYYY-MM-DD HH:MM:SS)
+    if (!row[7].empty()) {
+      // Simplificado: não fazemos parsing completo de timestamp por enquanto
+      // Apenas marcamos que foi criado
+    }
+    
+    if (!row[8].empty()) {
+      // Timestamp de último login
+    }
+    
+    return account;
+  } catch (const std::exception& e) {
+    Core::Logger::getInstance().error("Failed to parse account data: {}", e.what());
+    return std::nullopt;
+  }
 }
 
 }  // namespace Database

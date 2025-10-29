@@ -92,11 +92,13 @@ AuthResult AuthServer::registerAccount(const std::string& username,
   }
   
   // Create account
+  // Com novo formato PBKDF2, o salt já está incluído no hash
   Database::Account account;
   account.username = username;
   account.email = email;
-  account.salt = Core::Utils::generateRandomString(16);
-  account.passwordHash = Core::Utils::hashPassword(password, account.salt);
+  account.passwordHash = Core::Utils::hashPassword(password); // Gera salt automaticamente
+  // Manter salt vazio ou usar valor placeholder para compatibilidade com schema atual
+  account.salt = ""; // Salt agora está dentro do passwordHash no formato $pbkdf2$...
   account.createdAt = std::chrono::system_clock::now();
   
   uint64_t accountId = accountDAO_->createAccount(account);
@@ -146,9 +148,8 @@ AuthResult AuthServer::login(const std::string& usernameOrEmail,
     return result;
   }
   
-  // Verify password
-  std::string passwordHash = Core::Utils::hashPassword(password, account->salt);
-  if (passwordHash != account->passwordHash) {
+  // Verify password (usa verifyPassword para lidar com novo formato PBKDF2)
+  if (!Core::Utils::verifyPassword(password, account->passwordHash)) {
     recordLoginAttempt(usernameOrEmail, false);
     result.message = "Invalid credentials";
     return result;

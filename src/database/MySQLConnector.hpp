@@ -92,6 +92,13 @@ class MySQLConnector : public IDatabaseConnector {
   uint64_t getLastInsertId();
   
   /**
+   * @brief Executa query e retorna resultado completo (para parsing)
+   * @param query Query SQL
+   * @return Vector de rows (cada row é um vector de strings)
+   */
+  std::vector<std::vector<std::string>> executeQuery(const std::string& query);
+  
+  /**
    * @brief Inicia transação
    * @return true se iniciado com sucesso
    */
@@ -111,7 +118,7 @@ class MySQLConnector : public IDatabaseConnector {
 
  private:
   Config config_;
-  void* connection_;  // Pointer to MySQL connection (opaque)
+  void* connection_;  // Pointer to MYSQL* connection
   mutable std::mutex mutex_;
   bool connected_;
   

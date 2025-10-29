@@ -5,6 +5,9 @@
 #include <regex>
 #include <iomanip>
 #include <ctime>
+#include <openssl/evp.h>
+#include <openssl/rand.h>
+#include <cstring>
 
 namespace Umbra {
 namespace Core {
@@ -111,23 +114,110 @@ std::string Utils::formatTimestamp(int64_t timestamp) {
 
 std::string Utils::hashPassword(const std::string& password, 
                                 const std::string& salt) {
-  // TODO: Implement proper bcrypt hashing
-  // This is a placeholder using simple hash
+  // Implementação usando PBKDF2 (Password-Based Key Derivation Function 2)
+  // Alternativa segura ao bcrypt, usando OpenSSL
+  // Formato: $pbkdf2$iterations$salt$hash
+  
+  unsigned char derivedKey[32]; // SHA-256 output
+  int iterations = 100000; // Número de iterações (ajustável)
+  
+  // Gerar salt aleatório se não fornecido
+  std::string actualSalt;
+  std::string saltBytes;
+  
+  if (salt.empty()) {
+    // Gerar novo salt
+    unsigned char saltBytesRaw[16];
+    if (RAND_bytes(saltBytesRaw, sizeof(saltBytesRaw)) != 1) {
+      // Fallback para gerador não-crypto-seguro se OpenSSL falhar
+      std::mt19937& rng = getRandomGenerator();
+      for (size_t i = 0; i < sizeof(saltBytesRaw); ++i) {
+        saltBytesRaw[i] = static_cast<unsigned char>(rng() & 0xFF);
+      }
+    }
+    saltBytes = std::string(reinterpret_cast<const char*>(saltBytesRaw), sizeof(saltBytesRaw));
+    actualSalt = base64Encode(saltBytes);
+  } else {
+    // Salt fornecido - assumir que está em Base64 (formato do hash antigo) ou usar diretamente
+    actualSalt = salt;
+    saltBytes = base64Decode(salt);
+    // Se decodificação falhar ou resultar vazio, usar salt diretamente
+    if (saltBytes.empty()) {
+      saltBytes = salt;
+      actualSalt = base64Encode(salt);
+    }
+  }
+  
+  // Gerar hash usando PBKDF2
+  if (PKCS5_PBKDF2_HMAC(password.data(), static_cast<int>(password.length()),
+                         reinterpret_cast<const unsigned char*>(saltBytes.data()),
+                         static_cast<int>(saltBytes.length()),
+                         iterations,
+                         EVP_sha256(),
+                         32,
+                         derivedKey) != 1) {
+    // Fallback para hash simples se PBKDF2 falhar
+    return hashPasswordSimple(password, actualSalt);
+  }
+  
+  // Codificar hash em Base64
+  std::string hashStr = base64Encode(std::string(reinterpret_cast<const char*>(derivedKey), 32));
+  
+  // Retornar formato: $pbkdf2$iterations$salt$hash
+  std::stringstream ss;
+  ss << "$pbkdf2$" << iterations << "$" << actualSalt << "$" << hashStr;
+  return ss.str();
+}
+
+bool Utils::verifyPassword(const std::string& password, 
+                           const std::string& hash) {
+  // Verificar formato de hash
+  if (hash.substr(0, 8) == "$pbkdf2$") {
+    // Formato PBKDF2: $pbkdf2$iterations$salt$hash
+    std::vector<std::string> parts = split(hash, '$');
+    if (parts.size() != 5 || parts[0] != "" || parts[1] != "pbkdf2") {
+      return false;
+    }
+    
+    int iterations = std::stoi(parts[2]);
+    std::string salt = parts[3];
+    std::string storedHash = parts[4];
+    
+    // Decodificar salt
+    std::string saltBytes = base64Decode(salt);
+    
+    // Calcular hash
+    unsigned char derivedKey[32];
+    if (PKCS5_PBKDF2_HMAC(password.data(), static_cast<int>(password.length()),
+                           reinterpret_cast<const unsigned char*>(saltBytes.data()),
+                           static_cast<int>(saltBytes.length()),
+                           iterations,
+                           EVP_sha256(),
+                           32,
+                           derivedKey) != 1) {
+      return false;
+    }
+    
+    // Codificar e comparar
+    std::string computedHash = base64Encode(std::string(reinterpret_cast<const char*>(derivedKey), 32));
+    return computedHash == storedHash;
+  } else {
+    // Fallback para hash simples (compatibilidade)
+    std::string computed = hashPasswordSimple(password);
+    return computed == hash;
+  }
+}
+
+// Função auxiliar para hash simples (fallback)
+std::string Utils::hashPasswordSimple(const std::string& password, 
+                                      const std::string& salt) {
   std::string combined = password + salt;
   std::hash<std::string> hasher;
   size_t hash = hasher(combined);
   
   std::stringstream ss;
   ss << std::hex << hash;
-  
   return ss.str();
-}
-
-bool Utils::verifyPassword(const std::string& password, 
-                           const std::string& hash) {
-  // TODO: Implement proper bcrypt verification
-  std::string computed = hashPassword(password);
-  return computed == hash;
 }
 
 std::string Utils::sanitizeInput(const std::string& input) {

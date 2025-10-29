@@ -118,6 +118,10 @@ class Utils {
 
  private:
   static std::mt19937& getRandomGenerator();
+  
+  // Função auxiliar para hash simples (fallback)
+  static std::string hashPasswordSimple(const std::string& password, 
+                                        const std::string& salt = "");
 };
 
 }  // namespace Core
