@@ -2,6 +2,7 @@
 #include "core/Logger.hpp"
 #include <sstream>
 #include <iomanip>
+#include <stdexcept>
 
 namespace Umbra {
 namespace Database {
@@ -61,16 +62,7 @@ std::optional<Player> PlayerDAO::getPlayerById(uint64_t id) {
         << "strength, dexterity, intelligence, vitality, "
         << "created_at, last_played_at FROM players WHERE id = " << id;
   
-  auto result = connector_->executeScalar(query.str());
-  if (!result) {
-    return std::nullopt;
-  }
-  
-  // TODO: Parse actual result set
-  Player player;
-  player.id = id;
-  
-  return player;
+  return parsePlayerFromQuery(query.str());
 }
 
 std::optional<Player> PlayerDAO::getPlayerByName(const std::string& characterName) {
@@ -82,16 +74,7 @@ std::optional<Player> PlayerDAO::getPlayerByName(const std::string& characterNam
         << "created_at, last_played_at FROM players WHERE character_name = '"
         << connector_->escapeString(characterName) << "'";
   
-  auto result = connector_->executeScalar(query.str());
-  if (!result) {
-    return std::nullopt;
-  }
-  
-  // TODO: Parse actual result set
-  Player player;
-  player.characterName = characterName;
-  
-  return player;
+  return parsePlayerFromQuery(query.str());
 }
 
 std::vector<Player> PlayerDAO::getPlayersByAccountId(uint64_t accountId) {
@@ -102,9 +85,61 @@ std::vector<Player> PlayerDAO::getPlayersByAccountId(uint64_t accountId) {
         << "pos_x, pos_y, pos_z, current_zone, "
         << "health, max_health, mana, max_mana, stamina, max_stamina, "
         << "strength, dexterity, intelligence, vitality, "
-        << "created_at, last_played_at FROM players WHERE account_id = " << accountId;
+        << "created_at, last_played_at FROM players WHERE account_id = " << accountId
+        << " ORDER BY last_played_at DESC, created_at DESC";
   
-  // TODO: Execute query and parse results into vector
+  auto results = connector_->executeQuery(query.str());
+  
+  for (const auto& row : results) {
+    if (row.size() < 22) {
+      Core::Logger::getInstance().warn("Invalid player row data (expected 22 fields, got {})", row.size());
+      continue;
+    }
+    
+    try {
+      Player player;
+      
+      // Parse dos campos: id, account_id, character_name, level, experience,
+      // pos_x, pos_y, pos_z, current_zone, health, max_health, mana, max_mana,
+      // stamina, max_stamina, strength, dexterity, intelligence, vitality,
+      // created_at, last_played_at
+      
+      player.id = std::stoull(row[0]);
+      player.accountId = std::stoull(row[1]);
+      player.characterName = row[2];
+      player.level = static_cast<uint32_t>(std::stoul(row[3]));
+      player.experience = std::stoull(row[4]);
+      
+      // Position
+      player.posX = std::stof(row[5]);
+      player.posY = std::stof(row[6]);
+      player.posZ = std::stof(row[7]);
+      player.currentZone = row[8];
+      
+      // Stats
+      player.health = static_cast<uint32_t>(std::stoul(row[9]));
+      player.maxHealth = static_cast<uint32_t>(std::stoul(row[10]));
+      player.mana = static_cast<uint32_t>(std::stoul(row[11]));
+      player.maxMana = static_cast<uint32_t>(std::stoul(row[12]));
+      player.stamina = static_cast<uint32_t>(std::stoul(row[13]));
+      player.maxStamina = static_cast<uint32_t>(std::stoul(row[14]));
+      
+      // Attributes
+      player.strength = static_cast<uint32_t>(std::stoul(row[15]));
+      player.dexterity = static_cast<uint32_t>(std::stoul(row[16]));
+      player.intelligence = static_cast<uint32_t>(std::stoul(row[17]));
+      player.vitality = static_cast<uint32_t>(std::stoul(row[18]));
+      
+      // Timestamps - simplificado por enquanto (não fazemos parsing completo)
+      // player.createdAt e player.lastPlayedAt podem ser implementados depois
+      // se necessário para funcionalidades específicas
+      
+      players.push_back(player);
+    } catch (const std::exception& e) {
+      Core::Logger::getInstance().error("Failed to parse player data: {}", e.what());
+      continue;
+    }
+  }
   
   return players;
 }
@@ -200,10 +235,56 @@ bool PlayerDAO::updateLastPlayed(uint64_t id) {
   return connector_->execute(query.str());
 }
 
-Player PlayerDAO::resultToPlayer(const std::string& result) {
-  // TODO: Implement proper result parsing
+std::optional<Player> PlayerDAO::parsePlayerFromQuery(const std::string& query) {
+  auto results = connector_->executeQuery(query);
+  
+  if (results.empty() || results[0].size() < 22) {
+    return std::nullopt;
+  }
+  
   Player player;
-  return player;
+  const auto& row = results[0];
+  
+  // Parse dos campos: id, account_id, character_name, level, experience,
+  // pos_x, pos_y, pos_z, current_zone, health, max_health, mana, max_mana,
+  // stamina, max_stamina, strength, dexterity, intelligence, vitality,
+  // created_at, last_played_at
+  try {
+    player.id = std::stoull(row[0]);
+    player.accountId = std::stoull(row[1]);
+    player.characterName = row[2];
+    player.level = static_cast<uint32_t>(std::stoul(row[3]));
+    player.experience = std::stoull(row[4]);
+    
+    // Position
+    player.posX = std::stof(row[5]);
+    player.posY = std::stof(row[6]);
+    player.posZ = std::stof(row[7]);
+    player.currentZone = row[8];
+    
+    // Stats
+    player.health = static_cast<uint32_t>(std::stoul(row[9]));
+    player.maxHealth = static_cast<uint32_t>(std::stoul(row[10]));
+    player.mana = static_cast<uint32_t>(std::stoul(row[11]));
+    player.maxMana = static_cast<uint32_t>(std::stoul(row[12]));
+    player.stamina = static_cast<uint32_t>(std::stoul(row[13]));
+    player.maxStamina = static_cast<uint32_t>(std::stoul(row[14]));
+    
+    // Attributes
+    player.strength = static_cast<uint32_t>(std::stoul(row[15]));
+    player.dexterity = static_cast<uint32_t>(std::stoul(row[16]));
+    player.intelligence = static_cast<uint32_t>(std::stoul(row[17]));
+    player.vitality = static_cast<uint32_t>(std::stoul(row[18]));
+    
+    // Timestamps - simplificado por enquanto (não fazemos parsing completo)
+    // player.createdAt e player.lastPlayedAt podem ser implementados depois
+    // se necessário para funcionalidades específicas
+    
+    return player;
+  } catch (const std::exception& e) {
+    Core::Logger::getInstance().error("Failed to parse player data: {}", e.what());
+    return std::nullopt;
+  }
 }
 
 }  // namespace Database

@@ -53,12 +53,20 @@ target_link_libraries(test_network
 
 # Teste das implementações da Fase 1
 find_package(OpenSSL REQUIRED)
-add_executable(test_fase1 ../test_fase1_implementations.cpp)
+add_executable(test_fase1 ../scripts_main/test_fase1_implementations.cpp)
 target_link_libraries(test_fase1
   umbra_core
   umbra_auth
   umbra_database
   OpenSSL::Crypto
+  Threads::Threads
+)
+
+# Teste das implementações da Fase 2 - PlayerDAO Parsing
+add_executable(test_playerdao ../scripts_main/test_playerdao_parsing.cpp)
+target_link_libraries(test_playerdao
+  umbra_core
+  umbra_database
   Threads::Threads
 )
 
@@ -68,4 +76,5 @@ add_test(NAME DatabaseTests COMMAND test_db)
 add_test(NAME ZoneTests COMMAND test_zone)
 add_test(NAME NetworkTests COMMAND test_network)
 add_test(NAME Fase1Tests COMMAND test_fase1)
+add_test(NAME PlayerDAOTests COMMAND test_playerdao)
 

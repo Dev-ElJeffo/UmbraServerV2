@@ -105,7 +105,12 @@ class PlayerDAO {
  private:
   std::shared_ptr<MySQLConnector> connector_;
   
-  Player resultToPlayer(const std::string& result);
+  /**
+   * @brief Parse player from MySQL query result
+   * @param query SQL query to execute
+   * @return Player object or nullopt if not found
+   */
+  std::optional<Player> parsePlayerFromQuery(const std::string& query);
 };
 
 }  // namespace Database
