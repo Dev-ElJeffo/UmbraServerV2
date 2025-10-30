@@ -259,23 +259,129 @@ Bind Event to OnRawMessage → [Event pin] → OnWSBinaryMessage (custom event)
 Connect (no WebSocketRef)
 ```
 
-### 3.5. OnWSConnected (ordem dos nós)
-1) `Set IsConnected = true`
-2) `Set Timer by Function Name` (Looping)
-   - Function Name: `SendMoveUpdate`
-   - Time: `1.0 / SendRateHz` (ex.: 0.05 p/ 20 Hz)
-   - Store handle em `SendTimerHandle`
-   - Screenshot: [Timer looping configurado para 20 Hz]
+### 3.5. OnWSConnected (ordem dos nós) - PASSO A PASSO DETALHADO
 
-### 3.6. SendMoveUpdate (função chamada pelo Timer)
-1) Obter Pawn local (ex.: `Get Player Pawn`)
-2) `GetActorLocation` → `X,Y,Z`
-3) `GetActorRotation` → `Yaw` (pode normalizar -180..180)
-4) `NowMs` (construir ms – `Get Game Time in Seconds * 1000`, cast p/ int)
-5) `BuildMoveUpdateFrame(PlayerId, Location, Yaw, TimestampMs, OutBytes)`
-   - Nó da nossa BPFunctionLibrary: `UWSBinaryBPFL` (categoria Umbra|Net|WS|Binary)
-6) `WSClient.SendBytes(OutBytes)`
-   - Screenshot: [Montagem do frame com BuildMoveUpdateFrame e envio via SendBytes]
+**O QUE É OnWSConnected?**
+- É o Custom Event que você criou no passo 3.4.
+- Este evento é chamado automaticamente quando o WebSocket conecta com sucesso ao servidor.
+
+**IMPORTANTE: Criar a função SendMoveUpdate ANTES de usar o Timer**
+
+Você precisa criar a função `SendMoveUpdate` PRIMEIRO antes de poder usá-la no Timer. Vá para a seção 3.6 abaixo para criar a função, depois volte aqui para conectar o Timer.
+
+**Passos no gráfico `OnWSConnected`**:
+
+**1) Set IsConnected = true**
+- Arraste a variável `IsConnected` no gráfico → `Get IsConnected`
+- Do `Get IsConnected`, procure `Set IsConnected` (ou use `Set IsConnected` diretamente)
+- Conecte o pin de execução (branco) do evento `OnWSConnected` ao pin de execução do `Set IsConnected`
+- Conecte `true` (constante booleana) ao pin de input `IsConnected` do `Set`
+- O output de execução do `Set` será conectado ao próximo nó
+
+**2) Set Timer by Function Name (Looping)**
+- Procure o nó `Set Timer by Function Name` (categoria "Timers" ou digite "Timer")
+- **Inputs do Timer:**
+  - `Function Name`: Digite exatamente `SendMoveUpdate` (texto/string)
+    - **IMPORTANTE**: Este é o nome da função que você criará no passo 3.6
+    - O nome DEVE ser exatamente igual ao nome da função
+  - `Time`: Crie um nó matemático:
+    - `Get SendRateHz` (variável Float)
+    - `1.0` (constante Float)
+    - `Divide` (nó matemático): `1.0 / SendRateHz`
+    - Exemplo: se `SendRateHz = 20.0`, então `Time = 0.05` (1 segundo / 20 = 0.05 segundos)
+  - `Looping`: Conecte `true` (constante booleana)
+  - `Object` (opcional): Deixe vazio ou conecte `self` (o próprio `BP_NetMovementClient`)
+- **Outputs:**
+  - `Return Value`: `Timer Handle` - conecte este ao pin de input do `Set SendTimerHandle`
+    - Arraste a variável `SendTimerHandle` → `Set SendTimerHandle`
+    - Conecte o `Return Value` do Timer ao pin `SendTimerHandle` do Set
+
+**Fluxo visual**:
+```
+OnWSConnected (Custom Event)
+    ↓ (execution pin - branco)
+Set IsConnected = true
+    ↓ (execution pin - branco)
+Set Timer by Function Name
+    - Function Name: "SendMoveUpdate"
+    - Time: 1.0 / SendRateHz
+    - Looping: true
+    ↓ (Return Value - Timer Handle)
+Set SendTimerHandle = [Timer Handle retornado]
+```
+
+### 3.6. SendMoveUpdate - CRIAR FUNÇÃO (CRÍTICO - FAZER ANTES DO PASSO 3.5!)
+
+**O QUE É SendMoveUpdate?**
+- É uma **Função** (Function) no Blueprint, não um evento.
+- Esta função será chamada repetidamente pelo Timer a cada `1.0/SendRateHz` segundos (ex.: a cada 0.05s se SendRateHz = 20).
+- Ela coleta a posição atual do jogador local e envia para o servidor via WebSocket.
+
+**COMO CRIAR A FUNÇÃO**:
+
+1. No painel `Meu Blueprint` (esquerda), vá em `FUNÇÕES`
+2. Clique no `+` ao lado de "FUNÇÕES"
+3. Selecione "Add Function"
+4. Nomeie exatamente: `SendMoveUpdate` (sem espaços extras, maiúsculas/minúsculas importam)
+5. A função será criada e você verá um novo gráfico "SendMoveUpdate" no editor
+
+**Ordem dos nós no gráfico `SendMoveUpdate`**:
+
+**1) Obter Pawn local**
+- Procure `Get Player Pawn` (categoria "Utilities" ou digite "Player Pawn")
+- Este nó retorna o Pawn/Actor controlado pelo jogador local
+- Output: `Return Value` (tipo: Pawn ou Actor)
+
+**2) GetActorLocation**
+- Do `Get Player Pawn`, conecte o `Return Value` ao input `Target` do nó `GetActorLocation`
+- Se `GetActorLocation` não aparecer diretamente, arraste o `Return Value` do Pawn e procure "Location" ou "Get Actor Location"
+- Output: `Return Value` (tipo: Vector) - esta é a posição X, Y, Z
+
+**3) GetActorRotation**
+- Do mesmo `Get Player Pawn`, conecte o `Return Value` ao input `Target` do nó `GetActorRotation`
+- Output: `Return Value` (tipo: Rotator) - contém Roll, Pitch, Yaw
+- Extrair Yaw: do `Return Value`, conecte o campo `Yaw` (Float) para uso no passo 5
+
+**4) Calcular Timestamp em Milissegundos**
+- `Get Game Time in Seconds` (retorna Float, tempo em segundos desde o início do jogo)
+- Multiplicar por 1000: crie um nó `Multiply` → `Get Game Time in Seconds * 1000.0`
+- Converter para Integer: conecte o resultado ao nó `To Integer (Float)` ou `Convert Float to Integer`
+- Output: `Return Value` (Integer) - timestamp em milissegundos
+
+**5) BuildMoveUpdateFrame**
+- Procure `BuildMoveUpdateFrame` (categoria "Umbra|Net|WS|Binary" ou digite "BuildMoveUpdateFrame")
+- **Inputs:**
+  - `PlayerId`: `Get LocalPlayerId` (variável Integer)
+  - `Location`: o Vector do passo 2 (GetActorLocation → Return Value)
+  - `YawDegrees`: o Float Yaw extraído do passo 3 (GetActorRotation → Yaw)
+  - `TimestampMs`: o Integer do passo 4 (resultado da conversão)
+- **Output:**
+  - `OutBytes`: Array of Bytes - este é o frame binário pronto para enviar
+
+**6) SendBytes**
+- `Get WebSocketRef` (variável) → conecte ao input `Target` do nó `Send Bytes`
+- Procurar `Send Bytes` no `WebSocketRef` (categoria "Umbra|Net|WS")
+- Se não aparecer diretamente, arraste `WebSocketRef` e procure "Send" ou "SendBytes"
+- Input `Data`: conecte o `OutBytes` do passo 5 (Array of Bytes)
+
+**Fluxo visual completo de SendMoveUpdate**:
+```
+[Função: SendMoveUpdate]
+    ↓
+Get Player Pawn
+    ↓
+GetActorLocation → Location (Vector)
+    ↓
+GetActorRotation → Yaw (Float)
+    ↓
+Get Game Time in Seconds * 1000 → To Integer → TimestampMs (Integer)
+    ↓
+BuildMoveUpdateFrame(PlayerId, Location, Yaw, TimestampMs) → OutBytes (Array of Bytes)
+    ↓
+Get WebSocketRef → Send Bytes(Data: OutBytes)
+```
+
+**IMPORTANTE**: Após criar esta função, volte ao passo 3.5 e configure o Timer para chamá-la.
 
 Observação: agora já incluímos uma BPFunctionLibrary no projeto com nós prontos:
 - `AppendUInt32LE(Bytes, Value)`
@@ -286,6 +392,16 @@ Use diretamente `BuildMoveUpdateFrame` e envie `OutBytes` via `WebSocket.Send By
 ### 3.7. OnWSBinaryMessage (recepção de updates do servidor) - PASSO A PASSO DETALHADO
 
 Esta função é chamada automaticamente quando o servidor envia dados binários (StateUpdate).
+
+**O QUE É OnWSBinaryMessage?**
+- É o Custom Event que você criou no passo 3.4 com parâmetro `Data` (Array of Bytes).
+- Este evento é chamado automaticamente pelo WebSocket quando dados binários são recebidos.
+
+**SOBRE O NÓ "RETURN" (Lido antes de começar)**:
+- O nó `Return` interrompe a execução do evento/função atual.
+- **Como encontrar**: Clique com botão direito → digite "Return" → selecione `Return` ou `Return Node`.
+- **Alternativa se não aparecer**: Use um `Branch` e deixe o lado que você quer "ignorar" desconectado (sem conectar a nada).
+- Você usará `Return` várias vezes nesta função para sair cedo se as condições não forem atendidas.
 
 **Ordem dos nós no gráfico `OnWSBinaryMessage`**:
 
@@ -300,16 +416,39 @@ Esta função é chamada automaticamente quando o servidor envia dados binários
   - `Return Value` (Boolean) - `true` se parse foi bem-sucedido
 
 **2) Verificar se Parse foi bem-sucedido**
-- Do `ParseStateUpdateFrame`, ligue o `Return Value` em um nó `Branch`
-- Se `false`, faça `Return` (sai da função)
+- Do `ParseStateUpdateFrame`, ligue o `Return Value` (Boolean) em um nó `Branch`
+- **O QUE É "Return"?**
+  - `Return` é um nó especial que **interrompe a execução** da função/evento atual.
+  - Ele para imediatamente a execução e não executa nenhum nó que vier depois dele.
+  - Em funções, você pode ter um pin de saída "Return" na própria função; em eventos, use o nó `Return` explícito.
+- **COMO ACESSAR O NÓ RETURN:**
+  1. Clique com botão direito no gráfico (no `OnWSBinaryMessage`)
+  2. Digite "Return" na busca
+  3. Selecione o nó `Return` ou `Return Node` (geralmente aparece como um nó especial com apenas um pin de execução de entrada)
+  4. **ALTERNATIVA**: Se não aparecer, você pode usar um `Branch` com o lado `false` desconectado (deixar vazio) - isso efetivamente faz a função parar se a condição for false
+- **COMO USAR:**
+  - Se o `Branch` retornar `false` (parse falhou):
+    - Conecte o pin "False" do `Branch` ao pin de execução (branco) do nó `Return`
+    - Isso fará a função parar imediatamente
+  - Se o `Branch` retornar `true` (parse OK):
+    - Conecte o pin "True" ao próximo passo da lógica
 
 **3) Verificar se é StateUpdate (opcional, mas recomendado)**
 - `Data` → `Get (Array)` com Index `0` (primeiro byte)
-- Se o valor != `2` (StateUpdate), faça `Return`
+- Comparar: crie um nó `Equal (Integer)` ou `!=` (Not Equal)
+  - Um lado: o valor obtido do Array (Integer)
+  - Outro lado: `2` (constante Integer - StateUpdate tem type = 2)
+- **Se o valor != 2**: conecte ao pin "True" de um `Branch` e este ao nó `Return` (mesmo processo do passo 2)
+- **Se o valor == 2**: conecte ao pin "False" e continue para o próximo passo
 
 **4) Ignorar se é o próprio jogador**
 - `OutPlayerId` → comparar (`==`) com `LocalPlayerId` (variável)
-- Se `==`, faça `Return` (não precisamos atualizar nosso próprio estado)
+- Crie um nó `Equal (Integer)`:
+  - `OutPlayerId` (do ParseStateUpdateFrame)
+  - `Get LocalPlayerId` (variável)
+- Conecte o resultado em um `Branch`
+- **Se `==` (true)**: conecte ao pin "True" do `Branch` → nó `Return` (não precisamos atualizar nosso próprio estado)
+- **Se `!=` (false)**: conecte ao pin "False" e continue para o próximo passo
 
 **5) Obter ou Criar Entry no Array `RemoteStates` (USANDO FUNÇÃO HELPER)**
 - Use o nó `GetOrCreatePlayerState` (categoria "Umbra|Net|WS|State")
