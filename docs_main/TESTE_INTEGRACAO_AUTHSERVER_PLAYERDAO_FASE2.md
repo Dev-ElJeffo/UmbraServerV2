@@ -95,9 +95,13 @@ O warning `MYSQL_OPT_RECONNECT is deprecated` é apenas um aviso de depreciaçã
 
 1. ✅ Integração validada - **COMPLETO**
 2. ⏭️ Testar fluxo completo de login com cliente UE5
-3. ⏭️ Implementar endpoint para listar personagens de uma conta
-4. ⏭️ Adicionar funcionalidade de seleção de personagem
-5. ⏭️ Implementar criação de novos personagens
+3. ⚠️ **URGENTE**: Implementar validação JWT nos endpoints PHP de personagens
+   - Endpoints já existem (`list_characters.php`, `create_character.php`, `select_character.php`, `delete_character.php`)
+   - **PROBLEMA CRÍTICO**: Endpoints não validam tokens JWT
+   - **PROBLEMA CRÍTICO**: Aceitam `account_id` do cliente sem validação
+   - Ver análise detalhada: `docs_main/ANALISE_ENDPOINTS_PHP_CHARACTERS.md`
+4. ⏭️ Adicionar funcionalidade de seleção de personagem (endpoint existe, precisa validação JWT)
+5. ⏭️ Implementar criação de novos personagens (endpoint existe, precisa validação JWT)
 
 ## Executar o Teste
 
