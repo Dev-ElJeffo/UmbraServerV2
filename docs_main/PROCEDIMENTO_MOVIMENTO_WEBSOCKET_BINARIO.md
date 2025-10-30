@@ -68,10 +68,13 @@ Pré-requisitos:
 - Habilitar o plugin “WebSockets” (Editor → Plugins → Networking → WebSockets).
 - Ter o `player_id` selecionado (após tela de seleção) e um Pawn local possuído pelo PlayerController.
 
-### 3.1. Actor/Widget que gerencia a conexão
+### 3.1. Plugin correto
+- Habilite "Experimental WebSocket Networking Plugin" (o primeiro da lista na imagem). Não use apenas "Web Socket Messaging".
+
+### 3.2. Actor/Widget que gerencia a conexão
 - Recomendo criar um `Actor` de sessão (ex.: `BP_NetMovementClient`) spawnado no level ao entrar no mundo (pós-seleção de personagem), ou gerenciado por `GameInstance`.
 
-### 3.2. Variáveis necessárias (no `BP_NetMovementClient`)
+### 3.3. Variáveis necessárias (no `BP_NetMovementClient`)
 - `WebSocketRef` (tipo `WebSocket` – objeto do plugin)
 - `IsConnected` (bool)
 - `LocalPlayerId` (int, `player_id` atual)
@@ -80,7 +83,7 @@ Pré-requisitos:
 - `RemoteStates` (map `int → Estrutura` com últimos dois estados para interpolação)
 - `SendTimerHandle` (TimerHandle)
 
-### 3.3. Evento BeginPlay (ordem dos nós)
+### 3.4. Evento BeginPlay (ordem dos nós)
 1) `Create WebSocket`
    - URL: `ws://127.0.0.1:8082/` (use a porta configurada do `ZoneServer`)
    - Salvar em `WebSocketRef`.
@@ -95,14 +98,14 @@ Pré-requisitos:
    - Evento: `OnWSBinaryMessage` (parâmetros: `Data` [Array de Bytes])
 7) `Connect` no `WebSocketRef`.
 
-### 3.4. OnWSConnected (ordem dos nós)
+### 3.5. OnWSConnected (ordem dos nós)
 1) `Set IsConnected = true`
 2) `Set Timer by Function Name` (Looping)
    - Function Name: `SendMoveUpdate`
    - Time: `1.0 / SendRateHz` (ex.: 0.05 p/ 20 Hz)
    - Store handle em `SendTimerHandle`
 
-### 3.5. SendMoveUpdate (função chamada pelo Timer)
+### 3.6. SendMoveUpdate (função chamada pelo Timer)
 1) Obter Pawn local (ex.: `Get Player Pawn`)
 2) `GetActorLocation` → `X,Y,Z`
 3) `GetActorRotation` → `Yaw` (pode normalizar -180..180)
@@ -114,23 +117,26 @@ Pré-requisitos:
    - `Append UInt32 LE` → `NowMs`
 6) `WebSocketRef.Send Bytes` (usar função do plugin para enviar Array de Bytes)
 
-Observação: como o Blueprint não tem nativamente “Append UInt32 LE/Float LE”, crie funções auxiliares em Blueprint (ou em C++/BPFunctionLibrary) que convertam para Array de Bytes no endianness correto. Exemplo de sequência para `UInt32`:
-- Crie `AppendUInt32LE(Bytes, Value)` que usa `RightShift` e `Bitmask` para extrair 4 bytes e faz `Array Add` na ordem (LSB→MSB). Para `Float`, use `Make Literal Float`→`To Bytes` via `Reinterpret` (recomendado fazer via C++ BPFunctionLibrary para precisão).
+Observação: agora já incluímos uma BPFunctionLibrary no projeto com nós prontos:
+- `AppendUInt32LE(Bytes, Value)`
+- `AppendFloatLE(Bytes, Value)`
+- `BuildMoveUpdateFrame(PlayerId, Location, YawDegrees, TimestampMs, OutBytes)`
+Use diretamente `BuildMoveUpdateFrame` e envie `OutBytes` via `WebSocket.Send Bytes`.
 
-### 3.6. OnWSBinaryMessage (recepção de updates do servidor)
+### 3.7. OnWSBinaryMessage (recepção de updates do servidor)
 1) `Data[0]` → `Type` (Byte)
 2) Se `Type != 2` (StateUpdate), `Return`.
-3) Decodificar na ordem: `player_id (u32 LE)`, `x(f32)`, `y(f32)`, `z(f32)`, `yaw(f32)`, `ts_ms (u32 LE)`
+3) Use o nó `ParseStateUpdateFrame(Data, OutPlayerId, OutLocation, OutYawDegrees, OutTimestampMs)` (da nossa BPFunctionLibrary). Alternativamente, decodifique manualmente na ordem: `player_id (u32 LE)`, `x(f32)`, `y(f32)`, `z(f32)`, `yaw(f32)`, `ts_ms (u32 LE)`.
 4) Se `player_id == LocalPlayerId` → ignorar (é o próprio)
 5) Atualizar buffer de estados em `RemoteStates[player_id]` guardando os dois últimos com timestamp.
 
-### 3.7. Tick (no `BP_NetMovementClient` ou em um Subsystem)
+### 3.8. Tick (no `BP_NetMovementClient` ou em um Subsystem)
 Para cada `player_id` em `RemoteStates`:
 1) Se houver ao menos 2 estados com `ts_ms` diferentes, calcule `alpha` em relação à janela de interpolação (`InterpDelayMs`).
 2) `Lerp` entre `pos A` e `pos B`; `Lerp` (ou `RInterpTo`) para `yaw`.
 3) Aplique `SetActorLocation`/`SetActorRotation` no pawn remoto correspondente (mantenha um mapa `player_id→Actor`).
 
-### 3.8. OnWSClosed / OnWSError
+### 3.9. OnWSClosed / OnWSError
 1) `Clear Timer by Handle (SendTimerHandle)`
 2) `Set IsConnected = false`
 3) Opcional: `Retry` com `Delay` exponencial.
