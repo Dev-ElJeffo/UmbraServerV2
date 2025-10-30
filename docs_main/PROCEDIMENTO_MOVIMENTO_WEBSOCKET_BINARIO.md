@@ -74,40 +74,167 @@ Pré-requisitos:
 ### 3.2. Actor/Widget que gerencia a conexão
 - Recomendo criar um `Actor` de sessão (ex.: `BP_NetMovementClient`) spawnado no level ao entrar no mundo (pós-seleção de personagem), ou gerenciado por `GameInstance`.
 
-### 3.3. Variáveis necessárias (no `BP_NetMovementClient`)
-- `WebSocketRef` (tipo `WebSocket` – objeto do plugin)
-- `IsConnected` (bool)
-- `LocalPlayerId` (int, `player_id` atual)
-- `SendRateHz` (float, padrão 20)
-- `InterpDelayMs` (float, padrão 120)
-- `RemoteStates` (map `int → Estrutura` com últimos dois estados para interpolação)
-- `SendTimerHandle` (TimerHandle)
+### 3.3. Variáveis necessárias (no `BP_NetMovementClient`) - PASSO A PASSO DETALHADO
 
-### 3.4. Evento BeginPlay (ordem dos nós) – com o wrapper “Umbra WS Client”
+#### PASSO 1: Criar a Estrutura para Armazenar Estados Remotos
+
+Antes de criar as variáveis, precisamos criar uma estrutura que armazena dois estados (para interpolação):
+
+1. No Content Browser, clique com botão direito → `Blueprint` → `Structure` (não Blueprint Class!)
+2. Nome: `PlayerStateBuffer`
+3. Dentro da estrutura, adicione estas variáveis:
+   - `StateA_Location` (tipo: `Vector`, padrão: 0,0,0)
+   - `StateA_Yaw` (tipo: `Float`, padrão: 0.0)
+   - `StateA_TimestampMs` (tipo: `Integer`, padrão: 0)
+   - `StateB_Location` (tipo: `Vector`, padrão: 0,0,0)
+   - `StateB_Yaw` (tipo: `Float`, padrão: 0.0)
+   - `StateB_TimestampMs` (tipo: `Integer`, padrão: 0)
+   - `HasStateA` (tipo: `Boolean`, padrão: false)
+   - `HasStateB` (tipo: `Boolean`, padrão: false)
+
+**Por que dois estados?** Precisamos de pelo menos dois estados com timestamps diferentes para fazer interpolação linear entre eles. Quando chegamos um novo estado:
+- Se não tem StateA → salva em StateA
+- Se tem StateA mas não StateB → salva em StateB
+- Se tem ambos → move StateB para StateA e salva o novo em StateB
+
+#### PASSO 2: Criar as Variáveis no Blueprint
+
+Agora, no `BP_NetMovementClient`:
+
+1. Abra `Meu Blueprint` → `Variáveis` → `+ Variável`
+2. Crie as seguintes variáveis **nesta ordem**:
+
+**a) `WebSocketRef`**
+- Tipo: `Umbra WS Client` (Object Reference)
+- Pode ser deixado como `None` inicialmente (será setado no BeginPlay)
+
+**b) `IsConnected`**
+- Tipo: `Boolean`
+- Padrão: `false`
+- Pode deixar `Instance Editable` desmarcado
+
+**c) `LocalPlayerId`**
+- Tipo: `Integer`
+- Padrão: `0` (será setado após seleção de personagem)
+
+**d) `SendRateHz`**
+- Tipo: `Float`
+- Padrão: `20.0`
+- Instance Editable: `true` (para ajustar no editor se necessário)
+
+**e) `InterpDelayMs`**
+- Tipo: `Float`
+- Padrão: `120.0`
+- Instance Editable: `true`
+
+**f) `RemoteStates` (IMPORTANTE - deve ser um Map!)**
+- Tipo: **Map** (`Integer → PlayerStateBuffer`)
+- Para criar um Map:
+  1. Ao criar a variável, no dropdown "Tipo de Variável", procure por "Map"
+  2. Selecione `Map`
+  3. No campo "Chave" (Key): `Integer`
+  4. No campo "Valor" (Value): `PlayerStateBuffer` (a estrutura que criamos)
+- Padrão: deixe vazio (Map vazio)
+- Esta variável mapeia `player_id (int) → PlayerStateBuffer` para cada jogador remoto
+
+**g) `RemoteActors` (mapa para armazenar referências dos Actors remotos)**
+- Tipo: **Map** (`Integer → Actor Reference`)
+- Key: `Integer`
+- Value: `Actor Reference`
+- Este mapa armazena referências aos pawns/actors de outros jogadores para atualizar sua posição
+
+**h) `SendTimerHandle`**
+- Tipo: `Timer Handle`
+- Padrão: deixe vazio
+
+### 3.4. Criar Custom Events ANTES do BeginPlay (CRÍTICO!)
+
+**IMPORTANTE**: Você precisa criar os Custom Events manualmente ANTES de fazer os binds. Eles não aparecem automaticamente quando você conecta o `Bind Event`.
+
+#### PASSO 1: Criar os 4 Custom Events
+
+No `BP_NetMovementClient`, vá em `Meu Blueprint` → `GRÁFICOS` → clique no `+` ao lado de "GRÁFICOS" → selecione "Add Custom Event":
+
+**a) `OnWSConnected`**
+1. Nome: `OnWSConnected`
+2. Clique com botão direito no evento → `Add Input` → **NÃO adicione nenhum input** (este evento não tem parâmetros)
+
+**b) `OnWSError`**
+1. Nome: `OnWSError`
+2. Clique com botão direito no evento → `Add Input`
+3. Nome do parâmetro: `Error`
+4. Tipo: `String`
+
+**c) `OnWSClosed`**
+1. Nome: `OnWSClosed`
+2. Sem parâmetros (como OnWSConnected)
+
+**d) `OnWSBinaryMessage`**
+1. Nome: `OnWSBinaryMessage`
+2. Clique com botão direito no evento → `Add Input`
+3. Nome do parâmetro: `Data`
+4. Tipo: `Array of Bytes` (não "Byte Array", procure por "Array of Bytes" ou "Array" e depois selecione o tipo base "Byte")
+
+**Como verificar se criou corretamente**: Você deve ver 4 eventos na lista de "GRÁFICOS" em `Meu Blueprint`.
+
+### 3.5. Evento BeginPlay (ordem dos nós) – com o wrapper “Umbra WS Client”
 
 Criamos um wrapper C++ para expor nós em BP:
 - Tipo da variável: `Umbra WS Client` (Object Reference)
 - Funções: `CreateUmbraWebSocket(Url)`, `Connect()`, `Close()`, `SendBytes(Data)`
 - Eventos: `OnConnected`, `OnConnectionError(Error)`, `OnClosed`, `OnRawMessage(Data)`
 
-Passos no BP (ex.: `BP_NetMovementClient`):
-1) Variável
-   - Crie `WSClient` do tipo `Umbra WS Client` (Object Reference).
-   - Screenshot: [Adicionar variável do tipo "Umbra WS Client" no Details]
-2) Create
-   - Node: `CreateUmbraWebSocket`
-   - URL: `ws://127.0.0.1:8082/` (porta do `ZoneServer`)
-   - Return Value → `Set WSClient`
-   - Screenshot: [Node CreateUmbraWebSocket com URL e Set WSClient]
-3) Bind Events
-   - `WSClient → Bind Event to OnConnected` → evento custom `OnWSConnected`
-   - `WSClient → Bind Event to OnConnectionError` → `OnWSError(Error)`
-   - `WSClient → Bind Event to OnClosed` → `OnWSClosed`
-   - `WSClient → Bind Event to OnRawMessage` → `OnWSBinaryMessage(Data)`
-   - Screenshot: [Binds de todos os eventos do WSClient em sequência]
-4) Connect
-   - `WSClient → Connect()`
-   - Screenshot: [Chamando Connect após os binds]
+**Passos no `Event BeginPlay` (ordem exata dos nós)**:
+
+**1) Create WebSocket**
+- No `Event BeginPlay`, arraste um nó: `Create Umbra Web Socket` (procure em "All Actions" ou digite "Create Umbra")
+- Input `Url`: digite `ws://127.0.0.1:8083/` (ou a porta configurada no seu ZoneServer)
+- Output `Return Value` → ligue em um nó `Set WebSocketRef`
+
+**2) Bind Event to OnConnected**
+- Arraste a variável `WebSocketRef` no gráfico (Get WebSocketRef)
+- Do `WebSocketRef`, procure o nó `Bind Event to OnConnected` (categoria "Umbra|Net|WS")
+- O nó `Bind Event to OnConnected` tem um pin de saída "Event"
+- **LIGUE este pin "Event" no seu Custom Event `OnWSConnected`** (arraste até o nó `OnWSConnected` que você criou)
+
+**3) Bind Event to OnConnectionError**
+- Do `WebSocketRef`, procure `Bind Event to OnConnectionError`
+- Output "Event" → ligue no Custom Event `OnWSError`
+- O output "Error (String)" do `OnWSError` será preenchido automaticamente pelo delegate
+
+**4) Bind Event to OnClosed**
+- Do `WebSocketRef`, procure `Bind Event to OnClosed`
+- Output "Event" → ligue no Custom Event `OnWSClosed`
+
+**5) Bind Event to OnRawMessage**
+- Do `WebSocketRef`, procure `Bind Event to OnRawMessage`
+- Output "Event" → ligue no Custom Event `OnWSBinaryMessage`
+- O output "Data (Array of Bytes)" será preenchido automaticamente
+
+**6) Connect**
+- Do `WebSocketRef`, procure `Connect` (função sem parâmetros)
+- Ligue o execution pin do último bind (ou use um nó `Sequence` para ligar todos os binds e depois o Connect)
+
+**Fluxo Visual Sugerido**:
+```
+Event BeginPlay
+    ↓
+Create Umbra Web Socket (Url: ws://...)
+    ↓
+Set WebSocketRef
+    ↓
+Sequence (com 4 saídas "Then")
+    ↓ (Then 0)
+Bind Event to OnConnected → [Event pin] → OnWSConnected (custom event)
+    ↓ (Then 1)
+Bind Event to OnConnectionError → [Event pin] → OnWSError (custom event)
+    ↓ (Then 2)
+Bind Event to OnClosed → [Event pin] → OnWSClosed (custom event)
+    ↓ (Then 3)
+Bind Event to OnRawMessage → [Event pin] → OnWSBinaryMessage (custom event)
+    ↓ (execution após Sequence)
+Connect (no WebSocketRef)
+```
 
 ### 3.5. OnWSConnected (ordem dos nós)
 1) `Set IsConnected = true`
@@ -133,20 +260,163 @@ Observação: agora já incluímos uma BPFunctionLibrary no projeto com nós pro
 - `BuildMoveUpdateFrame(PlayerId, Location, YawDegrees, TimestampMs, OutBytes)`
 Use diretamente `BuildMoveUpdateFrame` e envie `OutBytes` via `WebSocket.Send Bytes`.
 
-### 3.7. OnWSBinaryMessage (recepção de updates do servidor)
-1) `Data[0]` → `Type` (Byte)
-2) Se `Type != 2` (StateUpdate), `Return`.
-3) Use o nó `ParseStateUpdateFrame(Data, OutPlayerId, OutLocation, OutYawDegrees, OutTimestampMs)` (da BPFunctionLibrary `UWSBinaryBPFL`). Alternativamente, decodifique manualmente na ordem: `player_id (u32 LE)`, `x(f32)`, `y(f32)`, `z(f32)`, `yaw(f32)`, `ts_ms (u32 LE)`.
-4) Se `player_id == LocalPlayerId` → ignorar (é o próprio)
-5) Atualizar buffer de estados em `RemoteStates[player_id]` guardando os dois últimos com timestamp.
-   - Screenshot: [Uso do ParseStateUpdateFrame e armazenamento em buffer]
+### 3.7. OnWSBinaryMessage (recepção de updates do servidor) - PASSO A PASSO DETALHADO
 
-### 3.8. Tick (no `BP_NetMovementClient` ou em um Subsystem)
-Para cada `player_id` em `RemoteStates`:
-1) Se houver ao menos 2 estados com `ts_ms` diferentes, calcule `alpha` em relação à janela de interpolação (`InterpDelayMs`).
-2) `Lerp` entre `pos A` e `pos B`; `Lerp` (ou `RInterpTo`) para `yaw`.
-3) Aplique `SetActorLocation`/`SetActorRotation` no pawn remoto correspondente (mantenha um mapa `player_id→Actor`).
-   - Screenshot: [Interp entre A e B e aplicação no pawn remoto]
+Esta função é chamada automaticamente quando o servidor envia dados binários (StateUpdate).
+
+**Ordem dos nós no gráfico `OnWSBinaryMessage`**:
+
+**1) Parse do Frame**
+- Use o nó `ParseStateUpdateFrame` (procure em "All Actions" → categoria "Umbra|Net|WS|Binary")
+- Input `Data`: conecte o parâmetro `Data` do evento `OnWSBinaryMessage`
+- Outputs:
+  - `OutPlayerId` (Integer)
+  - `OutLocation` (Vector)
+  - `OutYawDegrees` (Float)
+  - `OutTimestampMs` (Integer)
+  - `Return Value` (Boolean) - `true` se parse foi bem-sucedido
+
+**2) Verificar se Parse foi bem-sucedido**
+- Do `ParseStateUpdateFrame`, ligue o `Return Value` em um nó `Branch`
+- Se `false`, faça `Return` (sai da função)
+
+**3) Verificar se é StateUpdate (opcional, mas recomendado)**
+- `Data` → `Get (Array)` com Index `0` (primeiro byte)
+- Se o valor != `2` (StateUpdate), faça `Return`
+
+**4) Ignorar se é o próprio jogador**
+- `OutPlayerId` → comparar (`==`) com `LocalPlayerId` (variável)
+- Se `==`, faça `Return` (não precisamos atualizar nosso próprio estado)
+
+**5) Obter ou Criar Entry no Map `RemoteStates`**
+- `Get RemoteStates` → `Find in Map` (Key: `OutPlayerId`)
+- Se `Find in Map` retorna `true` (found):
+  - Use o `Value` retornado (tipo `PlayerStateBuffer`)
+  - Continue no passo 6
+- Se `Find in Map` retorna `false` (não encontrado):
+  - Crie uma nova estrutura `PlayerStateBuffer` (use `Make PlayerStateBuffer`)
+  - Set todos os valores iniciais:
+    - `StateA_Location` = `OutLocation`
+    - `StateA_Yaw` = `OutYawDegrees`
+    - `StateA_TimestampMs` = `OutTimestampMs`
+    - `HasStateA` = `true`
+    - `HasStateB` = `false`
+  - `Add to Map` no `RemoteStates` (Key: `OutPlayerId`, Value: a estrutura criada)
+  - **Return** (não precisa fazer interpolação ainda)
+
+**6) Atualizar o Buffer (rotação de estados)**
+- Pegue o `Value` retornado pelo `Find in Map` (ou o que você criou)
+- Verifique `HasStateB` na estrutura:
+  - Se `false` (só tem StateA):
+    - `Set StateB_Location` = `OutLocation`
+    - `Set StateB_Yaw` = `OutYawDegrees`
+    - `Set StateB_TimestampMs` = `OutTimestampMs`
+    - `Set HasStateB` = `true`
+  - Se `true` (tem ambos A e B):
+    - **Mover StateB para StateA:**
+      - `Set StateA_Location` = `StateB_Location` (do buffer atual)
+      - `Set StateA_Yaw` = `StateB_Yaw`
+      - `Set StateA_TimestampMs` = `StateB_TimestampMs`
+      - `Set HasStateA` = `true`
+    - **Salvar novo estado em StateB:**
+      - `Set StateB_Location` = `OutLocation`
+      - `Set StateB_Yaw` = `OutYawDegrees`
+      - `Set StateB_TimestampMs` = `OutTimestampMs`
+      - `Set HasStateB` = `true`
+- `Add to Map` (ou `Set Map Elem`) no `RemoteStates` com a estrutura atualizada
+
+**7) Criar/Obter Actor Remoto (opcional mas recomendado)**
+- `Get RemoteActors` → `Find in Map` (Key: `OutPlayerId`)
+- Se não encontrado:
+  - Spawn um actor/pawn remoto (ex.: uma cópia do seu player pawn, mas sem input)
+  - `Add to Map` no `RemoteActors` (Key: `OutPlayerId`, Value: o actor spawnado)
+- Se encontrado, use o actor existente
+
+**Nota**: A interpolação real será feita no `Tick`, não aqui. Aqui apenas atualizamos o buffer de estados.
+
+### 3.8. Tick (no `BP_NetMovementClient`) - PASSO A PASSO DETALHADO
+
+No evento `Event Tick`, adicione a lógica de interpolação para cada jogador remoto.
+
+**Ordem dos nós no `Event Tick`**:
+
+**1) Iterar sobre o Map `RemoteStates`**
+- `Get RemoteStates` → `For Each Loop` (ou `For Each Loop (Break)`)
+- O loop fornece:
+  - `Key` (Integer) - o `player_id`
+  - `Value` (`PlayerStateBuffer`) - o buffer de estados
+
+**2) Verificar se tem dados suficientes para interpolação**
+- Do `Value` (buffer), verifique `HasStateA` e `HasStateB`
+- Se ambos são `true`, continue (temos dois estados para interpolar)
+- Se não, continue para o próximo item do loop (`Continue Loop`)
+
+**3) Calcular Alpha (fator de interpolação)**
+- Obtenha o tempo atual em ms: `Get Game Time in Seconds` × `1000` → converta para Integer
+- Delta entre estados: `StateB_TimestampMs` - `StateA_TimestampMs`
+- Tempo decorrido desde StateA: `(Tempo Atual Ms) - (StateA_TimestampMs)`
+- Alpha: `(Tempo Decorrido) / (Delta entre Estados)`
+- Clampe Alpha entre `0.0` e `1.0` (use `Clamp (Float)`)
+
+**4) Interpolar Posição**
+- `Lerp (Vector)`:
+  - `A` = `StateA_Location`
+  - `B` = `StateB_Location`
+  - `Alpha` = o valor calculado acima
+- Output: `InterpolatedLocation` (Vector)
+
+**5) Interpolar Yaw**
+- `Lerp (Float)`:
+  - `A` = `StateA_Yaw`
+  - `B` = `StateB_Yaw`
+  - `Alpha` = o mesmo alpha
+- Output: `InterpolatedYaw` (Float)
+- **Nota**: Se os yaws estão em diferentes direções (ex.: -179° e 179°), você pode precisar de uma lógica especial para "encurtar o caminho" (shortest path). Por enquanto, use o Lerp simples.
+
+**6) Obter o Actor Remoto**
+- `Get RemoteActors` → `Find in Map` (Key: `Key` do loop - o player_id)
+- Se não encontrado (`Find` retorna false), continue para o próximo item (ainda não spawnou o actor)
+- Se encontrado, pegue o `Value` (Actor Reference)
+
+**7) Aplicar Transformação**
+- Do Actor obtido, chame `SetActorLocation` (Target: o Actor, New Location: `InterpolatedLocation`)
+- Crie uma Rotator:
+  - `Make Rotator`:
+    - `Roll` = `0`
+    - `Pitch` = `0`
+    - `Yaw` = `InterpolatedYaw`
+- `SetActorRotation` (Target: o Actor, New Rotation: o Rotator criado)
+
+**8) Continuar Loop**
+- O loop continuará automaticamente para o próximo `player_id` no Map
+
+**Fluxo Visual Simplificado**:
+```
+Event Tick
+    ↓
+Get RemoteStates
+    ↓
+For Each Loop (Key: player_id, Value: buffer)
+    ↓
+Branch: HasStateA AND HasStateB?
+    ↓ (true)
+Calcular Alpha (tempo)
+    ↓
+Lerp Location (StateA → StateB)
+    ↓
+Lerp Yaw (StateA → StateB)
+    ↓
+Find RemoteActors[player_id]
+    ↓
+SetActorLocation (InterpolatedLocation)
+    ↓
+SetActorRotation (InterpolatedYaw)
+    ↓ (loop continua)
+```
+
+**Otimizações futuras**:
+- Se `Alpha >= 1.0`, você pode fazer "snap" direto para `StateB` (o servidor está muito atrasado)
+- Limpar entradas do Map para players que não enviaram updates por muito tempo (> 5 segundos)
 
 ### 3.9. OnWSClosed / OnWSError
 1) `Clear Timer by Handle (SendTimerHandle)`
