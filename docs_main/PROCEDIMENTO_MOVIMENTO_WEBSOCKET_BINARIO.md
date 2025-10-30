@@ -83,20 +83,31 @@ Pré-requisitos:
 - `RemoteStates` (map `int → Estrutura` com últimos dois estados para interpolação)
 - `SendTimerHandle` (TimerHandle)
 
-### 3.4. Evento BeginPlay (ordem dos nós)
-1) `Create WebSocket`
-   - URL: `ws://127.0.0.1:8082/` (use a porta configurada do `ZoneServer`)
-   - Salvar em `WebSocketRef`.
-2) `Bind Event to OnConnected` do `WebSocketRef`
-   - Evento: `OnWSConnected`
-3) `Bind Event to OnConnectionError` do `WebSocketRef`
-   - Evento: `OnWSError`
-4) `Bind Event to OnClosed` do `WebSocketRef`
-   - Evento: `OnWSClosed`
-5) `Bind Event to OnMessage` (texto) – não usado aqui (binário), deixe vazio.
-6) `Bind Event to OnRawMessage` (binário)
-   - Evento: `OnWSBinaryMessage` (parâmetros: `Data` [Array de Bytes])
-7) `Connect` no `WebSocketRef`.
+### 3.4. Evento BeginPlay (ordem dos nós) – com o wrapper “Umbra WS Client”
+
+Criamos um wrapper C++ para expor nós em BP:
+- Tipo da variável: `Umbra WS Client` (Object Reference)
+- Funções: `CreateUmbraWebSocket(Url)`, `Connect()`, `Close()`, `SendBytes(Data)`
+- Eventos: `OnConnected`, `OnConnectionError(Error)`, `OnClosed`, `OnRawMessage(Data)`
+
+Passos no BP (ex.: `BP_NetMovementClient`):
+1) Variável
+   - Crie `WSClient` do tipo `Umbra WS Client` (Object Reference).
+   - Screenshot: [Adicionar variável do tipo "Umbra WS Client" no Details]
+2) Create
+   - Node: `CreateUmbraWebSocket`
+   - URL: `ws://127.0.0.1:8082/` (porta do `ZoneServer`)
+   - Return Value → `Set WSClient`
+   - Screenshot: [Node CreateUmbraWebSocket com URL e Set WSClient]
+3) Bind Events
+   - `WSClient → Bind Event to OnConnected` → evento custom `OnWSConnected`
+   - `WSClient → Bind Event to OnConnectionError` → `OnWSError(Error)`
+   - `WSClient → Bind Event to OnClosed` → `OnWSClosed`
+   - `WSClient → Bind Event to OnRawMessage` → `OnWSBinaryMessage(Data)`
+   - Screenshot: [Binds de todos os eventos do WSClient em sequência]
+4) Connect
+   - `WSClient → Connect()`
+   - Screenshot: [Chamando Connect após os binds]
 
 ### 3.5. OnWSConnected (ordem dos nós)
 1) `Set IsConnected = true`
@@ -104,18 +115,17 @@ Pré-requisitos:
    - Function Name: `SendMoveUpdate`
    - Time: `1.0 / SendRateHz` (ex.: 0.05 p/ 20 Hz)
    - Store handle em `SendTimerHandle`
+   - Screenshot: [Timer looping configurado para 20 Hz]
 
 ### 3.6. SendMoveUpdate (função chamada pelo Timer)
 1) Obter Pawn local (ex.: `Get Player Pawn`)
 2) `GetActorLocation` → `X,Y,Z`
 3) `GetActorRotation` → `Yaw` (pode normalizar -180..180)
 4) `NowMs` (construir ms – `Get Game Time in Seconds * 1000`, cast p/ int)
-5) `Build Binary Frame` (Array de Bytes)
-   - `Append Byte` → `type = 1`
-   - `Append UInt32 LE` → `LocalPlayerId`
-   - `Append Float LE` → `X`, `Y`, `Z`, `Yaw`
-   - `Append UInt32 LE` → `NowMs`
-6) `WebSocketRef.Send Bytes` (usar função do plugin para enviar Array de Bytes)
+5) `BuildMoveUpdateFrame(PlayerId, Location, Yaw, TimestampMs, OutBytes)`
+   - Nó da nossa BPFunctionLibrary: `UWSBinaryBPFL` (categoria Umbra|Net|WS|Binary)
+6) `WSClient.SendBytes(OutBytes)`
+   - Screenshot: [Montagem do frame com BuildMoveUpdateFrame e envio via SendBytes]
 
 Observação: agora já incluímos uma BPFunctionLibrary no projeto com nós prontos:
 - `AppendUInt32LE(Bytes, Value)`
@@ -126,15 +136,17 @@ Use diretamente `BuildMoveUpdateFrame` e envie `OutBytes` via `WebSocket.Send By
 ### 3.7. OnWSBinaryMessage (recepção de updates do servidor)
 1) `Data[0]` → `Type` (Byte)
 2) Se `Type != 2` (StateUpdate), `Return`.
-3) Use o nó `ParseStateUpdateFrame(Data, OutPlayerId, OutLocation, OutYawDegrees, OutTimestampMs)` (da nossa BPFunctionLibrary). Alternativamente, decodifique manualmente na ordem: `player_id (u32 LE)`, `x(f32)`, `y(f32)`, `z(f32)`, `yaw(f32)`, `ts_ms (u32 LE)`.
+3) Use o nó `ParseStateUpdateFrame(Data, OutPlayerId, OutLocation, OutYawDegrees, OutTimestampMs)` (da BPFunctionLibrary `UWSBinaryBPFL`). Alternativamente, decodifique manualmente na ordem: `player_id (u32 LE)`, `x(f32)`, `y(f32)`, `z(f32)`, `yaw(f32)`, `ts_ms (u32 LE)`.
 4) Se `player_id == LocalPlayerId` → ignorar (é o próprio)
 5) Atualizar buffer de estados em `RemoteStates[player_id]` guardando os dois últimos com timestamp.
+   - Screenshot: [Uso do ParseStateUpdateFrame e armazenamento em buffer]
 
 ### 3.8. Tick (no `BP_NetMovementClient` ou em um Subsystem)
 Para cada `player_id` em `RemoteStates`:
 1) Se houver ao menos 2 estados com `ts_ms` diferentes, calcule `alpha` em relação à janela de interpolação (`InterpDelayMs`).
 2) `Lerp` entre `pos A` e `pos B`; `Lerp` (ou `RInterpTo`) para `yaw`.
 3) Aplique `SetActorLocation`/`SetActorRotation` no pawn remoto correspondente (mantenha um mapa `player_id→Actor`).
+   - Screenshot: [Interp entre A e B e aplicação no pawn remoto]
 
 ### 3.9. OnWSClosed / OnWSError
 1) `Clear Timer by Handle (SendTimerHandle)`
