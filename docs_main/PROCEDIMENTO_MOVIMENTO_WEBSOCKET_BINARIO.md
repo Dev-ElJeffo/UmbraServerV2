@@ -64,9 +64,16 @@ Notas:
 
 ## 3) Como Testar/Integrar no Cliente UE5 – Opção Blueprints (WebSocket Plugin)
 
+**NOTA IMPORTANTE SOBRE ESTRUTURAS DE DADOS**:
+- Este guia usa **Array** como estrutura principal para armazenar estados de jogadores remotos.
+- **Não use "MapRange"** - isso é uma função matemática (mapeia valores de um intervalo para outro), não uma estrutura de dados Map/Dictionary.
+- O tipo Map pode não estar disponível no Blueprint do UE5 para todos os tipos de dados customizados.
+- A solução com **Array + estrutura `PlayerStateEntry` (C++)** é mais simples, mais robusta e tem funções helper prontas.
+
 Pré-requisitos:
-- Habilitar o plugin “WebSockets” (Editor → Plugins → Networking → WebSockets).
+- Habilitar o plugin "WebSockets" (Editor → Plugins → Networking → WebSockets).
 - Ter o `player_id` selecionado (após tela de seleção) e um Pawn local possuído pelo PlayerController.
+- **Recompilar o projeto C++** para que a estrutura `PlayerStateEntry` apareça no Blueprint (Tools → Refresh Visual Studio Project Files → Build).
 
 ### 3.1. Plugin correto
 - Habilite "Experimental WebSocket Networking Plugin" (o primeiro da lista na imagem). Não use apenas "Web Socket Messaging".
@@ -127,27 +134,37 @@ Agora, no `BP_NetMovementClient`:
 - Padrão: `120.0`
 - Instance Editable: `true`
 
-**f) `RemoteStates` (ALTERNATIVA: usar Array ao invés de Map)**
-- **Problema**: Map pode não estar disponível no dropdown de tipos.
-- **Solução**: Usar **Array** + estrutura `PlayerStateEntry` (já criada no código C++).
-- Tipo: **Array** → `Array of Player State Entry`
-- Como criar:
+**f) `RemoteStates` (SOLUÇÃO PRINCIPAL: Array com estrutura C++)**
+- **IMPORTANTE**: Não use "MapRange" - isso é uma função matemática, não uma estrutura de dados.
+- **Solução recomendada**: Usar **Array** + estrutura `PlayerStateEntry` (criada no código C++).
+- **Por que Array e não Map?**
+  - Map pode não estar disponível no dropdown do Blueprint para todos os tipos de dados.
+  - Array é mais simples de usar no Blueprint e tem funções helper prontas.
+  - Performance é adequada para até centenas de jogadores simultâneos.
+- **Tipo**: **Array** → `Array of Player State Entry`
+- **Como criar**:
   1. No dropdown "Tipo de Variável", selecione "Array"
-  2. No campo "Inner" (elemento do array), selecione `Player State Entry` (esta estrutura foi criada automaticamente no C++ e aparece no Blueprint após recompilar)
-- Padrão: deixe vazio (Array vazio)
-- **Função Helper**: Use `GetOrCreatePlayerState` (categoria "Umbra|Net|WS|State") para buscar ou criar uma entry no array
+  2. No campo "Inner" (ou "Element Type"), selecione `Player State Entry` 
+     - **Nota**: Esta estrutura aparece automaticamente no Blueprint após recompilar o projeto C++
+     - Se não aparecer, recompile o projeto: Editor → Tools → Refresh Visual Studio Project Files → Build
+  3. Padrão: deixe vazio (Array vazio)
+- **Funções Helper disponíveis** (categoria "Umbra|Net|WS|State"):
+  - `FindPlayerStateIndex(StatesArray, PlayerId)` → retorna índice ou -1
+  - `GetOrCreatePlayerState(StatesArray, PlayerId)` → busca ou cria automaticamente
+  - `UpdatePlayerStateBuffer(Entry, Location, Yaw, TimestampMs)` → atualiza buffer com rotação de estados
 
-**g) `RemoteActors` (alternativa usando Array de estruturas)**
-- Tipo: **Array** → `Array of Remote Actor Entry`
-- Mas primeiro, crie uma estrutura simples no Content Browser:
-  - Nome: `RemoteActorEntry`
-  - Variáveis:
-    - `PlayerId` (Integer)
-    - `ActorRef` (Actor Reference)
-- Ou, mais simples ainda, use um Array de Actor References diretamente e mantenha um Array paralelo de PlayerIds:
-  - `RemoteActorIds` (Array of Integer)
-  - `RemoteActors` (Array of Actor Reference)
-- Use `Find Item in Array` para buscar por PlayerId
+**g) `RemoteActors` (SOLUÇÃO: Array paralelo - mais simples)**
+- **Recomendação**: Use dois Arrays paralelos (mais simples que criar estrutura):
+  - `RemoteActorIds` (Array of Integer) - armazena os player_ids na mesma ordem
+  - `RemoteActors` (Array of Actor Reference) - armazena as referências dos actors na mesma ordem
+- **Por que Arrays paralelos?**
+  - Mais simples que criar uma estrutura custom no Content Browser
+  - Fácil de usar com `Find Item in Array` para buscar por PlayerId
+  - Manter sincronização: sempre adicionar/remover em ambos os Arrays ao mesmo tempo
+- **Alternativa (se preferir estrutura)**:
+  - Crie uma estrutura no Content Browser: `RemoteActorEntry`
+  - Variáveis: `PlayerId` (Integer), `ActorRef` (Actor Reference)
+  - Tipo da variável: Array of RemoteActorEntry
 
 **h) `SendTimerHandle`**
 - Tipo: `Timer Handle`
