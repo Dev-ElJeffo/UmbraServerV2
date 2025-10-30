@@ -127,21 +127,27 @@ Agora, no `BP_NetMovementClient`:
 - Padrão: `120.0`
 - Instance Editable: `true`
 
-**f) `RemoteStates` (IMPORTANTE - deve ser um Map!)**
-- Tipo: **Map** (`Integer → PlayerStateBuffer`)
-- Para criar um Map:
-  1. Ao criar a variável, no dropdown "Tipo de Variável", procure por "Map"
-  2. Selecione `Map`
-  3. No campo "Chave" (Key): `Integer`
-  4. No campo "Valor" (Value): `PlayerStateBuffer` (a estrutura que criamos)
-- Padrão: deixe vazio (Map vazio)
-- Esta variável mapeia `player_id (int) → PlayerStateBuffer` para cada jogador remoto
+**f) `RemoteStates` (ALTERNATIVA: usar Array ao invés de Map)**
+- **Problema**: Map pode não estar disponível no dropdown de tipos.
+- **Solução**: Usar **Array** + estrutura `PlayerStateEntry` (já criada no código C++).
+- Tipo: **Array** → `Array of Player State Entry`
+- Como criar:
+  1. No dropdown "Tipo de Variável", selecione "Array"
+  2. No campo "Inner" (elemento do array), selecione `Player State Entry` (esta estrutura foi criada automaticamente no C++ e aparece no Blueprint após recompilar)
+- Padrão: deixe vazio (Array vazio)
+- **Função Helper**: Use `GetOrCreatePlayerState` (categoria "Umbra|Net|WS|State") para buscar ou criar uma entry no array
 
-**g) `RemoteActors` (mapa para armazenar referências dos Actors remotos)**
-- Tipo: **Map** (`Integer → Actor Reference`)
-- Key: `Integer`
-- Value: `Actor Reference`
-- Este mapa armazena referências aos pawns/actors de outros jogadores para atualizar sua posição
+**g) `RemoteActors` (alternativa usando Array de estruturas)**
+- Tipo: **Array** → `Array of Remote Actor Entry`
+- Mas primeiro, crie uma estrutura simples no Content Browser:
+  - Nome: `RemoteActorEntry`
+  - Variáveis:
+    - `PlayerId` (Integer)
+    - `ActorRef` (Actor Reference)
+- Ou, mais simples ainda, use um Array de Actor References diretamente e mantenha um Array paralelo de PlayerIds:
+  - `RemoteActorIds` (Array of Integer)
+  - `RemoteActors` (Array of Actor Reference)
+- Use `Find Item in Array` para buscar por PlayerId
 
 **h) `SendTimerHandle`**
 - Tipo: `Timer Handle`
@@ -288,42 +294,37 @@ Esta função é chamada automaticamente quando o servidor envia dados binários
 - `OutPlayerId` → comparar (`==`) com `LocalPlayerId` (variável)
 - Se `==`, faça `Return` (não precisamos atualizar nosso próprio estado)
 
-**5) Obter ou Criar Entry no Map `RemoteStates`**
-- `Get RemoteStates` → `Find in Map` (Key: `OutPlayerId`)
-- Se `Find in Map` retorna `true` (found):
-  - Use o `Value` retornado (tipo `PlayerStateBuffer`)
-  - Continue no passo 6
-- Se `Find in Map` retorna `false` (não encontrado):
-  - Crie uma nova estrutura `PlayerStateBuffer` (use `Make PlayerStateBuffer`)
-  - Set todos os valores iniciais:
-    - `StateA_Location` = `OutLocation`
-    - `StateA_Yaw` = `OutYawDegrees`
-    - `StateA_TimestampMs` = `OutTimestampMs`
-    - `HasStateA` = `true`
-    - `HasStateB` = `false`
-  - `Add to Map` no `RemoteStates` (Key: `OutPlayerId`, Value: a estrutura criada)
-  - **Return** (não precisa fazer interpolação ainda)
+**5) Obter ou Criar Entry no Array `RemoteStates` (USANDO FUNÇÃO HELPER)**
+- Use o nó `GetOrCreatePlayerState` (categoria "Umbra|Net|WS|State")
+- Inputs:
+  - `StatesArray`: `Get RemoteStates` (Array of Player State Entry)
+  - `PlayerId`: `OutPlayerId`
+- Output:
+  - `Return Value`: `Player State Entry` (a estrutura retornada)
+- **IMPORTANTE**: Esta função modifica o Array automaticamente se criar um novo, mas você precisa salvar de volta:
+  - `Get RemoteStates` → `Set Element` (Index: use `FindPlayerStateIndex` se quiser, mas a função já adicionou se não existia)
+- **MAIS SIMPLES**: Use diretamente `UpdatePlayerStateBuffer` no passo 6, que já faz tudo automaticamente
 
-**6) Atualizar o Buffer (rotação de estados)**
-- Pegue o `Value` retornado pelo `Find in Map` (ou o que você criou)
-- Verifique `HasStateB` na estrutura:
-  - Se `false` (só tem StateA):
-    - `Set StateB_Location` = `OutLocation`
-    - `Set StateB_Yaw` = `OutYawDegrees`
-    - `Set StateB_TimestampMs` = `OutTimestampMs`
-    - `Set HasStateB` = `true`
-  - Se `true` (tem ambos A e B):
-    - **Mover StateB para StateA:**
-      - `Set StateA_Location` = `StateB_Location` (do buffer atual)
-      - `Set StateA_Yaw` = `StateB_Yaw`
-      - `Set StateA_TimestampMs` = `StateB_TimestampMs`
-      - `Set HasStateA` = `true`
-    - **Salvar novo estado em StateB:**
-      - `Set StateB_Location` = `OutLocation`
-      - `Set StateB_Yaw` = `OutYawDegrees`
-      - `Set StateB_TimestampMs` = `OutTimestampMs`
-      - `Set HasStateB` = `true`
-- `Add to Map` (ou `Set Map Elem`) no `RemoteStates` com a estrutura atualizada
+**6) Atualizar o Buffer (USANDO FUNÇÃO HELPER - MAIS FÁCIL)**
+- Use o nó `UpdatePlayerStateBuffer` (categoria "Umbra|Net|WS|State")
+- Inputs:
+  - `Entry`: `Get RemoteStates` → `Get Element` usando o index retornado por `FindPlayerStateIndex(RemoteStates, OutPlayerId)`, OU simplesmente:
+  - `Entry`: a estrutura retornada pelo `GetOrCreatePlayerState` do passo 5
+  - `NewLocation`: `OutLocation`
+  - `NewYaw`: `OutYawDegrees`
+  - `NewTimestampMs`: `OutTimestampMs`
+- Esta função já faz toda a lógica de rotação automaticamente (StateA → StateB → novo em B)
+- **ATUALIZAR O ARRAY**: Após chamar `UpdatePlayerStateBuffer`, você precisa salvar de volta no Array:
+  - `Get RemoteStates` → `Set Element`
+  - Index: use `FindPlayerStateIndex(RemoteStates, OutPlayerId)` para encontrar o índice
+  - Element: a estrutura atualizada (do output do `UpdatePlayerStateBuffer`)
+
+**Alternativa Simplificada (recomendada)**:
+- Combine os passos 5 e 6 em uma única operação:
+  1. `GetOrCreatePlayerState(RemoteStates, OutPlayerId)` → `Entry`
+  2. `UpdatePlayerStateBuffer(Entry, OutLocation, OutYawDegrees, OutTimestampMs)` → `Entry` (modificado)
+  3. Encontre o index: `FindPlayerStateIndex(RemoteStates, OutPlayerId)` → `Index`
+  4. `Set Element` no `RemoteStates` (Index: `Index`, Element: `Entry`)
 
 **7) Criar/Obter Actor Remoto (opcional mas recomendado)**
 - `Get RemoteActors` → `Find in Map` (Key: `OutPlayerId`)
@@ -340,43 +341,48 @@ No evento `Event Tick`, adicione a lógica de interpolação para cada jogador r
 
 **Ordem dos nós no `Event Tick`**:
 
-**1) Iterar sobre o Map `RemoteStates`**
+**1) Iterar sobre o Array `RemoteStates`**
 - `Get RemoteStates` → `For Each Loop` (ou `For Each Loop (Break)`)
 - O loop fornece:
-  - `Key` (Integer) - o `player_id`
-  - `Value` (`PlayerStateBuffer`) - o buffer de estados
+  - `Array Element` (`PlayerStateEntry`) - a estrutura com o buffer de estados e o PlayerId dentro dela
+- **Nota**: A estrutura `PlayerStateEntry` já contém o `PlayerId` como primeiro campo, então você pode acessar `ArrayElement.PlayerId`
 
 **2) Verificar se tem dados suficientes para interpolação**
-- Do `Value` (buffer), verifique `HasStateA` e `HasStateB`
+- Do `Array Element` (PlayerStateEntry), verifique `HasStateA` e `HasStateB`
 - Se ambos são `true`, continue (temos dois estados para interpolar)
 - Se não, continue para o próximo item do loop (`Continue Loop`)
 
 **3) Calcular Alpha (fator de interpolação)**
 - Obtenha o tempo atual em ms: `Get Game Time in Seconds` × `1000` → converta para Integer
-- Delta entre estados: `StateB_TimestampMs` - `StateA_TimestampMs`
-- Tempo decorrido desde StateA: `(Tempo Atual Ms) - (StateA_TimestampMs)`
+- Delta entre estados: `ArrayElement.StateB_TimestampMs` - `ArrayElement.StateA_TimestampMs`
+- Tempo decorrido desde StateA: `(Tempo Atual Ms) - (ArrayElement.StateA_TimestampMs)`
 - Alpha: `(Tempo Decorrido) / (Delta entre Estados)`
 - Clampe Alpha entre `0.0` e `1.0` (use `Clamp (Float)`)
 
 **4) Interpolar Posição**
 - `Lerp (Vector)`:
-  - `A` = `StateA_Location`
-  - `B` = `StateB_Location`
+  - `A` = `ArrayElement.StateA_Location`
+  - `B` = `ArrayElement.StateB_Location`
   - `Alpha` = o valor calculado acima
 - Output: `InterpolatedLocation` (Vector)
 
 **5) Interpolar Yaw**
 - `Lerp (Float)`:
-  - `A` = `StateA_Yaw`
-  - `B` = `StateB_Yaw`
+  - `A` = `ArrayElement.StateA_Yaw`
+  - `B` = `ArrayElement.StateB_Yaw`
   - `Alpha` = o mesmo alpha
 - Output: `InterpolatedYaw` (Float)
 - **Nota**: Se os yaws estão em diferentes direções (ex.: -179° e 179°), você pode precisar de uma lógica especial para "encurtar o caminho" (shortest path). Por enquanto, use o Lerp simples.
 
-**6) Obter o Actor Remoto**
-- `Get RemoteActors` → `Find in Map` (Key: `Key` do loop - o player_id)
-- Se não encontrado (`Find` retorna false), continue para o próximo item (ainda não spawnou o actor)
-- Se encontrado, pegue o `Value` (Actor Reference)
+**6) Obter o Actor Remoto (usando Array)**
+- **Opção A**: Se você está usando Array paralelo (`RemoteActorIds` + `RemoteActors`):
+  - `Find Item in Array` no `RemoteActorIds` (Item: `ArrayElement.PlayerId`) → `Index`
+  - Se `Index >= 0`:
+    - `Get Element` no `RemoteActors` (Index: `Index`) → `ActorRef`
+  - Se `Index < 0`, continue para o próximo item (não spawnou o actor ainda)
+- **Opção B**: Se você está usando Array de estruturas `RemoteActorEntry`:
+  - `For Each Loop` no `RemoteActors` → procure um elemento onde `PlayerId == ArrayElement.PlayerId`
+  - Se encontrado, use o `ActorRef` dessa estrutura
 
 **7) Aplicar Transformação**
 - Do Actor obtido, chame `SetActorLocation` (Target: o Actor, New Location: `InterpolatedLocation`)
