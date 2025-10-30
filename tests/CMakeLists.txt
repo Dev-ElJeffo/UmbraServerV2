@@ -70,6 +70,16 @@ target_link_libraries(test_playerdao
   Threads::Threads
 )
 
+# Teste de Integração AuthServer + PlayerDAO - Fase 2
+add_executable(test_auth_playerdao ../scripts_main/test_auth_playerdao_integration.cpp)
+target_link_libraries(test_auth_playerdao
+  umbra_core
+  umbra_auth
+  umbra_database
+  OpenSSL::Crypto
+  Threads::Threads
+)
+
 # Add tests to CTest
 add_test(NAME AuthTests COMMAND test_auth)
 add_test(NAME DatabaseTests COMMAND test_db)
@@ -77,4 +87,5 @@ add_test(NAME ZoneTests COMMAND test_zone)
 add_test(NAME NetworkTests COMMAND test_network)
 add_test(NAME Fase1Tests COMMAND test_fase1)
 add_test(NAME PlayerDAOTests COMMAND test_playerdao)
+add_test(NAME AuthPlayerDAOIntegrationTests COMMAND test_auth_playerdao)
 

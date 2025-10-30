@@ -91,8 +91,8 @@ std::vector<Player> PlayerDAO::getPlayersByAccountId(uint64_t accountId) {
   auto results = connector_->executeQuery(query.str());
   
   for (const auto& row : results) {
-    if (row.size() < 22) {
-      Core::Logger::getInstance().warn("Invalid player row data (expected 22 fields, got {})", row.size());
+    if (row.size() < 21) {
+      Core::Logger::getInstance().warn("Invalid player row data (expected 21 fields, got {})", row.size());
       continue;
     }
     
@@ -131,8 +131,9 @@ std::vector<Player> PlayerDAO::getPlayersByAccountId(uint64_t accountId) {
       player.vitality = static_cast<uint32_t>(std::stoul(row[18]));
       
       // Timestamps - simplificado por enquanto (não fazemos parsing completo)
-      // player.createdAt e player.lastPlayedAt podem ser implementados depois
+      // player.createdAt (row[19]) e player.lastPlayedAt (row[20]) podem ser implementados depois
       // se necessário para funcionalidades específicas
+      // Nota: last_played_at pode ser NULL, então row[20] pode estar vazio
       
       players.push_back(player);
     } catch (const std::exception& e) {
@@ -238,7 +239,7 @@ bool PlayerDAO::updateLastPlayed(uint64_t id) {
 std::optional<Player> PlayerDAO::parsePlayerFromQuery(const std::string& query) {
   auto results = connector_->executeQuery(query);
   
-  if (results.empty() || results[0].size() < 22) {
+  if (results.empty() || results[0].size() < 21) {
     return std::nullopt;
   }
   
