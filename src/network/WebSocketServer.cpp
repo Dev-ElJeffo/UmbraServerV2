@@ -154,6 +154,21 @@ void WebSocketServer::broadcastText(const std::string& message) {
   }
 }
 
+void WebSocketServer::broadcastBinary(const std::vector<uint8_t>& data) {
+  std::lock_guard<std::mutex> lock(clientsMutex_);
+  
+  WebSocketFrame frame;
+  frame.opcode = WebSocketFrame::OpCode::BINARY;
+  frame.fin = true;
+  frame.payload = data;
+  
+  for (auto& [id, client] : clients_) {
+    if (client.handshakeComplete) {
+      sendFrame(client.socket, frame);
+    }
+  }
+}
+
 void WebSocketServer::disconnect(uint32_t clientId) {
   std::lock_guard<std::mutex> lock(clientsMutex_);
   

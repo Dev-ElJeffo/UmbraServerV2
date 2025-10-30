@@ -4,6 +4,7 @@
 #include "EntitySystem.hpp"
 #include <memory>
 #include <string>
+#include "zone/MovementServer.hpp"
 
 namespace Umbra {
 namespace Zone {
@@ -33,6 +34,8 @@ class ZoneServer {
   Config config_;
   std::unique_ptr<PlayerManager> playerManager_;
   std::unique_ptr<EntitySystem> entitySystem_;
+  std::unique_ptr<MovementServer> movementServer_;
+  float snapshotAccumulator_ = 0.0f;
   bool running_;
 };
 

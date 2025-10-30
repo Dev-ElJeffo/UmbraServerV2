@@ -103,6 +103,11 @@ class WebSocketServer {
    * @param message Mensagem a enviar
    */
   void broadcastText(const std::string& message);
+  /**
+   * @brief Broadcast de dados binários para todos os clientes
+   * @param data Bytes a enviar
+   */
+  void broadcastBinary(const std::vector<uint8_t>& data);
   
   /**
    * @brief Desconecta cliente
