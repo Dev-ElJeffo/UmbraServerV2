@@ -642,14 +642,151 @@ Set Element
 
 **ERRO COMUM**: Esquecer o `Set Element` - isso fará com que os estados nunca sejam atualizados no Array!
 
-**7) Criar/Obter Actor Remoto (opcional mas recomendado)**
-- `Get RemoteActors` → `Find in Map` (Key: `OutPlayerId`)
-- Se não encontrado:
-  - Spawn um actor/pawn remoto (ex.: uma cópia do seu player pawn, mas sem input)
-  - `Add to Map` no `RemoteActors` (Key: `OutPlayerId`, Value: o actor spawnado)
-- Se encontrado, use o actor existente
+**7) Criar/Obter Actor Remoto (opcional mas recomendado) - PASSO A PASSO DETALHADO**
 
-**Nota**: A interpolação real será feita no `Tick`, não aqui. Aqui apenas atualizamos o buffer de estados.
+Este passo cria o Actor remoto quando recebemos o primeiro StateUpdate de um novo jogador. É recomendado fazer isso aqui em vez de no `Tick` para manter o `Tick` mais leve.
+
+**IMPORTANTE**: Você precisa ter criado os Arrays `RemoteActorIds` e `RemoteActors` conforme a seção 3.3.
+
+---
+
+**PASSO 7.1: Verificar se o Actor já existe**
+
+- **Do pin de execução após `Set Element` (passo 6)**, conecte ao pin de execução de um `Find Item in Array`
+- **Criar `Find Item in Array`**:
+  - Botão direito → digite "Find Item in Array"
+  - Selecione `Find Item in Array` (categoria "Array")
+- **Inputs:**
+  - `Array`: `Get RemoteActorIds` → `Return Value` (Array of Integer)
+  - `Item`: `OutPlayerId` (Integer, do `ParseStateUpdateFrame` - use o mesmo Knot do passo 5 se tiver)
+- **Output:**
+  - `Index`: `FoundIndex` (Integer) - índice encontrado, ou `-1` se não encontrado
+- **Criar `Branch`**:
+  - `Greater or Equal (FoundIndex, 0)` → conecte ao `Condition` do `Branch`
+  - Pin "True": Actor já existe, pode pular este passo ou fazer validações
+  - Pin "False": Actor não existe, precisa spawnar (continue para passo 7.2)
+
+---
+
+**PASSO 7.2: Spawn do Actor Remoto (apenas se não encontrado)**
+
+- **Do pin "False" do `Branch`**, conecte ao pin de execução do `Spawn Actor from Class`
+- **Criar `Spawn Actor from Class`**:
+  - Botão direito → digite "Spawn Actor" ou "Spawn"
+  - Selecione `Spawn Actor from Class` (categoria "Actor")
+- **Inputs do `Spawn Actor from Class`:**
+  - `Class`: **Selecione a classe do Actor remoto**
+    - **Opções**:
+      1. Se você tem uma classe Blueprint específica para players remotos (recomendado):
+         - Arraste a classe Blueprint no gráfico, OU
+         - Clique no dropdown `Class` e procure pelo nome da classe
+      2. Se você quer usar a mesma classe do seu Player Pawn:
+         - Procure a classe do seu Player Pawn (ex.: `BP_Player` ou similar)
+      3. Se você quer uma classe simples:
+         - Pode usar `Actor` genérico ou criar uma classe Blueprint específica
+    - **DICA**: Crie uma classe Blueprint baseada no seu Player Pawn, mas remova os componentes de Input para economizar processamento
+  - `Transform`: **Criar `Make Transform`**:
+    - Botão direito → digite "Make Transform"
+    - Inputs:
+      - `Location`: Use `OutLocation` (Vector, do `ParseStateUpdateFrame`)
+        - Isso spawna o Actor na posição recebida do servidor
+      - `Rotation`: **Criar `Make Rotator`**:
+        - Botão direito → digite "Make Rotator"
+        - Inputs:
+          - `Roll`: `0.0`
+          - `Pitch`: `0.0`
+          - `Yaw`: `OutYawDegrees` (Float, do `ParseStateUpdateFrame`)
+        - Output: `NewRotation` (Rotator)
+        - Conecte ao `Rotation` do `Make Transform`
+      - `Scale`: `1.0, 1.0, 1.0` (constante Vector) ou use `Make Vector` com `X=1, Y=1, Z=1`
+  - `World Context Object`: Deixe vazio ou conecte `Get World` (usa o contexto atual)
+  - `No Collision Fail`: deixe `false` (ou `true` se quiser spawnar mesmo com colisão)
+- **Output:**
+  - `Return Value`: `NewActorRef` (Actor Reference) - o Actor recém-spawnado
+  - **GUARDE ESTE RESULTADO** - você adicionará aos Arrays
+
+---
+
+**PASSO 7.3: Adicionar PlayerId ao Array `RemoteActorIds`**
+
+- **Criar `Add Item to Array`**:
+  - Botão direito → digite "Add Item to Array" ou "Add"
+  - Selecione `Add Item to Array` (categoria "Array")
+- **Inputs:**
+  - `Array`: `Get RemoteActorIds` → `Return Value` (Array of Integer)
+  - `Item`: `OutPlayerId` (Integer, do `ParseStateUpdateFrame`)
+    - Use o mesmo Knot do passo 5 se tiver, ou conecte diretamente
+- **Output:**
+  - `Return Value`: O Array modificado (com o novo PlayerId adicionado)
+  - **NOTA**: O `Add Item to Array` já modifica o Array automaticamente se for `UPARAM(ref)`
+  - Se necessário, conecte este `Return Value` a `Set RemoteActorIds` para garantir
+
+---
+
+**PASSO 7.4: Adicionar Actor ao Array `RemoteActors`**
+
+- **IMPORTANTE**: Faça isso **APÓS** adicionar ao `RemoteActorIds` para manter sincronização!
+- **Criar `Add Item to Array`**:
+  - `Array`: `Get RemoteActors` → `Return Value` (Array of Actor/Object Reference)
+  - `Item`: `NewActorRef` (Actor Reference, do passo 7.2)
+- **Output:**
+  - `Return Value`: O Array modificado (com o novo Actor adicionado)
+- **CRÍTICO**: Os Arrays agora estão sincronizados:
+  - Se `RemoteActorIds[N] = OutPlayerId`, então `RemoteActors[N] = NewActorRef`
+
+---
+
+**Fluxo Visual Completo do Passo 7:**
+
+```
+[Após Set Element do passo 6]
+    ↓
+Find Item in Array (RemoteActorIds, OutPlayerId) → FoundIndex
+    ↓
+Branch: FoundIndex >= 0?
+    ↓
+    ├─ True: Actor já existe → [Fim - pode pular ou fazer validações]
+    │
+    └─ False: Actor não existe
+        ↓
+        Make Rotator (Roll: 0, Pitch: 0, Yaw: OutYawDegrees) → NewRotation
+        ↓
+        Make Transform (Location: OutLocation, Rotation: NewRotation, Scale: 1,1,1)
+        ↓
+        Spawn Actor from Class
+            - Class: [sua classe de Actor remoto]
+            - Transform: [do Make Transform acima]
+        ↓ (NewActorRef)
+        Add Item to Array (RemoteActorIds, OutPlayerId)
+        ↓
+        Add Item to Array (RemoteActors, NewActorRef)
+        ↓
+        [Arrays sincronizados - fim do passo 7]
+```
+
+---
+
+**NOTAS IMPORTANTES:**
+
+1. **Ordem de adicionar aos Arrays**:
+   - **SEMPRE** adicione primeiro em `RemoteActorIds`, depois em `RemoteActors`
+   - Isso garante que o índice seja o mesmo em ambos os Arrays
+
+2. **Spawn na posição correta**:
+   - Use `OutLocation` e `OutYawDegrees` do `ParseStateUpdateFrame` para spawnar o Actor na posição recebida
+   - O Actor aparecerá imediatamente na posição correta (sem interpolação inicial)
+
+3. **Classe do Actor remoto**:
+   - **Recomendação**: Crie uma classe Blueprint baseada no seu Player Pawn
+   - Remova componentes de Input (não precisa de input para Actors remotos)
+   - Mantenha componentes visuais (Mesh, etc.)
+   - Isso economiza processamento
+
+4. **Validação opcional**:
+   - Após spawnar, você pode fazer verificações adicionais (ex.: verificar se o Actor foi spawnado com sucesso)
+   - Use `Is Valid` no `NewActorRef` antes de adicionar ao Array
+
+**Nota**: A interpolação real será feita no `Tick`, não aqui. Aqui apenas criamos o Actor quando recebemos o primeiro StateUpdate de um novo jogador.
 
 ### 3.8. Tick (no `BP_NetMovementClient`) - PASSO A PASSO DETALHADO
 
@@ -766,30 +903,232 @@ No evento `Event Tick`, adicione a lógica de interpolação para cada jogador r
 - Output: `InterpolatedYaw` (Float)
 - **NOTA**: Se os yaws estão em direções opostas (ex.: -179° e 179°), o Lerp pode dar um caminho longo. Por enquanto, use o Lerp simples. Futuramente, você pode implementar "shortest path" (lerp entre -179° e 179° deve resultar em 180°, não 179°).
 
-**6) Obter o Actor Remoto - PASSO A PASSO**
+**6) Obter o Actor Remoto - PASSO A PASSO DETALHADO**
 
-**IMPORTANTE**: Você precisa ter criado os Arrays `RemoteActorIds` e `RemoteActors` conforme a seção 3.3.
+Este passo busca o Actor remoto correspondente ao `PlayerId` atual do loop, usando dois Arrays paralelos para manter a sincronização.
 
-- **Buscar o índice no Array de IDs:**
-  - `Get RemoteActorIds` → `Find Item in Array` (categoria "Array")
-  - Input `Array`: `Get RemoteActorIds` → `Return Value` (Array of Integer)
-  - Input `Item`: `ArrayElement.PlayerId` (Integer) - o PlayerId da estrutura atual do loop
-  - Output `Index`: `FoundIndex` (Integer) - índice encontrado, ou `-1` se não encontrado
-- **Verificar se encontrou:**
-  - `Branch` (condicional)
-  - Input `Condition`: Compare `FoundIndex >= 0`
-    - Procure `Greater or Equal (Integer)` ou `>=`
-    - Input `A`: `FoundIndex`
-    - Input `B`: `0` (constante Integer)
-    - Output: conecte ao `Condition` do `Branch`
-- **Se encontrado (Branch True):**
-  - `Get RemoteActors` → `Get Element` (categoria "Array")
-  - Input `Array`: `Get RemoteActors` → `Return Value` (Array of Actor/Object Reference)
-  - Input `Index`: `FoundIndex` (do passo anterior)
-  - Output `Element`: `RemoteActorRef` (Actor Reference) - **GUARDE ESTE RESULTADO**
-- **Se não encontrado (Branch False):**
-  - **OPÇÃO 1**: Conecte ao `Continue Loop` (pula para o próximo item do loop)
-  - **OPÇÃO 2**: Spawn um novo Actor remoto aqui (veja nota no final)
+**PRÉ-REQUISITO: Criar os Arrays (se ainda não criou)**
+
+Antes de usar, você precisa ter criado as variáveis conforme a seção 3.3:
+- `RemoteActorIds`: Array of Integer (guarda os PlayerIds)
+- `RemoteActors`: Array of Actor (guarda as referências dos Actors)
+
+**IMPORTANTE**: Esses Arrays devem estar **sincronizados** - o mesmo índice em ambos representa o mesmo jogador:
+- `RemoteActorIds[0]` = PlayerId do jogador
+- `RemoteActors[0]` = Actor desse jogador
+
+---
+
+**PASSO 6.1: Obter o PlayerId do Array Element atual**
+
+- **O que fazer**: Do `Array Element` (Player State Entry) do `For Each Loop`, você precisa extrair o `PlayerId`
+- **Como fazer**:
+  - Arraste o `Array Element` no gráfico ou clique nele
+  - Procure o campo `PlayerId` ou expanda a estrutura
+  - Conecte `ArrayElement.PlayerId` (Integer) - **GUARDE ESTA CONEXÃO** (você usará várias vezes)
+- **Dica**: Se precisar usar em vários lugares, crie um `Knot`:
+  - `ArrayElement.PlayerId` → `Knot.InputPin`
+  - Use `Knot.OutputPin` nas próximas conexões
+
+---
+
+**PASSO 6.2: Buscar o índice no Array `RemoteActorIds`**
+
+- **O que fazer**: Procurar o `PlayerId` no Array de IDs para encontrar o índice correspondente
+- **Criar o nó `Find Item in Array`**:
+  - Botão direito no gráfico → digite "Find Item in Array" ou "Find"
+  - Selecione `Find Item in Array` (categoria "Array")
+  - Este nó procura um item no Array e retorna o índice onde está
+- **Inputs do `Find Item in Array`:**
+  - `Array`: Conecte `Get RemoteActorIds` → `Return Value` (Array of Integer)
+    - **Como obter**: Arraste a variável `RemoteActorIds` no gráfico → `Get RemoteActorIds`
+    - Conecte o `Return Value` ao input `Array`
+  - `Item`: Conecte o `PlayerId` (Integer) do passo 6.1
+    - Se você criou um Knot, use `Knot.OutputPin`
+    - Se não, conecte diretamente `ArrayElement.PlayerId`
+- **Output do `Find Item in Array`:**
+  - `Index`: `FoundIndex` (Integer)
+    - Se encontrado: retorna o índice (0, 1, 2, ...)
+    - Se não encontrado: retorna `-1`
+- **GUARDE ESTE RESULTADO** (`FoundIndex`) - você usará no próximo passo
+
+---
+
+**PASSO 6.3: Verificar se o índice foi encontrado**
+
+- **O que fazer**: Verificar se `FoundIndex >= 0` para saber se o Actor existe
+- **Criar comparação `Greater or Equal`**:
+  - Botão direito → digite "Greater or Equal" ou `>=`
+  - Selecione `Greater or Equal (Integer)` (categoria "Math" → "Integer")
+- **Inputs:**
+  - `A`: Conecte o `FoundIndex` (Integer) do passo 6.2
+  - `B`: Digite `0` (constante Integer)
+- **Output:**
+  - `Return Value` (Boolean): `true` se `FoundIndex >= 0`, `false` se `FoundIndex == -1`
+- **Criar `Branch`**:
+  - Botão direito → digite "Branch"
+  - Selecione `Branch` (categoria "Flow Control")
+- **Conectar:**
+  - Input `Condition`: Conecte o `Return Value` (Boolean) da comparação acima
+  - Pin "True": será usado se o Actor foi encontrado
+  - Pin "False": será usado se o Actor não foi encontrado
+
+---
+
+**PASSO 6.4A: Se encontrado (Branch True) - Obter o Actor**
+
+- **Do pin "True" do `Branch`**, conecte ao pin de execução de um `Get Element`
+- **Criar `Get Element`**:
+  - Botão direito → digite "Get Element" ou "Array Get"
+  - Selecione `Get Element` (categoria "Array")
+  - Ou: Arraste `Get RemoteActors` no gráfico → procure "Get Element"
+- **Inputs do `Get Element`:**
+  - `Array`: Conecte `Get RemoteActors` → `Return Value` (Array of Actor/Object Reference)
+    - **Como obter**: Arraste a variável `RemoteActors` no gráfico → `Get RemoteActors`
+    - Conecte o `Return Value` ao input `Array` do `Get Element`
+  - `Index`: Conecte o `FoundIndex` (Integer) do passo 6.2
+    - **IMPORTANTE**: Use o mesmo `FoundIndex` usado na busca!
+- **Output:**
+  - `Element`: `RemoteActorRef` (Actor Reference) - **ESTE É O ACTOR REMOTO**
+  - **GUARDE ESTE RESULTADO** - será usado no passo 7
+- **Pin de execução**: Conecte ao passo 7 (Aplicar Transformação)
+
+---
+
+**PASSO 6.4B: Se não encontrado (Branch False) - Decidir o que fazer**
+
+Você tem duas opções quando o Actor não é encontrado (`FoundIndex == -1`):
+
+### OPÇÃO 1: Pular para o próximo item (recomendado se Actors são spawnados em outro lugar)
+
+- **Criar `Continue Loop`**:
+  - Botão direito → digite "Continue Loop"
+  - Selecione `Continue Loop` (categoria "Flow Control")
+  - **ATENÇÃO**: O `Continue Loop` só funciona dentro de um loop (`For Each Loop`)
+- **Conectar:**
+  - Do pin "False" do `Branch`, conecte ao pin de execução do `Continue Loop`
+  - Isso fará o loop pular para o próximo elemento do `RemoteStates`
+  - **NOTA**: O Actor será spawnado automaticamente em outro momento (ex.: quando receber o primeiro StateUpdate)
+
+### OPÇÃO 2: Spawn um novo Actor remoto aqui (se você quer spawnar no Tick)
+
+**Se você escolher esta opção, faça:**
+
+**6.4B.1) Spawn do Actor:**
+- **Criar `Spawn Actor from Class`**:
+  - Botão direito → digite "Spawn Actor" ou "Spawn"
+  - Selecione `Spawn Actor from Class` (categoria "Actor")
+- **Inputs:**
+  - `Class`: Selecione a classe do Actor remoto (ex.: seu Player Pawn class ou uma classe específica para players remotos)
+    - **NOTA**: Se você tem uma classe Blueprint para players remotos, arraste ela no gráfico ou procure pelo nome
+  - `Transform`: Use `Make Transform`
+    - `Location`: Você pode usar uma posição padrão (ex.: `0,0,0`) ou a posição interpolada atual
+    - `Rotation`: Você pode usar `0,0,0` inicialmente
+    - `Scale`: `1,1,1`
+  - `World Context Object`: Conecte `Get World` ou deixe vazio (usa o contexto atual)
+- **Output:**
+  - `Return Value`: `NewActorRef` (Actor Reference) - o Actor recém-spawnado
+
+**6.4B.2) Adicionar ao Array `RemoteActorIds`:**
+- **Criar `Add Item to Array`**:
+  - Botão direito → digite "Add" ou "Add Item"
+  - Selecione `Add Item to Array` (categoria "Array")
+- **Inputs:**
+  - `Array`: Conecte `Get RemoteActorIds` → `Return Value`
+  - `Item`: Conecte o `PlayerId` (do passo 6.1)
+- **Output:**
+  - `Return Value`: O novo Array (com o PlayerId adicionado)
+- **IMPORTANTE**: Conecte este `Return Value` de volta a `Set RemoteActorIds` se necessário, OU simplesmente o `Add Item` já modifica o Array automaticamente (se for `UPARAM(ref)`)
+
+**6.4B.3) Adicionar ao Array `RemoteActors`:**
+- **Criar `Add Item to Array`**:
+  - `Array`: Conecte `Get RemoteActors` → `Return Value`
+  - `Item`: Conecte o `NewActorRef` (do passo 6.4B.1)
+- **IMPORTANTE**: Faça isso na **MESMA ORDEM** que adicionou ao `RemoteActorIds`:
+  - Primeiro adicione `PlayerId` ao `RemoteActorIds`
+  - Depois adicione `Actor` ao `RemoteActors`
+  - Isso mantém os Arrays sincronizados (mesmo índice = mesmo jogador)
+
+**6.4B.4) Usar o Actor spawnado:**
+- **Após spawnar e adicionar aos Arrays**, você pode usar o `NewActorRef` diretamente no passo 7
+- Ou pode fazer `Find Item in Array` novamente para obter o índice e usar `Get Element`, mas não é necessário se você já tem `NewActorRef`
+
+**Fluxo visual da OPÇÃO 2 (Spawn):**
+```
+Branch False (não encontrado)
+    ↓
+Spawn Actor from Class
+    ↓ (NewActorRef)
+Add Item to Array (RemoteActorIds, PlayerId)
+    ↓
+Add Item to Array (RemoteActors, NewActorRef)
+    ↓
+[Continue para passo 7 usando NewActorRef]
+```
+
+**RECOMENDAÇÃO**: Use a **OPÇÃO 1** (`Continue Loop`) se você prefere spawnar Actors em outro lugar (ex.: no `OnWSBinaryMessage` quando receber o primeiro StateUpdate). Isso mantém o `Tick` mais leve.
+
+---
+
+**PASSO 6.5: Resumo Visual Completo**
+
+```
+[Do passo 5 - após interpolar Yaw]
+    ↓
+Obter PlayerId: ArrayElement.PlayerId (via Knot se necessário)
+    ↓
+Get RemoteActorIds → Find Item in Array
+    - Array: RemoteActorIds
+    - Item: PlayerId
+    ↓ (FoundIndex: Integer)
+Greater or Equal (FoundIndex, 0) → Branch
+    ↓
+Branch
+    ├─ True (FoundIndex >= 0): Actor existe
+    │   ↓
+    │   Get RemoteActors → Get Element
+    │   - Array: RemoteActors
+    │   - Index: FoundIndex
+    │   ↓ (RemoteActorRef)
+    │   [Continue para passo 7]
+    │
+    └─ False (FoundIndex == -1): Actor não existe
+        ↓
+        [OPÇÃO 1: Continue Loop] → pula para próximo item
+        OU
+        [OPÇÃO 2: Spawn Actor]
+            ↓
+            Spawn Actor from Class → NewActorRef
+            ↓
+            Add Item (RemoteActorIds, PlayerId)
+            ↓
+            Add Item (RemoteActors, NewActorRef)
+            ↓
+            [Continue para passo 7 usando NewActorRef]
+```
+
+---
+
+**NOTAS IMPORTANTES:**
+
+1. **Sincronização dos Arrays**:
+   - **SEMPRE** mantenha `RemoteActorIds` e `RemoteActors` sincronizados
+   - Se adicionar em `RemoteActorIds` no índice `N`, adicione em `RemoteActors` no mesmo índice `N`
+   - Se remover de um Array, remova do outro também no mesmo índice
+
+2. **Performance**:
+   - `Find Item in Array` faz uma busca linear (O(n))
+   - Se você tiver muitos jogadores remotos, considere usar uma estrutura mais eficiente
+   - Para poucos jogadores (< 10), o Array está OK
+
+3. **Validação adicional (opcional)**:
+   - Após obter o Actor com `Get Element`, você pode verificar se ele ainda é válido
+   - Use `Is Valid` antes de usar no passo 7 (veja passo 7.1)
+
+4. **Quando spawnar Actors remotos**:
+   - **Recomendação**: Spawn no `OnWSBinaryMessage` quando receber o primeiro StateUpdate de um novo jogador
+   - Isso evita spawnar Actors para jogadores que podem nunca aparecer
+   - Mantém o `Tick` mais leve
 
 **7) Aplicar Transformação - PASSO A PASSO**
 
