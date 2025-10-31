@@ -367,23 +367,34 @@ Esta seção explica como criar uma classe Blueprint específica para representa
 
 ## PASSO 1: Identificar a Classe Base do Seu Player
 
-**Antes de criar a classe remota, você precisa saber qual é a classe do seu player local:**
+**Para este projeto, a classe base é `UmbraEternumUECharacter`**
 
-1. **Se você já tem um Blueprint de Player:**
-   - Abra o Blueprint do seu player (ex.: `BP_Player` ou similar)
-   - Veja qual é a "Parent Class" (classe pai)
-   - Geralmente será: `Character`, `Pawn`, ou uma classe custom C++
+**Análise da classe C++ `UmbraEternumUECharacter`:**
 
-2. **Se você está usando uma classe C++:**
-   - Veja no código C++ qual classe herda (ex.: `APawn`, `ACharacter`)
-   - Você criará um Blueprint baseado nessa classe
+1. **Classe base**: `ACharacter` (herda de Character do Unreal Engine)
+2. **Localização**: `UmbraEternumUE\Source\UmbraEternumUE\UmbraEternumUECharacter.h/cpp`
+3. **Componentes que possui:**
+   - ✅ `CapsuleComponent` (herdado de Character) - **MANTER**
+   - ✅ `CharacterMovementComponent` (herdado de Character) - **MANTER**
+   - ✅ `SkeletalMeshComponent` (herdado de Character como "Mesh") - **MANTER**
+   - ❌ `CameraBoom` (USpringArmComponent) - **REMOVER** (players remotos não precisam de câmera)
+   - ❌ `FollowCamera` (UCameraComponent) - **REMOVER** (players remotos não precisam de câmera)
+   - ❌ Input Actions (JumpAction, MoveAction, LookAction, MouseLookAction) - **DESABILITAR**
 
-3. **Anote o nome da classe base** - você precisará dela no próximo passo
+4. **Funções BlueprintCallable disponíveis:**
+   - `DoMove(float Right, float Forward)` - pode deixar (não será chamada)
+   - `DoLook(float Yaw, float Pitch)` - pode deixar (não será chamada)
+   - `DoJumpStart()` - pode deixar (não será chamada)
+   - `DoJumpEnd()` - pode deixar (não será chamada)
 
-**Exemplos comuns:**
-- Se seu player é um `Character` → você criará um Blueprint baseado em `Character`
-- Se seu player é um `Pawn` → você criará um Blueprint baseado em `Pawn`
-- Se seu player é uma classe C++ custom (ex.: `AMyCharacter`) → você criará um Blueprint baseado nessa classe
+5. **Configurações importantes:**
+   - `MaxWalkSpeed = 500.f` (pode manter ou ajustar)
+   - `JumpZVelocity = 500.f` (pode manter)
+   - Configurações de movimento físico (podem ser mantidas para colisão)
+
+**CONFIRMAÇÃO**: ✅ A classe `UmbraEternumUECharacter` é **compatível** para criar o Blueprint de player remoto.
+
+**NOTA IMPORTANTE**: A classe é marcada como `abstract` no C++, o que significa que você **DEVE** criar um Blueprint derivado para usá-la. Isso é perfeito para nosso caso!
 
 ---
 
@@ -410,17 +421,27 @@ Esta seção explica como criar uma classe Blueprint específica para representa
 
 Após clicar em "Blueprint Class", aparecerá uma janela **"Pick Parent Class"**:
 
-1. **Procure pela classe base do seu player:**
-   - Se seu player é baseado em `Character` → procure e selecione **"Character"**
-   - Se é baseado em `Pawn` → selecione **"Pawn"**
-   - Se é uma classe C++ custom → procure pelo nome da classe (ex.: "MyCharacter")
+**PARA ESTE PROJETO - SELEÇÃO ESPECÍFICA:**
 
-2. **Se não encontrar a classe C++ custom:**
-   - Certifique-se de que o projeto C++ foi compilado
-   - Feche e reabra a janela "Pick Parent Class"
-   - Ou selecione a classe base mais próxima (ex.: `Character` se sua classe herda de `Character`)
+1. **Na janela "Pick Parent Class", procure por `UmbraEternumUECharacter`:**
+   - **Como encontrar**: Digite "Umbra" ou "UmbraEternumUECharacter" na busca (campo de busca no topo da janela)
+   - **O que você verá**: A classe aparecerá como **"Umbra Eternum UE Character"** ou similar
+   - **Identificação**: Deve mostrar o caminho `UmbraEternumUE / UmbraEternumUECharacter`
 
-3. **Clique em "Select"** ou pressione Enter
+2. **Se não aparecer `UmbraEternumUECharacter`:**
+   - **Verifique se o projeto C++ foi compilado:**
+     - Feche o Editor do Unreal
+     - Compile o projeto (via Visual Studio ou via `Right Click no .uproject → Generate Visual Studio files → Build`)
+     - Reabra o Editor
+   - **Tente novamente**: Abra a janela "Pick Parent Class" novamente
+   - **Alternativa temporária**: Se ainda não aparecer, você pode selecionar **"Character"** como base (mas não terá acesso aos componentes específicos de `UmbraEternumUECharacter`)
+
+3. **Selecionar a classe:**
+   - Clique em **"UmbraEternumUECharacter"** na lista
+   - OU: Selecione e pressione Enter
+   - **IMPORTANTE**: Não selecione "Character" - selecione especificamente "UmbraEternumUECharacter" para ter acesso a todos os componentes e configurações corretas
+
+4. **Clique em "Select"** (botão no canto inferior direito) ou pressione Enter
 
 ### **2.4) Nomear o Blueprint**
 
@@ -451,18 +472,33 @@ Clique na aba **"Components"** (painel esquerdo).
 
 **Componentes a REMOVER (economiza performance):**
 
-1. **Input Components:**
-   - Procure por componentes relacionados a Input
-   - Exemplos comuns:
-     - `EnhancedInputComponent` (se usar Enhanced Input System)
-     - Qualquer componente com "Input" no nome
-   - **Como remover**: Clique com botão direito no componente → **"Delete"** ou pressione `Delete`
+1. **Camera Components (ESPECÍFICO PARA `UmbraEternumUECharacter`):**
+   - **`CameraBoom`** (Spring Arm Component):
+     - Este componente é usado para posicionar a câmera do player local
+     - **Players remotos não precisam de câmera** - não há player controlando a câmera
+     - **Como remover**: 
+       - Na lista de Components (painel esquerdo), selecione **"CameraBoom"**
+       - Clique com botão direito → **"Delete"** ou pressione `Delete`
+       - **Confirme a exclusão** se perguntado
+   
+   - **`FollowCamera`** (Camera Component):
+     - Este componente é a câmera que segue o player local
+     - **Players remotos não precisam de câmera** - eles são apenas objetos visuais no mundo
+     - **Como remover**:
+       - Na lista de Components, selecione **"FollowCamera"**
+       - Clique com botão direito → **"Delete"** ou pressione `Delete`
+       - **Confirme a exclusão** se perguntado
 
-2. **Movement Components (se não precisar de movimento local):**
-   - Se você controla movimento apenas via `SetActorLocation`/`SetActorRotation`, pode remover:
-     - `CharacterMovementComponent` (se não for necessário)
-   - **ATENÇÃO**: Geralmente você DEVE manter o `CharacterMovementComponent` ou `MovementComponent`, pois ele lida com colisão e física
-   - **Recomendação**: Mantenha o Movement Component, mas desabilite Auto Movement
+2. **Input Components:**
+   - **Nota**: Para `UmbraEternumUECharacter`, os Input Actions são variáveis (não componentes), então não aparecem na lista de Components
+   - **Ação necessária**: Não precisa remover nada aqui, mas desabilitaremos o Input no Passo 5 (Aba Graph)
+   
+3. **Movement Components (NÃO REMOVER - IMPORTANTE!):**
+   - **`CharacterMovementComponent`**: **NÃO REMOVER** - este componente é essencial para:
+     - Colisão com o mundo
+     - Física e detecção de colisão
+     - Integração com o sistema de física do Unreal
+   - **Recomendação**: Mantenha o `CharacterMovementComponent`, mas desabilitaremos o movimento automático no próximo passo
 
 **Componentes a MANTER:**
 
@@ -472,17 +508,49 @@ Clique na aba **"Components"** (painel esquerdo).
 ✅ **CharacterMovementComponent** - Para física (mas pode desabilitar Auto Movement)  
 ✅ Componentes visuais (Lights, Particles, etc.) - Se quiser efeitos visuais  
 
-### **3.3) Configurar Movement Component (Se houver)**
+### **3.3) Configurar CharacterMovementComponent (OBRIGATÓRIO)**
 
-Se o Blueprint tem um `CharacterMovementComponent` ou `MovementComponent`:
+O `UmbraEternumUECharacter` possui um `CharacterMovementComponent` (herdado de `ACharacter`). Este componente **DEVE SER MANTIDO**, mas precisa ser configurado corretamente:
 
-1. **Selecione o componente** na lista de Components
-2. No painel **"Details"** (direita), procure por configurações:
-   - **"Auto Movement"**: Desmarque (se existir) - você controlará movimento manualmente
-   - **"Can Ever Affect Navigation"**: Pode desmarcar (players remotos não precisam de pathfinding)
-   - **"Disable Movement"**: Pode marcar se quiser desabilitar movimento físico completamente
+1. **Selecione o componente `CharacterMovementComponent`** na lista de Components:
+   - Procure por **"Character Movement"** ou **"Character Movement Component"** na lista
+   - Clique para selecionar
 
-**Nota**: Como você usa `SetActorLocation` e `SetActorRotation` no Tick, o movimento físico pode não ser necessário. Mas manter o componente geralmente é seguro para colisão.
+2. **No painel "Details" (painel direito), procure e configure as seguintes opções:**
+
+   **a) Desabilitar Movimento Automático (IMPORTANTE):**
+   - **Procure por**: "Movement Settings" ou "Physics"
+   - **"Update Component Tick"**: 
+     - Se aparecer, pode desmarcar (opcional)
+   - **"Can Ever Affect Navigation"**: 
+     - **Desmarque** (players remotos não precisam de pathfinding)
+   
+   **b) Configurar Velocidade (Opcional, mas recomendado):**
+   - **"Max Walk Speed"**: 
+     - **Valor padrão**: `500.0` (do código C++)
+     - **Recomendação**: Pode deixar como está OU aumentar para `1000.0` ou mais (não afeta o movimento manual via `SetActorLocation`)
+   - **"Max Fly Speed"**, **"Max Swim Speed"**: 
+     - Deixe os valores padrão (não afetam movimento terrestre)
+
+   **c) Configurações de Física (Manter padrão):**
+   - **"Gravity Scale"**: Deixe como `1.0` (padrão)
+   - **"Jump Z Velocity"**: Pode deixar `500.0` (do código C++) - não será usado mas não causa problema
+   
+   **d) Configurações de Colisão (VERIFICAR):**
+   - **"Collision Enabled"**: Deve estar como **"Collision Enabled (Query and Physics)"**
+   - Se não estiver, altere para esta opção
+   - **"Collision Responses"**: Mantenha padrão (pode colidir com o mundo)
+
+3. **Configuração Adicional (Opcional):**
+   - **"Orient Rotation to Movement"**: 
+     - **Valor padrão**: `true` (do código C++)
+     - **Para players remotos**: Você controla rotação via `SetActorRotation`, então pode desmarcar
+     - **Recomendação**: Desmarque para evitar conflito com rotação manual
+
+**NOTA CRÍTICA**: 
+- **NÃO remova o `CharacterMovementComponent`** - ele é necessário para colisão com o mundo
+- Mesmo que você use `SetActorLocation` no Tick, o componente ainda gerencia colisão e física
+- Manter o componente garante que o player remoto não atravesse objetos no mundo
 
 ---
 
@@ -492,24 +560,95 @@ Se você quer que o player remoto tenha a mesma aparência do player local:
 
 ### **4.1) Copiar o Mesh do Player Local**
 
-1. **Abra o Blueprint do seu player local** (ex.: `BP_Player`)
-2. Vá na aba **"Components"**
-3. Selecione o componente **Mesh** (geralmente `SkeletalMeshComponent` ou `StaticMeshComponent`)
-4. **Copie as configurações**:
-   - No painel "Details", anote:
-     - **Skeletal Mesh** (qual mesh está usando)
-     - **Anim Blueprint** (se houver)
-     - **Materials** (materiais aplicados)
-     - **Scale**, **Location**, **Rotation** relativos
+**CONTEXTO PARA `UmbraEternumUECharacter`:**
+
+1. **Identifique o Blueprint do seu player local:**
+   - Procure no Content Browser pelo Blueprint do player local
+   - **Nome comum**: `BP_ThirdPersonCharacter`, `BP_Player`, `BP_Character`, ou similar
+   - **Importante**: Este Blueprint deve ser baseado em `UmbraEternumUECharacter`
+
+2. **Abra o Blueprint do player local:**
+   - Duplo clique no Blueprint no Content Browser
+
+3. **Vá na aba "Components"** (painel esquerdo)
+
+4. **Selecione o componente "Mesh":**
+   - Para `UmbraEternumUECharacter`, o componente de mesh é o **`SkeletalMeshComponent`** (herdado de `ACharacter`)
+   - **Como identificar**: Procure por **"Mesh"** ou **"Skeletal Mesh Component"** na lista de Components
+   - Clique para selecionar
+
+5. **No painel "Details" (painel direito), copie/anote as seguintes configurações:**
+
+   **a) Skeletal Mesh:**
+   - Campo: **"Skeletal Mesh"** ou **"Mesh"**
+   - **AÇÃO**: Anote qual mesh está sendo usado (ex.: `/Game/Characters/Mannequin/...`)
+   - OU: Selecione e pressione `Ctrl+C` para copiar a referência
+
+   **b) Animation Blueprint:**
+   - Campo: **"Anim Class"** ou **"Anim Blueprint"**
+   - **AÇÃO**: Anote qual Anim Blueprint está sendo usado (se houver)
+
+   **c) Materials (Materiais):**
+   - Seção: **"Materials"** ou **"Materials and Textures"**
+   - **AÇÃO**: Anote quais materiais estão aplicados (se houver materiais customizados)
+
+   **d) Transform (Localização/Rotação/Scale):**
+   - Seção: **"Transform"** ou procure por **"Location"**, **"Rotation"**, **"Scale"**
+   - **AÇÃO**: Anote os valores (geralmente Location e Rotation são `(0,0,0)`, Scale é `(1,1,1)`)
+
+   **e) Outras configurações importantes:**
+   - **"Collision Enabled"**: Verifique se está habilitado
+   - **"Visibility"**: Deve estar como `Visible`
 
 ### **4.2) Aplicar no Player Remoto**
 
-1. **Volte ao Blueprint do player remoto** (`BP_RemotePlayer`)
-2. Selecione o componente **Mesh** correspondente
-3. No painel **"Details"**, configure:
-   - **Skeletal Mesh**: Selecione o mesmo mesh do player local
-   - **Anim Blueprint**: Selecione o mesmo Anim Blueprint (opcional - pode deixar diferente se quiser)
-   - **Materials**: Aplique os mesmos materiais (ou crie uma variação para diferenciar visualmente)
+1. **Volte ao Blueprint do player remoto** (`BP_RemotePlayer`):
+   - Feche o editor do player local (se ainda estiver aberto)
+   - Duplo clique no `BP_RemotePlayer` no Content Browser
+
+2. **Vá na aba "Components"** (painel esquerdo)
+
+3. **Selecione o componente "Mesh"**:
+   - Procure por **"Mesh"** ou **"Skeletal Mesh Component"** na lista
+   - Clique para selecionar
+
+4. **No painel "Details" (painel direito), configure os mesmos valores copiados:**
+
+   **a) Skeletal Mesh:**
+   - Campo: **"Skeletal Mesh"** ou **"Mesh"**
+   - **AÇÃO**: 
+     - Clique no dropdown ou campo ao lado de "Skeletal Mesh"
+     - Procure pelo mesmo mesh usado no player local
+     - OU: Arraste o mesh do Content Browser para o campo
+     - OU: Digite o caminho do mesh (se você anotou)
+   - **Verifique**: O mesh deve aparecer no "Viewport" do Blueprint (aba "Viewport" no topo)
+
+   **b) Animation Blueprint:**
+   - Campo: **"Anim Class"** ou **"Anim Blueprint"**
+   - **AÇÃO**: 
+     - Se você anotou um Anim Blueprint do player local, selecione o mesmo
+     - OU: Deixe vazio/nulo (o mesh ainda será visível, apenas sem animação)
+     - **Recomendação**: Use o mesmo Anim Blueprint para manter consistência visual
+
+   **c) Materials (Materiais):**
+   - Seção: **"Materials"** ou **"Materials and Textures"**
+   - **AÇÃO**: 
+     - Se o player local usa materiais customizados, aplique os mesmos
+     - OU: Deixe os materiais padrão do mesh
+     - **Para diferenciar visualmente** (opcional): Crie uma variação do material com cor/brilho diferente
+
+   **d) Transform:**
+   - Seção: **"Transform"**
+   - **AÇÃO**: Configure os mesmos valores anotados (geralmente `Location=(0,0,0)`, `Rotation=(0,0,0)`, `Scale=(1,1,1)`)
+
+   **e) Outras configurações:**
+   - **"Collision Enabled"**: Certifique-se de que está habilitado (igual ao player local)
+   - **"Visibility"**: Deve estar como `Visible`
+
+5. **Verificar no Viewport:**
+   - Clique na aba **"Viewport"** no topo do editor
+   - **Verifique**: O mesh deve aparecer no viewport
+   - Se não aparecer, verifique se o Skeletal Mesh está configurado corretamente
 
 ### **4.3) Diferenciar Visualmente (Opcional - Recomendado para Debug)**
 
@@ -528,42 +667,87 @@ Para facilitar identificação (especialmente durante testes):
 
 ## PASSO 5: Remover/Desabilitar Input no Blueprint (Crítico!)
 
+**CONTEXTO ESPECÍFICO PARA `UmbraEternumUECharacter`:**
+
+O `UmbraEternumUECharacter` usa o **Enhanced Input System** do Unreal Engine e gerencia Input via:
+- **Função C++**: `SetupPlayerInputComponent()` (chamada automaticamente)
+- **Variáveis de Input Actions**: `JumpAction`, `MoveAction`, `LookAction`, `MouseLookAction` (definidas no código C++)
+- **Estas variáveis aparecem na aba "Variables" ou "Default" do Blueprint, mas não são componentes**
+
+**Como o Input funciona:**
+- O Input é configurado automaticamente quando o Character é possuído por um Player Controller
+- **Players remotos NÃO são possuídos por um Player Controller** (não têm dono)
+- Portanto, **o Input já está desabilitado automaticamente** para players remotos
+
+**AÇÃO NECESSÁRIA**: Mesmo assim, vamos garantir que não há lógica de Input no Blueprint:
+
 ### **5.1) Aba "Graph" (Gráfico)**
 
 1. Clique na aba **"Graph"** no editor do Blueprint
-2. Procure por eventos de Input:
-   - `Event BeginPlay`
-   - `Event Tick` (pode remover se não precisar)
-   - Eventos de Input (ex.: `InputAction Jump`, `InputAxis MoveForward`, etc.)
+2. **Verifique se há eventos de Input:**
+   - Eventos de Input aparecem como nós **vermelhos** no gráfico
+   - Procure por:
+     - `InputAction [Nome]` (ex.: `InputAction Jump`, `InputAction Move`)
+     - `InputAxis [Nome]`
+     - `InputKey [Nome]`
 
-### **5.2) Remover Eventos de Input**
+3. **NOTA IMPORTANTE**: Para `UmbraEternumUECharacter`, você provavelmente **NÃO verá eventos de Input** no Blueprint porque:
+   - O Input é gerenciado no código C++ (`SetupPlayerInputComponent`)
+   - Os Input Actions são variáveis (não eventos automáticos no Blueprint)
 
-**Como identificar eventos de Input:**
-- Geralmente têm nomes como:
-  - `InputAction [Nome]`
-  - `InputAxis [Nome]`
-  - `InputKey [Nome]`
-- Aparecem como nós vermelhos no gráfico
+### **5.2) Remover Eventos de Input (Se Existirem)**
 
-**Como remover:**
-1. Selecione cada evento de Input
-2. Pressione `Delete` ou clique com botão direito → **"Delete"**
-3. Remova também toda a lógica conectada a esses eventos
+**Se você encontrar eventos de Input no gráfico:**
 
-**ATENÇÃO**: Se você conectou lógica importante nesses eventos, pode querer:
-- Deixar os eventos mas sem lógica (apenas para não dar erro)
-- OU remover completamente se tiver certeza que não precisa
+1. **Identifique os eventos:**
+   - Geralmente têm nomes como:
+     - `InputAction Jump`
+     - `InputAction Move`
+     - `InputAxis MoveForward`
+   - Aparecem como nós vermelhos no gráfico
 
-### **5.3) Remover Event Tick (Opcional)**
+2. **Como remover:**
+   - Selecione cada evento de Input
+   - Pressione `Delete` ou clique com botão direito → **"Delete"**
+   - Remova também toda a lógica conectada a esses eventos
+
+3. **Se não houver eventos de Input:**
+   - ✅ **Isso é normal e esperado** para `UmbraEternumUECharacter`
+   - Nenhuma ação adicional necessária
+
+### **5.3) Verificar Variáveis de Input Actions (Opcional - Verificação)**
+
+**As variáveis de Input Actions não precisam ser removidas, mas você pode verificar:**
+
+1. **Na aba "Variables" ou "Default"** (painel esquerdo ou aba separada):
+   - Procure por: `JumpAction`, `MoveAction`, `LookAction`, `MouseLookAction`
+   - **AÇÃO**: Você pode deixá-las como estão (`null` ou não configuradas)
+   - **Não causam problema** porque players remotos não são possuídos por Player Controller
+
+### **5.4) Remover Event Tick (Opcional)**
 
 O `Event Tick` pode não ser necessário para players remotos, pois você controla movimento no `BP_NetMovementClient`:
 
 1. **Procure o nó `Event Tick`** no gráfico
-2. Se não houver lógica importante conectada, você pode:
-   - Deixar vazio (sem conexões)
+2. **Se não houver lógica importante conectada**, você pode:
+   - **Deixar vazio** (sem conexões) - **RECOMENDADO**
    - OU remover completamente (clique com botão direito → "Delete")
 
 **Recomendação**: Deixe o `Event Tick` vazio (sem conexões) - não causa problema e você pode adicionar lógica futuramente se precisar.
+
+### **5.5) Verificar SetupPlayerInputComponent (Se Aparecer)**
+
+**Se você ver uma função `SetupPlayerInputComponent` no gráfico (geralmente não aparece, pois é do código C++):**
+
+- **AÇÃO**: Não precisa fazer nada
+- Esta função só é chamada quando o Character é possuído por um Player Controller
+- Como players remotos não são possuídos, a função nunca será chamada
+
+**RESUMO PARA `UmbraEternumUECharacter`:**
+- ✅ Input já está desabilitado automaticamente (players remotos não têm Player Controller)
+- ✅ Verifique se há eventos de Input no gráfico (provavelmente não haverá)
+- ✅ Deixe as variáveis de Input Actions como estão
+- ✅ Deixe `Event Tick` vazio ou remova (opcional)
 
 ---
 
@@ -627,36 +811,64 @@ Para testar se o Blueprint está correto:
 
 ```
 1. Content Browser → Right Click → Blueprint Class
-2. Selecionar classe base (Character/Pawn/etc.)
-3. Nomear: BP_RemotePlayer
+2. Selecionar classe base: UmbraEternumUECharacter (buscar "Umbra" na janela Pick Parent Class)
+3. Nomear: BP_RemotePlayer (ou BP_RemoteCharacter)
 4. Abrir Blueprint → Aba Components
-5. Remover componentes de Input (se houver)
-6. Configurar Mesh (copiar do player local ou usar diferente)
-7. Aba Graph → Remover eventos de Input
-8. Compilar (Ctrl+Shift+C)
-9. Salvar (Ctrl+S)
-10. Usar no Spawn Actor from Class quando necessário
+5. REMOVER: CameraBoom, FollowCamera (players remotos não precisam de câmera)
+6. MANTER: Mesh, CapsuleComponent, CharacterMovementComponent
+7. Configurar CharacterMovementComponent: Desmarcar "Orient Rotation to Movement", "Can Ever Affect Navigation"
+8. Configurar Mesh: Copiar do player local (Skeletal Mesh, Anim Blueprint, Materials)
+9. Aba Graph → Verificar eventos de Input (provavelmente não haverá para UmbraEternumUECharacter)
+10. Deixar Event Tick vazio (sem conexões)
+11. Compilar (Ctrl+Shift+C)
+12. Salvar (Ctrl+S)
+13. Usar no Spawn Actor from Class quando necessário
 ```
+
+**ESPECÍFICO PARA `UmbraEternumUECharacter`:**
+- ✅ Classe base: `UmbraEternumUECharacter` (herda de `ACharacter`)
+- ✅ Remover: `CameraBoom`, `FollowCamera` (componentes de câmera)
+- ✅ Manter: `CharacterMovementComponent` (para colisão/física)
+- ✅ Input: Já desabilitado automaticamente (players remotos não têm Player Controller)
 
 ---
 
 ## NOTAS IMPORTANTES:
 
-1. **Herança:**
-   - O Blueprint do player remoto pode herdar do mesmo pai que o player local
-   - Isso facilita compartilhar meshes, materiais e configurações
+1. **Herança específica para `UmbraEternumUECharacter`:**
+   - ✅ O Blueprint do player remoto herda de `UmbraEternumUECharacter` (mesmo pai do player local)
+   - ✅ Isso facilita compartilhar meshes, materiais, Anim Blueprints e configurações
+   - ✅ Você terá acesso às mesmas funções BlueprintCallable (`DoMove`, `DoLook`, etc.), mas elas não serão chamadas
 
-2. **Performance:**
-   - Remover Input Components economiza processamento
-   - Players remotos geralmente precisam apenas de: Mesh + Collision + Movement (para física)
+2. **Componentes específicos de `UmbraEternumUECharacter`:**
+   - ✅ **Manter**: `CapsuleComponent`, `CharacterMovementComponent`, `SkeletalMeshComponent` (Mesh)
+   - ❌ **Remover**: `CameraBoom` (USpringArmComponent), `FollowCamera` (UCameraComponent)
+   - ⚠️ **Input**: Não precisa remover nada - Input Actions são variáveis, não componentes, e já estão desabilitadas automaticamente
 
-3. **Manter simplicidade:**
-   - Não adicione lógica complexa no Blueprint do player remoto
-   - Toda lógica de movimento/interpolação está no `BP_NetMovementClient`
+3. **Performance:**
+   - ✅ Remover `CameraBoom` e `FollowCamera` economiza processamento (especialmente renderização de câmera)
+   - ✅ Desabilitar "Orient Rotation to Movement" evita cálculos desnecessários de rotação automática
+   - ✅ Players remotos precisam apenas de: Mesh + Collision + Movement (para física)
 
-4. **Alternativa rápida:**
-   - Se quiser testar rapidamente, você pode usar temporariamente a mesma classe do player local
-   - Depois crie a classe específica para otimização
+4. **Manter simplicidade:**
+   - ✅ Não adicione lógica complexa no Blueprint do player remoto
+   - ✅ Toda lógica de movimento/interpolação está no `BP_NetMovementClient`
+   - ✅ O Blueprint do player remoto é apenas um "container visual" que recebe posição/rotação via `SetActorLocation`/`SetActorRotation`
+
+5. **Configuração do CharacterMovementComponent:**
+   - ✅ **NÃO remover** o `CharacterMovementComponent` - ele é essencial para colisão
+   - ✅ Desmarcar "Orient Rotation to Movement" para evitar conflito com rotação manual
+   - ✅ Desmarcar "Can Ever Affect Navigation" (players remotos não fazem pathfinding)
+
+6. **Input e Player Controller:**
+   - ✅ Players remotos **NÃO são possuídos** por um Player Controller
+   - ✅ `SetupPlayerInputComponent()` nunca é chamada para players remotos
+   - ✅ Input Actions podem ficar `null` - não causam problema
+
+7. **Alternativa rápida (não recomendada para produção):**
+   - ⚠️ Se quiser testar rapidamente, você pode usar temporariamente o mesmo Blueprint do player local
+   - ⚠️ Mas isso adiciona overhead desnecessário (câmeras, Input processing, etc.)
+   - ✅ **Recomendado**: Criar sempre a classe específica para players remotos
 
 ---
 
