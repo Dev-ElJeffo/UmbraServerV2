@@ -350,19 +350,28 @@ Set SendTimerHandle = [Timer Handle retornado]
 
 **5) BuildMoveUpdateFrame**
 - Procure `BuildMoveUpdateFrame` (categoria "Umbra|Net|WS|Binary" ou digite "BuildMoveUpdateFrame")
+- **IMPORTANTE**: Use a versão que retorna `Array of Bytes` diretamente (não a versão com `OutBytes` como parâmetro separado)
 - **Inputs:**
   - `PlayerId`: `Get LocalPlayerId` (variável Integer)
   - `Location`: o Vector do passo 2 (GetActorLocation → Return Value)
   - `YawDegrees`: o Float Yaw extraído do passo 3 (GetActorRotation → Yaw)
   - `TimestampMs`: o Integer do passo 4 (resultado da conversão)
 - **Output:**
-  - `OutBytes`: Array of Bytes - este é o frame binário pronto para enviar
+  - `Return Value`: Array of Bytes (pin roxo/violeta) - este é o frame binário pronto para enviar
+  - **NOTA**: Esta versão retorna o Array diretamente, facilitando a conexão com `SendBytes`
 
 **6) SendBytes**
-- `Get WebSocketRef` (variável) → conecte ao input `Target` do nó `Send Bytes`
+- `Get WebSocketRef` (variável) → conecte ao input `Target` (pin azul) do nó `Send Bytes`
 - Procurar `Send Bytes` no `WebSocketRef` (categoria "Umbra|Net|WS")
-- Se não aparecer diretamente, arraste `WebSocketRef` e procure "Send" ou "SendBytes"
-- Input `Data`: conecte o `OutBytes` do passo 5 (Array of Bytes)
+- Se não aparecer diretamente:
+  - Arraste a variável `WebSocketRef` no gráfico
+  - Clique com botão direito no `WebSocketRef` → procure "Send Bytes" ou "Send"
+- **Input `Data`** (pin vermelho/Array of Bytes):
+  - **Conecte diretamente** o `Return Value` (Array of Bytes) do `BuildMoveUpdateFrame` do passo 5
+  - Se ainda der erro de tipo:
+    - Crie uma variável local temporária do tipo `Array of Bytes`
+    - Conecte o `Return Value` do `BuildMoveUpdateFrame` a essa variável
+    - Conecte a variável ao `Data` do `SendBytes`
 
 **Fluxo visual completo de SendMoveUpdate**:
 ```
@@ -376,10 +385,16 @@ GetActorRotation → Yaw (Float)
     ↓
 Get Game Time in Seconds * 1000 → To Integer → TimestampMs (Integer)
     ↓
-BuildMoveUpdateFrame(PlayerId, Location, Yaw, TimestampMs) → OutBytes (Array of Bytes)
-    ↓
-Get WebSocketRef → Send Bytes(Data: OutBytes)
+BuildMoveUpdateFrame(PlayerId, Location, Yaw, TimestampMs) → Return Value (Array of Bytes)
+    ↓ (conexão direta)
+Get WebSocketRef → Send Bytes(Data: Return Value do BuildMoveUpdateFrame)
 ```
+
+**NOTA IMPORTANTE SOBRE TIPOS**:
+- Se o pin de `Return Value` do `BuildMoveUpdateFrame` não conectar diretamente ao `Data` do `SendBytes`:
+  1. **Solução rápida**: Delete a conexão atual e reconecte (às vezes o Blueprint precisa recompilar)
+  2. **Solução alternativa**: Use uma variável local temporária como intermediário (veja detalhes no passo 6)
+  3. **Verifique**: Após recompilar o C++, certifique-se de que está usando a versão correta de `BuildMoveUpdateFrame` (a que retorna `Array of Bytes`, não a versão antiga)
 
 **IMPORTANTE**: Após criar esta função, volte ao passo 3.5 e configure o Timer para chamá-la.
 
