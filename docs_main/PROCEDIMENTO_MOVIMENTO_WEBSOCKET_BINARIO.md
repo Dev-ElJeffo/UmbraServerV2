@@ -465,37 +465,182 @@ Esta função é chamada automaticamente quando o servidor envia dados binários
 - **Se `==` (true)**: conecte ao pin "True" do `Branch` → nó `Return` (não precisamos atualizar nosso próprio estado)
 - **Se `!=` (false)**: conecte ao pin "False" e continue para o próximo passo
 
-**5) Obter ou Criar Entry no Array `RemoteStates` (USANDO FUNÇÃO HELPER)**
-- Use o nó `GetOrCreatePlayerState` (categoria "Umbra|Net|WS|State")
-- Inputs:
-  - `StatesArray`: `Get RemoteStates` (Array of Player State Entry)
-  - `PlayerId`: `OutPlayerId`
-- Output:
-  - `Return Value`: `Player State Entry` (a estrutura retornada)
-- **IMPORTANTE**: Esta função modifica o Array automaticamente se criar um novo, mas você precisa salvar de volta:
-  - `Get RemoteStates` → `Set Element` (Index: use `FindPlayerStateIndex` se quiser, mas a função já adicionou se não existia)
-- **MAIS SIMPLES**: Use diretamente `UpdatePlayerStateBuffer` no passo 6, que já faz tudo automaticamente
+**5) Obter ou Criar Entry no Array `RemoteStates` (USANDO FUNÇÃO HELPER) - PASSO A PASSO DETALHADO**
 
-**6) Atualizar o Buffer (USANDO FUNÇÃO HELPER - MAIS FÁCIL)**
-- Use o nó `UpdatePlayerStateBuffer` (categoria "Umbra|Net|WS|State")
-- Inputs:
-  - `Entry`: `Get RemoteStates` → `Get Element` usando o index retornado por `FindPlayerStateIndex(RemoteStates, OutPlayerId)`, OU simplesmente:
-  - `Entry`: a estrutura retornada pelo `GetOrCreatePlayerState` do passo 5
-  - `NewLocation`: `OutLocation`
-  - `NewYaw`: `OutYawDegrees`
-  - `NewTimestampMs`: `OutTimestampMs`
-- Esta função já faz toda a lógica de rotação automaticamente (StateA → StateB → novo em B)
-- **ATUALIZAR O ARRAY**: Após chamar `UpdatePlayerStateBuffer`, você precisa salvar de volta no Array:
-  - `Get RemoteStates` → `Set Element`
-  - Index: use `FindPlayerStateIndex(RemoteStates, OutPlayerId)` para encontrar o índice
-  - Element: a estrutura atualizada (do output do `UpdatePlayerStateBuffer`)
+Este passo busca ou cria uma entrada no Array `RemoteStates` para o `player_id` recebido.
 
-**Alternativa Simplificada (recomendada)**:
-- Combine os passos 5 e 6 em uma única operação:
-  1. `GetOrCreatePlayerState(RemoteStates, OutPlayerId)` → `Entry`
-  2. `UpdatePlayerStateBuffer(Entry, OutLocation, OutYawDegrees, OutTimestampMs)` → `Entry` (modificado)
-  3. Encontre o index: `FindPlayerStateIndex(RemoteStates, OutPlayerId)` → `Index`
-  4. `Set Element` no `RemoteStates` (Index: `Index`, Element: `Entry`)
+**O QUE FAZER:**
+- **Conexão de execução**: Do pin "False" (não é o próprio jogador) do `Branch` do passo 4, conecte ao pin de execução (branco) do nó `GetOrCreatePlayerState`
+- **Criar o nó**: Procure `GetOrCreatePlayerState` (categoria "Umbra|Net|WS|State" ou digite "GetOrCreatePlayerState")
+- **Inputs do nó:**
+  - `StatesArray`: Arraste a variável `RemoteStates` no gráfico → `Get RemoteStates`
+    - Conecte o `Return Value` (Array of Player State Entry) ao input `StatesArray` do `GetOrCreatePlayerState`
+    - **NOTA IMPORTANTE**: Este input é `UPARAM(ref)`, então ele modifica o Array automaticamente se criar um novo elemento
+  - `PlayerId`: Conecte o `OutPlayerId` do `ParseStateUpdateFrame`
+    - **DICA**: Se `OutPlayerId` estiver muito longe, use um `Knot` (Reroute Node) para organizar os fios:
+      - Crie um `Knot` entre `ParseStateUpdateFrame` e `GetOrCreatePlayerState`
+      - Conecte `OutPlayerId` → `Knot` → `PlayerId` do `GetOrCreatePlayerState`
+- **Outputs do nó:**
+  - `Return Value` (Player State Entry): Esta é a estrutura retornada (se encontrada) ou criada (se nova)
+    - **Guarde esta saída** - você usará no próximo passo
+  - Pin de execução "then": Conecte ao próximo nó (passo 6)
+
+**FLUXO VISUAL:**
+```
+Branch (passo 4, false = não é próprio jogador)
+    ↓ (execution pin - branco, lado "False")
+GetOrCreatePlayerState
+    - StatesArray: Get RemoteStates (Array)
+    - PlayerId: OutPlayerId (via Knot se necessário)
+    ↓ (Return Value: Player State Entry)
+[GUARDE ESTE RESULTADO PARA O PRÓXIMO PASSO]
+    ↓ (execution pin "then")
+Próximo passo (UpdatePlayerStateBuffer)
+```
+
+**6) Atualizar o Buffer (USANDO FUNÇÃO HELPER) - PASSO A PASSO DETALHADO**
+
+Este passo atualiza o buffer de estados com o novo estado recebido, fazendo a rotação automaticamente (StateA → StateB → novo em B).
+
+**O QUE FAZER:**
+- **Conexão de execução**: Do pin "then" do `GetOrCreatePlayerState` (passo 5), conecte ao pin de execução (branco) do nó `UpdatePlayerStateBuffer`
+- **Criar o nó**: Procure `UpdatePlayerStateBuffer` (categoria "Umbra|Net|WS|State" ou digite "UpdatePlayerStateBuffer")
+- **Inputs do nó:**
+  - `Entry`: **Conecte diretamente o `Return Value` (Player State Entry) do `GetOrCreatePlayerState` do passo 5**
+    - **IMPORTANTE**: Este input é `UPARAM(ref)`, então a função modifica a estrutura diretamente
+    - Você não precisa fazer "Get Element" do Array aqui - use o resultado do passo 5 diretamente
+  - `NewLocation`: Conecte o `OutLocation` (Vector) do `ParseStateUpdateFrame`
+  - `NewYaw`: Conecte o `OutYawDegrees` (Float) do `ParseStateUpdateFrame`
+  - `NewTimestampMs`: Conecte o `OutTimestampMs` (Integer) do `ParseStateUpdateFrame`
+- **O QUE ESTA FUNÇÃO FAZ AUTOMATICAMENTE:**
+  - Se não tem StateA → salva em StateA
+  - Se tem StateA mas não StateB → salva em StateB
+  - Se tem ambos → move StateB para StateA e salva novo em StateB
+- **Outputs:**
+  - Pin de execução "then": Conecte ao próximo passo (atualizar Array)
+
+**ATUALIZAR O ARRAY `RemoteStates` (CRÍTICO - NÃO ESQUEÇA!)**
+
+**IMPORTANTE**: `GetOrCreatePlayerState` retorna uma **CÓPIA** da estrutura (não uma referência). Quando você passa essa cópia para `UpdatePlayerStateBuffer`, ele modifica a **cópia**, não a estrutura original no Array. Por isso você **DEVE** salvar a estrutura modificada de volta no Array!
+
+**PASSO A PASSO:**
+
+1. **Encontrar o índice no Array:**
+   - Do pin "then" do `UpdatePlayerStateBuffer`, conecte ao pin de execução do nó `FindPlayerStateIndex`
+   - Procure `FindPlayerStateIndex` (categoria "Umbra|Net|WS|State")
+   - Inputs:
+     - `StatesArray`: `Get RemoteStates` (o mesmo Array usado no passo 5)
+     - `PlayerId`: `OutPlayerId` (use o mesmo Knot do passo 5, ou conecte diretamente)
+   - Output: `Return Value` (Integer) - o índice onde está a entry no Array
+     - **NOTA**: Como `GetOrCreatePlayerState` já adicionou ao Array se não existia, este sempre retornará um índice válido (>= 0)
+
+2. **Obter a estrutura modificada do nó UpdatePlayerStateBuffer:**
+   - **PROBLEMA**: `UpdatePlayerStateBuffer` modifica a estrutura por referência (`UPARAM(ref)`), mas como você passou uma cópia (do `GetOrCreatePlayerState`), a cópia foi modificada, não a original no Array
+   - **SOLUÇÃO**: Você precisa pegar a estrutura modificada. Mas `UpdatePlayerStateBuffer` não retorna nada!
+   - **WORKAROUND**: Como `UpdatePlayerStateBuffer` modifica o `Entry` por referência, a estrutura que você passou (do `GetOrCreatePlayerState`) já está modificada. Use essa mesma estrutura:
+     - **Reutilize o `Return Value` do `GetOrCreatePlayerState`** que você passou para `UpdatePlayerStateBuffer`
+     - Após `UpdatePlayerStateBuffer`, essa estrutura (mesma referência) já está modificada
+     - Conecte esse mesmo `Return Value` ao `Item` do `Set Element`
+
+3. **Atualizar o Array com Set Element:**
+   - Procure `Set Element` (categoria "Array" ou digite "Set Array Elem")
+   - Inputs:
+     - `Array`: `Get RemoteStates` 
+       - **ATENÇÃO**: Conecte diretamente `Get RemoteStates` → `Set Element` → input `Array`
+       - Este input é `UPARAM(ref)`, então modifica o Array diretamente
+     - `Index`: Conecte o `Return Value` (Integer) do `FindPlayerStateIndex` do passo acima
+     - `Item`: Conecte o **mesmo `Return Value` (Player State Entry) do `GetOrCreatePlayerState`** que você passou para `UpdatePlayerStateBuffer`
+       - **Como funciona**: O `Return Value` do `GetOrCreatePlayerState` é uma cópia que foi modificada por `UpdatePlayerStateBuffer` (por referência), então agora ela contém os valores atualizados
+   - Pin de execução: Não precisa conectar nada depois (ou conecte ao passo 7 se quiser criar o Actor remoto)
+
+**EXPLICAÇÃO TÉCNICA**:
+- `GetOrCreatePlayerState` retorna `FPlayerStateEntry` por valor (cópia)
+- Você passa essa cópia para `UpdatePlayerStateBuffer` (que aceita `UPARAM(ref)`)
+- O Blueprint cria uma referência temporária para a cópia e a passa para a função C++
+- A função C++ modifica essa cópia através da referência
+- Agora a cópia está modificada, mas a original no Array não foi modificada
+- Por isso você precisa fazer `Set Element` para copiar a estrutura modificada de volta para o Array
+
+**FLUXO VISUAL COMPLETO (Passos 5 e 6 combinados) - COM TODAS AS CONEXÕES:**
+
+```
+OnWSBinaryMessage (Data: Array of Bytes)
+    ↓
+ParseStateUpdateFrame (Data) → OutPlayerId, OutLocation, OutYawDegrees, OutTimestampMs, ReturnValue (bool)
+    ↓ (execution then, se ReturnValue == true)
+[Branch: verifica se parse OK]
+    ↓ (True = parse OK)
+[Branch: verifica se Data[0] == 2] (opcional)
+    ↓ (True = é StateUpdate)
+[Branch: verifica se OutPlayerId != LocalPlayerId]
+    ↓ (False = não é próprio jogador, continua)
+GetOrCreatePlayerState
+    - StatesArray: Get RemoteStates (Array)
+    - PlayerId: OutPlayerId (via Knot se necessário)
+    ↓ (Return Value: Entry - CÓPIA da estrutura)
+    [GUARDE ESTA SAÍDA - você usará duas vezes]
+    ↓ (execution then)
+UpdatePlayerStateBuffer
+    - Entry: [Return Value do GetOrCreatePlayerState - a cópia]
+    - NewLocation: OutLocation (do ParseStateUpdateFrame)
+    - NewYaw: OutYawDegrees (do ParseStateUpdateFrame)
+    - NewTimestampMs: OutTimestampMs (do ParseStateUpdateFrame)
+    [NOTA: Entry agora está MODIFICADA (cópia modificada)]
+    ↓ (execution then)
+FindPlayerStateIndex
+    - StatesArray: Get RemoteStates (mesmo Array)
+    - PlayerId: OutPlayerId (mesmo usado acima)
+    ↓ (Return Value: Index - Integer)
+Set Element
+    - Array: Get RemoteStates (conecte diretamente)
+    - Index: [Return Value do FindPlayerStateIndex]
+    - Item: [MESMO Return Value do GetOrCreatePlayerState - a cópia MODIFICADA]
+    [NOTA: Isso copia a estrutura modificada de volta para o Array]
+```
+
+**CONEXÕES DE DADOS IMPORTANTES**:
+
+1. **Para `OutPlayerId` (Integer) - usar Knot para organizar:**
+   - O `OutPlayerId` é usado em múltiplos lugares
+   - **Crie um Knot (Reroute Node)**:
+     - Botão direito no gráfico → digite "Knot" ou "Reroute"
+     - Selecione `Knot` (um nó simples com 2 pins: Input e Output)
+   - Conecte:
+     - `ParseStateUpdateFrame.OutPlayerId` → `Knot.InputPin`
+     - `Knot.OutputPin` → `GetOrCreatePlayerState.PlayerId`
+     - `Knot.OutputPin` → `FindPlayerStateIndex.PlayerId`
+     - `Knot.OutputPin` → `Equal (Integer).A` (para comparar com `LocalPlayerId`)
+   - **Vantagem**: Isso organiza o gráfico e evita fios cruzados
+
+2. **Para `Return Value` (Entry) do `GetOrCreatePlayerState`:**
+   - Esta saída é usada DUAS vezes:
+     - Uma vez como entrada para `UpdatePlayerStateBuffer.Entry`
+     - Uma vez como entrada para `Set Element.Item` (após modificação)
+   - **Como conectar**:
+     - Conecte diretamente `GetOrCreatePlayerState.ReturnValue` → `UpdatePlayerStateBuffer.Entry`
+     - **Para o Set Element**: Use o MESMO `Return Value` (não precisa criar nova conexão, apenas conecte o mesmo pin novamente ao `Set Element.Item`)
+     - **OU**: Use outro Knot para organizar:
+       - `GetOrCreatePlayerState.ReturnValue` → `Knot.InputPin`
+       - `Knot.OutputPin` → `UpdatePlayerStateBuffer.Entry`
+       - `Knot.OutputPin` → `Set Element.Item`
+
+3. **NÃO fazer**:
+   - **NÃO** conecte `Get Element` do Array ao `Set Element.Item`
+   - **NÃO** use `Get RemoteStates` → `Get Element` após `UpdatePlayerStateBuffer` - use o `Return Value` do `GetOrCreatePlayerState` diretamente
+
+**NOTA IMPORTANTE SOBRE UPARAM(REF):**
+- `GetOrCreatePlayerState` tem `StatesArray` como `UPARAM(ref)` - modifica o Array automaticamente (adiciona se não existe)
+- `UpdatePlayerStateBuffer` tem `Entry` como `UPARAM(ref)` - modifica a estrutura automaticamente
+- **MAS**: Como `GetOrCreatePlayerState` retorna uma CÓPIA, quando você modifica essa cópia com `UpdatePlayerStateBuffer`, a original no Array não é modificada
+- **SOLUÇÃO OBRIGATÓRIA**: Sempre faça `Set Element` após `UpdatePlayerStateBuffer` para copiar a estrutura modificada de volta para o Array
+
+**RESUMO RÁPIDO DOS PASSOS 5 E 6:**
+1. `GetOrCreatePlayerState` → retorna Entry (cópia)
+2. `UpdatePlayerStateBuffer` → modifica a Entry (cópia modificada)
+3. `FindPlayerStateIndex` → encontra o índice no Array
+4. `Set Element` → copia a Entry modificada de volta para o Array no índice encontrado
+
+**ERRO COMUM**: Esquecer o `Set Element` - isso fará com que os estados nunca sejam atualizados no Array!
 
 **7) Criar/Obter Actor Remoto (opcional mas recomendado)**
 - `Get RemoteActors` → `Find in Map` (Key: `OutPlayerId`)
