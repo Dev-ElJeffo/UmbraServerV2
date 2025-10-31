@@ -347,6 +347,319 @@ Se preferir usar uma estrutura única em vez de dois Arrays:
 - Tipo: `Timer Handle`
 - Padrão: deixe vazio
 
+---
+
+### 3.3.5. Criar Classe Blueprint para Players Remotos (Opcional mas Recomendado) - PASSO A PASSO COMPLETO
+
+Esta seção explica como criar uma classe Blueprint específica para representar jogadores remotos no mundo. Esta classe será usada quando você spawnar Actors remotos (passo 7 da seção 3.7 ou passo 6.4B.1 da seção 3.8).
+
+**POR QUE CRIAR UMA CLASSE ESPECÍFICA?**
+- ✅ **Performance**: Players remotos não precisam de componentes de Input (economiza processamento)
+- ✅ **Clareza**: Diferencia visualmente no editor entre player local e players remotos
+- ✅ **Flexibilidade**: Você pode personalizar componentes visuais sem afetar o player local
+- ✅ **Organização**: Facilita identificação e debug no Content Browser
+
+**QUANDO FAZER ISSO:**
+- **Recomendado**: Fazer antes de spawnar Actors remotos (antes do passo 7 da seção 3.7)
+- **Alternativa**: Você pode usar a mesma classe do seu Player Pawn, mas será menos eficiente
+
+---
+
+## PASSO 1: Identificar a Classe Base do Seu Player
+
+**Antes de criar a classe remota, você precisa saber qual é a classe do seu player local:**
+
+1. **Se você já tem um Blueprint de Player:**
+   - Abra o Blueprint do seu player (ex.: `BP_Player` ou similar)
+   - Veja qual é a "Parent Class" (classe pai)
+   - Geralmente será: `Character`, `Pawn`, ou uma classe custom C++
+
+2. **Se você está usando uma classe C++:**
+   - Veja no código C++ qual classe herda (ex.: `APawn`, `ACharacter`)
+   - Você criará um Blueprint baseado nessa classe
+
+3. **Anote o nome da classe base** - você precisará dela no próximo passo
+
+**Exemplos comuns:**
+- Se seu player é um `Character` → você criará um Blueprint baseado em `Character`
+- Se seu player é um `Pawn` → você criará um Blueprint baseado em `Pawn`
+- Se seu player é uma classe C++ custom (ex.: `AMyCharacter`) → você criará um Blueprint baseado nessa classe
+
+---
+
+## PASSO 2: Criar o Blueprint para Player Remoto
+
+### **2.1) Abrir o Content Browser**
+
+1. No Editor do Unreal Engine, localize a aba **"Content Browser"** (geralmente na parte inferior)
+2. Navegue até a pasta onde você quer criar o Blueprint
+   - **Recomendação**: Crie uma pasta dedicada (ex.: `Content/Blueprints/RemotePlayers/`)
+   - Ou coloque na mesma pasta dos seus outros Blueprints
+
+### **2.2) Criar o Blueprint**
+
+1. **No Content Browser**, clique com botão direito em uma área vazia
+2. No menu de contexto, procure por **"Blueprint Class"**
+   - **ATENÇÃO**: Não confunda com "Blueprint" (cria Widget) ou "Structure" (cria estrutura)
+   - Você precisa selecionar **"Blueprint Class"** especificamente
+3. Se não aparecer diretamente:
+   - Clique com botão direito → **"Blueprint"** → **"Blueprint Class"**
+   - OU: Procure na busca do menu por "Blueprint Class"
+
+### **2.3) Selecionar a Classe Base**
+
+Após clicar em "Blueprint Class", aparecerá uma janela **"Pick Parent Class"**:
+
+1. **Procure pela classe base do seu player:**
+   - Se seu player é baseado em `Character` → procure e selecione **"Character"**
+   - Se é baseado em `Pawn` → selecione **"Pawn"**
+   - Se é uma classe C++ custom → procure pelo nome da classe (ex.: "MyCharacter")
+
+2. **Se não encontrar a classe C++ custom:**
+   - Certifique-se de que o projeto C++ foi compilado
+   - Feche e reabra a janela "Pick Parent Class"
+   - Ou selecione a classe base mais próxima (ex.: `Character` se sua classe herda de `Character`)
+
+3. **Clique em "Select"** ou pressione Enter
+
+### **2.4) Nomear o Blueprint**
+
+1. Após selecionar a classe base, o Blueprint será criado e você precisará nomeá-lo
+2. **Nome sugerido**: `BP_RemotePlayer` ou `BP_RemoteCharacter` ou `BP_RemotePawn`
+   - Use um nome descritivo que deixe claro que é para players remotos
+   - Convenção comum: `BP_[Nome]` para Blueprints
+
+3. **Pressione Enter** para confirmar o nome
+
+---
+
+## PASSO 3: Configurar o Blueprint (Remover Componentes Desnecessários)
+
+Agora você precisa configurar o Blueprint para remover componentes de Input e manter apenas o que é necessário para visualização.
+
+### **3.1) Abrir o Blueprint**
+
+- **Duplo clique** no Blueprint no Content Browser para abrir o editor de Blueprint
+- O editor terá várias abas no topo: **"Components"**, **"Graph"**, **"Viewport"**, etc.
+
+### **3.2) Aba "Components" (Componentes)**
+
+Clique na aba **"Components"** (painel esquerdo).
+
+**O que você verá:**
+- Uma hierarquia de componentes (ex.: `DefaultSceneRoot`, `Mesh`, `CapsuleComponent`, etc.)
+
+**Componentes a REMOVER (economiza performance):**
+
+1. **Input Components:**
+   - Procure por componentes relacionados a Input
+   - Exemplos comuns:
+     - `EnhancedInputComponent` (se usar Enhanced Input System)
+     - Qualquer componente com "Input" no nome
+   - **Como remover**: Clique com botão direito no componente → **"Delete"** ou pressione `Delete`
+
+2. **Movement Components (se não precisar de movimento local):**
+   - Se você controla movimento apenas via `SetActorLocation`/`SetActorRotation`, pode remover:
+     - `CharacterMovementComponent` (se não for necessário)
+   - **ATENÇÃO**: Geralmente você DEVE manter o `CharacterMovementComponent` ou `MovementComponent`, pois ele lida com colisão e física
+   - **Recomendação**: Mantenha o Movement Component, mas desabilite Auto Movement
+
+**Componentes a MANTER:**
+
+✅ **DefaultSceneRoot** - Necessário (root do Actor)  
+✅ **Skeletal Mesh** ou **Static Mesh** - Para visualização do player  
+✅ **CapsuleComponent** ou **CollisionComponent** - Para colisão/física  
+✅ **CharacterMovementComponent** - Para física (mas pode desabilitar Auto Movement)  
+✅ Componentes visuais (Lights, Particles, etc.) - Se quiser efeitos visuais  
+
+### **3.3) Configurar Movement Component (Se houver)**
+
+Se o Blueprint tem um `CharacterMovementComponent` ou `MovementComponent`:
+
+1. **Selecione o componente** na lista de Components
+2. No painel **"Details"** (direita), procure por configurações:
+   - **"Auto Movement"**: Desmarque (se existir) - você controlará movimento manualmente
+   - **"Can Ever Affect Navigation"**: Pode desmarcar (players remotos não precisam de pathfinding)
+   - **"Disable Movement"**: Pode marcar se quiser desabilitar movimento físico completamente
+
+**Nota**: Como você usa `SetActorLocation` e `SetActorRotation` no Tick, o movimento físico pode não ser necessário. Mas manter o componente geralmente é seguro para colisão.
+
+---
+
+## PASSO 4: Configurar o Mesh/Visual (Opcional)
+
+Se você quer que o player remoto tenha a mesma aparência do player local:
+
+### **4.1) Copiar o Mesh do Player Local**
+
+1. **Abra o Blueprint do seu player local** (ex.: `BP_Player`)
+2. Vá na aba **"Components"**
+3. Selecione o componente **Mesh** (geralmente `SkeletalMeshComponent` ou `StaticMeshComponent`)
+4. **Copie as configurações**:
+   - No painel "Details", anote:
+     - **Skeletal Mesh** (qual mesh está usando)
+     - **Anim Blueprint** (se houver)
+     - **Materials** (materiais aplicados)
+     - **Scale**, **Location**, **Rotation** relativos
+
+### **4.2) Aplicar no Player Remoto**
+
+1. **Volte ao Blueprint do player remoto** (`BP_RemotePlayer`)
+2. Selecione o componente **Mesh** correspondente
+3. No painel **"Details"**, configure:
+   - **Skeletal Mesh**: Selecione o mesmo mesh do player local
+   - **Anim Blueprint**: Selecione o mesmo Anim Blueprint (opcional - pode deixar diferente se quiser)
+   - **Materials**: Aplique os mesmos materiais (ou crie uma variação para diferenciar visualmente)
+
+### **4.3) Diferenciar Visualmente (Opcional - Recomendado para Debug)**
+
+Para facilitar identificação (especialmente durante testes):
+
+**Opções:**
+1. **Material diferente**: Crie um material com cor ligeiramente diferente (ex.: leve brilho, outline)
+2. **Mesh diferente**: Use um mesh simplificado ou diferente
+3. **Particle Effect**: Adicione um componente de partículas sutil (ex.: aura, brilho)
+
+**Exemplo prático:**
+- Player Local: Mesh normal
+- Player Remoto: Mesh com material levemente translúcido ou com outline azul
+
+---
+
+## PASSO 5: Remover/Desabilitar Input no Blueprint (Crítico!)
+
+### **5.1) Aba "Graph" (Gráfico)**
+
+1. Clique na aba **"Graph"** no editor do Blueprint
+2. Procure por eventos de Input:
+   - `Event BeginPlay`
+   - `Event Tick` (pode remover se não precisar)
+   - Eventos de Input (ex.: `InputAction Jump`, `InputAxis MoveForward`, etc.)
+
+### **5.2) Remover Eventos de Input**
+
+**Como identificar eventos de Input:**
+- Geralmente têm nomes como:
+  - `InputAction [Nome]`
+  - `InputAxis [Nome]`
+  - `InputKey [Nome]`
+- Aparecem como nós vermelhos no gráfico
+
+**Como remover:**
+1. Selecione cada evento de Input
+2. Pressione `Delete` ou clique com botão direito → **"Delete"**
+3. Remova também toda a lógica conectada a esses eventos
+
+**ATENÇÃO**: Se você conectou lógica importante nesses eventos, pode querer:
+- Deixar os eventos mas sem lógica (apenas para não dar erro)
+- OU remover completamente se tiver certeza que não precisa
+
+### **5.3) Remover Event Tick (Opcional)**
+
+O `Event Tick` pode não ser necessário para players remotos, pois você controla movimento no `BP_NetMovementClient`:
+
+1. **Procure o nó `Event Tick`** no gráfico
+2. Se não houver lógica importante conectada, você pode:
+   - Deixar vazio (sem conexões)
+   - OU remover completamente (clique com botão direito → "Delete")
+
+**Recomendação**: Deixe o `Event Tick` vazio (sem conexões) - não causa problema e você pode adicionar lógica futuramente se precisar.
+
+---
+
+## PASSO 6: Salvar e Compilar
+
+### **6.1) Compilar o Blueprint**
+
+1. **No editor do Blueprint**, clique no botão **"Compile"** (canto superior esquerdo)
+   - OU: Pressione `Ctrl + Shift + C`
+2. **Aguarde a compilação** - você verá uma barra de progresso
+3. **Verifique se há erros**:
+   - Se houver erros (linhas vermelhas), corrija antes de continuar
+   - Geralmente erros são causados por:
+     - Componentes removidos que ainda são referenciados
+     - Variáveis/conexões órfãs
+
+### **6.2) Salvar**
+
+1. Clique em **"Save"** (canto superior esquerdo) ou `Ctrl + S`
+2. O Blueprint será salvo no Content Browser
+
+### **6.3) Verificar no Content Browser**
+
+1. **Volte ao Content Browser**
+2. **Verifique** que o Blueprint aparece corretamente
+3. **Nome esperado**: `BP_RemotePlayer` (ou o nome que você escolheu)
+
+---
+
+## PASSO 7: Testar/Usar o Blueprint
+
+### **7.1) Usar no Spawn Actor from Class**
+
+Quando você for usar no passo 7.2 da seção 3.7 (OnWSBinaryMessage) ou passo 6.4B.1 da seção 3.8 (Tick):
+
+1. **No nó `Spawn Actor from Class`**:
+2. **Input `Class`**: 
+   - Clique no dropdown ou campo `Class`
+   - Procure por `BP_RemotePlayer` (ou o nome que você deu)
+   - OU: Arraste o Blueprint do Content Browser para o campo `Class`
+
+### **7.2) Verificar se funciona (Teste Opcional)**
+
+Para testar se o Blueprint está correto:
+
+1. **No Level Editor**, arraste o Blueprint `BP_RemotePlayer` para o level (como um teste)
+2. **Pressione Play (PIE)**
+3. **Verifique**:
+   - O Actor aparece no mundo?
+   - Não há erros no log?
+   - O mesh/visual está correto?
+
+**Se houver problemas:**
+- Verifique se o Blueprint foi compilado sem erros
+- Verifique se a classe base está correta
+- Verifique se há componentes faltando
+
+---
+
+## RESUMO RÁPIDO DOS PASSOS:
+
+```
+1. Content Browser → Right Click → Blueprint Class
+2. Selecionar classe base (Character/Pawn/etc.)
+3. Nomear: BP_RemotePlayer
+4. Abrir Blueprint → Aba Components
+5. Remover componentes de Input (se houver)
+6. Configurar Mesh (copiar do player local ou usar diferente)
+7. Aba Graph → Remover eventos de Input
+8. Compilar (Ctrl+Shift+C)
+9. Salvar (Ctrl+S)
+10. Usar no Spawn Actor from Class quando necessário
+```
+
+---
+
+## NOTAS IMPORTANTES:
+
+1. **Herança:**
+   - O Blueprint do player remoto pode herdar do mesmo pai que o player local
+   - Isso facilita compartilhar meshes, materiais e configurações
+
+2. **Performance:**
+   - Remover Input Components economiza processamento
+   - Players remotos geralmente precisam apenas de: Mesh + Collision + Movement (para física)
+
+3. **Manter simplicidade:**
+   - Não adicione lógica complexa no Blueprint do player remoto
+   - Toda lógica de movimento/interpolação está no `BP_NetMovementClient`
+
+4. **Alternativa rápida:**
+   - Se quiser testar rapidamente, você pode usar temporariamente a mesma classe do player local
+   - Depois crie a classe específica para otimização
+
+---
+
 ### 3.4. Criar Custom Events ANTES do BeginPlay (CRÍTICO!)
 
 **IMPORTANTE**: Você precisa criar os Custom Events manualmente ANTES de fazer os binds. Eles não aparecem automaticamente quando você conecta o `Bind Event`.
