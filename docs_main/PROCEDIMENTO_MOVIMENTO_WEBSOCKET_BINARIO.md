@@ -153,18 +153,195 @@ Agora, no `BP_NetMovementClient`:
   - `GetOrCreatePlayerState(StatesArray, PlayerId)` → busca ou cria automaticamente
   - `UpdatePlayerStateBuffer(Entry, Location, Yaw, TimestampMs)` → atualiza buffer com rotação de estados
 
-**g) `RemoteActors` (SOLUÇÃO: Array paralelo - mais simples)**
-- **Recomendação**: Use dois Arrays paralelos (mais simples que criar estrutura):
-  - `RemoteActorIds` (Array of Integer) - armazena os player_ids na mesma ordem
-  - `RemoteActors` (Array of Actor Reference) - armazena as referências dos actors na mesma ordem
-- **Por que Arrays paralelos?**
-  - Mais simples que criar uma estrutura custom no Content Browser
-  - Fácil de usar com `Find Item in Array` para buscar por PlayerId
-  - Manter sincronização: sempre adicionar/remover em ambos os Arrays ao mesmo tempo
-- **Alternativa (se preferir estrutura)**:
-  - Crie uma estrutura no Content Browser: `RemoteActorEntry`
-  - Variáveis: `PlayerId` (Integer), `ActorRef` (Actor Reference)
-  - Tipo da variável: Array of RemoteActorEntry
+**g) `RemoteActorIds` e `RemoteActors` (SOLUÇÃO: Arrays Paralelos) - PASSO A PASSO DETALHADO**
+
+Estes dois Arrays trabalham juntos para armazenar os Actors remotos (representações visuais de outros jogadores no seu mundo).
+
+**O QUE SÃO ARRAYS PARALELOS?**
+- Dois Arrays separados que mantêm os mesmos índices sincronizados
+- `RemoteActorIds[0]` contém o PlayerId do primeiro jogador remoto
+- `RemoteActors[0]` contém o Actor do primeiro jogador remoto
+- O mesmo índice em ambos os Arrays sempre representa o mesmo jogador
+
+**POR QUE USAR ARRAYS PARALELOS?**
+- ✅ Mais simples que criar uma estrutura custom no Content Browser
+- ✅ Fácil de usar com `Find Item in Array` para buscar por PlayerId
+- ✅ Tipos nativos do Blueprint (Integer e Actor Reference)
+- ✅ Performance adequada para até dezenas de jogadores simultâneos
+
+---
+
+**COMO CRIAR OS ARRAYS - PASSO A PASSO:**
+
+### **PASSO 1: Criar `RemoteActorIds` (Array of Integer)**
+
+1. **No painel `Meu Blueprint` (lado esquerdo):**
+   - Clique no `+` ao lado de "VARIÁVEIS" → selecione "Add Variable"
+   - OU: clique com botão direito na lista de variáveis → "Add Variable"
+
+2. **Configurar a variável:**
+   - **Nome**: Digite exatamente `RemoteActorIds` (sem espaços, case-sensitive)
+   - **Tipo da Variável**: No dropdown, procure por **"Array"**
+     - Se não aparecer diretamente, digite "Array" na busca
+     - Selecione `Array` (não "Array Element" ou outras variações)
+
+3. **Configurar o tipo interno do Array (Inner Type):**
+   - Após selecionar "Array", aparecerá um campo adicional abaixo: **"Inner"** ou **"Element Type"**
+   - Clique neste campo e procure por **"Integer"** ou **"Número Inteiro"**
+   - Selecione `Integer` (ou `int` dependendo da versão do Unreal)
+   - **Resultado**: O tipo completo será `Array of Integer`
+
+4. **Configurações opcionais:**
+   - **Padrão (Default Value)**: Deixe vazio (Array vazio inicialmente)
+   - **Instance Editable**: Pode deixar desmarcado (não precisa editar no editor)
+   - **Tooltip** (opcional): "Array de PlayerIds dos jogadores remotos"
+
+5. **Verificar:**
+   - A variável deve aparecer na lista como: `RemoteActorIds` (Array of Integer)
+
+---
+
+### **PASSO 2: Criar `RemoteActors` (Array of Actor Reference)**
+
+1. **No painel `Meu Blueprint` (lado esquerdo):**
+   - Clique no `+` ao lado de "VARIÁVEIS" → selecione "Add Variable"
+
+2. **Configurar a variável:**
+   - **Nome**: Digite exatamente `RemoteActors` (sem espaços, case-sensitive)
+   - **Tipo da Variável**: No dropdown, procure por **"Array"**
+
+3. **Configurar o tipo interno do Array (Inner Type):**
+   - Após selecionar "Array", clique no campo **"Inner"** ou **"Element Type"**
+   - Procure por **"Object Reference"** ou **"Actor Reference"**
+   - **IMPORTANTE**: Você precisa especificar que é um Actor:
+     - Opção 1: Digite "Actor" e selecione `Actor` (classe base)
+     - Opção 2: Digite "Object" e depois clique no campo adicional que aparece para especificar `Actor`
+     - **Resultado esperado**: `Array of Actor` ou `Array of Actor Reference`
+
+4. **Se não aparecer "Actor" diretamente:**
+   - Tente procurar por "Object Reference"
+   - Após selecionar, procure um campo adicional para restringir o tipo
+   - Selecione "Actor" como a classe base
+   - **Alternativa**: Deixe como "Object Reference" genérico (funciona também, mas menos type-safe)
+
+5. **Configurações opcionais:**
+   - **Padrão (Default Value)**: Deixe vazio (Array vazio inicialmente)
+   - **Instance Editable**: Pode deixar desmarcado
+   - **Tooltip** (opcional): "Array de Actors remotos (mesma ordem que RemoteActorIds)"
+
+6. **Verificar:**
+   - A variável deve aparecer na lista como: `RemoteActors` (Array of Actor/Object Reference)
+
+---
+
+### **PASSO 3: Verificar que os Arrays estão corretos**
+
+**Lista de variáveis esperada:**
+```
+✓ RemoteActorIds: Array of Integer
+✓ RemoteActors: Array of Actor (ou Array of Object Reference)
+```
+
+**Como verificar no Blueprint:**
+1. Selecione cada variável na lista
+2. No painel "Detalhes" (direita), veja o tipo completo
+3. **IMPORTANTE**: Certifique-se de que:
+   - `RemoteActorIds` é realmente `Array of Integer`
+   - `RemoteActors` é realmente `Array of Actor` (ou Object Reference)
+
+---
+
+### **COMO FUNCIONAM OS ARRAYS PARALELOS:**
+
+**Exemplo prático:**
+```
+Situação: Você tem 2 jogadores remotos no mundo
+
+RemoteActorIds: [100, 250]     ← PlayerIds
+RemoteActors:   [Actor1, Actor2] ← Referências dos Actors
+                  ↑      ↑
+                Índice 0  Índice 1
+```
+
+**Regras de Sincronização:**
+- ✅ `RemoteActorIds[0]` e `RemoteActors[0]` sempre representam o mesmo jogador
+- ✅ Se adicionar um novo jogador:
+  1. Adicione `PlayerId` em `RemoteActorIds` (usando `Add Item to Array`)
+  2. Adicione `Actor` em `RemoteActors` (usando `Add Item to Array`)
+  3. **SEMPRE na mesma ordem!**
+- ✅ Se remover um jogador:
+  1. Remova do `RemoteActorIds` (usando `Remove Item` com o índice)
+  2. Remova do `RemoteActors` (usando `Remove Item` com o **mesmo índice**)
+
+**Buscar um Actor por PlayerId:**
+```
+1. Find Item in Array (RemoteActorIds, PlayerId) → FoundIndex
+2. Se FoundIndex >= 0:
+   Get Element (RemoteActors, FoundIndex) → RemoteActorRef
+```
+
+---
+
+### **ALTERNATIVA: Usar Estrutura Custom (Opcional)**
+
+Se preferir usar uma estrutura única em vez de dois Arrays:
+
+**Criar a estrutura no Content Browser:**
+1. No Content Browser (aba "Content"), clique com botão direito
+2. **Blueprint** → **Structure** (não "Blueprint Class"!)
+3. Nome: `RemoteActorEntry`
+4. Dentro da estrutura, adicione:
+   - `PlayerId` (Integer)
+   - `ActorRef` (Actor Reference)
+5. Salve a estrutura
+
+**Criar a variável:**
+- Nome: `RemoteActors` (pode usar o mesmo nome)
+- Tipo: `Array of RemoteActorEntry`
+- Use `Find Item in Array` procurando pela estrutura completa (mais complexo)
+
+**Recomendação**: Use os **Arrays paralelos** (mais simples e mais direto).
+
+---
+
+### **NOTAS IMPORTANTES:**
+
+1. **Ordem de criação:**
+   - Pode criar os Arrays em qualquer ordem
+   - Mas sempre use `RemoteActorIds` primeiro quando for adicionar itens (para manter a ordem mental)
+
+2. **Nomes das variáveis:**
+   - Os nomes são case-sensitive no Blueprint
+   - Use exatamente: `RemoteActorIds` e `RemoteActors`
+   - Não use espaços ou caracteres especiais
+
+3. **Inicialização:**
+   - Ambos os Arrays começam vazios (sem itens)
+   - Itens serão adicionados dinamicamente quando receber StateUpdates de novos jogadores
+
+4. **Validação:**
+   - Sempre mantenha os Arrays com o mesmo tamanho
+   - Se `RemoteActorIds.Num()` != `RemoteActors.Num()`, há um erro de sincronização
+   - Considere adicionar uma função de validação para debug (opcional)
+
+---
+
+### **RESUMO RÁPIDO:**
+
+**Para criar `RemoteActorIds`:**
+1. Criar variável → Nome: `RemoteActorIds`
+2. Tipo: `Array` → Inner: `Integer`
+3. Pronto!
+
+**Para criar `RemoteActors`:**
+1. Criar variável → Nome: `RemoteActors`
+2. Tipo: `Array` → Inner: `Actor Reference`
+3. Pronto!
+
+**Uso:**
+- Adicionar jogador: Adicione em ambos os Arrays na mesma ordem
+- Buscar jogador: Use `Find Item in Array` no `RemoteActorIds`, depois `Get Element` no `RemoteActors`
+- Remover jogador: Remova do mesmo índice em ambos os Arrays
 
 **h) `SendTimerHandle`**
 - Tipo: `Timer Handle`
