@@ -1679,127 +1679,124 @@ Antes de usar, você precisa ter criado as variáveis conforme a seção 3.3:
 
 **PASSO 6.4A: Se encontrado (Branch True) - Obter o Actor - PASSO A PASSO ULTRA DETALHADO**
 
-**PROBLEMA COMUM**: Não conseguir encontrar o nó `Get Element` ou confundi-lo com `Set Array Element`.
+**PROBLEMA COMUM**: Não conseguir encontrar o nó correto ou confundi-lo com `Set Array Element`.
 
-**SOLUÇÃO**: Existem várias formas de obter um elemento do Array. Vou mostrar TODAS as opções:
+**SOLUÇÃO**: No Unreal Engine, o nó para obter um elemento do Array se chama **"Get a Copy"**. Vou mostrar como encontrá-lo e usá-lo:
 
 ---
 
-### **MÉTODO 1: Usar "Get Element" (Recomendado)**
+### **MÉTODO 1: Usar "Get a Copy" (RECOMENDADO - NOME CORRETO)**
 
 **6.4A.1) Conectar o pin "True" do Branch:**
 
 1. **Do pin "True" do `Branch`** (passo 6.3), arraste uma linha de execução para baixo/direita
 2. **Solte** - isso criará automaticamente um menu de contexto com opções
 
-**6.4A.2) Criar o nó `Get Element` - OPÇÃO A (Busca Direta):**
+**6.4A.2) Criar o nó `Get a Copy` - OPÇÃO A (Busca Direta):**
 
 1. **Com a linha de execução conectada ao pin "True"**, clique com **botão direito** no gráfico (na área onde você quer criar o nó)
-2. **No menu de busca**, digite: **"Get Element"** ou **"Get"**
+2. **No menu de busca**, digite: **"Get a Copy"** ou **"Get"** ou **"Copy"**
 3. **Procure por**: 
-   - `Get Element` (categoria "Array")
-   - OU: `Get Array Element` (categoria "Array")
+   - ✅ **`Get a Copy`** (categoria "Array") - **ESTE É O CORRETO!**
+   - OU: `Array Get a Copy` (categoria "Array")
    - **ATENÇÃO**: NÃO confunda com `Set Array Element` (que é para SETAR, não para obter)
-4. **Selecione** `Get Element` ou `Get Array Element`
-5. O nó aparecerá no gráfico
+4. **Selecione** `Get a Copy` ou `Array Get a Copy`
+5. O nó aparecerá no gráfico com o nome **"Get a Copy"**
 
-**6.4A.3) Criar o nó `Get Element` - OPÇÃO B (Através da Variável):**
+**6.4A.3) Criar o nó `Get a Copy` - OPÇÃO B (Através da Variável - MAIS FÁCIL):**
 
 1. **Arraste a variável `RemoteActors`** do painel de variáveis (lado esquerdo) para o gráfico
 2. **Solte** - isso criará um nó `Get RemoteActors`
 3. **Clique com botão direito no pin `Return Value`** (Array of Actor) do `Get RemoteActors`
-4. **No menu de contexto**, procure por: **"Get Element"** ou **"Get Array Element"**
-5. **Selecione** - isso criará automaticamente um nó `Get Element` conectado ao Array
+4. **No menu de contexto que aparecer**, procure por: **"Get a Copy"** ou **"Get"**
+5. **Selecione `Get a Copy`** - isso criará automaticamente um nó `Get a Copy` conectado ao Array
+   - **VANTAGEM**: Já vem conectado ao Array automaticamente!
 
-**6.4A.4) Conectar o Array ao `Get Element`:**
+**6.4A.4) Conectar o Array ao `Get a Copy`:**
 
 **Se você usou OPÇÃO A (busca direta):**
 
 1. **Arraste a variável `RemoteActors`** do painel de variáveis para o gráfico
 2. **Isso criará um nó `Get RemoteActors`**
-3. **Conecte o pin `Return Value`** (Array of Actor) do `Get RemoteActors` ao pin `Array` (input) do `Get Element`
-   - Arraste do `Return Value` até o pin `Array` do `Get Element`
+3. **Conecte o pin `Return Value`** (Array of Actor) do `Get RemoteActors` ao pin `Array` (input) do `Get a Copy`
+   - Arraste do `Return Value` até o pin `Array` do `Get a Copy`
 
 **Se você usou OPÇÃO B (através da variável):**
 
-- ✅ Já está conectado automaticamente! Não precisa fazer nada.
+- ✅ **Já está conectado automaticamente!** Não precisa fazer nada - o Array já está conectado.
 
-**6.4A.5) Conectar o `FoundIndex` ao `Get Element`:**
+**6.4A.5) Conectar o `FoundIndex` ao `Get a Copy`:**
 
 1. **Localize o `FoundIndex`** (Integer) do passo 6.2 (saída do `Find Item in Array`)
    - Se você criou um Knot para reutilizar, use o `Knot.OutputPin`
    - Se não, use diretamente o `FoundIndex` do `Find Item in Array`
 
-2. **Conecte `FoundIndex` ao pin `Index`** (input) do `Get Element`:
-   - Arraste do `FoundIndex` até o pin `Index` do `Get Element`
+2. **Conecte `FoundIndex` ao pin `Index`** (input) do `Get a Copy`:
+   - Arraste do `FoundIndex` até o pin `Index` do `Get a Copy`
 
 **6.4A.6) Obter o resultado (`RemoteActorRef`):**
 
-**IMPORTANTE**: O nó `Get Element` tem um output chamado `Element` (ou `Return Value`). Este é o Actor que você precisa!
+**IMPORTANTE**: O nó `Get a Copy` tem um output chamado `Item` (ou `Return Value`). Este é o Actor que você precisa!
 
-1. **Localize o pin de saída do `Get Element`:**
-   - Procure pelo pin `Element` (tipo: Actor/Object Reference)
+1. **Localize o pin de saída do `Get a Copy`:**
+   - Procure pelo pin **`Item`** (tipo: Actor/Object Reference)
    - OU: Pode aparecer como `Return Value` (depende da versão do Unreal)
+   - **NOTA**: O nome "Get a Copy" não significa que é uma cópia do Actor - é uma referência ao mesmo Actor (não cria duplicata)
 
-2. **Este pin já É a referência do Actor remoto!**
+2. **Este pin `Item` já É a referência do Actor remoto!**
    - **Você não precisa criar uma variável** - pode usar diretamente
    - **Mas se quiser reutilizar em vários lugares**, você pode:
      - **Opção 1**: Criar um **Knot** (Reroute Node):
-       - Arraste do `Element` até criar um novo Knot
+       - Arraste do `Item` até criar um novo Knot
        - Use o `Knot.OutputPin` nas próximas conexões
      - **Opção 2**: Conectar diretamente onde precisar (mais simples)
 
-3. **Nome mental para referência**: Pense neste `Element` como `RemoteActorRef` (você pode até adicionar um comentário no nó chamando-o assim)
+3. **Nome mental para referência**: Pense neste `Item` como `RemoteActorRef` (você pode até adicionar um comentário no nó chamando-o assim)
 
 **6.4A.7) Verificar se está correto:**
 
-Seu `Get Element` deve estar assim:
+Seu `Get a Copy` deve estar assim:
 - **Input `Array`**: Conectado ao `Return Value` de `Get RemoteActors`
 - **Input `Index`**: Conectado ao `FoundIndex` (Integer)
-- **Output `Element`**: Este é o `RemoteActorRef` que você vai usar
+- **Output `Item`**: Este é o `RemoteActorRef` que você vai usar
 
 **6.4A.8) Conectar ao próximo passo:**
 
-- **Do pin de execução (branco)** do `Get Element`, conecte ao passo 7 (Aplicar Transformação)
-- **NOTA**: O `Get Element` pode não ter pin de execução - isso é normal! Neste caso, conecte diretamente do pin "True" do Branch ao passo 7, e use o `Element` do `Get Element` como entrada do passo 7
+- **Do pin "True" do Branch**, conecte ao passo 7 (Aplicar Transformação)
+- **NOTA**: O `Get a Copy` **não tem pin de execução** - isso é normal! Ele é um nó de dados (não execução)
+- **Use o `Item` do `Get a Copy`** como entrada do passo 7 (conecte diretamente)
 
 ---
 
-### **MÉTODO 2: Usar "Array Get Item" (Alternativa)**
+### **PROBLEMA: Não Encontra "Get a Copy"**
 
-**Se o `Get Element` não aparecer, tente:**
+**Se você não encontrar "Get a Copy" no menu:**
 
-1. **Botão direito** → digite **"Array Get Item"** ou **"Get Item"**
-2. **Selecione** `Get Item` (categoria "Array")
-3. **Conecte da mesma forma:**
-   - `Array`: `Get RemoteActors` → `Return Value`
-   - `Index`: `FoundIndex`
-   - `Item`: Este é o output (mesmo que `Element`)
+1. **Tente estas buscas:**
+   - "Get a Copy"
+   - "Get"
+   - "Copy"
+   - "Array Get"
 
----
+2. **Verifique a categoria:**
+   - Deve estar em **"Array"** no menu de busca
 
-### **MÉTODO 3: Usar "Break Array" (Não Recomendado - Apenas se outros não funcionarem)**
-
-**Se NENHUM dos métodos acima funcionar:**
-
-1. **Botão direito** → digite **"Break Array"** ou **"For Each Loop"**
-2. **Use um `For Each Loop`** para iterar:
-   - Conecte `Get RemoteActors` → `Return Value` ao Array do `For Each Loop`
-   - Dentro do loop, compare o `Array Index` com `FoundIndex`
-   - Quando for igual, use o `Array Element`
-
-**NOTA**: Este método é muito mais complexo e não recomendado. Use apenas como último recurso.
+3. **Use a OPÇÃO B (Através da Variável):**
+   - Arraste `RemoteActors` para o gráfico
+   - Clique com botão direito no `Return Value`
+   - Procure "Get a Copy" no menu de contexto
+   - **Esta é a forma mais fácil de encontrar!**
 
 ---
 
 ### **PROBLEMA: Confundindo com "Set Array Element"**
 
 **Se você só vê "Set Array Element":**
-- `Set Array Element` é para **MODIFICAR** um elemento do Array
-- `Get Element` é para **LER** um elemento do Array
+- ❌ `Set Array Element` é para **MODIFICAR** um elemento do Array
+- ✅ `Get a Copy` é para **LER** um elemento do Array
 - **Eles são diferentes!** Procure especificamente por "Get" não "Set"
 
-**Dica**: No menu de busca, digite "Get Array" ou apenas "Get Element" e procure na categoria "Array"
+**Dica**: No menu de busca, digite "Get a Copy" ou "Get" e procure na categoria "Array"
 
 ---
 
@@ -1808,44 +1805,44 @@ Seu `Get Element` deve estar assim:
 ```
 Branch (True)
     ↓ (execution pin)
-Get Element
+Get a Copy                    [NÓ CORRETO: "Get a Copy"]
     ↓
 Array: Get RemoteActors → Return Value
 Index: FoundIndex (do passo 6.2)
     ↓
-Element: RemoteActorRef (usa diretamente ou via Knot)
+Item: RemoteActorRef (usa diretamente ou via Knot)
     ↓
 Passo 7 (Aplicar Transformação)
 ```
 
 **CONEXÕES FINAIS:**
-- ✅ Pin "True" do Branch → (pode não ter execution pin no Get Element, mas tudo bem)
-- ✅ `Get RemoteActors` → `Return Value` → `Get Element.Array`
-- ✅ `FoundIndex` → `Get Element.Index`
-- ✅ `Get Element.Element` → (este é o `RemoteActorRef` que você usa no passo 7)
+- ✅ Pin "True" do Branch → Passo 7 (execução)
+- ✅ `Get RemoteActors` → `Return Value` → `Get a Copy.Array`
+- ✅ `FoundIndex` → `Get a Copy.Index`
+- ✅ `Get a Copy.Item` → (este é o `RemoteActorRef` que você usa no passo 7)
 
 ---
 
 ### **COMO USAR O RESULTADO NO PASSO 7 - EXPLICAÇÃO DETALHADA**
 
-**PERGUNTA COMUM**: "Como faço do resultado do `Get Element` a variável `RemoteActorRef`?"
+**PERGUNTA COMUM**: "Como faço do resultado do `Get a Copy` a variável `RemoteActorRef`?"
 
-**RESPOSTA**: Você **NÃO precisa criar uma variável separada**! O output `Element` do `Get Element` JÁ É a referência do Actor. Você pode usá-lo diretamente.
+**RESPOSTA**: Você **NÃO precisa criar uma variável separada**! O output `Item` do `Get a Copy` JÁ É a referência do Actor. Você pode usá-lo diretamente.
 
 **PASSO A PASSO PARA USAR NO PASSO 7:**
 
 **6.4A.9) Opção 1 - Usar Diretamente (Mais Simples):**
 
 1. **No passo 7** (Aplicar Transformação), você precisará conectar o Actor ao nó `Set Actor Location` ou `Set Actor Transform`
-2. **Arraste do pin `Element`** (do `Get Element` do passo 6.4A) até o input que precisa do Actor
+2. **Arraste do pin `Item`** (do `Get a Copy` do passo 6.4A) até o input que precisa do Actor
 3. **Conecte diretamente** - não precisa de variável intermediária!
 
 **Exemplo visual:**
 ```
-Get Element
-    ↓ (Element)
+Get a Copy
+    ↓ (Item)
 Set Actor Location
-    - Target: [Conecte o Element aqui]
+    - Target: [Conecte o Item aqui]
     - New Location: [sua posição interpolada]
 ```
 
@@ -1853,12 +1850,12 @@ Set Actor Location
 
 **Se você precisar usar o `RemoteActorRef` em mais de um lugar** (ex.: `Set Actor Location` E `Set Actor Rotation`):
 
-1. **Arraste do pin `Element`** do `Get Element` para criar um **Knot** (Reroute Node)
+1. **Arraste do pin `Item`** do `Get a Copy` para criar um **Knot** (Reroute Node)
    - Arraste a conexão e solte em um lugar vazio do gráfico
    - Isso criará automaticamente um Knot
 
 2. **O Knot terá um Input e um Output:**
-   - Input: Conectado ao `Element` do `Get Element`
+   - Input: Conectado ao `Item` do `Get a Copy`
    - Output: Use este output em todos os lugares onde precisar do Actor
 
 3. **Conecte o Output do Knot** aos inputs que precisam do Actor:
@@ -1867,8 +1864,8 @@ Set Actor Location
 
 **Exemplo visual com Knot:**
 ```
-Get Element
-    ↓ (Element)
+Get a Copy
+    ↓ (Item)
 Knot (Input → Output)
     ↓ (Output)
     ├─→ Set Actor Location (Target)
@@ -1877,9 +1874,10 @@ Knot (Input → Output)
 
 **6.4A.11) Por Que Não Precisa Criar Variável:**
 
-- **O `Element` do `Get Element` já é uma referência válida** ao Actor
+- **O `Item` do `Get a Copy` já é uma referência válida** ao Actor
 - **Você pode conectá-lo diretamente** a qualquer input que espera um Actor
 - **Criar uma variável seria redundante** neste caso
+- **NOTA**: O nome "Get a Copy" pode ser confuso, mas não cria uma cópia - é apenas uma referência ao mesmo Actor
 
 **EXCEÇÃO**: Se você quiser **armazenar para uso futuro** (ex.: em outro evento), aí sim pode criar uma variável. Mas para uso imediato no mesmo fluxo, não precisa.
 
@@ -1892,9 +1890,9 @@ Knot (Input → Output)
    - Nome: `RemoteActorRef`
    - Não marque como Array
 
-2. **Conecte o `Element` a um `Set` dessa variável:**
+2. **Conecte o `Item` a um `Set` dessa variável:**
    - Arraste a variável `RemoteActorRef` no gráfico → selecione "Set RemoteActorRef"
-   - Conecte o `Element` do `Get Element` ao input do `Set RemoteActorRef`
+   - Conecte o `Item` do `Get a Copy` ao input do `Set RemoteActorRef`
 
 3. **Use `Get RemoteActorRef`** onde precisar
 
