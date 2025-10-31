@@ -655,90 +655,249 @@ Set Element
 
 No evento `Event Tick`, adicione a lógica de interpolação para cada jogador remoto.
 
-**Ordem dos nós no `Event Tick`**:
+**IMPORTANTE**: Este processo é executado a cada frame (~60-120 FPS), então otimize o código para evitar operações pesadas.
 
-**1) Iterar sobre o Array `RemoteStates`**
-- `Get RemoteStates` → `For Each Loop` (ou `For Each Loop (Break)`)
-- O loop fornece:
-  - `Array Element` (`PlayerStateEntry`) - a estrutura com o buffer de estados e o PlayerId dentro dela
-- **Nota**: A estrutura `PlayerStateEntry` já contém o `PlayerId` como primeiro campo, então você pode acessar `ArrayElement.PlayerId`
+**Ordem dos nós no `Event Tick` - PASSO A PASSO:**
 
-**2) Verificar se tem dados suficientes para interpolação**
-- Do `Array Element` (PlayerStateEntry), verifique `HasStateA` e `HasStateB`
-- Se ambos são `true`, continue (temos dois estados para interpolar)
-- Se não, continue para o próximo item do loop (`Continue Loop`)
+**1) Iterar sobre o Array `RemoteStates` - PASSO A PASSO**
 
-**3) Calcular Alpha (fator de interpolação)**
-- Obtenha o tempo atual em ms: `Get Game Time in Seconds` × `1000` → converta para Integer
-- Delta entre estados: `ArrayElement.StateB_TimestampMs` - `ArrayElement.StateA_TimestampMs`
-- Tempo decorrido desde StateA: `(Tempo Atual Ms) - (ArrayElement.StateA_TimestampMs)`
-- Alpha: `(Tempo Decorrido) / (Delta entre Estados)`
-- Clampe Alpha entre `0.0` e `1.0` (use `Clamp (Float)`)
+- **Criar o nó `Event Tick`**: Já existe no Blueprint (se não existir, clique com botão direito → "Event Tick")
+- **Obter `RemoteStates`**:
+  - Arraste a variável `RemoteStates` no gráfico → `Get RemoteStates`
+  - Output: `Return Value` (Array of Player State Entry)
+- **Criar `For Each Loop`**:
+  - Botão direito no gráfico → digite "For Each" ou "For Each Loop"
+  - Selecione `For Each Loop` (categoria "Flow Control")
+  - **Input `Array`**: Conecte o `Return Value` (Array) do `Get RemoteStates`
+- **O que o loop fornece:**
+  - Pin de execução `Loop Body`: conecte aqui todos os nós que processam cada elemento
+  - `Array Element` (Player State Entry): a estrutura com o buffer de estados
+  - `Array Index` (Integer): índice atual no Array (geralmente não usado)
+  - Pin de execução `Completed`: executado quando o loop termina (pode deixar desconectado)
 
-**4) Interpolar Posição**
-- `Lerp (Vector)`:
-  - `A` = `ArrayElement.StateA_Location`
-  - `B` = `ArrayElement.StateB_Location`
-  - `Alpha` = o valor calculado acima
-- Output: `InterpolatedLocation` (Vector)
+**2) Verificar se tem dados suficientes para interpolação - PASSO A PASSO**
 
-**5) Interpolar Yaw**
-- `Lerp (Float)`:
-  - `A` = `ArrayElement.StateA_Yaw`
-  - `B` = `ArrayElement.StateB_Yaw`
-  - `Alpha` = o mesmo alpha
+- **Do pin `Loop Body` do `For Each Loop`**, conecte ao pin de execução de um `Branch`
+- **Acessar `HasStateA`**:
+  - Do `Array Element` (Player State Entry), arraste e solte → procure `HasStateA`
+  - Ou: `Array Element` → pin de saída `HasStateA` (Boolean)
+- **Acessar `HasStateB`**:
+  - Do mesmo `Array Element`, arraste e solte → procure `HasStateB`
+  - Ou: `Array Element` → pin de saída `HasStateB` (Boolean)
+- **Combinar com AND**:
+  - Procure `Boolean AND` (categoria "Boolean" ou digite "AND")
+  - Input `A`: conecte `ArrayElement.HasStateA`
+  - Input `B`: conecte `ArrayElement.HasStateB`
+  - Output `Return Value`: conecte ao pin `Condition` (Boolean) do `Branch`
+- **Conectar o Branch:**
+  - Pin "True" do `Branch`: conecta aos próximos passos (temos dados suficientes)
+  - Pin "False" do `Branch`: conecta a um `Continue Loop` (pula para o próximo item)
+    - **NOTA**: Para `Continue Loop`, procure "Continue Loop" (categoria "Flow Control")
+    - Se não encontrar, simplesmente deixe o pin "False" desconectado (o loop continuará naturalmente)
+
+**3) Calcular Alpha (fator de interpolação) - PASSO A PASSO**
+
+**3.1) Obter tempo atual em milissegundos:**
+- `Get Game Time in Seconds`:
+  - Botão direito → digite "Get Game Time" ou "Game Time"
+  - Output: `Return Value` (Float) - tempo em segundos
+- **Multiplicar por 1000**:
+  - Procure `Multiply (Float)` ou use o operador `*`
+  - Input `A`: `Return Value` do `Get Game Time in Seconds`
+  - Input `B`: `1000.0` (constante Float)
+  - Output: tempo em milissegundos (Float)
+- **Converter para Integer**:
+  - Procure `To Integer (Float)` ou `Convert Float to Integer`
+  - Input: resultado da multiplicação acima
+  - Output: `Return Value` (Integer) - **`CurrentTimeMs`** (guarde este resultado)
+
+**3.2) Calcular Delta entre estados:**
+- **Subtrair timestamps:**
+  - Procure `Subtract (Integer)` ou operador `-`
+  - Input `A`: `ArrayElement.StateB_TimestampMs` (Integer)
+  - Input `B`: `ArrayElement.StateA_TimestampMs` (Integer)
+  - Output: `DeltaMs` (Integer) - diferença em milissegundos entre os dois estados
+  - **PROTEÇÃO**: Se `DeltaMs <= 0`, pode causar divisão por zero (veja passo 3.5)
+
+**3.3) Calcular tempo decorrido desde StateA:**
+- **Subtrair:**
+  - `Subtract (Integer)` ou `-`
+  - Input `A`: `CurrentTimeMs` (do passo 3.1)
+  - Input `B`: `ArrayElement.StateA_TimestampMs`
+  - Output: `ElapsedMs` (Integer) - tempo decorrido desde StateA
+
+**3.4) Calcular Alpha (fator de interpolação):**
+- **Converter para Float:**
+  - `ElapsedMs` → `To Float (Integer)`
+  - `DeltaMs` → `To Float (Integer)`
+- **Dividir:**
+  - Procure `Divide (Float)` ou operador `/`
+  - Input `A`: `ElapsedMs` (convertido para Float)
+  - Input `B`: `DeltaMs` (convertido para Float)
+  - Output: `Alpha` (Float) - valor entre 0.0 e potencialmente > 1.0
+
+**3.5) Clampear Alpha entre 0.0 e 1.0:**
+- Procure `Clamp (Float)` (categoria "Math" → "Float")
+- Inputs:
+  - `Value`: `Alpha` (do passo 3.4)
+  - `Min`: `0.0` (constante Float)
+  - `Max`: `1.0` (constante Float)
+- Output: `ClampedAlpha` (Float) - este é o valor final usado na interpolação
+- **NOTA IMPORTANTE**: Se `Alpha >= 1.0`, significa que já passamos do StateB (servidor atrasado). O Clamp garante que não extrapolamos além do StateB.
+
+**4) Interpolar Posição - PASSO A PASSO**
+
+- Procure `Lerp (Vector)` ou `VInterp To` (categoria "Math" → "Vector")
+- **IMPORTANTE**: Use `VInterp To` se quiser interpolação suavizada, ou `Lerp (Vector)` para interpolação linear simples
+- **Para `Lerp (Vector)`:**
+  - Input `A`: `ArrayElement.StateA_Location` (Vector)
+  - Input `B`: `ArrayElement.StateB_Location` (Vector)
+  - Input `Alpha`: `ClampedAlpha` (Float, do passo 3.5)
+  - Output: `InterpolatedLocation` (Vector) - posição interpolada
+- **Guarde este resultado** - será usado no passo 7
+
+**5) Interpolar Yaw - PASSO A PASSO**
+
+- Procure `Lerp (Float)` (categoria "Math" → "Float")
+- Inputs:
+  - `A`: `ArrayElement.StateA_Yaw` (Float)
+  - `B`: `ArrayElement.StateB_Yaw` (Float)
+  - `Alpha`: `ClampedAlpha` (Float, o mesmo usado no passo 4)
 - Output: `InterpolatedYaw` (Float)
-- **Nota**: Se os yaws estão em diferentes direções (ex.: -179° e 179°), você pode precisar de uma lógica especial para "encurtar o caminho" (shortest path). Por enquanto, use o Lerp simples.
+- **NOTA**: Se os yaws estão em direções opostas (ex.: -179° e 179°), o Lerp pode dar um caminho longo. Por enquanto, use o Lerp simples. Futuramente, você pode implementar "shortest path" (lerp entre -179° e 179° deve resultar em 180°, não 179°).
 
-**6) Obter o Actor Remoto (usando Array)**
-- **Opção A**: Se você está usando Array paralelo (`RemoteActorIds` + `RemoteActors`):
-  - `Find Item in Array` no `RemoteActorIds` (Item: `ArrayElement.PlayerId`) → `Index`
-  - Se `Index >= 0`:
-    - `Get Element` no `RemoteActors` (Index: `Index`) → `ActorRef`
-  - Se `Index < 0`, continue para o próximo item (não spawnou o actor ainda)
-- **Opção B**: Se você está usando Array de estruturas `RemoteActorEntry`:
-  - `For Each Loop` no `RemoteActors` → procure um elemento onde `PlayerId == ArrayElement.PlayerId`
-  - Se encontrado, use o `ActorRef` dessa estrutura
+**6) Obter o Actor Remoto - PASSO A PASSO**
 
-**7) Aplicar Transformação**
-- Do Actor obtido, chame `SetActorLocation` (Target: o Actor, New Location: `InterpolatedLocation`)
-- Crie uma Rotator:
-  - `Make Rotator`:
-    - `Roll` = `0`
-    - `Pitch` = `0`
-    - `Yaw` = `InterpolatedYaw`
-- `SetActorRotation` (Target: o Actor, New Rotation: o Rotator criado)
+**IMPORTANTE**: Você precisa ter criado os Arrays `RemoteActorIds` e `RemoteActors` conforme a seção 3.3.
 
-**8) Continuar Loop**
-- O loop continuará automaticamente para o próximo `player_id` no Map
+- **Buscar o índice no Array de IDs:**
+  - `Get RemoteActorIds` → `Find Item in Array` (categoria "Array")
+  - Input `Array`: `Get RemoteActorIds` → `Return Value` (Array of Integer)
+  - Input `Item`: `ArrayElement.PlayerId` (Integer) - o PlayerId da estrutura atual do loop
+  - Output `Index`: `FoundIndex` (Integer) - índice encontrado, ou `-1` se não encontrado
+- **Verificar se encontrou:**
+  - `Branch` (condicional)
+  - Input `Condition`: Compare `FoundIndex >= 0`
+    - Procure `Greater or Equal (Integer)` ou `>=`
+    - Input `A`: `FoundIndex`
+    - Input `B`: `0` (constante Integer)
+    - Output: conecte ao `Condition` do `Branch`
+- **Se encontrado (Branch True):**
+  - `Get RemoteActors` → `Get Element` (categoria "Array")
+  - Input `Array`: `Get RemoteActors` → `Return Value` (Array of Actor/Object Reference)
+  - Input `Index`: `FoundIndex` (do passo anterior)
+  - Output `Element`: `RemoteActorRef` (Actor Reference) - **GUARDE ESTE RESULTADO**
+- **Se não encontrado (Branch False):**
+  - **OPÇÃO 1**: Conecte ao `Continue Loop` (pula para o próximo item do loop)
+  - **OPÇÃO 2**: Spawn um novo Actor remoto aqui (veja nota no final)
 
-**Fluxo Visual Simplificado**:
+**7) Aplicar Transformação - PASSO A PASSO**
+
+**7.1) Verificar se o Actor é válido:**
+- **IMPORTANTE**: Sempre verifique se o Actor não é `None` antes de modificar
+- `Branch`:
+  - Input `Condition`: `Is Valid` (procure "Is Valid" ou arraste o `RemoteActorRef` → "Is Valid")
+  - Input `Object`: `RemoteActorRef`
+  - Se `Is Valid` retorna `false`, conecte o pin "False" ao `Continue Loop`
+  - Se `true`, continue para o próximo passo
+
+**7.2) Aplicar Posição:**
+- `Set Actor Location` (procure "Set Actor Location" ou arraste o `RemoteActorRef` → "Set Actor Location")
+- Inputs:
+  - `Target`: `RemoteActorRef` (Actor)
+  - `New Location`: `InterpolatedLocation` (Vector, do passo 4)
+  - `bSweep`: deixe `false` (ou `true` se quiser detecção de colisão)
+
+**7.3) Criar Rotator:**
+- `Make Rotator` (categoria "Math" → "Rotator")
+- Inputs:
+  - `Roll`: `0.0` (constante Float)
+  - `Pitch`: `0.0` (constante Float)
+  - `Yaw`: `InterpolatedYaw` (Float, do passo 5)
+- Output: `NewRotation` (Rotator)
+
+**7.4) Aplicar Rotação:**
+- `Set Actor Rotation` (procure "Set Actor Rotation" ou arraste o `RemoteActorRef` → "Set Actor Rotation")
+- Inputs:
+  - `Target`: `RemoteActorRef` (Actor)
+  - `New Rotation`: `NewRotation` (Rotator, do passo 7.3)
+
+**8) O Loop Continua Automaticamente**
+
+Após processar um jogador, o `For Each Loop` automaticamente passa para o próximo elemento do Array `RemoteStates`. Não é necessário conectar nada explicitamente ao pin `Completed` do loop.
+
+**Fluxo Visual Completo (com todos os nós)**:
 ```
 Event Tick
     ↓
-Get RemoteStates
+Get RemoteStates (Array of Player State Entry)
     ↓
-For Each Loop (Key: player_id, Value: buffer)
+For Each Loop
+    - Array: RemoteStates
+    ↓ (Loop Body - para cada elemento)
+ArrayElement (Player State Entry)
     ↓
 Branch: HasStateA AND HasStateB?
-    ↓ (true)
-Calcular Alpha (tempo)
+    ↓ (True = temos dados suficientes)
+Get Game Time in Seconds * 1000 → To Integer → CurrentTimeMs
     ↓
-Lerp Location (StateA → StateB)
+Calculate DeltaMs: StateB_TimestampMs - StateA_TimestampMs
     ↓
-Lerp Yaw (StateA → StateB)
+Calculate ElapsedMs: CurrentTimeMs - StateA_TimestampMs
     ↓
-Find RemoteActors[player_id]
+Alpha = (ElapsedMs as Float) / (DeltaMs as Float)
     ↓
-SetActorLocation (InterpolatedLocation)
+Clamp Alpha (0.0 to 1.0) → ClampedAlpha
     ↓
-SetActorRotation (InterpolatedYaw)
-    ↓ (loop continua)
+Lerp (Vector): StateA_Location → StateB_Location (Alpha: ClampedAlpha) → InterpolatedLocation
+    ↓
+Lerp (Float): StateA_Yaw → StateB_Yaw (Alpha: ClampedAlpha) → InterpolatedYaw
+    ↓
+Find Item in Array (RemoteActorIds, ArrayElement.PlayerId) → FoundIndex
+    ↓
+Branch: FoundIndex >= 0?
+    ↓ (True = Actor existe)
+Get Element (RemoteActors, Index: FoundIndex) → RemoteActorRef
+    ↓
+Is Valid (RemoteActorRef)?
+    ↓ (True = Actor válido)
+Set Actor Location (Target: RemoteActorRef, Location: InterpolatedLocation)
+    ↓
+Make Rotator (Roll: 0, Pitch: 0, Yaw: InterpolatedYaw) → NewRotation
+    ↓
+Set Actor Rotation (Target: RemoteActorRef, Rotation: NewRotation)
+    ↓ (Loop Body continua para próximo elemento)
+    ↓ (Completed - quando todos os elementos foram processados)
+[Fim do Tick]
 ```
+
+**Resumo Rápido dos Passos:**
+1. `For Each Loop` no `RemoteStates`
+2. Verificar `HasStateA AND HasStateB` → se `false`, `Continue Loop`
+3. Calcular `Alpha` = (tempo atual - StateA) / (StateB - StateA), clampleado entre 0.0 e 1.0
+4. `Lerp (Vector)` para Location
+5. `Lerp (Float)` para Yaw
+6. `Find Item in Array` para buscar Actor remoto
+7. Se encontrado e válido: `Set Actor Location` e `Set Actor Rotation`
+8. Loop continua automaticamente
+
+**NOTAS IMPORTANTES:**
+- **Performance**: Este código roda a cada frame. Se você tiver muitos jogadores remotos, considere:
+  - Processar apenas um jogador por frame (round-robin)
+  - Usar `Set Timer` em vez de `Tick` (ex.: a cada 0.05s)
+- **Proteção contra divisão por zero**: Se `DeltaMs <= 0`, adicione uma verificação antes do passo 3.4:
+  - `Branch`: `DeltaMs > 0?`
+  - Se `false`, `Continue Loop` (dados inválidos)
+- **Spawn de Actors remotos**: Se no passo 6 você não encontrar o Actor (`FoundIndex < 0`), você pode:
+  - Spawn um novo Actor/Pawn remoto (ex.: clone do seu Player Pawn)
+  - Adicionar ao Array `RemoteActorIds` (adicionar `ArrayElement.PlayerId`)
+  - Adicionar ao Array `RemoteActors` (adicionar o Actor spawnado)
+  - **IMPORTANTE**: Mantenha os Arrays sincronizados (mesmo índice = mesmo jogador)
 
 **Otimizações futuras**:
 - Se `Alpha >= 1.0`, você pode fazer "snap" direto para `StateB` (o servidor está muito atrasado)
-- Limpar entradas do Map para players que não enviaram updates por muito tempo (> 5 segundos)
+- Limpar entradas do Array para players que não enviaram updates por muito tempo (> 5 segundos)
+- Interpolação de rotação "shortest path" para yaws em direções opostas
 
 ### 3.9. OnWSClosed / OnWSError
 1) `Clear Timer by Handle (SendTimerHandle)`
