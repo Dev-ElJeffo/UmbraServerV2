@@ -82,6 +82,15 @@
 | [`GUIA_WIDGETS_PERSONAGENS_UE5.md`](GUIA_WIDGETS_PERSONAGENS_UE5.md) | Widgets de personagens (antigo) | ⭐⭐⭐ Intermediário | 60 min |
 | [`SISTEMA_PERSONAGENS_COMPLETO.md`](SISTEMA_PERSONAGENS_COMPLETO.md) | Resumo executivo | ⭐ Fácil | 5 min |
 
+#### 🌐 Sistema de Movimento e Networking (WebSocket Binário)
+
+| Documento | Descrição | Dificuldade | Tempo |
+|-----------|-----------|-------------|-------|
+| [`PROCEDIMENTO_MOVIMENTO_WEBSOCKET_BINARIO.md`](PROCEDIMENTO_MOVIMENTO_WEBSOCKET_BINARIO.md) | **GUIA COMPLETO** de implementação Blueprint | ⭐⭐⭐⭐ Avançado | 180 min |
+| [`GUIA_TESTE_MOVIMENTO_WEBSOCKET_BINARIO.md`](GUIA_TESTE_MOVIMENTO_WEBSOCKET_BINARIO.md) | **GUIA DE TESTE** com múltiplos clientes | ⭐⭐⭐ Intermediário | 60 min |
+| [`CORRECAO_CONEXAO_WEBSOCKET_APOS_SELECTCHARACTER.md`](CORRECAO_CONEXAO_WEBSOCKET_APOS_SELECTCHARACTER.md) | **CORREÇÃO**: Conectar WebSocket após SelectCharacter | ⭐⭐ Intermediário | 30 min |
+| [`ANALISE_XML_IMPLEMENTACAO.md`](ANALISE_XML_IMPLEMENTACAO.md) | Análise de XML de Blueprints | ⭐⭐ Intermediário | 20 min |
+
 ---
 
 ### 🔧 **TROUBLESHOOTING E CORREÇÕES**
@@ -246,6 +255,14 @@ UmbraEternumUE/Source/UmbraEternumUE/
 1. [`REFERENCIA_RAPIDA_PERSONAGENS.md`](REFERENCIA_RAPIDA_PERSONAGENS.md) - Troubleshooting
 2. [`TESTE_RAPIDO_PERSONAGENS.md`](TESTE_RAPIDO_PERSONAGENS.md)
 3. `test_character.html` - Teste manual
+
+---
+
+### ❌ "WebSocket não conecta após SelectCharacter"
+
+1. [`CORRECAO_CONEXAO_WEBSOCKET_APOS_SELECTCHARACTER.md`](CORRECAO_CONEXAO_WEBSOCKET_APOS_SELECTCHARACTER.md) - **CORREÇÃO COMPLETA**
+2. Verificar porta do ZoneServer (8082 ou 8083)
+3. Verificar se `BP_NetMovementClient` está sendo criado no Level Blueprint
 
 ---
 
