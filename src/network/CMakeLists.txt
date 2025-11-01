@@ -9,5 +9,10 @@ target_link_libraries(umbra_network
   Threads::Threads
 )
 
+# Windows-specific libraries for sockets
+if(WIN32)
+  target_link_libraries(umbra_network ws2_32)
+endif()
+
 target_include_directories(umbra_network PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 

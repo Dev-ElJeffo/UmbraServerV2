@@ -7,6 +7,7 @@
 #include <ctime>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
+#include <openssl/sha.h>
 #include <cstring>
 
 namespace Umbra {
@@ -301,6 +302,35 @@ std::string Utils::base64Decode(const std::string& input) {
   }
   
   return result;
+}
+
+std::string Utils::sha1(const std::string& input) {
+  unsigned char hash[EVP_MAX_MD_SIZE];
+  unsigned int hashLen = 0;
+  
+  EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
+  if (!mdctx) {
+    return std::string();
+  }
+  
+  if (EVP_DigestInit_ex(mdctx, EVP_sha1(), nullptr) != 1) {
+    EVP_MD_CTX_free(mdctx);
+    return std::string();
+  }
+  
+  if (EVP_DigestUpdate(mdctx, input.data(), input.size()) != 1) {
+    EVP_MD_CTX_free(mdctx);
+    return std::string();
+  }
+  
+  if (EVP_DigestFinal_ex(mdctx, hash, &hashLen) != 1) {
+    EVP_MD_CTX_free(mdctx);
+    return std::string();
+  }
+  
+  EVP_MD_CTX_free(mdctx);
+  
+  return std::string(reinterpret_cast<const char*>(hash), hashLen);
 }
 
 std::mt19937& Utils::getRandomGenerator() {

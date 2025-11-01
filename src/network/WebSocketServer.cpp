@@ -274,23 +274,38 @@ void WebSocketServer::handleClient(int clientSocket,
   }
   
   while (running_) {
-    WebSocketFrame frame = receiveFrame(clientSocket);
-    
-    if (frame.opcode == WebSocketFrame::OpCode::CLOSE) {
+    try {
+      WebSocketFrame frame = receiveFrame(clientSocket);
+      
+      if (frame.opcode == WebSocketFrame::OpCode::CLOSE) {
+        break;
+      }
+      
+      // Verificar se o frame é válido (não apenas CLOSE por erro)
+      // Se receiveFrame retornou CLOSE devido a erro de recv, sair do loop
+      if (frame.opcode == WebSocketFrame::OpCode::CLOSE && frame.payload.empty()) {
+        // Pode ser um erro de rede, verificar se o socket ainda é válido
+        break;
+      }
+      
+      if (frame.opcode == WebSocketFrame::OpCode::TEXT && messageCallback_) {
+        std::string message(frame.payload.begin(), frame.payload.end());
+        messageCallback_(clientId, message);
+      } else if (frame.opcode == WebSocketFrame::OpCode::BINARY && binaryCallback_) {
+        binaryCallback_(clientId, frame.payload);
+      } else if (frame.opcode == WebSocketFrame::OpCode::PING) {
+        WebSocketFrame pong;
+        pong.opcode = WebSocketFrame::OpCode::PONG;
+        pong.fin = true;
+        pong.payload = frame.payload;
+        sendFrame(clientSocket, pong);
+      }
+    } catch (const std::exception& e) {
+      Core::Logger::getInstance().error("Exception in WebSocket client handler for client {}: {}", clientId, e.what());
       break;
-    }
-    
-    if (frame.opcode == WebSocketFrame::OpCode::TEXT && messageCallback_) {
-      std::string message(frame.payload.begin(), frame.payload.end());
-      messageCallback_(clientId, message);
-    } else if (frame.opcode == WebSocketFrame::OpCode::BINARY && binaryCallback_) {
-      binaryCallback_(clientId, frame.payload);
-    } else if (frame.opcode == WebSocketFrame::OpCode::PING) {
-      WebSocketFrame pong;
-      pong.opcode = WebSocketFrame::OpCode::PONG;
-      pong.fin = true;
-      pong.payload = frame.payload;
-      sendFrame(clientSocket, pong);
+    } catch (...) {
+      Core::Logger::getInstance().error("Unknown exception in WebSocket client handler for client {}", clientId);
+      break;
     }
   }
   
@@ -339,7 +354,13 @@ WebSocketFrame WebSocketServer::receiveFrame(int clientSocket) {
   frame.opcode = WebSocketFrame::OpCode::CLOSE;
   
   uint8_t header[2];
-  if (recv(clientSocket, reinterpret_cast<char*>(header), 2, 0) != 2) {
+  int bytesReceived = recv(clientSocket, reinterpret_cast<char*>(header), 2, 0);
+  if (bytesReceived <= 0) {
+    // Erro ou conexão fechada
+    return frame;
+  }
+  if (bytesReceived != 2) {
+    // Header incompleto
     return frame;
   }
   
@@ -351,11 +372,19 @@ WebSocketFrame WebSocketServer::receiveFrame(int clientSocket) {
   
   if (payloadLen == 126) {
     uint8_t len[2];
-    recv(clientSocket, reinterpret_cast<char*>(len), 2, 0);
+    bytesReceived = recv(clientSocket, reinterpret_cast<char*>(len), 2, 0);
+    if (bytesReceived != 2) {
+      frame.opcode = WebSocketFrame::OpCode::CLOSE;
+      return frame;
+    }
     payloadLen = (len[0] << 8) | len[1];
   } else if (payloadLen == 127) {
     uint8_t len[8];
-    recv(clientSocket, reinterpret_cast<char*>(len), 8, 0);
+    bytesReceived = recv(clientSocket, reinterpret_cast<char*>(len), 8, 0);
+    if (bytesReceived != 8) {
+      frame.opcode = WebSocketFrame::OpCode::CLOSE;
+      return frame;
+    }
     payloadLen = 0;
     for (int i = 0; i < 8; ++i) {
       payloadLen = (payloadLen << 8) | len[i];
@@ -364,13 +393,30 @@ WebSocketFrame WebSocketServer::receiveFrame(int clientSocket) {
   
   uint8_t maskKey[4] = {0};
   if (masked) {
-    recv(clientSocket, reinterpret_cast<char*>(maskKey), 4, 0);
+    bytesReceived = recv(clientSocket, reinterpret_cast<char*>(maskKey), 4, 0);
+    if (bytesReceived != 4) {
+      frame.opcode = WebSocketFrame::OpCode::CLOSE;
+      return frame;
+    }
+  }
+  
+  // Validar tamanho do payload (proteção contra valores inválidos)
+  if (payloadLen > 1024 * 1024) {  // Limite de 1MB
+    Core::Logger::getInstance().warn("WebSocket frame payload too large: {} bytes", payloadLen);
+    frame.opcode = WebSocketFrame::OpCode::CLOSE;
+    return frame;
   }
   
   frame.payload.resize(payloadLen);
   if (payloadLen > 0) {
-    recv(clientSocket, reinterpret_cast<char*>(frame.payload.data()), 
+    bytesReceived = recv(clientSocket, reinterpret_cast<char*>(frame.payload.data()), 
          static_cast<int>(payloadLen), 0);
+    if (bytesReceived <= 0 || static_cast<uint64_t>(bytesReceived) != payloadLen) {
+      // Erro ao receber payload completo
+      frame.opcode = WebSocketFrame::OpCode::CLOSE;
+      frame.payload.clear();
+      return frame;
+    }
     
     if (masked) {
       for (size_t i = 0; i < payloadLen; ++i) {
@@ -416,9 +462,14 @@ std::string WebSocketServer::generateAcceptKey(const std::string& clientKey) {
   static const std::string magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
   std::string combined = clientKey + magic;
   
-  // TODO: Use proper SHA-1 implementation
-  // For now, using base64 of the combined string as placeholder
-  return Core::Utils::base64Encode(combined);
+  // WebSocket RFC 6455: SHA-1 hash followed by Base64 encoding
+  std::string sha1Hash = Core::Utils::sha1(combined);
+  if (sha1Hash.empty()) {
+    Core::Logger::getInstance().error("Failed to generate SHA-1 hash for WebSocket handshake");
+    return "";
+  }
+  
+  return Core::Utils::base64Encode(sha1Hash);
 }
 
 void WebSocketServer::closeSocket(int socket) {

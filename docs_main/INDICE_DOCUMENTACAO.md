@@ -258,9 +258,12 @@ UmbraEternumUE/Source/UmbraEternumUE/
 
 ---
 
-### ❌ "WebSocket não conecta após SelectCharacter"
+### ❌ "WebSocket não conecta após SelectCharacter" / "socket connect failed"
 
 1. [`CORRECAO_CONEXAO_WEBSOCKET_APOS_SELECTCHARACTER.md`](CORRECAO_CONEXAO_WEBSOCKET_APOS_SELECTCHARACTER.md) - **CORREÇÃO COMPLETA**
+   - **⚠️ IMPORTANTE**: Este documento inclui seção completa de **TROUBLESHOOTING** (linha ~1555)
+   - **Solução principal**: Execute o Zone Server antes do cliente (`zone_server.exe 0` para porta 8082)
+   - Scripts prontos: `scripts/start_zone_server_8082.bat` e `scripts/start_zone_server_8082.ps1`
 2. Verificar porta do ZoneServer (8082 ou 8083)
 3. Verificar se `BP_NetMovementClient` está sendo criado no Level Blueprint
 

@@ -342,8 +342,36 @@ void GatewayServer::handleClientMessage(uint32_t clientId,
         // Log completo da mensagem descriptografada
         Core::Logger::getInstance().info("Full decrypted message from client {}: {}", clientId, decrypted);
         
+        // Extrair apenas o JSON válido (pode haver lixo após o JSON devido ao padding da criptografia)
+        // Procurar pelo primeiro '{' e último '}' válido
+        size_t jsonStart = decrypted.find('{');
+        if (jsonStart == std::string::npos) {
+          throw std::runtime_error("No JSON object found in decrypted message");
+        }
+        
+        // Encontrar o último '}' válido (contando braces balanceadas)
+        size_t jsonEnd = jsonStart;
+        int braceCount = 0;
+        for (size_t i = jsonStart; i < decrypted.size(); ++i) {
+          if (decrypted[i] == '{') {
+            braceCount++;
+          } else if (decrypted[i] == '}') {
+            braceCount--;
+            if (braceCount == 0) {
+              jsonEnd = i;
+              break;
+            }
+          }
+        }
+        
+        if (braceCount != 0) {
+          throw std::runtime_error("Unbalanced JSON braces in decrypted message");
+        }
+        
+        std::string jsonOnly = decrypted.substr(jsonStart, jsonEnd - jsonStart + 1);
+        
         // Tentar fazer parse do JSON
-        json = nlohmann::json::parse(decrypted);
+        json = nlohmann::json::parse(jsonOnly);
       } catch (const std::exception&) {
         Core::Logger::getInstance().warn("Failed to decode and parse message from client {}: {}", clientId, e.what());
         nlohmann::json response;

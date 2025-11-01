@@ -116,6 +116,13 @@ class Utils {
    */
   static std::string base64Decode(const std::string& input);
 
+  /**
+   * @brief Calcula hash SHA-1 de uma string
+   * @param input String a ser hashada
+   * @return Hash SHA-1 em bytes (20 bytes)
+   */
+  static std::string sha1(const std::string& input);
+
  private:
   static std::mt19937& getRandomGenerator();
   
