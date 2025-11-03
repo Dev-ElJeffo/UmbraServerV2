@@ -6,11 +6,16 @@ Write-Host "  Iniciando Zone Server (Porta 8082)" -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host ""
 
+# Navegar para o diretório raiz do projeto
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location (Split-Path -Parent $ScriptDir)
+
 # Verificar se o executável existe
 $ZoneServerPath = "build\bin\Release\zone_server.exe"
 if (-not (Test-Path $ZoneServerPath)) {
     Write-Host "ERRO: zone_server.exe nao encontrado!" -ForegroundColor Red
     Write-Host "Por favor, compile o projeto primeiro." -ForegroundColor Yellow
+    Write-Host "Caminho esperado: $(Resolve-Path '.')\$ZoneServerPath" -ForegroundColor Yellow
     pause
     exit 1
 }

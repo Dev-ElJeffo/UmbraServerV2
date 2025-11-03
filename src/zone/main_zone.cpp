@@ -19,7 +19,7 @@ int main(int argc, char* argv[]) {
   Umbra::Core::Logger::getInstance().info("Starting Zone Server...");
   
   Umbra::Zone::ZoneServer::Config config;
-  config.zoneId = (argc > 1) ? std::atoi(argv[1]) : 1;
+  config.zoneId = (argc > 1) ? std::atoi(argv[1]) : 0;
   config.zoneName = "Zone_" + std::to_string(config.zoneId);
   config.port = 8082 + config.zoneId;
   

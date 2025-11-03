@@ -95,55 +95,85 @@ private:
   }
 
   void handleMoveUpdate(uint32_t cid, const MovementFrame& f) {
-    auto now = std::chrono::steady_clock::now();
-    uint32_t nowMs = static_cast<uint32_t>(
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-        now.time_since_epoch()).count());
-
     std::lock_guard<std::mutex> lock(mu_);
     bool isNewPlayer = (players_.find(f.playerId) == players_.end());
     
-    // Para novos players, sempre aceitar o primeiro movimento e usar timestamp do servidor
-    // Isso resolve problemas de sincronização de clock (cliente usa "Game Time", servidor usa "epoch")
+    // SEMPRE usar timestamp relativo do cliente (f.tsMs) para manter consistência
+    // O cliente usa "Game Time" (relativo), então todos os timestamps devem ser relativos
     if (!isNewPlayer) {
-      // Validação de delay apenas para players existentes
-      // Como o cliente usa "Game Time" (tempo relativo), não podemos validar delay absoluto
-      // Apenas validamos se o timestamp está muito no futuro (mais de 5 segundos do tempo atual)
-      if (f.tsMs > nowMs && (f.tsMs - nowMs) > 5000) {
-        Umbra::Core::Logger::getInstance().warn("MoveUpdate from client {} rejected: timestamp too far in future ({}ms)", 
-                                                cid, f.tsMs - nowMs);
-        return;
-      }
-      
       auto it = players_.find(f.playerId);
       if (it != players_.end()) {
         float dx = f.x - it->second.x;
         float dy = f.y - it->second.y;
         float dz = f.z - it->second.z;
         float dist2 = dx*dx + dy*dy + dz*dz;
+        
+        // Verificar teleporte primeiro
         if (dist2 > maxTeleportDist_ * maxTeleportDist_) {
-          Umbra::Core::Logger::getInstance().warn("MoveUpdate from client {} rejected: teleport distance too high", cid);
+          Umbra::Core::Logger::getInstance().warn("MoveUpdate from client {} rejected: teleport distance too high (dist={})", 
+                                                  cid, std::sqrt(dist2));
           return;
         }
-        // velocidade aprox em uu/s usando timestamp relativo do próprio cliente
-        // Se o timestamp do frame é maior que o anterior, usar a diferença
-        // Senão, assumir intervalo mínimo (1 frame = ~16ms)
-        uint32_t prevTs = it->second.tsMs;
-        float dt = (f.tsMs > prevTs) ? (f.tsMs - prevTs) / 1000.0f : 0.016f;
-        float speed = (dt > 0.0f) ? std::sqrt(dist2) / dt : 0.0f;
-        if (speed > maxSpeed_) {
-          Umbra::Core::Logger::getInstance().warn("MoveUpdate from client {} rejected: speed too high ({})", cid, speed);
-          return;
+        
+        // Calcular velocidade apenas se houver movimento significativo
+        if (dist2 > 0.01f) {  // Ignorar movimentos muito pequenos (< 0.1 unidades)
+          uint32_t prevTs = it->second.tsMs;
+          float dt;
+          
+          // Se é o primeiro movimento após spawn ou timestamp anterior é 0, usar intervalo padrão
+          if (prevTs == 0) {
+            dt = 0.033f;  // ~30 FPS como padrão seguro
+            Umbra::Core::Logger::getInstance().debug("First movement after spawn for player {}, using default dt=0.033s", f.playerId);
+          } else if (f.tsMs > prevTs) {
+            // Calcular dt baseado na diferença entre timestamps relativos do cliente
+            uint32_t timeDiff = f.tsMs - prevTs;
+            // Se a diferença for muito grande (>10s), provavelmente houve um reset ou problema
+            if (timeDiff > 10000) {
+              dt = 0.033f;  // Usar padrão seguro
+              Umbra::Core::Logger::getInstance().debug("Large time difference for player {} ({}ms), using default dt", f.playerId, timeDiff);
+            } else {
+              dt = timeDiff / 1000.0f;
+              // Garantir dt mínimo razoável (pelo menos 1 frame = ~16ms)
+              if (dt < 0.001f) {
+                dt = 0.033f;  // Se dt for muito pequeno, usar padrão
+                Umbra::Core::Logger::getInstance().debug("Very small dt for player {} ({}s), using default dt=0.033s", f.playerId, dt);
+              }
+            }
+          } else {
+            // Timestamp regrediu ou igual: pode ser reset de Game Time no cliente
+            // Se a distância for razoável (não é teleporte), aceitar sem validação de velocidade
+            // Se for grande, já foi validado como teleporte acima
+            if (dist2 > (maxTeleportDist_ * maxTeleportDist_)) {
+              // Distância grande: já passou validação de teleporte, aceitar
+              dt = 0.033f;  // Usar padrão, mas não validar velocidade (teleporte legítimo)
+            } else {
+              // Distância pequena: usar dt conservador maior para evitar rejeição incorreta
+              dt = 0.1f;  // 100ms como padrão mais conservador
+            }
+            Umbra::Core::Logger::getInstance().debug("Timestamp regressed or equal for player {} (prev={}, curr={}), using dt={}s (dist={})", 
+                                                      f.playerId, prevTs, f.tsMs, dt, std::sqrt(dist2));
+            // Quando timestamp regrediu, não validar velocidade (pode ser reset legítimo)
+            // Apenas validar teleporte (já feito acima)
+            goto skip_speed_check;
+          }
+          
+          float speed = std::sqrt(dist2) / dt;
+          if (speed > maxSpeed_) {
+            Umbra::Core::Logger::getInstance().warn("MoveUpdate from client {} rejected: speed too high (speed={}, dist={}, dt={}, prevTs={}, currTs={})", 
+                                                    cid, speed, std::sqrt(dist2), dt, prevTs, f.tsMs);
+            return;
+          }
+          skip_speed_check:;
         }
       }
     } else {
-      Umbra::Core::Logger::getInstance().info("First MoveUpdate from player {} (client {}): accepting with server timestamp", 
-                                             f.playerId, cid);
+      Umbra::Core::Logger::getInstance().info("First MoveUpdate from player {} (client {}): accepting with client timestamp {}", 
+                                             f.playerId, cid, f.tsMs);
     }
     
-    // Para novos players, usar timestamp do servidor (sincronizado)
-    // Para players existentes, manter timestamp relativo do cliente (para cálculo de velocidade)
-    uint32_t finalTimestamp = isNewPlayer ? nowMs : f.tsMs;
+    // SEMPRE usar timestamp relativo do cliente para manter consistência
+    // Isso permite cálculo correto de velocidade entre movimentos
+    uint32_t finalTimestamp = f.tsMs;
     
     players_[f.playerId] = PlayerStateNet{f.playerId, f.x, f.y, f.z, f.yaw, finalTimestamp};
     

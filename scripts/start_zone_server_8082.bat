@@ -7,16 +7,17 @@ echo   Iniciando Zone Server (Porta 8082)
 echo =========================================
 echo.
 
+REM Navegar para o diretório raiz do projeto
+cd /d "%~dp0.."
+
 REM Verificar se o executável existe
 if not exist "build\bin\Release\zone_server.exe" (
     echo ERRO: zone_server.exe nao encontrado!
     echo Por favor, compile o projeto primeiro.
+    echo Caminho esperado: %CD%\build\bin\Release\zone_server.exe
     pause
     exit /b 1
 )
-
-REM Navegar para o diretório correto
-cd /d "%~dp0.."
 
 REM Criar diretório de logs se não existir
 if not exist "build\bin\Release\logs" mkdir "build\bin\Release\logs"

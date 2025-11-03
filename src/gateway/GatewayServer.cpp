@@ -286,20 +286,47 @@ void GatewayServer::handleClientMessage(uint32_t clientId,
     nlohmann::json json;
     try {
       json = nlohmann::json::parse(message);
-    } catch (const nlohmann::json::parse_error& e) {
+    } catch (const nlohmann::json::parse_error&) {
       // Se falhar, tentar decodificar Base64 (caso o cliente tenha enviado dados criptografados)
       Core::Logger::getInstance().debug("First parse failed for client {}, trying Base64 decode", clientId);
       
       try {
         // Limpar a mensagem removendo caracteres inválidos de Base64
+        // Primeiro, remover caracteres não imprimíveis no início/fim
         std::string cleaned = message;
-        // Remover caracteres não Base64 válidos
+        
+        // Remover caracteres não Base64 válidos (incluindo caracteres estranhos como ñ, ¿, etc)
         cleaned.erase(std::remove_if(cleaned.begin(), cleaned.end(), 
                                      [](char c) { 
-                                       return !std::isalnum(static_cast<unsigned char>(c)) && 
-                                              c != '+' && c != '/' && c != '=';
+                                       unsigned char uc = static_cast<unsigned char>(c);
+                                       // Permitir apenas Base64 válido: A-Z, a-z, 0-9, +, /, =
+                                       return !((uc >= 'A' && uc <= 'Z') || 
+                                                (uc >= 'a' && uc <= 'z') || 
+                                                (uc >= '0' && uc <= '9') || 
+                                                c == '+' || c == '/' || c == '=');
                                      }), 
                      cleaned.end());
+        
+        // Remover padding/whitespace no início e fim (mas preservar dentro da string Base64)
+        if (!cleaned.empty()) {
+          size_t first = cleaned.find_first_not_of(" \t\n\r");
+          if (first != std::string::npos) {
+            cleaned = cleaned.substr(first);
+          } else {
+            cleaned.clear();
+          }
+          
+          if (!cleaned.empty()) {
+            size_t lastChar = cleaned.find_last_not_of(" \t\n\r");
+            if (lastChar != std::string::npos && lastChar < cleaned.length() - 1) {
+              cleaned = cleaned.substr(0, lastChar + 1);
+            }
+          }
+        }
+        
+        if (cleaned.empty()) {
+          throw std::runtime_error("Cleaned Base64 message is empty");
+        }
         
         Core::Logger::getInstance().debug("Cleaned Base64 message: size={}, prefix='{}'", 
                                            cleaned.size(), cleaned.substr(0, std::min(static_cast<size_t>(50), cleaned.size())));
@@ -326,9 +353,13 @@ void GatewayServer::handleClientMessage(uint32_t clientId,
         std::string decrypted;
         
         // Descriptografar XOR byte por byte
+        decrypted.reserve(decoded.length());
         for (size_t i = 0; i < decoded.length(); i++) {
           char decryptedChar = decoded[i] ^ encryptionKey[i % encryptionKey.length()];
-          decrypted += decryptedChar;
+          // Apenas adicionar caracteres válidos (não nulos e imprimíveis ou whitespace)
+          if (decryptedChar != '\0' && (decryptedChar >= 32 || decryptedChar == '\n' || decryptedChar == '\r' || decryptedChar == '\t')) {
+            decrypted += decryptedChar;
+          }
         }
         
         Core::Logger::getInstance().debug("Decrypted message from client {}: size={}, first_100_chars='{}'", 
@@ -339,8 +370,9 @@ void GatewayServer::handleClientMessage(uint32_t clientId,
           throw std::runtime_error("Decrypted message is empty after XOR");
         }
         
-        // Log completo da mensagem descriptografada
-        Core::Logger::getInstance().info("Full decrypted message from client {}: {}", clientId, decrypted);
+        // Log completo da mensagem descriptografada (apenas primeiros 500 chars para não poluir logs)
+        Core::Logger::getInstance().debug("Decrypted message from client {} (first 500 chars): {}", 
+                                          clientId, decrypted.substr(0, std::min(static_cast<size_t>(500), decrypted.size())));
         
         // Extrair apenas o JSON válido (pode haver lixo após o JSON devido ao padding da criptografia)
         // Procurar pelo primeiro '{' e último '}' válido
@@ -368,11 +400,39 @@ void GatewayServer::handleClientMessage(uint32_t clientId,
           throw std::runtime_error("Unbalanced JSON braces in decrypted message");
         }
         
+        if (jsonEnd <= jsonStart) {
+          throw std::runtime_error("Invalid JSON boundaries");
+        }
+        
         std::string jsonOnly = decrypted.substr(jsonStart, jsonEnd - jsonStart + 1);
+        
+        // Validar que não está vazio
+        if (jsonOnly.empty()) {
+          throw std::runtime_error("Extracted JSON is empty");
+        }
+        
+        // Limpar o JSON removendo apenas caracteres de controle problemáticos (mantendo JSON válido)
+        // Não remover caracteres válidos do JSON como espaços, tabs, newlines dentro de strings
+        jsonOnly.erase(std::remove_if(jsonOnly.begin(), jsonOnly.end(),
+                                     [](char c) {
+                                       // Remover apenas caracteres nulos e DEL (127)
+                                       // Manter todos os outros caracteres, incluindo espaços e quebras de linha válidos no JSON
+                                       return c == '\0' || c == 127;
+                                     }),
+                     jsonOnly.end());
+        
+        // Validar novamente após limpeza
+        if (jsonOnly.empty() || jsonOnly.find('{') == std::string::npos) {
+          throw std::runtime_error("JSON is invalid after cleaning");
+        }
+        
+        Core::Logger::getInstance().debug("Extracted JSON from client {}: size={}, preview='{}'", 
+                                          clientId, jsonOnly.size(),
+                                          jsonOnly.substr(0, std::min(static_cast<size_t>(200), jsonOnly.size())));
         
         // Tentar fazer parse do JSON
         json = nlohmann::json::parse(jsonOnly);
-      } catch (const std::exception&) {
+      } catch (const std::exception& e) {
         Core::Logger::getInstance().warn("Failed to decode and parse message from client {}: {}", clientId, e.what());
         nlohmann::json response;
         response["success"] = false;
