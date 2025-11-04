@@ -76,6 +76,12 @@ private:
     for (const auto& [pid, st] : players_) {
       MovementFrame f{MovementMsgType::StateUpdate, st.playerId, st.x, st.y, st.z, st.yaw, st.tsMs};
       auto bytes = encode(f);
+      Umbra::Core::Logger::getInstance().info("Sending initial snapshot to client {}: PlayerID={}, pos=({}, {}, {}), yaw={}, frame_size={} bytes", 
+                                               clientId, f.playerId, f.x, f.y, f.z, f.yaw, bytes.size());
+      if (bytes.size() >= 5) {
+        Umbra::Core::Logger::getInstance().info("  Frame bytes [0-4]: {:02X} {:02X} {:02X} {:02X} {:02X}", 
+                                                 bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]);
+      }
       if (ws_.sendBinary(clientId, bytes)) {
         sentCount++;
       }
@@ -89,6 +95,12 @@ private:
     for (const auto& [pid, st] : players_) {
       MovementFrame f{MovementMsgType::StateUpdate, st.playerId, st.x, st.y, st.z, st.yaw, st.tsMs};
       auto bytes = encode(f);
+      Umbra::Core::Logger::getInstance().debug("Broadcasting snapshot: PlayerID={}, pos=({}, {}, {}), yaw={}, frame_size={} bytes", 
+                                               f.playerId, f.x, f.y, f.z, f.yaw, bytes.size());
+      if (bytes.size() >= 5) {
+        Umbra::Core::Logger::getInstance().debug("  Frame bytes [0-4]: {:02X} {:02X} {:02X} {:02X} {:02X}", 
+                                                  bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]);
+      }
       ws_.broadcastBinary(bytes);
     }
     Umbra::Core::Logger::getInstance().debug("Broadcasted full snapshot to all clients ({} players)", players_.size());
@@ -188,7 +200,14 @@ private:
     // broadcast imediato de state_update (além do snapshot periódico)
     // Usar finalTimestamp (timestamp do servidor para novos, relativo para existentes)
     MovementFrame out{MovementMsgType::StateUpdate, f.playerId, f.x, f.y, f.z, f.yaw, finalTimestamp};
-    ws_.broadcastBinary(encode(out));
+    auto broadcastBytes = encode(out);
+    Umbra::Core::Logger::getInstance().debug("Broadcasting StateUpdate: PlayerID={}, pos=({}, {}, {}), yaw={}, ts={}, frame_size={} bytes", 
+                                             out.playerId, out.x, out.y, out.z, out.yaw, finalTimestamp, broadcastBytes.size());
+    if (broadcastBytes.size() >= 5) {
+      Umbra::Core::Logger::getInstance().debug("  Frame bytes [0-4]: {:02X} {:02X} {:02X} {:02X} {:02X}", 
+                                               broadcastBytes[0], broadcastBytes[1], broadcastBytes[2], broadcastBytes[3], broadcastBytes[4]);
+    }
+    ws_.broadcastBinary(broadcastBytes);
     Umbra::Core::Logger::getInstance().debug("Broadcasted StateUpdate for player {} (from client {}, ts={})", f.playerId, cid, finalTimestamp);
   }
 
