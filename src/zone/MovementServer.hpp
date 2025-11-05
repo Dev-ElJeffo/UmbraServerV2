@@ -32,6 +32,9 @@ public:
         sendInitialSnapshotLocked(cid);
       } else {
         Umbra::Core::Logger::getInstance().info("WS client {} disconnected", cid);
+        // Remover player associado a este client quando desconectar
+        std::lock_guard<std::mutex> lock(mu_);
+        handleClientDisconnect(cid);
       }
     });
 
@@ -108,6 +111,10 @@ private:
 
   void handleMoveUpdate(uint32_t cid, const MovementFrame& f) {
     std::lock_guard<std::mutex> lock(mu_);
+    
+    // Atualizar mapeamento ClientID -> PlayerID
+    clientIdToPlayerId_[cid] = f.playerId;
+    
     bool isNewPlayer = (players_.find(f.playerId) == players_.end());
     
     // SEMPRE usar timestamp relativo do cliente (f.tsMs) para manter consistência
@@ -211,9 +218,26 @@ private:
     Umbra::Core::Logger::getInstance().debug("Broadcasted StateUpdate for player {} (from client {}, ts={})", f.playerId, cid, finalTimestamp);
   }
 
+  // Remove player quando client desconecta
+  void handleClientDisconnect(uint32_t cid) {
+    auto it = clientIdToPlayerId_.find(cid);
+    if (it != clientIdToPlayerId_.end()) {
+      uint32_t playerId = it->second;
+      auto playerIt = players_.find(playerId);
+      if (playerIt != players_.end()) {
+        Umbra::Core::Logger::getInstance().info("Removing player {} (client {}) from players map", playerId, cid);
+        players_.erase(playerIt);
+      }
+      clientIdToPlayerId_.erase(it);
+    } else {
+      Umbra::Core::Logger::getInstance().debug("Client {} disconnected but had no associated player", cid);
+    }
+  }
+
   Umbra::Network::WebSocketServer ws_;
   std::mutex mu_;
   std::unordered_map<uint32_t, PlayerStateNet> players_;
+  std::unordered_map<uint32_t, uint32_t> clientIdToPlayerId_; // Mapeamento ClientID -> PlayerID
   float maxSpeed_ = 1200.0f;
   float maxTeleportDist_ = 3000.0f;
   uint32_t maxDelayMs_ = 300;
