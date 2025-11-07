@@ -15,6 +15,10 @@ struct PlayerStateNet {
   float x, y, z;
   float yaw;
   uint32_t tsMs;
+  // Dados de animação
+  float speed = 0.0f;
+  float velocityZ = 0.0f;
+  bool isInAir = false;
 };
 
 class MovementServer {
@@ -40,17 +44,27 @@ public:
 
     ws_.setBinaryCallback([this](uint32_t cid, const std::vector<uint8_t>& data){
       MovementFrame f{};
-      if (!decode(data, f)) {
-        Umbra::Core::Logger::getInstance().warn("Failed to decode binary message from client {}", cid);
-        return;
-      }
+      float speed = 0.0f;
+      float velocityZ = 0.0f;
+      bool isInAir = false;
+      
+      // Tentar decodificar como frame com animação primeiro (34 bytes)
+      bool hasAnimation = decodeWithAnimation(data, f, speed, velocityZ, isInAir);
+      
       if (f.type != MovementMsgType::MoveUpdate) {
         Umbra::Core::Logger::getInstance().debug("Received non-MoveUpdate frame from client {} (type: {})", cid, static_cast<int>(f.type));
         return;
       }
-      Umbra::Core::Logger::getInstance().debug("Received MoveUpdate from client {}: player_id={}, pos=({}, {}, {}), yaw={}", 
-                                                cid, f.playerId, f.x, f.y, f.z, f.yaw);
-      handleMoveUpdate(cid, f);
+      
+      if (hasAnimation) {
+        Umbra::Core::Logger::getInstance().debug("Received MoveUpdate with animation from client {}: player_id={}, pos=({}, {}, {}), yaw={}, speed={}, velocityZ={}, isInAir={}", 
+                                                  cid, f.playerId, f.x, f.y, f.z, f.yaw, speed, velocityZ, isInAir);
+      } else {
+        Umbra::Core::Logger::getInstance().debug("Received MoveUpdate (no animation) from client {}: player_id={}, pos=({}, {}, {}), yaw={}", 
+                                                  cid, f.playerId, f.x, f.y, f.z, f.yaw);
+      }
+      
+      handleMoveUpdate(cid, f, hasAnimation, speed, velocityZ, isInAir);
     });
 
     return ws_.start();
@@ -63,7 +77,8 @@ public:
     std::lock_guard<std::mutex> lock(mu_);
     for (const auto& [pid, st] : players_) {
       MovementFrame f{MovementMsgType::StateUpdate, st.playerId, st.x, st.y, st.z, st.yaw, st.tsMs};
-      auto bytes = encode(f);
+      // Usar encodeWithAnimation se houver dados de animação (sempre usar agora)
+      auto bytes = encodeWithAnimation(f, st.speed, st.velocityZ, st.isInAir);
       ws_.broadcastBinary(bytes);
     }
   }
@@ -78,9 +93,10 @@ private:
     size_t sentCount = 0;
     for (const auto& [pid, st] : players_) {
       MovementFrame f{MovementMsgType::StateUpdate, st.playerId, st.x, st.y, st.z, st.yaw, st.tsMs};
-      auto bytes = encode(f);
-      Umbra::Core::Logger::getInstance().info("Sending initial snapshot to client {}: PlayerID={}, pos=({}, {}, {}), yaw={}, frame_size={} bytes", 
-                                               clientId, f.playerId, f.x, f.y, f.z, f.yaw, bytes.size());
+      // Usar encodeWithAnimation para enviar sempre frames de 34 bytes
+      auto bytes = encodeWithAnimation(f, st.speed, st.velocityZ, st.isInAir);
+      Umbra::Core::Logger::getInstance().info("Sending initial snapshot to client {}: PlayerID={}, pos=({}, {}, {}), yaw={}, speed={}, velocityZ={}, isInAir={}, frame_size={} bytes", 
+                                               clientId, f.playerId, f.x, f.y, f.z, f.yaw, st.speed, st.velocityZ, st.isInAir, bytes.size());
       if (bytes.size() >= 5) {
         Umbra::Core::Logger::getInstance().info("  Frame bytes [0-4]: {:02X} {:02X} {:02X} {:02X} {:02X}", 
                                                  bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]);
@@ -97,9 +113,10 @@ private:
   void sendFullSnapshotToAllUnlocked() {
     for (const auto& [pid, st] : players_) {
       MovementFrame f{MovementMsgType::StateUpdate, st.playerId, st.x, st.y, st.z, st.yaw, st.tsMs};
-      auto bytes = encode(f);
-      Umbra::Core::Logger::getInstance().debug("Broadcasting snapshot: PlayerID={}, pos=({}, {}, {}), yaw={}, frame_size={} bytes", 
-                                               f.playerId, f.x, f.y, f.z, f.yaw, bytes.size());
+      // Usar encodeWithAnimation para enviar sempre frames de 34 bytes
+      auto bytes = encodeWithAnimation(f, st.speed, st.velocityZ, st.isInAir);
+      Umbra::Core::Logger::getInstance().debug("Broadcasting snapshot: PlayerID={}, pos=({}, {}, {}), yaw={}, speed={}, velocityZ={}, isInAir={}, frame_size={} bytes", 
+                                               f.playerId, f.x, f.y, f.z, f.yaw, st.speed, st.velocityZ, st.isInAir, bytes.size());
       if (bytes.size() >= 5) {
         Umbra::Core::Logger::getInstance().debug("  Frame bytes [0-4]: {:02X} {:02X} {:02X} {:02X} {:02X}", 
                                                   bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]);
@@ -109,7 +126,7 @@ private:
     Umbra::Core::Logger::getInstance().debug("Broadcasted full snapshot to all clients ({} players)", players_.size());
   }
 
-  void handleMoveUpdate(uint32_t cid, const MovementFrame& f) {
+  void handleMoveUpdate(uint32_t cid, const MovementFrame& f, bool hasAnimation, float speed, float velocityZ, bool isInAir) {
     std::lock_guard<std::mutex> lock(mu_);
     
     // Atualizar mapeamento ClientID -> PlayerID
@@ -176,10 +193,10 @@ private:
             goto skip_speed_check;
           }
           
-          float speed = std::sqrt(dist2) / dt;
-          if (speed > maxSpeed_) {
+          float calculatedSpeed = std::sqrt(dist2) / dt;
+          if (calculatedSpeed > maxSpeed_) {
             Umbra::Core::Logger::getInstance().warn("MoveUpdate from client {} rejected: speed too high (speed={}, dist={}, dt={}, prevTs={}, currTs={})", 
-                                                    cid, speed, std::sqrt(dist2), dt, prevTs, f.tsMs);
+                                                    cid, calculatedSpeed, std::sqrt(dist2), dt, prevTs, f.tsMs);
             return;
           }
           skip_speed_check:;
@@ -194,7 +211,16 @@ private:
     // Isso permite cálculo correto de velocidade entre movimentos
     uint32_t finalTimestamp = f.tsMs;
     
-    players_[f.playerId] = PlayerStateNet{f.playerId, f.x, f.y, f.z, f.yaw, finalTimestamp};
+    // Atualizar estado do player com dados de animação se disponíveis
+    players_[f.playerId] = PlayerStateNet{
+      f.playerId, 
+      f.x, f.y, f.z, 
+      f.yaw, 
+      finalTimestamp,
+      speed,        // Dados de animação
+      velocityZ,
+      isInAir
+    };
     
     if (isNewPlayer) {
       Umbra::Core::Logger::getInstance().info("New player {} (from client {}) - broadcasting initial state to all clients", 
@@ -207,15 +233,25 @@ private:
     // broadcast imediato de state_update (além do snapshot periódico)
     // Usar finalTimestamp (timestamp do servidor para novos, relativo para existentes)
     MovementFrame out{MovementMsgType::StateUpdate, f.playerId, f.x, f.y, f.z, f.yaw, finalTimestamp};
-    auto broadcastBytes = encode(out);
-    Umbra::Core::Logger::getInstance().debug("Broadcasting StateUpdate: PlayerID={}, pos=({}, {}, {}), yaw={}, ts={}, frame_size={} bytes", 
-                                             out.playerId, out.x, out.y, out.z, out.yaw, finalTimestamp, broadcastBytes.size());
+    std::vector<uint8_t> broadcastBytes;
+    
+    // Se o frame original tinha animação, reenviar com animação também
+    if (hasAnimation) {
+      broadcastBytes = encodeWithAnimation(out, speed, velocityZ, isInAir);
+      Umbra::Core::Logger::getInstance().debug("Broadcasting StateUpdate with animation: PlayerID={}, pos=({}, {}, {}), yaw={}, speed={}, velocityZ={}, isInAir={}, ts={}, frame_size={} bytes", 
+                                               out.playerId, out.x, out.y, out.z, out.yaw, speed, velocityZ, isInAir, finalTimestamp, broadcastBytes.size());
+    } else {
+      broadcastBytes = encode(out);
+      Umbra::Core::Logger::getInstance().debug("Broadcasting StateUpdate (no animation): PlayerID={}, pos=({}, {}, {}), yaw={}, ts={}, frame_size={} bytes", 
+                                               out.playerId, out.x, out.y, out.z, out.yaw, finalTimestamp, broadcastBytes.size());
+    }
+    
     if (broadcastBytes.size() >= 5) {
       Umbra::Core::Logger::getInstance().debug("  Frame bytes [0-4]: {:02X} {:02X} {:02X} {:02X} {:02X}", 
                                                broadcastBytes[0], broadcastBytes[1], broadcastBytes[2], broadcastBytes[3], broadcastBytes[4]);
     }
     ws_.broadcastBinary(broadcastBytes);
-    Umbra::Core::Logger::getInstance().debug("Broadcasted StateUpdate for player {} (from client {}, ts={})", f.playerId, cid, finalTimestamp);
+    Umbra::Core::Logger::getInstance().debug("Broadcasted StateUpdate for player {} (from client {}, ts={}, hasAnimation={})", f.playerId, cid, finalTimestamp, hasAnimation);
   }
 
   // Remove player quando client desconecta

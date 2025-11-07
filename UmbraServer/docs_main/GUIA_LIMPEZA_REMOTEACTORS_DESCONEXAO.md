@@ -70,7 +70,7 @@ Clear Array (RemoteActors)
   ↓
 Clear Array (RemoteActorIds)
   ↓
-Print String: "Cleanup complete - All RemoteActors destroyed and arrays cleared"
+Print String: "'Cleanup complete - All RemoteActors destroyed and arrays cleared'"
 ```
 
 ---
