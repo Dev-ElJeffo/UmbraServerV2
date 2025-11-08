@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel Admin - UmbraEternum</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header h1 {
+            color: #667eea;
+            font-size: 28px;
+        }
+        
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+        
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #d32f2f;
+        }
+        
+        .btn-success {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #45a049;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            background: white;
+            padding: 15px 30px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            color: #666;
+            transition: all 0.3s;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .tab:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+        }
+        
+        .tab.active {
+            background: #667eea;
+            color: white;
+        }
+        
+        .content {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            min-height: 500px;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.3s;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 36px;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+        
+        .stat-label {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        .table-container {
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        th {
+            background: #f5f5f5;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        tr:hover {
+            background: #f9f9f9;
+        }
+        
+        .badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .badge-admin {
+            background: #ffd700;
+            color: #333;
+        }
+        
+        .badge-banned {
+            background: #f44336;
+            color: white;
+        }
+        
+        .badge-active {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .badge-offline {
+            background: #999;
+            color: white;
+        }
+        
+        .badge-online {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .actions {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .action-btn {
+            padding: 6px 12px;
+            font-size: 12px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .action-btn:hover {
+            transform: scale(1.05);
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .loading-spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .alert.show {
+            display: block;
+            animation: slideDown 0.3s;
+        }
+        
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        
+        .status-online {
+            background: #4caf50;
+            box-shadow: 0 0 8px #4caf50;
+        }
+        
+        .status-offline {
+            background: #f44336;
+        }
+        
+        .service-list {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .service-item {
+            padding: 12px;
+            margin: 8px 0;
+            background: #f5f5f5;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .modal.show {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            max-width: 500px;
+            width: 90%;
+        }
+        
+        .modal-content h3 {
+            margin-bottom: 20px;
+            color: #667eea;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+        
+        .form-group input, .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+        
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>👑 Painel de Administração</h1>
+                <p style="color: #666; margin-top: 5px;">Bem-vindo, <strong id="adminName">Admin</strong></p>
+            </div>
+            <div class="header-actions">
+                <button class="btn btn-primary" onclick="refreshAll()">🔄 Atualizar</button>
+                <button class="btn btn-danger" onclick="backToDashboard()">← Voltar</button>
+            </div>
+        </div>
+        
+        <div id="alert" class="alert"></div>
+        
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('dashboard')">📊 Dashboard</div>
+            <div class="tab" onclick="switchTab('accounts')">👥 Contas</div>
+            <div class="tab" onclick="switchTab('server')">🖥️ Servidor</div>
+        </div>
+        
+        <div class="content">
+            <!-- Dashboard Tab -->
+            <div id="dashboard-tab" class="tab-content active">
+                <h2>📊 Visão Geral</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Total de Contas</div>
+                        <div class="stat-value" id="totalAccounts">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Administradores</div>
+                        <div class="stat-value" id="totalAdmins">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Contas Banidas</div>
+                        <div class="stat-value" id="totalBanned">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Total de Jogadores</div>
+                        <div class="stat-value" id="totalPlayers">0</div>
+                    </div>
+                </div>
+                
+                <h3>Últimas Atividades</h3>
+                <div id="recentActivity">
+                    <div class="loading">
+                        <div class="loading-spinner"></div>
+                        <p>Carregando dados...</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Accounts Tab -->
+            <div id="accounts-tab" class="tab-content">
+                <h2>👥 Gerenciamento de Contas</h2>
+                <div class="table-container">
+                    <table id="accountsTable">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Username</th>
+                                <th>Email</th>
+                                <th>Tipo</th>
+                                <th>Status</th>
+                                <th>Personagens</th>
+                                <th>Criado em</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td colspan="8" class="loading">
+                                    <div class="loading-spinner"></div>
+                                    <p>Carregando contas...</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Server Tab -->
+            <div id="server-tab" class="tab-content">
+                <h2>🖥️ Status do Servidor</h2>
+                <div id="serverStatus">
+                    <div class="loading">
+                        <div class="loading-spinner"></div>
+                        <p>Carregando status...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal de Banimento -->
+    <div id="banModal" class="modal">
+        <div class="modal-content">
+            <h3>🚫 Banir Conta</h3>
+            <div class="form-group">
+                <label>Conta:</label>
+                <input type="text" id="banUsername" readonly>
+            </div>
+            <div class="form-group">
+                <label>Motivo do Banimento:</label>
+                <textarea id="banReason" placeholder="Digite o motivo do banimento..."></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-primary" onclick="closeBanModal()">Cancelar</button>
+                <button class="btn btn-danger" onclick="confirmBan()">Banir</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let adminUsername = '';
+        let currentBanTargetId = null;
+        let allAccounts = [];
+        
+        // Verificar se é admin
+        const userData = sessionStorage.getItem('user_data');
+        if (!userData) {
+            window.location.href = 'login.html';
+        } else {
+            const user = JSON.parse(userData);
+            if (!user.isadmin) {
+                alert('Acesso negado! Apenas administradores podem acessar esta página.');
+                window.location.href = 'dashboard.html';
+            }
+            adminUsername = user.username;
+            document.getElementById('adminName').textContent = adminUsername;
+            loadAllData();
+        }
+        
+        function switchTab(tab) {
+            // Remover active de todas as tabs
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            // Ativar tab selecionada
+            event.target.classList.add('active');
+            document.getElementById(tab + '-tab').classList.add('active');
+            
+            // Carregar dados da tab
+            if (tab === 'accounts') loadAccounts();
+            if (tab === 'server') loadServerStatus();
+        }
+        
+        async function loadAllData() {
+            await loadAccounts();
+            await loadServerStatus();
+        }
+        
+        async function loadAccounts() {
+            try {
+                const response = await fetch('api/admin/list_accounts.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ admin_username: adminUsername })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    allAccounts = result.accounts;
+                    
+                    // Atualizar stats
+                    document.getElementById('totalAccounts').textContent = result.stats.total;
+                    document.getElementById('totalAdmins').textContent = result.stats.admins;
+                    document.getElementById('totalBanned').textContent = result.stats.banned;
+                    
+                    // Atualizar tabela
+                    displayAccounts(result.accounts);
+                    
+                    // Atualizar atividade recente
+                    displayRecentActivity(result.accounts);
+                } else {
+                    showAlert(result.message, 'error');
+                }
+            } catch (error) {
+                showAlert('Erro ao carregar contas: ' + error, 'error');
+            }
+        }
+        
+        function displayAccounts(accounts) {
+            const tbody = document.querySelector('#accountsTable tbody');
+            tbody.innerHTML = '';
+            
+            accounts.forEach(account => {
+                const tr = document.createElement('tr');
+                
+                const typeBadge = account.isadmin == 1 
+                    ? '<span class="badge badge-admin">👑 Admin</span>'
+                    : '';
+                
+                const statusBadge = account.banned == 1
+                    ? '<span class="badge badge-banned">🚫 Banido</span>'
+                    : '<span class="badge badge-active">✅ Ativo</span>';
+                
+                const actions = account.isadmin == 1
+                    ? '<span style="color: #999;">Protegido</span>'
+                    : account.banned == 1
+                        ? `<button class="action-btn btn-success" onclick="unbanAccount(${account.id}, '${account.username}')">🔓 Desbanir</button>`
+                        : `<button class="action-btn btn-danger" onclick="openBanModal(${account.id}, '${account.username}')">🚫 Banir</button>`;
+                
+                tr.innerHTML = `
+                    <td>${account.id}</td>
+                    <td>${account.username} ${typeBadge}</td>
+                    <td>${account.email}</td>
+                    <td>${account.isadmin == 1 ? 'Admin' : 'Usuário'}</td>
+                    <td>${statusBadge}</td>
+                    <td>${account.player_count}</td>
+                    <td>${formatDate(account.created_at)}</td>
+                    <td class="actions">${actions}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+        
+        function displayRecentActivity(accounts) {
+            const container = document.getElementById('recentActivity');
+            const recent = accounts.slice(0, 5);
+            
+            container.innerHTML = '<ul class="service-list">';
+            recent.forEach(account => {
+                const status = account.banned ? '🚫 Banido' : '✅ Ativo';
+                container.innerHTML += `
+                    <li class="service-item">
+                        <span><strong>${account.username}</strong> - ${account.email}</span>
+                        <span>${status}</span>
+                    </li>
+                `;
+            });
+            container.innerHTML += '</ul>';
+        }
+        
+        async function loadServerStatus() {
+            try {
+                const response = await fetch('api/admin/server_status.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ admin_username: adminUsername })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    document.getElementById('totalPlayers').textContent = result.database.stats.total_players;
+                    displayServerStatus(result);
+                } else {
+                    showAlert(result.message, 'error');
+                }
+            } catch (error) {
+                showAlert('Erro ao carregar status: ' + error, 'error');
+            }
+        }
+        
+        function displayServerStatus(data) {
+            const container = document.getElementById('serverStatus');
+            
+            container.innerHTML = `
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Status PHP</div>
+                        <div class="stat-value"><span class="status-indicator status-online"></span>Online</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Status MySQL</div>
+                        <div class="stat-value"><span class="status-indicator status-online"></span>Online</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Servidor C++</div>
+                        <div class="stat-value">
+                            <span class="status-indicator ${data.server.cpp_server.status === 'online' ? 'status-online' : 'status-offline'}"></span>
+                            ${data.server.cpp_server.status === 'online' ? 'Online' : 'Offline'}
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Hora do Servidor</div>
+                        <div class="stat-value" style="font-size: 20px;">${data.server.time}</div>
+                    </div>
+                </div>
+                
+                <h3>Serviços C++</h3>
+                <ul class="service-list">
+                    ${data.server.cpp_server.services.map(service => `
+                        <li class="service-item">
+                            <span><strong>${service.name}</strong> (Porta ${service.port})</span>
+                            <span class="badge ${service.status === 'online' ? 'badge-online' : 'badge-offline'}">
+                                ${service.status === 'online' ? '✅ Online' : '⚠️ Offline'}
+                            </span>
+                        </li>
+                    `).join('')}
+                </ul>
+                
+                <h3>Informações do Servidor</h3>
+                <ul class="service-list">
+                    <li class="service-item">
+                        <span>PHP Version</span>
+                        <span><strong>${data.server.php.version}</strong></span>
+                    </li>
+                    <li class="service-item">
+                        <span>MySQL Version</span>
+                        <span><strong>${data.server.mysql.version}</strong></span>
+                    </li>
+                    <li class="service-item">
+                        <span>Schema Version</span>
+                        <span><strong>${data.database.stats.schema_version}</strong></span>
+                    </li>
+                    <li class="service-item">
+                        <span>Total Accounts</span>
+                        <span><strong>${data.database.stats.total_accounts}</strong></span>
+                    </li>
+                    <li class="service-item">
+                        <span>Total Players</span>
+                        <span><strong>${data.database.stats.total_players}</strong></span>
+                    </li>
+                </ul>
+            `;
+        }
+        
+        function openBanModal(userId, username) {
+            currentBanTargetId = userId;
+            document.getElementById('banUsername').value = username;
+            document.getElementById('banReason').value = '';
+            document.getElementById('banModal').classList.add('show');
+        }
+        
+        function closeBanModal() {
+            document.getElementById('banModal').classList.remove('show');
+            currentBanTargetId = null;
+        }
+        
+        async function confirmBan() {
+            const reason = document.getElementById('banReason').value || 'Banido por administrador';
+            
+            try {
+                const response = await fetch('api/admin/ban_account.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        admin_username: adminUsername,
+                        target_user_id: currentBanTargetId,
+                        reason: reason
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showAlert(result.message, 'success');
+                    closeBanModal();
+                    await loadAccounts();
+                } else {
+                    showAlert(result.message, 'error');
+                }
+            } catch (error) {
+                showAlert('Erro ao banir conta: ' + error, 'error');
+            }
+        }
+        
+        async function unbanAccount(userId, username) {
+            if (!confirm(`Desbanir a conta '${username}'?`)) return;
+            
+            try {
+                const response = await fetch('api/admin/unban_account.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        admin_username: adminUsername,
+                        target_user_id: userId
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showAlert(result.message, 'success');
+                    await loadAccounts();
+                } else {
+                    showAlert(result.message, 'error');
+                }
+            } catch (error) {
+                showAlert('Erro ao desbanir conta: ' + error, 'error');
+            }
+        }
+        
+        function refreshAll() {
+            showAlert('Atualizando dados...', 'success');
+            loadAllData();
+        }
+        
+        function backToDashboard() {
+            window.location.href = 'dashboard.html';
+        }
+        
+        function showAlert(message, type) {
+            const alert = document.getElementById('alert');
+            alert.textContent = message;
+            alert.className = 'alert alert-' + type + ' show';
+            
+            setTimeout(() => {
+                alert.classList.remove('show');
+            }, 5000);
+        }
+        
+        function formatDate(dateString) {
+            if (!dateString) return '-';
+            const date = new Date(dateString);
+            return date.toLocaleDateString('pt-BR') + ' ' + date.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+        }
+    </script>
+</body>
+</html>
+

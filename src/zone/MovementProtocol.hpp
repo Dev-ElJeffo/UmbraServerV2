@@ -20,7 +20,8 @@ namespace Zone {
 
 enum class MovementMsgType : uint8_t {
   MoveUpdate = 1,
-  StateUpdate = 2
+  StateUpdate = 2,
+  PlayerDisconnected = 3
 };
 
 struct MovementFrame {
@@ -164,6 +165,23 @@ inline bool decodeWithAnimation(const std::vector<uint8_t>& data,
     isInAir = false;
     return false;  // Frame sem animação
   }
+}
+
+// Codificar mensagem de desconexão de player (5 bytes: [msgType:uint8][playerId:uint32])
+inline std::vector<uint8_t> encodePlayerDisconnected(uint32_t playerId) {
+  std::vector<uint8_t> out;
+  out.reserve(5);
+  out.push_back(static_cast<uint8_t>(MovementMsgType::PlayerDisconnected));
+  
+  auto write32 = [&out](uint32_t v){
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  
+  write32(playerId);
+  return out;
 }
 
 } // namespace Zone

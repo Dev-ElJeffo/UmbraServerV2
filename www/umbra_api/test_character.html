@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste - Sistema de Personagens</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 50px rgba(0,0,0,0.3);
+        }
+
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 2rem;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.9rem;
+        }
+
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .section h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: 600;
+        }
+
+        input[type="text"],
+        input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 5px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-right: 10px;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        .btn-success {
+            background: #27ae60;
+        }
+
+        .btn-success:hover {
+            background: #229954;
+        }
+
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .result.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+
+        .result.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+
+        .character-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .character-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid #ddd;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .character-card h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .character-card p {
+            color: #666;
+            margin: 5px 0;
+            font-size: 0.9rem;
+        }
+
+        .character-card .actions {
+            margin-top: 10px;
+            display: flex;
+            gap: 5px;
+        }
+
+        .character-card button {
+            flex: 1;
+            padding: 8px;
+            margin: 0;
+            font-size: 0.85rem;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 10px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .info-box {
+            background: #e7f3ff;
+            border: 1px solid #b3d7ff;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .info-box h3 {
+            color: #0066cc;
+            margin-bottom: 10px;
+        }
+
+        .info-box p {
+            color: #555;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 Sistema de Personagens - Teste</h1>
+        <p class="subtitle">Teste as APIs de gerenciamento de personagens do UmbraEternum</p>
+
+        <div class="info-box">
+            <h3>📌 Como usar:</h3>
+            <p>
+                1. Primeiro, faça login normalmente em <a href="login.html">login.html</a><br>
+                2. Anote seu <strong>account_id</strong> (aparece no console ou dashboard)<br>
+                3. Use o account_id abaixo para testar as APIs de personagens
+            </p>
+        </div>
+
+        <!-- LIST CHARACTERS -->
+        <div class="section">
+            <h2>📋 1. Listar Personagens</h2>
+            <div class="form-group">
+                <label for="list_account_id">Account ID:</label>
+                <input type="number" id="list_account_id" value="1" placeholder="Digite o ID da conta">
+            </div>
+            <button onclick="listCharacters()">📋 Listar Personagens</button>
+            <div class="loading" id="loading-list">
+                <div class="spinner"></div>
+                Carregando personagens...
+            </div>
+            <div id="character-list"></div>
+            <div id="result-list" class="result" style="display:none;"></div>
+        </div>
+
+        <!-- CREATE CHARACTER -->
+        <div class="section">
+            <h2>✨ 2. Criar Novo Personagem</h2>
+            <div class="form-group">
+                <label for="create_account_id">Account ID:</label>
+                <input type="number" id="create_account_id" value="1" placeholder="Digite o ID da conta">
+            </div>
+            <div class="form-group">
+                <label for="create_name">Nome do Personagem:</label>
+                <input type="text" id="create_name" placeholder="Ex: Warrior123 (3-20 caracteres, alfanumérico)">
+            </div>
+            <button class="btn-success" onclick="createCharacter()">✨ Criar Personagem</button>
+            <div class="loading" id="loading-create">
+                <div class="spinner"></div>
+                Criando personagem...
+            </div>
+            <div id="result-create" class="result" style="display:none;"></div>
+        </div>
+
+        <!-- SELECT CHARACTER -->
+        <div class="section">
+            <h2>🎯 3. Selecionar Personagem</h2>
+            <div class="form-group">
+                <label for="select_account_id">Account ID:</label>
+                <input type="number" id="select_account_id" value="1" placeholder="Digite o ID da conta">
+            </div>
+            <div class="form-group">
+                <label for="select_player_id">Player ID:</label>
+                <input type="number" id="select_player_id" placeholder="ID do personagem a selecionar">
+            </div>
+            <button class="btn-success" onclick="selectCharacter()">🎯 Selecionar Personagem</button>
+            <div class="loading" id="loading-select">
+                <div class="spinner"></div>
+                Selecionando personagem...
+            </div>
+            <div id="result-select" class="result" style="display:none;"></div>
+        </div>
+
+        <!-- DELETE CHARACTER -->
+        <div class="section">
+            <h2>🗑️ 4. Deletar Personagem</h2>
+            <div class="form-group">
+                <label for="delete_account_id">Account ID:</label>
+                <input type="number" id="delete_account_id" value="1" placeholder="Digite o ID da conta">
+            </div>
+            <div class="form-group">
+                <label for="delete_player_id">Player ID:</label>
+                <input type="number" id="delete_player_id" placeholder="ID do personagem a deletar">
+            </div>
+            <button class="btn-danger" onclick="deleteCharacter()">🗑️ Deletar Personagem</button>
+            <div class="loading" id="loading-delete">
+                <div class="spinner"></div>
+                Deletando personagem...
+            </div>
+            <div id="result-delete" class="result" style="display:none;"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost/umbra_api/api/character';
+
+        // Função auxiliar para fazer requisições
+        async function apiRequest(endpoint, data) {
+            const response = await fetch(`${API_BASE}/${endpoint}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+            });
+            return await response.json();
+        }
+
+        // Função auxiliar para mostrar resultado
+        function showResult(elementId, data, isError = false) {
+            const element = document.getElementById(elementId);
+            element.style.display = 'block';
+            element.className = `result ${isError ? 'error' : 'success'}`;
+            element.textContent = JSON.stringify(data, null, 2);
+        }
+
+        // Função auxiliar para mostrar/esconder loading
+        function toggleLoading(elementId, show) {
+            const element = document.getElementById(elementId);
+            if (show) {
+                element.classList.add('active');
+            } else {
+                element.classList.remove('active');
+            }
+        }
+
+        // 1. LISTAR PERSONAGENS
+        async function listCharacters() {
+            const accountId = parseInt(document.getElementById('list_account_id').value);
+            
+            if (!accountId) {
+                alert('Digite um Account ID válido!');
+                return;
+            }
+
+            toggleLoading('loading-list', true);
+            document.getElementById('character-list').innerHTML = '';
+            document.getElementById('result-list').style.display = 'none';
+
+            try {
+                const result = await apiRequest('list_characters.php', {
+                    account_id: accountId
+                });
+
+                toggleLoading('loading-list', false);
+
+                if (result.success) {
+                    displayCharacters(result.players, result.count, result.max_characters);
+                } else {
+                    showResult('result-list', result, true);
+                }
+            } catch (error) {
+                toggleLoading('loading-list', false);
+                showResult('result-list', { error: error.message }, true);
+            }
+        }
+
+        // Exibir personagens como cards
+        function displayCharacters(players, count, max) {
+            const container = document.getElementById('character-list');
+            
+            if (players.length === 0) {
+                container.innerHTML = '<p style="text-align:center; color:#999; padding:20px;">Nenhum personagem encontrado. Crie seu primeiro personagem!</p>';
+                return;
+            }
+
+            container.innerHTML = `<h3 style="color:#667eea; margin-bottom:10px;">Personagens Encontrados: ${count}/${max}</h3>`;
+            
+            const cardsContainer = document.createElement('div');
+            cardsContainer.className = 'character-list';
+            
+            players.forEach(player => {
+                const card = document.createElement('div');
+                card.className = 'character-card';
+                card.innerHTML = `
+                    <h3>${player.character_name}</h3>
+                    <p><strong>ID:</strong> ${player.player_id}</p>
+                    <p><strong>Level:</strong> ${player.level}</p>
+                    <p><strong>XP:</strong> ${player.experience}</p>
+                    <p><strong>Zona:</strong> ${player.current_zone}</p>
+                    <p><strong>Posição:</strong> (${player.position.x.toFixed(1)}, ${player.position.y.toFixed(1)}, ${player.position.z.toFixed(1)})</p>
+                    <p style="font-size:0.8rem; color:#999;"><strong>Criado:</strong> ${player.created_at}</p>
+                    <div class="actions">
+                        <button class="btn-success" onclick="quickSelect(${player.player_id})">🎯 Selecionar</button>
+                        <button class="btn-danger" onclick="quickDelete(${player.player_id}, '${player.character_name}')">🗑️ Deletar</button>
+                    </div>
+                `;
+                cardsContainer.appendChild(card);
+            });
+            
+            container.appendChild(cardsContainer);
+        }
+
+        // Seleção rápida do card
+        function quickSelect(playerId) {
+            const accountId = parseInt(document.getElementById('list_account_id').value);
+            document.getElementById('select_account_id').value = accountId;
+            document.getElementById('select_player_id').value = playerId;
+            selectCharacter();
+        }
+
+        // Deleção rápida do card
+        function quickDelete(playerId, name) {
+            if (!confirm(`Tem certeza que deseja deletar o personagem "${name}"?`)) {
+                return;
+            }
+            const accountId = parseInt(document.getElementById('list_account_id').value);
+            document.getElementById('delete_account_id').value = accountId;
+            document.getElementById('delete_player_id').value = playerId;
+            deleteCharacter();
+        }
+
+        // 2. CRIAR PERSONAGEM
+        async function createCharacter() {
+            const accountId = parseInt(document.getElementById('create_account_id').value);
+            const characterName = document.getElementById('create_name').value.trim();
+            
+            if (!accountId) {
+                alert('Digite um Account ID válido!');
+                return;
+            }
+
+            if (!characterName) {
+                alert('Digite um nome para o personagem!');
+                return;
+            }
+
+            if (characterName.length < 3 || characterName.length > 20) {
+                alert('O nome deve ter entre 3 e 20 caracteres!');
+                return;
+            }
+
+            toggleLoading('loading-create', true);
+            document.getElementById('result-create').style.display = 'none';
+
+            try {
+                const result = await apiRequest('create_character.php', {
+                    account_id: accountId,
+                    character_name: characterName
+                });
+
+                toggleLoading('loading-create', false);
+                showResult('result-create', result, !result.success);
+
+                if (result.success) {
+                    document.getElementById('create_name').value = '';
+                    alert('✅ Personagem criado com sucesso! Atualize a lista para vê-lo.');
+                }
+            } catch (error) {
+                toggleLoading('loading-create', false);
+                showResult('result-create', { error: error.message }, true);
+            }
+        }
+
+        // 3. SELECIONAR PERSONAGEM
+        async function selectCharacter() {
+            const accountId = parseInt(document.getElementById('select_account_id').value);
+            const playerId = parseInt(document.getElementById('select_player_id').value);
+            
+            if (!accountId || !playerId) {
+                alert('Digite Account ID e Player ID válidos!');
+                return;
+            }
+
+            toggleLoading('loading-select', true);
+            document.getElementById('result-select').style.display = 'none';
+
+            try {
+                const result = await apiRequest('select_character.php', {
+                    account_id: accountId,
+                    player_id: playerId
+                });
+
+                toggleLoading('loading-select', false);
+                showResult('result-select', result, !result.success);
+
+                if (result.success) {
+                    alert(`✅ Personagem "${result.player.character_name}" selecionado com sucesso!`);
+                }
+            } catch (error) {
+                toggleLoading('loading-select', false);
+                showResult('result-select', { error: error.message }, true);
+            }
+        }
+
+        // 4. DELETAR PERSONAGEM
+        async function deleteCharacter() {
+            const accountId = parseInt(document.getElementById('delete_account_id').value);
+            const playerId = parseInt(document.getElementById('delete_player_id').value);
+            
+            if (!accountId || !playerId) {
+                alert('Digite Account ID e Player ID válidos!');
+                return;
+            }
+
+            toggleLoading('loading-delete', true);
+            document.getElementById('result-delete').style.display = 'none';
+
+            try {
+                const result = await apiRequest('delete_character.php', {
+                    account_id: accountId,
+                    player_id: playerId
+                });
+
+                toggleLoading('loading-delete', false);
+                showResult('result-delete', result, !result.success);
+
+                if (result.success) {
+                    alert('✅ ' + result.message);
+                    document.getElementById('delete_player_id').value = '';
+                    // Atualizar lista automaticamente
+                    listCharacters();
+                }
+            } catch (error) {
+                toggleLoading('loading-delete', false);
+                showResult('result-delete', { error: error.message }, true);
+            }
+        }
+
+        // Auto-carregar personagens ao abrir a página
+        window.addEventListener('load', () => {
+            console.log('🎮 Sistema de Personagens - Teste carregado!');
+            console.log('API Base:', API_BASE);
+        });
+    </script>
+</body>
+</html>
+

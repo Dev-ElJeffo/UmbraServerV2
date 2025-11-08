@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste API - Update Position</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        input, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            box-sizing: border-box;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        textarea {
+            min-height: 80px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-info {
+            background: #17a2b8;
+            color: white;
+        }
+
+        .players-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .player-button {
+            padding: 15px;
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+        }
+
+        .player-button:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+
+        .player-button.selected {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: #667eea;
+        }
+
+        .player-name {
+            font-weight: 600;
+            font-size: 16px;
+            margin-bottom: 5px;
+        }
+
+        .player-info {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .player-button.selected .player-info {
+            color: rgba(255,255,255,0.9);
+        }
+
+        .selected-player {
+            background: #e7f3ff;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            margin-top: 15px;
+        }
+
+        .selected-player-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .selected-player-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 20px;
+            border-radius: 8px;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .success {
+            background-color: #d4edda;
+            border: 2px solid #c3e6cb;
+            color: #155724;
+        }
+
+        .error {
+            background-color: #f8d7da;
+            border: 2px solid #f5c6cb;
+            color: #721c24;
+        }
+
+        .info {
+            background-color: #d1ecf1;
+            border: 2px solid #bee5eb;
+            color: #0c5460;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+        }
+
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border-left: 4px solid #dc3545;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Teste API - Update Position</h1>
+        <p class="subtitle">Atualizar posição do personagem no banco de dados</p>
+
+        <!-- Seção 1: Token JWT -->
+        <div class="section">
+            <div class="section-title">1️⃣ Autenticação</div>
+            <div class="form-group">
+                <label for="token">Token JWT:</label>
+                <textarea id="token" placeholder="Cole aqui o token JWT obtido após login no jogo"></textarea>
+            </div>
+            <div class="button-group">
+                <button class="btn-info" onclick="loadCharacters()">🔍 Carregar Meus Personagens</button>
+                <button class="btn-secondary" onclick="clearToken()">🗑️ Limpar Token</button>
+            </div>
+        </div>
+
+        <!-- Seção 2: Seleção de Personagem -->
+        <div class="section" id="charactersSection" style="display: none;">
+            <div class="section-title">2️⃣ Selecione um Personagem</div>
+            <div id="charactersLoading" class="loading">⏳ Carregando personagens...</div>
+            <div id="charactersError" class="error-message hidden"></div>
+            <div id="charactersGrid" class="players-grid"></div>
+            <div id="selectedPlayerDisplay" class="selected-player hidden">
+                <div class="selected-player-label">Personagem Selecionado:</div>
+                <div class="selected-player-name" id="selectedPlayerName">-</div>
+            </div>
+        </div>
+
+        <!-- Seção 3: Atualizar Posição -->
+        <div class="section" id="positionSection" style="display: none;">
+            <div class="section-title">3️⃣ Atualizar Posição</div>
+            <div class="form-group">
+                <label for="player_id">Player ID:</label>
+                <input type="number" id="player_id" placeholder="Será preenchido automaticamente" readonly>
+            </div>
+            <div class="form-group">
+                <label for="pos_x">Posição X:</label>
+                <input type="number" id="pos_x" step="0.01" placeholder="Ex: 100.5" value="100.0">
+            </div>
+            <div class="form-group">
+                <label for="pos_y">Posição Y:</label>
+                <input type="number" id="pos_y" step="0.01" placeholder="Ex: 200.5" value="200.0">
+            </div>
+            <div class="form-group">
+                <label for="pos_z">Posição Z:</label>
+                <input type="number" id="pos_z" step="0.01" placeholder="Ex: 92.0" value="92.0">
+            </div>
+            <div class="form-group">
+                <label for="current_zone">Zona Atual:</label>
+                <input type="text" id="current_zone" placeholder="Ex: Tutorial" value="Tutorial">
+            </div>
+            <div class="button-group">
+                <button class="btn-success" onclick="testAPI()">🚀 Atualizar Posição</button>
+                <button class="btn-danger" onclick="clearResult()">🗑️ Limpar Resultado</button>
+            </div>
+        </div>
+
+        <!-- Resultado -->
+        <div id="result"></div>
+    </div>
+
+    <script>
+        let selectedPlayer = null;
+        let characters = [];
+
+        // Carregar token do localStorage se existir
+        window.onload = function() {
+            const savedToken = localStorage.getItem('umbra_token');
+            if (savedToken) {
+                document.getElementById('token').value = savedToken;
+            }
+        };
+
+        async function loadCharacters() {
+            const token = document.getElementById('token').value.trim();
+            
+            if (!token) {
+                alert('❌ Por favor, insira o token JWT primeiro!');
+                return;
+            }
+
+            // Salvar token no localStorage
+            localStorage.setItem('umbra_token', token);
+
+            const charactersSection = document.getElementById('charactersSection');
+            const charactersLoading = document.getElementById('charactersLoading');
+            const charactersError = document.getElementById('charactersError');
+            const charactersGrid = document.getElementById('charactersGrid');
+            const positionSection = document.getElementById('positionSection');
+
+            // Mostrar seção e loading
+            charactersSection.style.display = 'block';
+            charactersLoading.style.display = 'block';
+            charactersError.classList.add('hidden');
+            charactersGrid.innerHTML = '';
+            positionSection.style.display = 'none';
+            selectedPlayer = null;
+
+            try {
+                const response = await fetch('list_characters.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ token: token })
+                });
+
+                const result = await response.json();
+
+                charactersLoading.style.display = 'none';
+
+                if (!result.success) {
+                    charactersError.textContent = '❌ Erro: ' + result.message;
+                    charactersError.classList.remove('hidden');
+                    return;
+                }
+
+                characters = result.players || [];
+
+                if (characters.length === 0) {
+                    charactersError.textContent = '⚠️ Você não tem personagens ainda.';
+                    charactersError.classList.remove('hidden');
+                    return;
+                }
+
+                // Mostrar personagens como botões
+                displayCharacters(characters);
+
+            } catch (error) {
+                charactersLoading.style.display = 'none';
+                charactersError.textContent = '❌ Erro ao conectar com servidor: ' + error.message;
+                charactersError.classList.remove('hidden');
+            }
+        }
+
+        function displayCharacters(players) {
+            const grid = document.getElementById('charactersGrid');
+            grid.innerHTML = '';
+
+            players.forEach(player => {
+                const button = document.createElement('div');
+                button.className = 'player-button';
+                button.onclick = () => selectPlayer(player);
+                button.innerHTML = `
+                    <div class="player-name">${player.character_name}</div>
+                    <div class="player-info">
+                        ⚔️ Level ${player.level}<br>
+                        🗺️ ${player.current_zone || 'Zona Inicial'}<br>
+                        📍 ID: ${player.player_id}
+                    </div>
+                `;
+                grid.appendChild(button);
+            });
+        }
+
+        function selectPlayer(player) {
+            selectedPlayer = player;
+
+            // Atualizar visual dos botões
+            document.querySelectorAll('.player-button').forEach(btn => {
+                btn.classList.remove('selected');
+            });
+            event.target.closest('.player-button').classList.add('selected');
+
+            // Preencher campos
+            document.getElementById('player_id').value = player.player_id;
+            document.getElementById('pos_x').value = player.position.x || 0;
+            document.getElementById('pos_y').value = player.position.y || 0;
+            document.getElementById('pos_z').value = player.position.z || 0;
+            document.getElementById('current_zone').value = player.current_zone || 'Tutorial';
+
+            // Mostrar personagem selecionado
+            const selectedDisplay = document.getElementById('selectedPlayerDisplay');
+            document.getElementById('selectedPlayerName').textContent = player.character_name;
+            selectedDisplay.classList.remove('hidden');
+
+            // Mostrar seção de posição
+            document.getElementById('positionSection').style.display = 'block';
+        }
+
+        async function testAPI() {
+            const token = document.getElementById('token').value.trim();
+            const playerId = parseInt(document.getElementById('player_id').value);
+            const posX = parseFloat(document.getElementById('pos_x').value);
+            const posY = parseFloat(document.getElementById('pos_y').value);
+            const posZ = parseFloat(document.getElementById('pos_z').value);
+            const currentZone = document.getElementById('current_zone').value.trim();
+
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<div class="result info">⏳ Enviando requisição...</div>';
+
+            if (!token) {
+                resultDiv.innerHTML = '<div class="result error">❌ Erro: Token JWT é obrigatório!</div>';
+                return;
+            }
+
+            if (!selectedPlayer) {
+                resultDiv.innerHTML = '<div class="result error">❌ Erro: Selecione um personagem primeiro!</div>';
+                return;
+            }
+
+            if (!playerId || playerId <= 0) {
+                resultDiv.innerHTML = '<div class="result error">❌ Erro: Player ID deve ser um número maior que 0!</div>';
+                return;
+            }
+
+            const data = {
+                token: token,
+                player_id: playerId,
+                pos_x: posX,
+                pos_y: posY,
+                pos_z: posZ,
+                current_zone: currentZone || 'Tutorial'
+            };
+
+            try {
+                const response = await fetch('update_position.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const responseText = await response.text();
+                let result;
+                
+                try {
+                    result = JSON.parse(responseText);
+                } catch (e) {
+                    result = { error: 'Resposta não é JSON válido', raw: responseText };
+                }
+
+                const statusClass = response.ok && result.success ? 'success' : 'error';
+                const statusIcon = response.ok && result.success ? '✅' : '❌';
+
+                resultDiv.innerHTML = `
+                    <div class="result ${statusClass}">
+                        <strong>${statusIcon} Status HTTP: ${response.status} ${response.statusText}</strong><br><br>
+                        <strong>Resposta JSON:</strong><br>
+                        ${JSON.stringify(result, null, 2)}
+                        <br><br>
+                        <strong>Dados Enviados:</strong><br>
+                        ${JSON.stringify(data, null, 2)}
+                        <br><br>
+                        <strong>Personagem:</strong><br>
+                        ${selectedPlayer.character_name} (ID: ${selectedPlayer.player_id})
+                    </div>
+                `;
+
+                // Se sucesso, recarregar personagens para atualizar posição
+                if (response.ok && result.success) {
+                    setTimeout(() => {
+                        loadCharacters();
+                    }, 1000);
+                }
+
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        ❌ Erro ao fazer requisição:<br>
+                        ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        function clearToken() {
+            document.getElementById('token').value = '';
+            localStorage.removeItem('umbra_token');
+            document.getElementById('charactersSection').style.display = 'none';
+            document.getElementById('positionSection').style.display = 'none';
+            selectedPlayer = null;
+        }
+
+        function clearResult() {
+            document.getElementById('result').innerHTML = '';
+        }
+    </script>
+</body>
+</html>

@@ -263,6 +263,11 @@ private:
       if (playerIt != players_.end()) {
         Umbra::Core::Logger::getInstance().info("Removing player {} (client {}) from players map", playerId, cid);
         players_.erase(playerIt);
+        
+        // Notificar todos os clientes que este player desconectou
+        auto disconnectMsg = encodePlayerDisconnected(playerId);
+        ws_.broadcastBinary(disconnectMsg);
+        Umbra::Core::Logger::getInstance().info("Broadcasted PlayerDisconnected message for player {}", playerId);
       }
       clientIdToPlayerId_.erase(it);
     } else {

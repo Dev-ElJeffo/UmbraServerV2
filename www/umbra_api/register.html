@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro - UmbraEternum</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 450px;
+            width: 100%;
+            animation: slideIn 0.5s ease;
+        }
+        
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .logo h1 {
+            color: #667eea;
+            font-size: 32px;
+            margin-bottom: 5px;
+        }
+        
+        .logo p {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: all 0.3s;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .form-group input.error {
+            border-color: #f44336;
+        }
+        
+        .form-group input.success {
+            border-color: #4caf50;
+        }
+        
+        .error-message {
+            color: #f44336;
+            font-size: 13px;
+            margin-top: 5px;
+            display: none;
+        }
+        
+        .error-message.show {
+            display: block;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .links {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+        }
+        
+        .links a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .links a:hover {
+            text-decoration: underline;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .alert.show {
+            display: block;
+            animation: slideDown 0.3s ease;
+        }
+        
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .password-strength {
+            height: 4px;
+            background: #e0e0e0;
+            border-radius: 2px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+        
+        .password-strength-bar {
+            height: 100%;
+            width: 0;
+            transition: all 0.3s;
+        }
+        
+        .strength-weak { background: #f44336; width: 33%; }
+        .strength-medium { background: #ff9800; width: 66%; }
+        .strength-strong { background: #4caf50; width: 100%; }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <h1>🎮 UmbraEternum</h1>
+            <p>Criar Nova Conta</p>
+        </div>
+        
+        <div id="alert" class="alert"></div>
+        
+        <form id="registerForm">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" 
+                       placeholder="Escolha seu username" 
+                       minlength="3" maxlength="20" required>
+                <div class="error-message" id="usernameError"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" 
+                       placeholder="seu@email.com" required>
+                <div class="error-message" id="emailError"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Senha</label>
+                <input type="password" id="password" name="password" 
+                       placeholder="Mínimo 6 caracteres" 
+                       minlength="6" required>
+                <div class="password-strength">
+                    <div class="password-strength-bar" id="strengthBar"></div>
+                </div>
+                <div class="error-message" id="passwordError"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="confirmPassword">Confirmar Senha</label>
+                <input type="password" id="confirmPassword" name="confirmPassword" 
+                       placeholder="Digite a senha novamente" required>
+                <div class="error-message" id="confirmPasswordError"></div>
+            </div>
+            
+            <button type="submit" class="btn" id="submitBtn">
+                Criar Conta
+            </button>
+        </form>
+        
+        <div class="links">
+            <p>Já tem uma conta? <a href="login.html">Fazer Login</a></p>
+            <p><a href="index.php">← Voltar para teste</a></p>
+        </div>
+    </div>
+    
+    <script>
+        const form = document.getElementById('registerForm');
+        const alert = document.getElementById('alert');
+        const submitBtn = document.getElementById('submitBtn');
+        const strengthBar = document.getElementById('strengthBar');
+        
+        // Validação em tempo real
+        const username = document.getElementById('username');
+        const email = document.getElementById('email');
+        const password = document.getElementById('password');
+        const confirmPassword = document.getElementById('confirmPassword');
+        
+        // Validar username
+        username.addEventListener('input', function() {
+            const value = this.value;
+            const error = document.getElementById('usernameError');
+            
+            if (value.length < 3) {
+                this.classList.add('error');
+                this.classList.remove('success');
+                error.textContent = 'Username deve ter pelo menos 3 caracteres';
+                error.classList.add('show');
+            } else if (!/^[a-zA-Z0-9_]+$/.test(value)) {
+                this.classList.add('error');
+                this.classList.remove('success');
+                error.textContent = 'Apenas letras, números e underscore';
+                error.classList.add('show');
+            } else {
+                this.classList.remove('error');
+                this.classList.add('success');
+                error.classList.remove('show');
+            }
+        });
+        
+        // Validar email
+        email.addEventListener('input', function() {
+            const error = document.getElementById('emailError');
+            
+            if (!this.validity.valid) {
+                this.classList.add('error');
+                this.classList.remove('success');
+                error.textContent = 'Email inválido';
+                error.classList.add('show');
+            } else {
+                this.classList.remove('error');
+                this.classList.add('success');
+                error.classList.remove('show');
+            }
+        });
+        
+        // Força da senha
+        password.addEventListener('input', function() {
+            const value = this.value;
+            const error = document.getElementById('passwordError');
+            
+            // Calcular força
+            let strength = 0;
+            if (value.length >= 6) strength++;
+            if (value.length >= 10) strength++;
+            if (/[a-z]/.test(value) && /[A-Z]/.test(value)) strength++;
+            if (/[0-9]/.test(value)) strength++;
+            if (/[^a-zA-Z0-9]/.test(value)) strength++;
+            
+            // Atualizar barra
+            strengthBar.className = 'password-strength-bar';
+            if (strength <= 2) {
+                strengthBar.classList.add('strength-weak');
+            } else if (strength <= 3) {
+                strengthBar.classList.add('strength-medium');
+            } else {
+                strengthBar.classList.add('strength-strong');
+            }
+            
+            // Validação
+            if (value.length < 6) {
+                this.classList.add('error');
+                this.classList.remove('success');
+                error.textContent = 'Senha deve ter pelo menos 6 caracteres';
+                error.classList.add('show');
+            } else {
+                this.classList.remove('error');
+                this.classList.add('success');
+                error.classList.remove('show');
+            }
+        });
+        
+        // Confirmar senha
+        confirmPassword.addEventListener('input', function() {
+            const error = document.getElementById('confirmPasswordError');
+            
+            if (this.value !== password.value) {
+                this.classList.add('error');
+                this.classList.remove('success');
+                error.textContent = 'As senhas não coincidem';
+                error.classList.add('show');
+            } else {
+                this.classList.remove('error');
+                this.classList.add('success');
+                error.classList.remove('show');
+            }
+        });
+        
+        // Enviar formulário
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            // Validação final
+            if (password.value !== confirmPassword.value) {
+                showAlert('As senhas não coincidem', 'error');
+                return;
+            }
+            
+            // Desabilitar botão
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="loading"></span> Criando conta...';
+            
+            // Dados
+            const data = {
+                username: username.value,
+                email: email.value,
+                password: password.value
+            };
+            
+            try {
+                const response = await fetch('api/register.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showAlert(`✅ ${result.message} Redirecionando para login...`, 'success');
+                    form.reset();
+                    
+                    // Redirecionar após 2 segundos
+                    setTimeout(() => {
+                        window.location.href = 'login.html?registered=1&username=' + encodeURIComponent(result.username);
+                    }, 2000);
+                } else {
+                    showAlert(`❌ ${result.message}`, 'error');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Criar Conta';
+                }
+            } catch (error) {
+                showAlert('❌ Erro ao conectar com servidor', 'error');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Criar Conta';
+            }
+        });
+        
+        function showAlert(message, type) {
+            alert.textContent = message;
+            alert.className = 'alert alert-' + type + ' show';
+            
+            setTimeout(() => {
+                alert.classList.remove('show');
+            }, 5000);
+        }
+    </script>
+</body>
+</html>
+

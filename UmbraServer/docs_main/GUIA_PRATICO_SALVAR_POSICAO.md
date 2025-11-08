@@ -243,12 +243,60 @@ void UUmbraGameInstance::SavePlayerPosition(int32 PlayerID, const FVector& Posit
 
 **ANTES de fechar WebSocket:**
 
+### **5.1: Obter Referência do Character Local**
+
+**OPÇÃO 1 - Usar Função Helper (RECOMENDADO):**
+
+1. **Adicionar `Get First Player Pawn Helper`:**
+   - Clique direito → Busque: `Get First Player Pawn Helper`
+   - Selecione: `Get First Player Pawn Helper` (da categoria `Umbra|Net|WS|Helpers`)
+   - **World Context Object:** Conecte ao `Self` (ou deixe desconectado se auto-referenciar)
+   - **Return Value:** Tipo `Pawn` (objeto)
+
+2. **Adicionar `IsValid`:**
+   - Do `Return Value` do `Get First Player Pawn Helper` → Arraste → `IsValid`
+   - **Target:** Conectado automaticamente ao Return Value
+   - **Return Value:** Boolean
+
+3. **Adicionar `Branch`:**
+   - Do `Return Value` (Boolean) do `IsValid` → Arraste → `Branch`
+   - **Condition:** Conectado automaticamente
+
+**OPÇÃO 2 - Método Padrão do Unreal:**
+
+1. **Adicionar `Get First Player Controller`:**
+   - Clique direito → Busque: `Get First Player Controller`
+   - Selecione: `Get First Player Controller` (da categoria `Game`)
+   - **World Context Object:** Conecte ao `Self` (ou deixe desconectado)
+
+2. **Adicionar `Get Pawn`:**
+   - Do `Return Value` do `Get First Player Controller` → Arraste → `Get Pawn`
+   - **Target:** Conectado automaticamente ao Return Value
+   - **Return Value:** Tipo `Pawn`
+
+3. **Adicionar `IsValid` e `Branch`** (mesmo processo da Opção 1)
+
+---
+
+### **5.2: Obter Posição do Character**
+
+**No caminho `True` do Branch (Pawn válido):**
+
+1. **Adicionar `Get Actor Location`:**
+   - Do `Return Value` (Pawn) do `Get First Player Pawn Helper` (ou `Get Pawn`) → Arraste → `Get Actor Location`
+   - **Target:** Conectado automaticamente ao Return Value
+   - **Return Value:** Tipo `Vector` (posição)
+
+---
+
+### **5.3: Salvar Posição**
+
+**Após `Get Actor Location`:**
+
 ```
-Event EndPlay
+[Branch True]
   ↓
-[Obter referência do Character local]
-  ↓
-Get Actor Location (do Character)
+Get Actor Location (do Pawn)
   ↓
 Get Game Instance → Cast to UmbraGameInstance
   ↓
@@ -256,10 +304,43 @@ Get Active Player ID
   ↓
 Save Player Position
   - PlayerID: Get Active Player ID
-  - Position: Get Actor Location
-  - CurrentZone: "Tutorial"
+  - Position: Get Actor Location (Vector)
+  - CurrentZone: "Tutorial" (ou variável)
+```
+
+**No caminho `False` do Branch (Pawn inválido):**
+- Apenas continue para fechar o WebSocket (não salva posição se não houver character)
+
+---
+
+### **5.4: Fluxo Completo**
+
+```
+Event EndPlay
   ↓
-[Fechar WebSocket]
+Get First Player Pawn Helper (Self)
+  ↓
+IsValid (Pawn)
+  ↓
+Branch
+  ├─ True:
+  │    ↓
+  │   Get Actor Location (do Pawn)
+  │    ↓
+  │   Get Game Instance → Cast to UmbraGameInstance
+  │    ↓
+  │   Get Active Player ID
+  │    ↓
+  │   Save Player Position
+  │    - PlayerID: Get Active Player ID
+  │    - Position: Get Actor Location
+  │    - CurrentZone: "Tutorial"
+  │    ↓
+  │   [Continuar para fechar WebSocket]
+  │
+  └─ False:
+       ↓
+      [Continuar para fechar WebSocket - sem salvar]
 ```
 
 ---

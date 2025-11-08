@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - UmbraEternum</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            animation: slideIn 0.5s ease;
+        }
+        
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .welcome {
+            flex: 1;
+        }
+        
+        .welcome h1 {
+            color: #667eea;
+            font-size: 28px;
+            margin-bottom: 5px;
+        }
+        
+        .welcome p {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .user-info {
+            text-align: right;
+        }
+        
+        .user-info .username {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .user-info .email {
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .logout-btn {
+            padding: 10px 20px;
+            background: #f44336;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-top: 10px;
+            transition: all 0.3s;
+        }
+        
+        .logout-btn:hover {
+            background: #d32f2f;
+            transform: translateY(-2px);
+        }
+        
+        .admin-btn {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+            color: #333;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 700;
+            margin-top: 10px;
+            margin-right: 10px;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(255, 215, 0, 0.4);
+        }
+        
+        .admin-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 215, 0, 0.6);
+        }
+        
+        .admin-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+            color: #333;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            margin-left: 10px;
+        }
+        
+        .content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            animation: slideIn 0.5s ease;
+        }
+        
+        .card h2 {
+            color: #667eea;
+            font-size: 22px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 10px;
+        }
+        
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .stat-item:last-child {
+            border-bottom: none;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-weight: 500;
+        }
+        
+        .stat-value {
+            color: #333;
+            font-weight: 600;
+        }
+        
+        .no-players {
+            text-align: center;
+            padding: 40px 20px;
+            color: #999;
+        }
+        
+        .no-players-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+        
+        .create-player-btn {
+            margin-top: 20px;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .create-player-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        .player-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .player-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        
+        .player-info {
+            display: flex;
+            gap: 20px;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .token-display {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            border: 1px dashed #667eea;
+        }
+        
+        .token-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        
+        .token-value {
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: #333;
+            word-break: break-all;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        
+        .links {
+            text-align: center;
+            margin-top: 20px;
+        }
+        
+        .links a {
+            color: white;
+            text-decoration: none;
+            margin: 0 15px;
+            font-weight: 500;
+        }
+        
+        .links a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="welcome">
+                <h1>🎮 Dashboard</h1>
+                <p>Bem-vindo ao UmbraEternum</p>
+            </div>
+            <div class="user-info">
+                <div class="username" id="displayUsername">-</div>
+                <div class="email" id="displayEmail">-</div>
+                <div id="adminButtons" style="display: none;">
+                    <button class="admin-btn" onclick="goToAdmin()">👑 Painel Admin</button>
+                    <button class="logout-btn" onclick="logout()">🚪 Sair</button>
+                </div>
+                <div id="normalButtons">
+                    <button class="logout-btn" onclick="logout()">🚪 Sair</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="content">
+            <div class="card">
+                <h2>📊 Informações da Conta</h2>
+                <div class="stat-item">
+                    <span class="stat-label">ID da Conta</span>
+                    <span class="stat-value" id="accountId">-</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Username</span>
+                    <span class="stat-value" id="accountUsername">-</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Email</span>
+                    <span class="stat-value" id="accountEmail">-</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Personagens</span>
+                    <span class="stat-value" id="playerCount">0</span>
+                </div>
+                
+                <div class="token-display">
+                    <div class="token-label">🔑 Token de Autenticação</div>
+                    <div class="token-value" id="authToken">-</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>👥 Meus Personagens</h2>
+                <div id="playersList">
+                    <div class="no-players">
+                        <div class="no-players-icon">🎭</div>
+                        <p>Você ainda não tem personagens</p>
+                        <button class="create-player-btn" onclick="createPlayer()">
+                            ➕ Criar Personagem
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="links">
+            <a href="index.php">🧪 Voltar para Testes</a>
+            <a href="#" onclick="refreshData(); return false;">🔄 Atualizar Dados</a>
+        </div>
+    </div>
+    
+    <script>
+        // Verificar se está autenticado
+        const token = sessionStorage.getItem('auth_token');
+        const userData = sessionStorage.getItem('user_data');
+        const playersData = sessionStorage.getItem('players');
+        
+        if (!token || !userData) {
+            // Redirecionar para login se não autenticado
+            window.location.href = 'login.html';
+        } else {
+            loadUserData();
+        }
+        
+        function loadUserData() {
+            try {
+                const user = JSON.parse(userData);
+                const players = JSON.parse(playersData);
+                
+                // Preencher dados do usuário
+                const usernameDisplay = document.getElementById('displayUsername');
+                usernameDisplay.textContent = user.username;
+                
+                // Adicionar badge de admin se for admin
+                if (user.isadmin === 1) {
+                    const badge = document.createElement('span');
+                    badge.className = 'admin-badge';
+                    badge.textContent = '👑 ADMIN';
+                    usernameDisplay.appendChild(badge);
+                    
+                    // Mostrar botões de admin
+                    document.getElementById('adminButtons').style.display = 'block';
+                    document.getElementById('normalButtons').style.display = 'none';
+                }
+                
+                document.getElementById('displayEmail').textContent = user.email;
+                document.getElementById('accountId').textContent = user.id;
+                document.getElementById('accountUsername').textContent = user.username;
+                document.getElementById('accountEmail').textContent = user.email;
+                document.getElementById('playerCount').textContent = players.length;
+                document.getElementById('authToken').textContent = token;
+                
+                // Mostrar personagens
+                if (players.length > 0) {
+                    displayPlayers(players);
+                }
+            } catch (e) {
+                console.error('Erro ao carregar dados:', e);
+                alert('Erro ao carregar dados do usuário');
+            }
+        }
+        
+        function goToAdmin() {
+            window.location.href = 'admin.html';
+        }
+        
+        function displayPlayers(players) {
+            const container = document.getElementById('playersList');
+            container.innerHTML = '';
+            
+            players.forEach(player => {
+                const card = document.createElement('div');
+                card.className = 'player-card';
+                card.innerHTML = `
+                    <div class="player-name">${player.character_name}</div>
+                    <div class="player-info">
+                        <span>⚔️ Level ${player.level}</span>
+                        <span>🗺️ ${player.current_zone || 'Zona Inicial'}</span>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+        
+        function logout() {
+            if (confirm('Tem certeza que deseja sair?')) {
+                sessionStorage.clear();
+                window.location.href = 'login.html';
+            }
+        }
+        
+        function createPlayer() {
+            alert('Funcionalidade em desenvolvimento!\nEm breve você poderá criar personagens.');
+        }
+        
+        async function refreshData() {
+            const user = JSON.parse(userData);
+            
+            try {
+                const response = await fetch('api/login.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        username: user.username,
+                        password: prompt('Digite sua senha para atualizar:')
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    sessionStorage.setItem('auth_token', result.token);
+                    sessionStorage.setItem('user_data', JSON.stringify(result.account));
+                    sessionStorage.setItem('players', JSON.stringify(result.players));
+                    location.reload();
+                } else {
+                    alert('Erro ao atualizar: ' + result.message);
+                }
+            } catch (error) {
+                alert('Erro ao conectar com servidor');
+            }
+        }
+    </script>
+</body>
+</html>
+
