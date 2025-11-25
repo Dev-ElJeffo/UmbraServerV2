@@ -1,0 +1,291 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    SELECT vs SWITCH - DIFERENÇA VISUAL                      ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│ ❌ ERRADO: SWITCH (Você está usando isto)                                  │
+└────────────────────────────────────────────────────────────────────────────┘
+
+[Entry] Rarity (enum)
+    │
+    │ (EXEC - pin branco) ────┐
+    │                         │
+    │                         ▼
+    │           ╔═══════════════════════════════╗
+    │           ║ Switch on EUmbraItemRarity    ║
+    └─────────> ║   Index: Rarity (enum pin)    ║
+                ╚═══════════════════════════════╝
+                    │
+                    ├─ Common (EXEC pin branco) ──────> ???
+                    ├─ Uncommon (EXEC pin branco) ────> ???
+                    ├─ Rare (EXEC pin branco) ────────> ???
+                    ├─ Epic (EXEC pin branco) ────────> ???
+                    └─ Legendary (EXEC pin branco) ───> ???
+
+PROBLEMA:
+- Pins de saída são EXECUÇÃO (brancos)
+- "Make Literal String" NÃO TEM pins de execução
+- Não dá para conectar diretamente!
+
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│ ✅ CORRETO: SELECT (Use isto!)                                             │
+└────────────────────────────────────────────────────────────────────────────┘
+
+[Entry] Rarity (enum)
+    │
+    └──────────> ╔═══════════════════════════════════════╗
+                 ║          Select (nó roxo)             ║
+                 ║                                       ║
+                 ║ Select: (EUmbraItemRarity pin)       ║
+                 ║                                       ║
+                 ║ Common:     "Common"                  ║
+                 ║ Uncommon:   "Uncommon"                ║
+                 ║ Rare:       "Rare"                    ║
+                 ║ Epic:       "Epic"                    ║
+                 ║ Legendary:  "Legendary"               ║
+                 ║                                       ║
+                 ║ Return Value: (String pin) ─────────> [Return Node]
+                 ╚═══════════════════════════════════════╝
+
+VANTAGENS:
+- Pins de entrada são DADOS (coloridos)
+- Pode conectar strings/cores diretamente
+- Função "Pure" (sem execução)
+- Mais simples e eficiente
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                   COMO CRIAR O SELECT CORRETAMENTE                          ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+PASSO 1: Adicionar nó Select
+─────────────────────────────
+1. Clique com botão direito no Graph
+2. Digite: "Select"
+3. Escolha o nó roxo "Select"
+
+
+PASSO 2: Configurar o tipo do Index
+────────────────────────────────────
+1. Selecione o nó Select
+2. No painel Details (lado direito)
+3. Procure: "Index Pin Type"
+4. Mude de "Integer" para "EUmbraItemRarity"
+
+ANTES:                           DEPOIS:
+╔════════════════╗              ╔════════════════════╗
+║    Select      ║              ║      Select        ║
+║                ║              ║                    ║
+║ Index (int)    ║              ║ Select (enum)      ║
+║ Option 0       ║              ║ Common             ║
+║ Option 1       ║              ║ Uncommon           ║
+║ Option 2       ║              ║ Rare               ║
+║ ...            ║              ║ Epic               ║
+║                ║              ║ Legendary          ║
+╚════════════════╝              ╚════════════════════╝
+
+
+PASSO 3: Conectar valores
+──────────────────────────
+
+PARA GetRarityText (String):
+┌──────────────────────────────────┐
+│ No pin "Common", digite:         │
+│   Common                         │
+│                                  │
+│ No pin "Uncommon", digite:       │
+│   Uncommon                       │
+│                                  │
+│ No pin "Rare", digite:           │
+│   Rare                           │
+│                                  │
+│ (etc.)                           │
+└──────────────────────────────────┘
+
+
+PARA GetRarityColor (Linear Color):
+┌──────────────────────────────────────────────────────────┐
+│ 1. Mude "Option Pin Type" para "Linear Color"           │
+│                                                          │
+│ 2. Para cada pin, crie um "Make Linear Color":          │
+│                                                          │
+│    Common: [Make Linear Color]                          │
+│             R: 0.6, G: 0.6, B: 0.6, A: 1               │
+│                                                          │
+│    Uncommon: [Make Linear Color]                        │
+│              R: 0, G: 1, B: 0, A: 1                    │
+│                                                          │
+│    Rare: [Make Linear Color]                            │
+│          R: 0, G: 0.5, B: 1, A: 1                      │
+│                                                          │
+│    Epic: [Make Linear Color]                            │
+│          R: 0.7, G: 0, B: 1, A: 1                      │
+│                                                          │
+│    Legendary: [Make Linear Color]                       │
+│               R: 1, G: 0.5, B: 0, A: 1                 │
+└──────────────────────────────────────────────────────────┘
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                        FUNÇÃO COMPLETA: GetRarityText                       ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┏━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ GetRarityText (Entry)  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━┛
+    │
+    │ OUTPUT: Rarity (EUmbraItemRarity enum)
+    │
+    └────────────────────┐
+                         │
+                         ▼
+        ╔════════════════════════════════════════╗
+        ║             Select (roxo)              ║
+        ║                                        ║
+        ║ Select: ◄──────── Rarity               ║
+        ║                                        ║
+        ║ Common:     "Common"                   ║
+        ║ Uncommon:   "Uncommon"                 ║
+        ║ Rare:       "Rare"                     ║
+        ║ Epic:       "Epic"                     ║
+        ║ Legendary:  "Legendary"                ║
+        ║                                        ║
+        ║ Return Value (String) ────────┐        ║
+        ╚════════════════════════════════│═══════╝
+                                         │
+                                         ▼
+                              ┏━━━━━━━━━━━━━━━━┓
+                              ┃  Return Node   ┃ ← Nó de saída da função
+                              ┃                ┃
+                              ┃ Return Value ◄─┘
+                              ┗━━━━━━━━━━━━━━━━┛
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                       FUNÇÃO COMPLETA: GetRarityColor                       ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┏━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ GetRarityColor (Entry) ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━┛
+    │
+    │ OUTPUT: Rarity (EUmbraItemRarity enum)
+    │
+    └────────────────────┐
+                         │
+                         ▼
+        ╔═════════════════════════════════════════════════════════════════╗
+        ║                     Select (roxo)                               ║
+        ║                                                                 ║
+        ║ Select: ◄──────── Rarity                                        ║
+        ║                                                                 ║
+        ║ Common: ◄───────── [Make Linear Color] (0.6, 0.6, 0.6, 1)      ║
+        ║                                                                 ║
+        ║ Uncommon: ◄─────── [Make Linear Color] (0, 1, 0, 1)            ║
+        ║                                                                 ║
+        ║ Rare: ◄─────────── [Make Linear Color] (0, 0.5, 1, 1)          ║
+        ║                                                                 ║
+        ║ Epic: ◄─────────── [Make Linear Color] (0.7, 0, 1, 1)          ║
+        ║                                                                 ║
+        ║ Legendary: ◄────── [Make Linear Color] (1, 0.5, 0, 1)          ║
+        ║                                                                 ║
+        ║ Return Value (Linear Color) ─────────────┐                      ║
+        ╚═══════════════════════════════════════════│══════════════════════╝
+                                                    │
+                                                    ▼
+                                         ┏━━━━━━━━━━━━━━━━┓
+                                         ┃  Return Node   ┃
+                                         ┃                ┃
+                                         ┃ Return Value ◄─┘
+                                         ┗━━━━━━━━━━━━━━━━┛
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                            CONFIGURAÇÕES IMPORTANTES                        ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+NÓ SELECT - PAINEL DETAILS:
+┌────────────────────────────────────────────────────────────────────────┐
+│                                                                        │
+│  [Select Node Properties]                                              │
+│                                                                        │
+│  ▼ Node                                                                │
+│    Index Pin Type:      EUmbraItemRarity    ← MUDE ISTO!              │
+│    Option Pin Type:     String              ← (GetRarityText)          │
+│                    ou   Linear Color        ← (GetRarityColor)         │
+│                                                                        │
+└────────────────────────────────────────────────────────────────────────┘
+
+
+FUNÇÃO - PAINEL DETAILS (Entry Node):
+┌────────────────────────────────────────────────────────────────────────┐
+│                                                                        │
+│  [Function Properties]                                                 │
+│                                                                        │
+│  ▼ Inputs                                                              │
+│    + Add Input                                                         │
+│      Name: Rarity                                                      │
+│      Type: EUmbraItemRarity                                            │
+│      Pass by Reference: ✓                                              │
+│                                                                        │
+│  ▼ Outputs                                                             │
+│    + Add Output                                                        │
+│      Name: Return Value                                                │
+│      Type: String (ou Linear Color)                                    │
+│                                                                        │
+└────────────────────────────────────────────────────────────────────────┘
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                               TESTANDO AS FUNÇÕES                           ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+No Event Graph de WBP_ItemTooltip:
+
+[Event Construct]
+    │ (exec)
+    │
+    ├──> [GetRarityText]
+    │        │ Rarity: Rare (enum)
+    │        │
+    │        └─> Return Value → [Print String] → "Rare"
+    │
+    └──> [GetRarityColor]
+             │ Rarity: Rare (enum)
+             │
+             └─> Return Value → [Print String] → "R=0,G=0.5,B=1,A=1"
+
+
+RESULTADO ESPERADO NO OUTPUT LOG:
+─────────────────────────────────
+LogBlueprintUserMessages: [WBP_ItemTooltip_C_0] Rare
+LogBlueprintUserMessages: [WBP_ItemTooltip_C_0] R=0.000000,G=0.500000,B=1.000000,A=1.000000
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                                 RESUMO RÁPIDO                               ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+DELETE o nó "Switch on EUmbraItemRarity"
+    ↓
+Crie nó "Select"
+    ↓
+Mude "Index Pin Type" para "EUmbraItemRarity"
+    ↓
+Para GetRarityText:
+    → Digite os textos nos pins
+    
+Para GetRarityColor:
+    → Mude "Option Pin Type" para "Linear Color"
+    → Crie 5 nós "Make Linear Color" com as cores
+    → Conecte cada um aos pins correspondentes
+    ↓
+Conecte "Return Value" ao "Return Node"
+    ↓
+FUNCIONA! ✅
+
+
+════════════════════════════════════════════════════════════════════════════════
+

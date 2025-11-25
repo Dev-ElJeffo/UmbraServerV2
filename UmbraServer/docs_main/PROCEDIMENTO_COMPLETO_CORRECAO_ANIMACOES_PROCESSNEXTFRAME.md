@@ -303,21 +303,21 @@ Branch (ReturnValue == true?)
 - [x ] Pin `Target` do `Get Character Movement` está conectado ao `As Character` do `Cast to Character`?
 - [x ] `Set Velocity` está presente após `Get Character Movement`?
 - [ x] Pin `Target` do `Set Velocity` está conectado ao `Return Value` do `Get Character Movement`?
-- [ ] Pin `New Velocity` do `Set Velocity` está conectado ao `K2Node_Knot_132` (mesmo `New Velocity` usado após spawn)?
-- [ ] Pin `execute` do `Set Velocity` está conectado ao pin `D` do `Cast to Character`?
-- [ ] Pin `then` do `Set Velocity` está conectado a `K2Node_Knot_133` (continuar para `Set Actor Location`)?
+- [x ] Pin `New Velocity` do `Set Velocity` está conectado ao `K2Node_Knot_132` (mesmo `New Velocity` usado após spawn)?
+- [x ] Pin `execute` do `Set Velocity` está conectado ao pin `D` do `Cast to Character`?
+- [ x] Pin `then` do `Set Velocity` está conectado a `K2Node_Knot_133` (continuar para `Set Actor Location`)?
 
 ### **CORREÇÃO #2: OutIsInAir para Movement Mode (OPCIONAL)**
 
 **⚠️ IMPORTANTE:** Verifique em **AMBOS os caminhos** (actor existente e novo actor):
 
 **Caminho 1 (Actor Existente):**
-- [ ] `Branch` com `OutIsInAir` está presente após `Set Velocity` (actor existente)?
-- [ ] Pin `Condition` do `Branch` está conectado ao pin `OutIsInAir` de `ParseStateUpdateFrameWithAnimation`?
-- [ ] Pin `execute` do `Branch` está conectado ao pin `then` de `Set Velocity` (actor existente)?
-- [ ] `Set Movement Mode` está presente no caminho `then` (`OutIsInAir == true`)? (OPCIONAL)
-- [ ] `Set Movement Mode` está presente no caminho `else` (`OutIsInAir == false`)? (OPCIONAL)
-- [ ] Ambos os caminhos convergem para `Set Actor Location`?
+- [x ] `Branch` com `OutIsInAir` está presente após `Set Velocity` (actor existente)?
+- [x ] Pin `Condition` do `Branch` está conectado ao pin `OutIsInAir` de `ParseStateUpdateFrameWithAnimation`?
+- [ x] Pin `execute` do `Branch` está conectado ao pin `then` de `Set Velocity` (actor existente)?
+- [ x] `Set Movement Mode` está presente no caminho `then` (`OutIsInAir == true`)? (OPCIONAL)
+- [ x] `Set Movement Mode` está presente no caminho `else` (`OutIsInAir == false`)? (OPCIONAL)
+- [x ] Ambos os caminhos convergem para `Set Actor Location`?
 
 **Caminho 2 (Novo Actor):**
 - [ ] `Branch` com `OutIsInAir` está presente após `Set Velocity` (novo actor)?

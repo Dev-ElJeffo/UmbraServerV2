@@ -1,0 +1,318 @@
+================================================================================
+GUIA SIMPLES: ONDROP - ONDE ADICIONAR CADA NÓ
+================================================================================
+
+IMPORTANTE: Este guia mostra EXATAMENTE onde adicionar cada nó no seu Blueprint.
+Siga as instruções na ordem apresentada.
+
+================================================================================
+PARTE 1: CONECTAR VERIFICAÇÃO DE ORIGEM (se ainda não estiver conectado)
+================================================================================
+
+LOCALIZAÇÃO: Após o nó "K2Node_IfThenElse_6" (Branch Inventory ID > 0?)
+
+PASSO 1: Verificar se já existe conexão
+- Procure pelo nó "K2Node_IfThenElse_6"
+- Veja se o pino "then" (verde) está conectado a algo
+- Se NÃO estiver conectado, continue com o PASSO 2
+
+PASSO 2: Conectar verificação de origem
+- Clique no pino "then" (verde) do "K2Node_IfThenElse_6"
+- Arraste até encontrar o nó "K2Node_VariableGet_3" (Get Parent Storage Widget - Source)
+- Conecte ao pino "execute" (branco) do "K2Node_VariableGet_3"
+
+PASSO 3: Conectar IsValid da origem
+- Clique no pino "then" (branco) do "K2Node_VariableGet_3"
+- Arraste até encontrar o nó "K2Node_CallFunction_17" (IsValid - Origem)
+- Conecte ao pino "execute" (branco) do "K2Node_CallFunction_17"
+
+PASSO 4: Conectar Branch da origem
+- Clique no pino "then" (branco) do "K2Node_CallFunction_17"
+- Arraste até encontrar o nó "K2Node_IfThenElse_8" (Branch Origem é Storage?)
+- Conecte ao pino "execute" (branco) do "K2Node_IfThenElse_8"
+
+================================================================================
+PARTE 2: CONECTAR VERIFICAÇÃO DE DESTINO (quando origem é Inventário)
+================================================================================
+
+LOCALIZAÇÃO: Após o nó "K2Node_IfThenElse_8" [else] (Branch Origem é Storage?)
+
+PASSO 1: Verificar se já existe conexão
+- Procure pelo nó "K2Node_IfThenElse_8"
+- Veja se o pino "else" (vermelho) está conectado a algo
+- Se NÃO estiver conectado, continue com o PASSO 2
+
+PASSO 2: Criar Get Parent Storage Widget (Destino)
+- Clique com botão direito no espaço vazio após o "K2Node_IfThenElse_8"
+- Digite: "Get Parent Storage Widget"
+- Selecione o nó
+- Conecte:
+  * Pino "Target" (azul): Arraste um nó "Self" (clique direito → "Self") e conecte
+  * Pino "execute" (branco): Conecte ao pino "else" (vermelho) do "K2Node_IfThenElse_8"
+
+PASSO 3: Criar IsValid (Destino)
+- Arraste o pino "ReturnValue" (azul) do "Get Parent Storage Widget (Destino)"
+- Solte no espaço vazio
+- Digite: "Is Valid?"
+- Selecione o nó
+- Conecte:
+  * Pino "Object" (azul): Conecte ao "ReturnValue" (azul) do "Get Parent Storage Widget (Destino)"
+  * Pino "execute" (branco): Conecte ao pino "then" (branco) do "Get Parent Storage Widget (Destino)"
+
+PASSO 4: Criar Branch (Destino é Storage?)
+- Arraste o pino "ReturnValue" (verde/bool) do "IsValid (Destino)"
+- Solte no espaço vazio
+- Digite: "Branch"
+- Selecione o nó
+- Conecte:
+  * Pino "Condition" (verde): Conecte ao "ReturnValue" (verde) do "IsValid (Destino)"
+  * Pino "execute" (branco): Conecte ao pino "then" (branco) do "IsValid (Destino)"
+
+================================================================================
+PARTE 3: IMPLEMENTAÇÃO 1 - STORAGE → INVENTÁRIO
+================================================================================
+
+LOCALIZAÇÃO: Após o nó "K2Node_Knot_7" (que vem do "else" do "K2Node_IfThenElse_7")
+
+CENÁRIO: Origem = Storage, Destino = Inventário
+
+PASSO 1: Get Parent Storage Widget (Source)
+- Arraste o pino "ReturnValue" (azul) do "K2Node_CallFunction_12" (GetSourceSlotWidget)
+- Solte no espaço vazio
+- Digite: "Get Parent Storage Widget"
+- Selecione o nó
+- Conecte:
+  * Pino "Target" (azul): Conecte ao "ReturnValue" (azul) do "K2Node_CallFunction_12"
+  * Pino "execute" (branco): Conecte ao pino "OutputPin" (branco) do "K2Node_Knot_7"
+
+PASSO 2: IsValid (WBP_Storage - Source)
+- Arraste o pino "ReturnValue" (azul) do "Get Parent Storage Widget (Source)"
+- Solte no espaço vazio
+- Digite: "Is Valid?"
+- Selecione o nó
+- Conecte:
+  * Pino "Object" (azul): Conecte ao "ReturnValue" (azul) do "Get Parent Storage Widget (Source)"
+  * Pino "execute" (branco): Conecte ao pino "then" (branco) do "Get Parent Storage Widget (Source)"
+
+PASSO 3: Get Game Instance
+- Clique com botão direito no espaço vazio
+- Digite: "Get Game Instance"
+- Selecione o nó
+- Conecte:
+  * Pino "execute" (branco): Conecte ao pino "then" (branco) do "IsValid (WBP_Storage - Source)"
+
+PASSO 4: Cast to Umbra Game Instance
+- Arraste o pino "ReturnValue" (azul) do "Get Game Instance"
+- Solte no espaço vazio
+- Digite: "Cast to Umbra Game Instance"
+- Selecione o nó
+- Conecte:
+  * Pino "Object" (azul): Conecte ao "ReturnValue" (azul) do "Get Game Instance"
+  * Pino "execute" (branco): Conecte ao pino "then" (branco) do "Get Game Instance"
+
+PASSO 5: Get Storage ID By Inventory ID
+- Arraste o pino "As Umbra Game Instance" (azul) do "Cast to Umbra Game Instance"
+- Solte no espaço vazio
+- Digite: "Get Storage ID By Inventory ID"
+- Selecione o nó
+- Conecte:
+  * Pino "Target" (azul): Conecte ao "As Umbra Game Instance" (azul) do "Cast"
+  * Pino "Inventory ID" (int): Conecte ao pino "InventoryID" (int) do "K2Node_BreakStruct_0"
+  * Pino "execute" (branco): Conecte ao pino "then" (branco) do "Cast to Umbra Game Instance"
+
+PASSO 6: Greater (Storage ID > 0?)
+- Arraste o pino "ReturnValue" (int) do "Get Storage ID By Inventory ID"
+- Solte no espaço vazio
+- Digite: ">" (Greater)
+- Selecione o nó
+- Conecte:
+  * Pino "A" (int): Conecte ao "ReturnValue" (int) do "Get Storage ID By Inventory ID"
+  * Pino "B" (int): Clique direito → "Make Literal Int" → Digite: 0
+
+PASSO 7: Branch (Storage ID > 0?)
+- Arraste o pino "ReturnValue" (bool) do "Greater"
+- Solte no espaço vazio
+- Digite: "Branch"
+- Selecione o nó
+- Conecte:
+  * Pino "Condition" (bool): Conecte ao "ReturnValue" (bool) do "Greater"
+  * Pino "execute" (branco): Conecte ao pino "then" (branco) do "Get Storage ID By Inventory ID"
+
+PASSO 8: Get Slot Index (Destino)
+- Arraste um nó "Self" (clique direito → "Self")
+- Arraste o pino azul do "Self"
+- Solte no espaço vazio
+- Digite: "Get Slot Index"
+- Selecione o nó
+- Conecte:
+  * Pino "Target" (azul): Conecte ao "Self" (azul)
+  * Pino "execute" (branco): Conecte ao pino "TRUE" (branco) do "Branch (Storage ID > 0?)"
+
+PASSO 9: Move Item From Storage
+- Arraste o pino "ReturnValue" (azul) do "Get Parent Storage Widget (Source)"
+- Solte no espaço vazio
+- Digite: "Move Item From Storage"
+- Selecione o nó
+- Conecte:
+  * Pino "Target" (azul): Conecte ao "ReturnValue" (azul) do "Get Parent Storage Widget (Source)"
+  * Pino "Storage Item ID" (int): Conecte ao "ReturnValue" (int) do "Get Storage ID By Inventory ID"
+  * Pino "Target Slot Index" (int): Conecte ao "ReturnValue" (int) do "Get Slot Index (Destino)"
+  * Pino "execute" (branco): Conecte ao pino "then" (branco) do "Get Slot Index (Destino)"
+
+PASSO 10: Branch (Return Value)
+- Arraste o pino "ReturnValue" (bool) do "Move Item From Storage"
+- Solte no espaço vazio
+- Digite: "Branch"
+- Selecione o nó
+- Conecte:
+  * Pino "Condition" (bool): Conecte ao "ReturnValue" (bool) do "Move Item From Storage"
+  * Pino "execute" (branco): Conecte ao pino "then" (branco) do "Move Item From Storage"
+
+PASSO 11: Return Handled
+- Clique com botão direito no espaço vazio
+- Digite: "Return Handled"
+- Selecione o nó
+- Conecte:
+  * Pino "execute" (branco): Conecte ao pino "TRUE" (branco) do "Branch (Return Value)"
+
+PASSO 12: Return Unhandled
+- Clique com botão direito no espaço vazio
+- Digite: "Return Unhandled"
+- Selecione o nó
+- Conecte:
+  * Pino "execute" (branco): Conecte ao pino "FALSE" (branco) do "Branch (Return Value)"
+
+================================================================================
+PARTE 4: IMPLEMENTAÇÃO 2 - INVENTÁRIO → STORAGE
+================================================================================
+
+LOCALIZAÇÃO: Após o "Branch (Destino é Storage?)" [TRUE] quando origem é Inventário
+
+CENÁRIO: Origem = Inventário, Destino = Storage
+
+PASSO 1: Get Parent Storage Widget (Destino) - Para obter WBP_Storage
+- Arraste um nó "Self" (clique direito → "Self")
+- Arraste o pino azul do "Self"
+- Solte no espaço vazio
+- Digite: "Get Parent Storage Widget"
+- Selecione o nó
+- Conecte:
+  * Pino "Target" (azul): Conecte ao "Self" (azul)
+  * Pino "execute" (branco): Conecte ao pino "TRUE" (branco) do "Branch (Destino é Storage?)"
+
+PASSO 2: IsValid (WBP_Storage - Destino)
+- Arraste o pino "ReturnValue" (azul) do "Get Parent Storage Widget (Destino)"
+- Solte no espaço vazio
+- Digite: "Is Valid?"
+- Selecione o nó
+- Conecte:
+  * Pino "Object" (azul): Conecte ao "ReturnValue" (azul) do "Get Parent Storage Widget (Destino)"
+  * Pino "execute" (branco): Conecte ao pino "then" (branco) do "Get Parent Storage Widget (Destino)"
+
+PASSO 3: Get Slot Index (Destino)
+- Arraste um nó "Self" (clique direito → "Self")
+- Arraste o pino azul do "Self"
+- Solte no espaço vazio
+- Digite: "Get Slot Index"
+- Selecione o nó
+- Conecte:
+  * Pino "Target" (azul): Conecte ao "Self" (azul)
+  * Pino "execute" (branco): Conecte ao pino "then" (branco) do "IsValid (WBP_Storage - Destino)"
+
+PASSO 4: Move Item To Storage
+- Arraste o pino "ReturnValue" (azul) do "Get Parent Storage Widget (Destino)"
+- Solte no espaço vazio
+- Digite: "Move Item To Storage"
+- Selecione o nó
+- Conecte:
+  * Pino "Target" (azul): Conecte ao "ReturnValue" (azul) do "Get Parent Storage Widget (Destino)"
+  * Pino "Inventory Item ID" (int): Conecte ao pino "InventoryID" (int) do "K2Node_BreakStruct_0"
+  * Pino "Target Slot Index" (int): Conecte ao "ReturnValue" (int) do "Get Slot Index (Destino)"
+  * Pino "execute" (branco): Conecte ao pino "then" (branco) do "Get Slot Index (Destino)"
+
+PASSO 5: Branch (Return Value)
+- Arraste o pino "ReturnValue" (bool) do "Move Item To Storage"
+- Solte no espaço vazio
+- Digite: "Branch"
+- Selecione o nó
+- Conecte:
+  * Pino "Condition" (bool): Conecte ao "ReturnValue" (bool) do "Move Item To Storage"
+  * Pino "execute" (branco): Conecte ao pino "then" (branco) do "Move Item To Storage"
+
+PASSO 6: Return Handled
+- Clique com botão direito no espaço vazio
+- Digite: "Return Handled"
+- Selecione o nó
+- Conecte:
+  * Pino "execute" (branco): Conecte ao pino "TRUE" (branco) do "Branch (Return Value)"
+
+PASSO 7: Return Unhandled
+- Clique com botão direito no espaço vazio
+- Digite: "Return Unhandled"
+- Selecione o nó
+- Conecte:
+  * Pino "execute" (branco): Conecte ao pino "FALSE" (branco) do "Branch (Return Value)"
+
+================================================================================
+PARTE 5: IMPLEMENTAÇÃO 3 - INVENTÁRIO → INVENTÁRIO
+================================================================================
+
+LOCALIZAÇÃO: Após o "Branch (Destino é Storage?)" [FALSE] quando origem é Inventário
+
+CENÁRIO: Origem = Inventário, Destino = Inventário
+
+PASSO 1: Process Item Drop
+- Arraste um nó "Self" (clique direito → "Self")
+- Arraste o pino azul do "Self"
+- Solte no espaço vazio
+- Digite: "Process Item Drop"
+- Selecione o nó
+- Conecte:
+  * Pino "Target" (azul): Conecte ao "Self" (azul)
+  * Pino "Dragged Slot Widget" (azul): Conecte ao "ReturnValue" (azul) do "K2Node_CallFunction_12" (GetSourceSlotWidget)
+  * Pino "execute" (branco): Conecte ao pino "FALSE" (branco) do "Branch (Destino é Storage?)"
+
+PASSO 2: Return Handled
+- Clique com botão direito no espaço vazio
+- Digite: "Return Handled"
+- Selecione o nó
+- Conecte:
+  * Pino "execute" (branco): Conecte ao pino "then" (branco) do "Process Item Drop"
+
+================================================================================
+RESUMO DAS CONEXÕES
+================================================================================
+
+ESTRUTURA FINAL:
+
+K2Node_IfThenElse_6 [then]
+  └─ K2Node_VariableGet_3 [execute] (se não estiver conectado)
+      └─ K2Node_CallFunction_17 [execute] (se não estiver conectado)
+          └─ K2Node_IfThenElse_8 [execute] (se não estiver conectado)
+              ├─ [then] → K2Node_IfThenElse_7 [execute]
+              │   └─ [else] → K2Node_Knot_7
+              │       └─ [PARTE 3: Storage → Inventário]
+              │
+              └─ [else] → GetParentStorageWidget_Destino [execute]
+                  └─ IsValid_Destino [execute]
+                      └─ Branch_DestinoIsStorage [execute]
+                          ├─ [TRUE] → [PARTE 4: Inventário → Storage]
+                          └─ [FALSE] → [PARTE 5: Inventário → Inventário]
+
+================================================================================
+DICAS IMPORTANTES
+================================================================================
+
+1. SEMPRE verifique se o nó já existe antes de criar um novo
+2. Use os nomes dos nós existentes (K2Node_IfThenElse_6, etc.) para localizar onde adicionar
+3. Os pinos BRANCOS são de execução (execute)
+4. Os pinos AZUIS são de objetos/referências
+5. Os pinos VERDES são booleanos
+6. Os pinos LARANJAS são inteiros
+7. Se um nó não aparecer ao digitar, verifique se a função existe no C++
+8. Compile o projeto C++ antes de tentar usar funções do GameInstance
+
+================================================================================
+FIM DO GUIA
+================================================================================
+

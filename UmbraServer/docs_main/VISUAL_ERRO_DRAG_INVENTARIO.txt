@@ -1,0 +1,308 @@
+═══════════════════════════════════════════════════════════════════
+  VISUAL: ERROS NO SEU BLUEPRINT DE DRAG & DROP
+═══════════════════════════════════════════════════════════════════
+
+🚨 O INVENTÁRIO FECHA PORQUE FALTA O OnDragDetected!
+
+
+═══════════════════════════════════════════════════════════════════
+PROBLEMA 1: OnMouseButtonDown - OFFSET ERRADO
+═══════════════════════════════════════════════════════════════════
+
+❌ O QUE VOCÊ FEZ (ERRADO):
+
+┌────────────────────────────────────────────────────────────┐
+│ OnMouseButtonDown                                          │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
+│  [Mouse Event] ──────────────────────┐                    │
+│                                      │                    │
+│  ┌───────────────────────────────────▼─────────┐          │
+│  │ PointerEvent_GetScreenSpacePosition         │          │
+│  │   Output: Posição do Mouse (ex: 500, 300)  │          │
+│  └───────────────┬─────────────────────────────┘          │
+│                  │                                         │
+│                  │  ┌──────────────────────────────┐      │
+│  [execute] ──────┼─>│ GetMousePositionOnViewport   │      │
+│                  │  │   Output: Posição do Mouse   │      │
+│                  │  │   (ex: 500, 300) ← IGUAL!    │      │
+│                  │  └──────────┬───────────────────┘      │
+│                  │             │                          │
+│                  │   ┌─────────▼──────────────┐           │
+│                  │   │ Subtract (A - B)       │           │
+│                  │   │   A: 500, 300 (Mouse)  │           │
+│                  └───┤   B: 500, 300 (Mouse)  │           │
+│                      │   Resultado: 0, 0  ❌  │           │
+│                      └─────────┬──────────────┘           │
+│                                │                          │
+│                      ┌─────────▼──────────────┐           │
+│                      │ Set DragOffset (0, 0)  │           │
+│                      └────────────────────────┘           │
+│                                                            │
+│  PROBLEMA: Você está subtraindo mouse - mouse = 0!        │
+│                                                            │
+└────────────────────────────────────────────────────────────┘
+
+
+✅ O QUE DEVERIA SER (CORRETO):
+
+┌────────────────────────────────────────────────────────────┐
+│ OnMouseButtonDown                                          │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
+│  [Mouse Event] ──────────────────────┐                    │
+│                                      │                    │
+│  ┌───────────────────────────────────▼─────────┐          │
+│  │ PointerEvent_GetScreenSpacePosition         │          │
+│  │   Output: Posição do Mouse (ex: 500, 300)  │          │
+│  └───────────────┬─────────────────────────────┘          │
+│                  │                                         │
+│  [execute] ──────┼──────────────────────┐                 │
+│                  │                      │                 │
+│                  │   ┌──────────────────▼─────────┐       │
+│                  │   │ Get Position in Viewport   │       │
+│                  │   │   Target: self             │       │
+│                  │   │   Output: Posição Widget   │       │
+│                  │   │   (ex: 100, 100)           │       │
+│                  │   └──────────┬─────────────────┘       │
+│                  │              │                         │
+│                  │   ┌──────────▼──────────────┐          │
+│                  │   │ Subtract (A - B)        │          │
+│                  └───┤   A: 500, 300 (MOUSE)   │          │
+│                      │   B: 100, 100 (WIDGET)  │          │
+│                      │   Resultado: 400, 200 ✅│          │
+│                      └─────────┬───────────────┘          │
+│                                │                          │
+│                      ┌─────────▼──────────────┐           │
+│                      │ Set DragOffset(400,200)│           │
+│                      └────────────────────────┘           │
+│                                                            │
+│  CORRETO: Mouse - Widget = Offset onde clicou!            │
+│                                                            │
+└────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════
+PROBLEMA 2: OnDrop - DIVIDINDO AO INVÉS DE SUBTRAIR
+═══════════════════════════════════════════════════════════════════
+
+❌ O QUE VOCÊ FEZ (ERRADO):
+
+┌────────────────────────────────────────────────────────────┐
+│ OnDrop                                                     │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
+│  [Pointer Event] ────────────┐                            │
+│                              │                            │
+│  ┌───────────────────────────▼─────────┐                  │
+│  │ PointerEvent_GetScreenSpacePosition │                  │
+│  │   Output: 600, 400 (onde soltou)   │                  │
+│  └───────────────┬─────────────────────┘                  │
+│                  │                                         │
+│  ┌───────────────▼─────────────────────┐                  │
+│  │ Get DragOffset                      │                  │
+│  │   Output: 0, 0 (do problema 1)     │                  │
+│  └───────────────┬─────────────────────┘                  │
+│                  │                                         │
+│  ┌───────────────▼─────────────────────┐                  │
+│  │ DIVIDE (/)  ❌                      │                  │
+│  │   A: 600, 400                       │                  │
+│  │   B: 0, 0                           │                  │
+│  │   Resultado: INFINITY ou CRASH!     │                  │
+│  └───────────────┬─────────────────────┘                  │
+│                  │                                         │
+│  ┌───────────────▼─────────────────────┐                  │
+│  │ Set Position in Viewport            │                  │
+│  │   Position: INFINITY ❌             │                  │
+│  └─────────────────────────────────────┘                  │
+│                                                            │
+│  PROBLEMA: Dividindo por zero ou valor errado!            │
+│                                                            │
+└────────────────────────────────────────────────────────────┘
+
+
+✅ O QUE DEVERIA SER (CORRETO):
+
+┌────────────────────────────────────────────────────────────┐
+│ OnDrop                                                     │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
+│  [Pointer Event] ────────────┐                            │
+│                              │                            │
+│  ┌───────────────────────────▼─────────┐                  │
+│  │ PointerEvent_GetScreenSpacePosition │                  │
+│  │   Output: 600, 400 (onde soltou)   │                  │
+│  └───────────────┬─────────────────────┘                  │
+│                  │                                         │
+│  ┌───────────────▼─────────────────────┐                  │
+│  │ Get DragOffset                      │                  │
+│  │   Output: 400, 200 (offset correto)│                  │
+│  └───────────────┬─────────────────────┘                  │
+│                  │                                         │
+│  ┌───────────────▼─────────────────────┐                  │
+│  │ SUBTRACT (-)  ✅                    │                  │
+│  │   A: 600, 400 (mouse)               │                  │
+│  │   B: 400, 200 (offset)              │                  │
+│  │   Resultado: 200, 200               │                  │
+│  └───────────────┬─────────────────────┘                  │
+│                  │                                         │
+│  ┌───────────────▼─────────────────────┐                  │
+│  │ Set Position in Viewport            │                  │
+│  │   Position: 200, 200  ✅            │                  │
+│  │   (inventário na posição certa!)    │                  │
+│  └─────────────────────────────────────┘                  │
+│                                                            │
+│  CORRETO: Subtrai o offset para ajustar!                  │
+│                                                            │
+└────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════
+PROBLEMA 3: FALTA OnDragDetected! (CRÍTICO! 🚨)
+═══════════════════════════════════════════════════════════════════
+
+❌ O QUE VOCÊ TEM (INCOMPLETO):
+
+┌────────────────────────────────────────────────────────────┐
+│ OVERRIDES IMPLEMENTADOS:                                  │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
+│  ✅ OnMouseButtonDown  (prepara o drag)                   │
+│  ❌ OnDragDetected     (FALTANDO! ← POR ISSO FECHA!)     │
+│  ✅ OnDrop             (finaliza o drag)                  │
+│                                                            │
+└────────────────────────────────────────────────────────────┘
+
+
+✅ O QUE PRECISA TER (COMPLETO):
+
+┌────────────────────────────────────────────────────────────┐
+│ OVERRIDES NECESSÁRIOS:                                    │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
+│  ✅ OnMouseButtonDown  (prepara o drag)                   │
+│       ↓                                                    │
+│  ✅ OnDragDetected     (INICIA o drag visual)             │
+│       ↓                                                    │
+│  ✅ OnDrop             (finaliza o drag)                  │
+│                                                            │
+└────────────────────────────────────────────────────────────┘
+
+
+IMPLEMENTAÇÃO DO OnDragDetected:
+
+┌────────────────────────────────────────────────────────────┐
+│ OnDragDetected (Override)                                 │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
+│  [My Geometry]                                             │
+│  [Pointer Event]                                           │
+│        │                                                   │
+│        ▼                                                   │
+│  ┌────────────────────────────────────┐                   │
+│  │ Create Drag Drop Operation         │                   │
+│  │   Class: DragDropOperation         │                   │
+│  │   Pivot: Mouse Down (0.5, 0.5)     │                   │
+│  │   Offset: (0, 0)                   │                   │
+│  │   Default Drag Visual: self ◄──────┼─ INVENTÁRIO!     │
+│  └────────────┬───────────────────────┘                   │
+│               │ Return Value                               │
+│               ▼                                            │
+│  ┌────────────────────────────────────┐                   │
+│  │ Return Node                        │                   │
+│  │   Return Value: (DragDropOperation)│                   │
+│  └────────────────────────────────────┘                   │
+│                                                            │
+│  IMPORTANTE: Default Drag Visual = self                   │
+│  Isso faz o inventário inteiro aparecer ao arrastar!      │
+│                                                            │
+└────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════
+FLUXO COMPLETO (COMO DEVERIA SER):
+═══════════════════════════════════════════════════════════════════
+
+1️⃣ USUÁRIO CLICA NO INVENTÁRIO
+      ↓
+   [OnMouseButtonDown]
+      ↓
+   Calcula: Offset = Mouse - Widget Position
+      ↓
+   Salva em DragOffset
+      ↓
+   DetectDragIfPressed (prepara para detectar drag)
+
+
+2️⃣ USUÁRIO COMEÇA A ARRASTAR
+      ↓
+   [OnDragDetected]  ← VOCÊ NÃO TEM ISSO!
+      ↓
+   Create Drag Drop Operation
+      ↓
+   Retorna a operação de drag
+      ↓
+   🎨 INVENTÁRIO FICA VISÍVEL ENQUANTO ARRASTA
+
+
+3️⃣ USUÁRIO SOLTA O MOUSE
+      ↓
+   [OnDrop]
+      ↓
+   Nova Posição = Mouse Position - DragOffset
+      ↓
+   Set Position in Viewport
+      ↓
+   ✅ INVENTÁRIO NA POSIÇÃO CORRETA!
+
+
+SEM O OnDragDetected:
+- O drag não inicializa
+- O sistema interpreta como um clique normal
+- Como você está no "UI Only" mode, fecha o inventário
+
+
+═══════════════════════════════════════════════════════════════════
+CHECKLIST DE CORREÇÕES:
+═══════════════════════════════════════════════════════════════════
+
+OnMouseButtonDown:
+□ DELETAR: Get Mouse Position on Viewport
+□ ADICIONAR: Get Position in Viewport (Target: self)
+□ RECONECTAR Subtract:
+  - A: PointerEvent_GetScreenSpacePosition
+  - B: Get Position in Viewport (self)
+
+OnDragDetected:
+□ CRIAR OVERRIDE: On Drag Detected
+□ ADICIONAR: Create Drag Drop Operation
+□ CONFIGURAR: Default Drag Visual = self
+□ CONECTAR: Return Value → Return Node
+
+OnDrop:
+□ DELETAR: Divide
+□ ADICIONAR: Subtract (Vector2D - Vector2D)
+□ RECONECTAR:
+  - A: PointerEvent_GetScreenSpacePosition  
+  - B: Get DragOffset
+
+
+═══════════════════════════════════════════════════════════════════
+RESUMO VISUAL DAS 3 CORREÇÕES:
+═══════════════════════════════════════════════════════════════════
+
+CORREÇÃO 1:
+❌ GetMousePosition - PointerEvent = 0
+✅ PointerEvent - GetPositionInViewport(self) = Offset correto
+
+CORREÇÃO 2:
+❌ MousePosition / DragOffset = ERRO
+✅ MousePosition - DragOffset = Posição correta
+
+CORREÇÃO 3:
+❌ OnDragDetected NÃO EXISTE
+✅ OnDragDetected com Create Drag Drop Operation
+
+
+═══════════════════════════════════════════════════════════════════
+

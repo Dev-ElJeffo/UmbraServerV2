@@ -1,0 +1,229 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║           DRAG DO INVENTÁRIO - ANTES vs DEPOIS (VISUAL)                      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+================================================================================
+  ANTES (Blueprint com DefaultDragVisual = this) ❌
+================================================================================
+
+1ª VEZ (Funciona):
+┌────────────────────────────────────────────────────────────────────────────┐
+│  Posição Inicial                        Após Arrastar                       │
+│                                                                              │
+│    [Inventário]              →→→→→      [Inventário]                        │
+│    ↑ Original                           ↑ Original movido                   │
+│                                                                              │
+│    ✅ OK - Move corretamente                                                │
+└────────────────────────────────────────────────────────────────────────────┘
+
+
+2ª VEZ EM DIANTE (Bug):
+┌────────────────────────────────────────────────────────────────────────────┐
+│  Início do Drag                Arrastando                  Após Soltar      │
+│                                                                              │
+│  [Inventário]                  [Inventário] ← Original     [Inventário]     │
+│  ↑ Original                    (Fica parado!)              ↑ Original       │
+│                                                             (No lugar)       │
+│                                [👻 Cópia]  ← Se move       ❌ Cópia         │
+│                                                             desaparece       │
+│                                                                              │
+│  ❌ PROBLEMA:                                                                │
+│     - Cria cópia visual fantasma                                            │
+│     - Original fica visível no lugar                                        │
+│     - Ao soltar, cópia volta/desaparece                                     │
+└────────────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+  DEPOIS (C++ SEM DefaultDragVisual) ✅
+================================================================================
+
+TODAS AS VEZES (Funciona perfeitamente):
+┌────────────────────────────────────────────────────────────────────────────┐
+│  Posição Inicial               Arrastando                  Após Soltar      │
+│                                                                              │
+│  [Inventário]                  →→→→→                       [Inventário]     │
+│  ↑ Original                    [Inventário]                ↑ Original       │
+│                                ↑ Mesmo widget               (Nova posição)  │
+│                                  se movendo                                 │
+│                                                                              │
+│  ✅ PERFEITO:                                                                │
+│     - Move o widget original                                                │
+│     - Sem cópias visuais                                                    │
+│     - Posição final correta                                                 │
+└────────────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+  FLUXO TÉCNICO - C++ IMPLEMENTAÇÃO
+================================================================================
+
+EVENTO 1: NativeOnMouseButtonDown
+┌────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│  Usuário clica no inventário:                                               │
+│                                                                              │
+│    Mouse Position: (1024, 768)                                              │
+│    Widget Position: (100, 100)                                              │
+│                                                                              │
+│    ┌─────────────────────────────────────┐                                 │
+│    │  DragOffset = Mouse - Widget        │                                 │
+│    │             = (1024, 768) - (100, 100)                                │
+│    │             = (924, 668)             │  ← Salva onde clicou!           │
+│    └─────────────────────────────────────┘                                 │
+│                                                                              │
+│    DetectDragIfPressed(LeftMouseButton) → Aguarda movimento                │
+│                                                                              │
+└────────────────────────────────────────────────────────────────────────────┘
+
+
+EVENTO 2: NativeOnDragDetected
+┌────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│  Usuário move o mouse (drag detectado):                                     │
+│                                                                              │
+│    DragOp = new DragDropOperation()                                         │
+│                                                                              │
+│    ┌───────────────────────────────────────────────────────────────┐       │
+│    │  // IMPORTANTE: NÃO definir DefaultDragVisual!               │       │
+│    │  // DragOp->DefaultDragVisual = this; ← COMENTADO!           │       │
+│    │                                                               │       │
+│    │  DragOp->Pivot = MouseDown                                   │       │
+│    │  DragOp->Offset = (0, 0)                                     │       │
+│    │                                                               │       │
+│    │  bIsDragging = true  ← Flag para rastrear estado             │       │
+│    └───────────────────────────────────────────────────────────────┘       │
+│                                                                              │
+│    ✅ Sem DefaultDragVisual = Não cria cópia!                               │
+│                                                                              │
+└────────────────────────────────────────────────────────────────────────────┘
+
+
+EVENTO 3: NativeOnDrop
+┌────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│  Usuário solta o botão do mouse:                                            │
+│                                                                              │
+│    Mouse Position: (1200, 800)   ← Onde soltou                             │
+│    DragOffset: (924, 668)         ← Salvo anteriormente                     │
+│                                                                              │
+│    ┌─────────────────────────────────────────────────────────┐             │
+│    │  NewPosition = Mouse - Offset                           │             │
+│    │              = (1200, 800) - (924, 668)                 │             │
+│    │              = (276, 132)       ← Nova posição!         │             │
+│    │                                                          │             │
+│    │  SetWidgetPosition(276, 132)                            │             │
+│    │                                                          │             │
+│    │  bIsDragging = false            ← Finaliza drag         │             │
+│    └─────────────────────────────────────────────────────────┘             │
+│                                                                              │
+│    ✅ Widget movido para a posição exata onde soltou!                       │
+│                                                                              │
+└────────────────────────────────────────────────────────────────────────────┘
+
+
+EVENTO 4: NativeOnDragCancelled (Opcional - Usuário pressiona ESC)
+┌────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│  Usuário cancela o drag (ESC):                                              │
+│                                                                              │
+│    InitialPosition: (100, 100)    ← Salvo em MouseButtonDown               │
+│                                                                              │
+│    ┌─────────────────────────────────────────────────────────┐             │
+│    │  SetWidgetPosition(InitialPosition)                     │             │
+│    │                                                          │             │
+│    │  bIsDragging = false                                    │             │
+│    └─────────────────────────────────────────────────────────┘             │
+│                                                                              │
+│    ✅ Widget volta para onde estava antes do drag!                          │
+│                                                                              │
+└────────────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+  DIAGRAMA DE ESTADOS
+================================================================================
+
+    ┌───────────┐
+    │  REPOUSO  │  ← bIsDragging = false
+    └─────┬─────┘
+          │
+          │ OnMouseButtonDown
+          │ (Salva offset e posição inicial)
+          ↓
+    ┌───────────┐
+    │  PRONTO   │  ← Aguardando movimento
+    └─────┬─────┘
+          │
+          │ OnDragDetected
+          │ (Cria DragOp SEM visual)
+          ↓
+    ┌───────────┐
+    │ ARRASTANDO│  ← bIsDragging = true
+    └─────┬─────┘    (Widget segue o mouse)
+          │
+          ├────────────────┬─────────────────┐
+          │                │                 │
+          │ OnDrop         │ OnDragCancelled │
+          │ (Move para     │ (Volta ao       │
+          │  nova posição) │  início)        │
+          ↓                ↓                 │
+    ┌───────────┐    ┌───────────┐          │
+    │  REPOUSO  │    │  REPOUSO  │ ←────────┘
+    └───────────┘    └───────────┘
+         ↑ Nova           ↑ Posição
+         posição          original
+
+
+================================================================================
+  COMPARAÇÃO DE CÓDIGO
+================================================================================
+
+BLUEPRINT (Antigo - Cria cópia):
+╔═══════════════════════════════════════════════════════════════════════════╗
+║  OnDragDetected:                                                           ║
+║    DragOp = Create Drag Drop Operation                                    ║
+║    DragOp->DefaultDragVisual = Self  ← ISSO CRIA A CÓPIA! ❌             ║
+║    Return DragOp                                                           ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+
+C++ (Novo - Sem cópia):
+╔═══════════════════════════════════════════════════════════════════════════╗
+║  NativeOnDragDetected:                                                     ║
+║    DragOp = new DragDropOperation()                                        ║
+║    // DragOp->DefaultDragVisual = this; ← COMENTADO! ✅                   ║
+║    DragOp->Pivot = MouseDown                                               ║
+║    OutOperation = DragOp                                                   ║
+║    bIsDragging = true                                                      ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+
+================================================================================
+  RESULTADO ESPERADO
+================================================================================
+
+Comportamento após a correção:
+
+✅ 1ª vez: Move o inventário suavemente
+✅ 2ª vez: Move o inventário suavemente
+✅ 3ª vez: Move o inventário suavemente
+✅ Infinitas vezes: SEMPRE move o inventário suavemente!
+
+SEM:
+❌ Cópias visuais
+❌ Fantasmas
+❌ Bugs de posição
+❌ Comportamento inconsistente
+
+COM:
+✅ Movimento fluido
+✅ Posição precisa
+✅ Cancelamento funcional (ESC)
+✅ Performance otimizada
+
+
+================================================================================
+  FIM DO GUIA VISUAL
+================================================================================
+

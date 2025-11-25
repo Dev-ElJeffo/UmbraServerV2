@@ -1,0 +1,68 @@
+================================================================================
+CÓDIGO BLUEPRINT - CORREÇÃO: MoveItemFromStorage Target
+================================================================================
+INSTRUÇÕES: Adicione estes nós ao seu Blueprint OnDrop e conecte conforme
+indicado abaixo.
+
+================================================================================
+NÓS NECESSÁRIOS:
+================================================================================
+
+Begin Object Class=/Script/BlueprintGraph.K2Node_CallFunction Name="K2Node_CallFunction_GetParentStorageWidget_Origin" ExportPath="/Script/BlueprintGraph.K2Node_CallFunction'/Game/Widgets/UI/Inventory/WBP_InventorySlot.WBP_InventorySlot:OnDrop.K2Node_CallFunction_GetParentStorageWidget_Origin'"
+
+   bDefaultsToPureFunc=True
+
+   FunctionReference=(MemberParent="/Script/CoreUObject.Class'/Script/UmbraEternumUE.UmbraInventorySlotWidget'",MemberName="GetParentStorageWidget")
+
+   NodePosX=7000
+
+   NodePosY=-1800
+
+   NodeGuid=GETPARENTSTORAGEWIDGETORIGIN12345678901234567890
+
+   CustomProperties Pin (PinId=GETPARENTSTORAGEWIDGETORIGIN_PIN_SELF,PinName="self",PinFriendlyName=NSLOCTEXT("K2Node", "Target", "Target"),PinToolTip="Target\nUmbra Inventory Slot Widget Referência de Objeto",PinType.PinCategory="object",PinType.PinSubCategory="",PinType.PinSubCategoryObject="/Script/CoreUObject.Class'/Script/UmbraEternumUE.UmbraInventorySlotWidget'",PinType.PinSubCategoryMemberReference=(),PinType.PinValueType=(),PinType.ContainerType=None,PinType.bIsReference=False,PinType.bIsConst=False,PinType.bIsWeakPointer=False,PinType.bIsUObjectWrapper=False,PinType.bSerializeAsSinglePrecisionFloat=False,LinkedTo=(K2Node_Knot_8 A1C84C9D471B5807E04F369CAF93BB10,),PersistentGuid=00000000000000000000000000000000,bHidden=False,bNotConnectable=False,bDefaultValueIsReadOnly=False,bDefaultValueIsIgnored=False,bAdvancedView=False,bOrphanedPin=False,)
+
+   CustomProperties Pin (PinId=GETPARENTSTORAGEWIDGETORIGIN_PIN_RETURN,PinName="ReturnValue",PinToolTip="Return Value\nUmbra Storage Widget Referência de Objeto\n\nObtém o widget de armazém pai deste slot",Direction="EGPD_Output",PinType.PinCategory="object",PinType.PinSubCategory="",PinType.PinSubCategoryObject="/Script/CoreUObject.Class'/Script/UmbraEternumUE.UmbraStorageWidget'",PinType.PinSubCategoryMemberReference=(),PinType.PinValueType=(),PinType.ContainerType=None,PinType.bIsReference=False,PinType.bIsConst=False,PinType.bIsWeakPointer=False,PinType.bIsUObjectWrapper=False,PinType.bSerializeAsSinglePrecisionFloat=False,LinkedTo=(K2Node_CallFunction_StorageToInv_6 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3,),PersistentGuid=00000000000000000000000000000000,bHidden=False,bNotConnectable=False,bDefaultValueIsReadOnly=False,bDefaultValueIsIgnored=False,bAdvancedView=False,bOrphanedPin=False,)
+
+End Object
+
+================================================================================
+CONEXÕES NECESSÁRIAS:
+================================================================================
+
+1. CONECTAR: K2Node_Knot_8 [OutputPin] (azul) → K2Node_CallFunction_GetParentStorageWidget_Origin [self] (Target) (azul)
+
+   Código:
+   CustomProperties Pin (PinId=A1C84C9D471B5807E04F369CAF93BB10,PinName="OutputPin",Direction="EGPD_Output",PinType.PinCategory="object",PinType.PinSubCategory="",PinType.PinSubCategoryObject="/Script/CoreUObject.Class'/Script/UmbraEternumUE.UmbraInventorySlotWidget'",PinType.PinSubCategoryMemberReference=(),PinType.PinValueType=(),PinType.ContainerType=None,PinType.bIsReference=False,PinType.bIsConst=False,PinType.bIsWeakPointer=False,PinType.bIsUObjectWrapper=False,PinType.bSerializeAsSinglePrecisionFloat=False,LinkedTo=(K2Node_VariableGet_3 D3A89CFF4E88098DDBA378BC1857510C,K2Node_CallFunction_GetParentStorageWidget_Origin GETPARENTSTORAGEWIDGETORIGIN_PIN_SELF,),PersistentGuid=00000000000000000000000000000000,bHidden=False,bNotConnectable=False,bDefaultValueIsReadOnly=False,bDefaultValueIsIgnored=False,bAdvancedView=False,bOrphanedPin=False,)
+
+2. CONECTAR: K2Node_CallFunction_GetParentStorageWidget_Origin [ReturnValue] (azul) → K2Node_CallFunction_StorageToInv_6 [self] (Target) (azul)
+
+   Código (modificar o K2Node_CallFunction_StorageToInv_6):
+   CustomProperties Pin (PinId=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3,PinName="self",PinFriendlyName=NSLOCTEXT("K2Node", "Target", "Target"),PinToolTip="Target\nUmbra Storage Widget Referência de Objeto",PinType.PinCategory="object",PinType.PinSubCategory="",PinType.PinSubCategoryObject="/Script/CoreUObject.Class'/Script/UmbraEternumUE.UmbraStorageWidget'",PinType.PinSubCategoryMemberReference=(),PinType.PinValueType=(),PinType.ContainerType=None,PinType.bIsReference=False,PinType.bIsConst=False,PinType.bIsWeakPointer=False,PinType.bIsUObjectWrapper=False,PinType.bSerializeAsSinglePrecisionFloat=False,LinkedTo=(K2Node_CallFunction_GetParentStorageWidget_Origin GETPARENTSTORAGEWIDGETORIGIN_PIN_RETURN,),PersistentGuid=00000000000000000000000000000000,bHidden=False,bNotConnectable=False,bDefaultValueIsReadOnly=False,bDefaultValueIsIgnored=False,bAdvancedView=False,bOrphanedPin=False,)
+
+================================================================================
+RESUMO:
+================================================================================
+
+1. Adicione o nó "K2Node_CallFunction_GetParentStorageWidget_Origin"
+   - Localização: NodePosX=7000, NodePosY=-1800
+   - Função: GetParentStorageWidget (de UmbraInventorySlotWidget)
+
+2. Conecte:
+   - K2Node_Knot_8 [OutputPin] (azul) → GetParentStorageWidget_Origin [self] (Target) (azul)
+   - GetParentStorageWidget_Origin [ReturnValue] (azul) → K2Node_CallFunction_StorageToInv_6 [self] (Target) (azul)
+
+3. Modifique o K2Node_CallFunction_StorageToInv_6:
+   - Adicione a conexão do pin "self" (Target) ao ReturnValue do GetParentStorageWidget_Origin
+
+================================================================================
+NOTAS IMPORTANTES:
+================================================================================
+
+- O K2Node_Knot_8 já existe no seu código e contém o ReturnValue do GetSourceSlotWidget
+- O GetParentStorageWidget_Origin obtém o ParentStorageWidget do slot de ORIGEM
+- O self do MoveItemFromStorage precisa receber o ParentStorageWidget do slot de origem
+- Esta correção permite que o MoveItemFromStorage saiba qual widget de storage chamar
+
+================================================================================
+

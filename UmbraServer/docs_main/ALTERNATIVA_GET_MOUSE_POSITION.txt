@@ -1,0 +1,231 @@
+═══════════════════════════════════════════════════════════════════
+  ALTERNATIVA: GET MOUSE POSITION (Se Get Screen Space Position não aparecer)
+═══════════════════════════════════════════════════════════════════
+
+PROBLEMA:
+---------
+Você não consegue encontrar "Get Screen Space Position" quando arrasta
+do pin "Pointer Event".
+
+
+SOLUÇÃO:
+--------
+Use "Get Player Controller" → "Get Mouse Position in Viewport"
+
+
+═══════════════════════════════════════════════════════════════════
+
+MÉTODO 1: ARRASTAR DO PIN POINTER EVENT (RECOMENDADO)
+------------------------------------------------------
+
+1. Arraste DO PIN "Pointer Event" do override "On Drop"
+2. Desmarque "Context Sensitive" se necessário
+3. Procure por um destes nomes:
+   - Get Screen Space Position ✅
+   - Get Last Screen Space Position ✅
+   - Get Screen Space Pointer Position ✅
+   - Get Cursor Position ✅
+
+
+═══════════════════════════════════════════════════════════════════
+
+MÉTODO 2: USAR PLAYER CONTROLLER (ALTERNATIVA UNIVERSAL)
+---------------------------------------------------------
+
+Se NENHUM dos métodos acima funcionar, use esta alternativa:
+
+┌──────────────────────────────────────────────────────────┐
+│ On Drop (Override)                                       │
+├──────────────────────────────────────────────────────────┤
+│                                                          │
+│  ┌────────────────────────────────────┐                 │
+│  │ Get Player Controller (Index 0)    │                 │
+│  └───────────────┬────────────────────┘                 │
+│                  │ Return Value                          │
+│  ┌───────────────▼────────────────────┐                 │
+│  │ Get Mouse Position in Viewport     │                 │
+│  └───────────────┬────────────────────┘                 │
+│                  │ Location X (float)                    │
+│                  │ Location Y (float)                    │
+│                  │                                       │
+│  ┌───────────────▼────────────────────┐                 │
+│  │ Make Vector2D                      │                 │
+│  │   X: Location X                    │                 │
+│  │   Y: Location Y                    │                 │
+│  └───────────────┬────────────────────┘                 │
+│                  │ Return Value (Vector2D)               │
+│                  │                                       │
+│  ┌───────────────▼────────────────────┐                 │
+│  │ Get DragOffset                     │                 │
+│  └───────────────┬────────────────────┘                 │
+│                  │                                       │
+│  ┌───────────────▼────────────────────┐                 │
+│  │ Subtract (Vector2D - Vector2D)     │                 │
+│  └───────────────┬────────────────────┘                 │
+│                  │                                       │
+│  ┌───────────────▼────────────────────┐                 │
+│  │ Set Position in Viewport           │                 │
+│  │   Target: self                     │                 │
+│  │   Remove DPI Scale: FALSE          │                 │
+│  └───────────────┬────────────────────┘                 │
+│                  │ (then)                                │
+│  ┌───────────────▼────────────────────┐                 │
+│  │ Return Node                        │                 │
+│  │   Return Value: (VAZIO)            │                 │
+│  └────────────────────────────────────┘                 │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+
+
+PASSO A PASSO:
+--------------
+
+1. Adicione "Get Player Controller":
+   - Clique com botão direito no espaço vazio
+   - Procure: "Get Player Controller"
+   - Player Index: 0 (default)
+
+2. Do output do "Get Player Controller":
+   - Arraste e procure: "Get Mouse Position in Viewport"
+   - Isso retorna Location X e Location Y (floats)
+
+3. Adicione "Make Vector2D":
+   - Conecte Location X ao pin X
+   - Conecte Location Y ao pin Y
+   - Output: Vector2D (posição do mouse)
+
+4. Continue normalmente:
+   - Get DragOffset
+   - Subtract (Vector2D - Vector2D)
+   - Set Position in Viewport
+   - Return Node
+
+
+═══════════════════════════════════════════════════════════════════
+
+MÉTODO 3: USAR ABSOLUTE TO VIEWPORT (MAIS COMPLEXO)
+----------------------------------------------------
+
+Se você tem acesso ao "My Geometry" do On Drop:
+
+┌──────────────────────────────────────────────────────────┐
+│ On Drop (Override)                                       │
+├──────────────────────────────────────────────────────────┤
+│                                                          │
+│  [Pointer Event] ──────────────┐                        │
+│                                │                        │
+│  ┌─────────────────────────────▼─────┐                  │
+│  │ Get Screen Space Position         │                  │
+│  │   (pode estar como Get Position)  │                  │
+│  └─────────────────┬───────────────────┘                  │
+│                    │                                      │
+│  [My Geometry] ────┼────────────┐                        │
+│                    │            │                        │
+│  ┌─────────────────▼────────────▼─────┐                  │
+│  │ Absolute to Viewport                │                  │
+│  │   Absolute Coordinate: (Get Screen) │                  │
+│  │   Geometry: My Geometry             │                  │
+│  └─────────────────┬───────────────────┘                  │
+│                    │ Pixel Position (Vector2D)            │
+│                    │                                      │
+│  (Continue normalmente com Subtract, etc.)               │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════
+
+TROUBLESHOOTING:
+----------------
+
+❌ Problema: "Get Screen Space Position" não aparece
+✅ Solução: Use Get Player Controller → Get Mouse Position
+
+❌ Problema: Get Mouse Position retorna floats, não Vector2D
+✅ Solução: Use "Make Vector2D" para juntar X e Y
+
+❌ Problema: A posição está errada/offset
+✅ Solução: Certifique-se de subtrair o DragOffset
+
+❌ Problema: Pointer Event não tem nada útil
+✅ Solução: Ignore o Pointer Event e use Get Player Controller
+
+
+═══════════════════════════════════════════════════════════════════
+
+COMPARAÇÃO:
+-----------
+
+MÉTODO 1 (Get Screen Space Position):
+✅ Mais direto (1 nó)
+✅ Usa o evento correto (Pointer Event)
+❌ Pode não aparecer em algumas versões
+
+MÉTODO 2 (Get Player Controller):
+✅ Funciona em TODAS as versões do Unreal
+✅ Sempre disponível
+✅ Mais compatível
+❌ Mais nós (3 ao invés de 1)
+
+
+═══════════════════════════════════════════════════════════════════
+
+RECOMENDAÇÃO:
+-------------
+
+1. Tente PRIMEIRO: Arrastar do Pointer Event e procurar "Screen Space"
+2. Se não encontrar: Use Get Player Controller → Get Mouse Position
+3. Use Make Vector2D para converter os floats em Vector2D
+
+
+═══════════════════════════════════════════════════════════════════
+
+CÓDIGO BLUEPRINT (MÉTODO 2 - UNIVERSAL):
+
+OnMouseButtonDown:
+- Get Position in Viewport (self)
+- Get Player Controller → Get Mouse Position → Make Vector2D
+- Subtract (Mouse - Widget)
+- Set DragOffset
+
+OnDrop:
+- Get Player Controller → Get Mouse Position → Make Vector2D
+- Get DragOffset
+- Subtract (Mouse - Offset)
+- Set Position in Viewport (self)
+- Return Node (vazio)
+
+
+═══════════════════════════════════════════════════════════════════
+
+EXEMPLO VISUAL COMPLETO (MÉTODO 2):
+
+OnDrop Blueprint completo usando Get Player Controller:
+
+    [On Drop]
+        │
+        ▼
+    [Get Player Controller 0]
+        │
+        ▼
+    [Get Mouse Position in Viewport]
+        │ LocationX   │ LocationY
+        └──────┬──────┘
+               │
+        [Make Vector2D]
+               │
+        ┌──────┴──────┐
+        │             │
+    [Vector2D]   [Get DragOffset]
+        │             │
+        └──────┬──────┘
+               │
+        [Subtract]
+               │
+        [Set Position in Viewport]
+               │
+        [Return Node]
+
+
+═══════════════════════════════════════════════════════════════════
+

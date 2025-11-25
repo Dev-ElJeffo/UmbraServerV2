@@ -1,0 +1,332 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║               EXEMPLO VISUAL - FUNÇÃO SETTOOLTIPDATA                        ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ PARTE 1: ESTRUTURA BÁSICA                                                 │
+└──────────────────────────────────────────────────────────────────────────┘
+
+    ┏━━━━━━━━━━━━━━━━━━━━━━━━┓
+    ┃ SetTooltipData (Entry) ┃ ← Função
+    ┗━━━━━━━━━━━━━━━━━━━━━━━━┛
+              │ (exec)
+              │ InSlotData (struct) ───┐
+              ▼                        │
+    ╔═══════════════════════════════╗  │
+    ║  Break UmbraInventorySlot    ║ ◄─┘
+    ╚═══════════════════════════════╝
+        │ (output pins)
+        ├─ InventoryID (int)
+        ├─ Quantity (int) ──────────────────┐
+        ├─ Durability (float) ──────────────┼─┐
+        └─ ItemTemplate (struct) ───────────┼─┼─┐
+                                            │ │ │
+┌───────────────────────────────────────────┘ │ │
+│ ┌─────────────────────────────────────────────┘ │
+│ │ ┌───────────────────────────────────────────────┘
+│ │ │
+│ │ └──> ╔═══════════════════════════╗
+│ │      ║ Break UmbraItemTemplate  ║
+│ │      ╚═══════════════════════════╝
+│ │          │ (output pins)
+│ │          ├─ ItemName (string) ──────────┐
+│ │          ├─ Description (string) ────────┼─┐
+│ │          ├─ Rarity (enum) ───────────────┼─┼─┐
+│ │          └─ Stats (struct) ──────────────┼─┼─┼─┐
+│ │                                          │ │ │ │
+│ │                                          │ │ │ │
+│ │      ┌───────────────────────────────────┘ │ │ │
+│ │      │ ┌─────────────────────────────────────┘ │ │
+│ │      │ │ ┌───────────────────────────────────────┘ │
+│ │      │ │ │ ┌─────────────────────────────────────────┘
+│ │      │ │ │ │
+│ │      │ │ │ └──> ╔═══════════════════════╗
+│ │      │ │ │      ║ Break UmbraItemStats ║
+│ │      │ │ │      ╚═══════════════════════╝
+│ │      │ │ │          │
+│ │      │ │ │          ├─ Damage (int)
+│ │      │ │ │          ├─ Defense (int)
+│ │      │ │ │          └─ Value (int)
+│ │      │ │ │
+│ │      ▼ ▼ ▼
+│ │      [Atualizar UI...]
+│ │
+│ └──> [Format Text "Durabilidade: {0}%"] → [Set Text_Durability]
+│
+└───> [Format Text "Quantidade: {0}"] → [Set Text_Quantity]
+
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ PARTE 2: ATUALIZAR NOME DO ITEM                                           │
+└──────────────────────────────────────────────────────────────────────────┘
+
+ItemName (string) ───┐
+                     │
+                     ▼
+            ┏━━━━━━━━━━━━━━━━━━┓
+            ┃ Get Text_ItemName┃ ← Variável do Designer
+            ┗━━━━━━━━━━━━━━━━━━┛
+                     │
+                     ▼
+            ╔════════════════╗
+            ║    Set Text    ║ ← Função do Text Block
+            ╚════════════════╝
+                │ (exec in)
+                │ In Text ◄─── ItemName
+                │
+                ▼ (exec out)
+           [próximo nó...]
+
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ PARTE 3: ATUALIZAR RARIDADE (com cor)                                     │
+└──────────────────────────────────────────────────────────────────────────┘
+
+Rarity (enum) ───┬────────────────┐
+                 │                │
+                 ▼                ▼
+    ╔════════════════════╗   ╔════════════════════╗
+    ║ GetRarityText()    ║   ║ GetRarityColor()   ║ ← Funções auxiliares
+    ╚════════════════════╝   ╚════════════════════╝
+              │                        │
+              │ (string)               │ (Linear Color)
+              │                        │
+              └──────┬─────────────────┘
+                     │
+                     ▼
+            ┏━━━━━━━━━━━━━━━━┓
+            ┃ Get Text_Rarity┃
+            ┗━━━━━━━━━━━━━━━━┛
+                     │
+                     ├──> ╔════════════════╗
+                     │    ║    Set Text    ║ ◄─── string
+                     │    ╚════════════════╝
+                     │
+                     └──> ╔═══════════════════════╗
+                          ║ Set Color and Opacity ║ ◄─── Linear Color
+                          ╚═══════════════════════╝
+
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ PARTE 4: ATUALIZAR STATS (com condição)                                   │
+└──────────────────────────────────────────────────────────────────────────┘
+
+Damage (int) ───┐
+                │
+                ▼
+        ╔═══════════════╗
+        ║   > (Greater) ║ ← Comparação
+        ╚═══════════════╝
+            │ A: Damage
+            │ B: 0
+            │
+            ▼ (bool)
+        ╔════════╗
+        ║ Branch ║ ← Condicional
+        ╚════════╝
+            │
+            ├─ TRUE ──────> ╔═════════════════════════════╗
+            │               ║ Format Text "⚔️ Damage: {0}" ║
+            │               ╚═════════════════════════════╝
+            │                           │
+            │                           ▼
+            │                  ┏━━━━━━━━━━━━━━━━┓
+            │                  ┃ Get Text_Damage┃
+            │                  ┗━━━━━━━━━━━━━━━━┛
+            │                           │
+            │                           ▼
+            │                  ╔════════════════╗
+            │                  ║    Set Text    ║
+            │                  ╚════════════════╝
+            │                           │
+            │                           │
+            └─ FALSE ─────────────────────┘ (execução pula o Set Text)
+
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ PARTE 5: FLUXO DE EXECUÇÃO COMPLETO                                       │
+└──────────────────────────────────────────────────────────────────────────┘
+
+ ┏━━━━━━━━━━━━━━━━━━━━━━┓
+ ┃ SetTooltipData Entry ┃
+ ┗━━━━━━━━━━━━━━━━━━━━━━┛
+           │ (exec)
+           ▼
+ ╔═══════════════════════╗
+ ║ Set Text (ItemName)   ║ ← 1. Nome
+ ╚═══════════════════════╝
+           │
+           ▼
+ ╔═══════════════════════╗
+ ║ Set Text (Description)║ ← 2. Descrição
+ ╚═══════════════════════╝
+           │
+           ▼
+ ╔═══════════════════════╗
+ ║ Set Text (Rarity)     ║ ← 3. Texto da Raridade
+ ╚═══════════════════════╝
+           │
+           ▼
+ ╔═══════════════════════╗
+ ║ Set Color (Rarity)    ║ ← 4. Cor da Raridade
+ ╚═══════════════════════╝
+           │
+           ▼
+ ╔═══════════════════════╗
+ ║ Branch (Damage > 0?)  ║ ← 5. Verificar se tem Damage
+ ╚═══════════════════════╝
+       │           │
+       │ TRUE      │ FALSE
+       ▼           └───────┐
+ ╔═══════════════════════╗│
+ ║ Set Text (Damage)     ║│ ← 6a. Mostrar Damage
+ ╚═══════════════════════╝│
+           │              │
+           └──────┬───────┘
+                  │
+                  ▼
+ ╔═══════════════════════╗
+ ║ Branch (Defense > 0?) ║ ← 7. Verificar se tem Defense
+ ╚═══════════════════════╝
+       │           │
+       │ TRUE      │ FALSE
+       ▼           └───────┐
+ ╔═══════════════════════╗│
+ ║ Set Text (Defense)    ║│ ← 8a. Mostrar Defense
+ ╚═══════════════════════╝│
+           │              │
+           └──────┬───────┘
+                  │
+                  ▼
+ ╔═══════════════════════╗
+ ║ Set Text (Value)      ║ ← 9. Valor (sempre mostrar)
+ ╚═══════════════════════╝
+           │
+           ▼
+ ╔═══════════════════════╗
+ ║ Set Text (Quantity)   ║ ← 10. Quantidade
+ ╚═══════════════════════╝
+           │
+           ▼
+ ╔═══════════════════════╗
+ ║ Set Text (Durability) ║ ← 11. Durabilidade
+ ╚═══════════════════════╝
+           │
+           ▼
+ ┏━━━━━━━━━━━━━━━━━━━━━━┓
+ ┃       Return          ┃
+ ┗━━━━━━━━━━━━━━━━━━━━━━┛
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║ FUNÇÕES AUXILIARES NECESSÁRIAS                                             ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│ 1. GetRarityText                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+INPUT: Rarity (EUmbraItemRarity)
+OUTPUT: ReturnValue (String)
+
+ ╔════════════════════════════╗
+ ║ Switch on EUmbraItemRarity ║
+ ╚════════════════════════════╝
+       │
+       ├─ Common ───────> Return "Common"
+       ├─ Uncommon ─────> Return "Uncommon"
+       ├─ Rare ─────────> Return "Rare"
+       ├─ Epic ─────────> Return "Epic"
+       └─ Legendary ────> Return "Legendary"
+
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│ 2. GetRarityColor                                                           │
+└────────────────────────────────────────────────────────────────────────────┘
+
+INPUT: Rarity (EUmbraItemRarity)
+OUTPUT: ReturnValue (Linear Color)
+
+ ╔════════════════════════════╗
+ ║ Switch on EUmbraItemRarity ║
+ ╚════════════════════════════╝
+       │
+       ├─ Common ───────> Make Linear Color (0.6, 0.6, 0.6, 1) → Return
+       ├─ Uncommon ─────> Make Linear Color (0, 1, 0, 1)       → Return
+       ├─ Rare ─────────> Make Linear Color (0, 0.5, 1, 1)     → Return
+       ├─ Epic ─────────> Make Linear Color (0.7, 0, 1, 1)     → Return
+       └─ Legendary ────> Make Linear Color (1, 0.5, 0, 1)     → Return
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║ VERSÃO SIMPLIFICADA (COMEÇAR POR AQUI)                                     ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+Se quiser testar rapidamente, implemente APENAS isto primeiro:
+
+ ┏━━━━━━━━━━━━━━━━━━━━━━┓
+ ┃ SetTooltipData Entry ┃
+ ┗━━━━━━━━━━━━━━━━━━━━━━┛
+           │ InSlotData
+           ▼
+ ╔═══════════════════════════╗
+ ║ Break UmbraInventorySlot ║
+ ╚═══════════════════════════╝
+           │ ItemTemplate
+           ▼
+ ╔═══════════════════════════╗
+ ║ Break UmbraItemTemplate  ║
+ ╚═══════════════════════════╝
+           │
+           ├─ ItemName ────────> [Get Text_ItemName] → [Set Text]
+           │
+           └─ Description ─────> [Get Text_Description] → [Set Text]
+
+TESTE ISSO PRIMEIRO! Depois adicione os outros campos.
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║ DICAS IMPORTANTES                                                           ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+1. EXPANDIR STRUCTS:
+   - Clique na setinha (▼) no canto do nó Break para ver todos os campos
+   
+2. CONEXÕES DE DADOS vs EXECUÇÃO:
+   - Pins COLORIDOS = Dados (string, int, bool, struct, etc.)
+   - Pins BRANCOS = Execução (ordem em que os nós são executados)
+   
+3. VARIÁVEIS DO DESIGNER:
+   - Se não aparecem nas variáveis, marque "Is Variable" no Designer
+   
+4. FORMAT TEXT:
+   - Use {0}, {1}, {2} como placeholders
+   - Conecte os valores aos pins 0, 1, 2
+   
+5. DEBUGGING:
+   - Adicione nós "Print String" para ver os valores:
+     ItemName → Print String ("ItemName: {0}")
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║ ORDEM DE CRIAÇÃO RECOMENDADA                                               ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+1. ✅ Criar função SetTooltipData
+2. ✅ Adicionar input InSlotData
+3. ✅ Break UmbraInventorySlot
+4. ✅ Break UmbraItemTemplate
+5. ✅ Set Text (ItemName) - TESTE
+6. ✅ Set Text (Description) - TESTE
+7. ✅ Criar GetRarityText
+8. ✅ Criar GetRarityColor
+9. ✅ Set Text + Set Color (Rarity) - TESTE
+10. ✅ Break UmbraItemStats
+11. ✅ Set Text (Stats com Branch) - TESTE
+12. ✅ Set Text (Quantity, Durability) - TESTE
+13. ✅ Conectar fluxo de execução
+14. ✅ Compile e teste no Preview
+
+
+════════════════════════════════════════════════════════════════════════════════
+

@@ -1,0 +1,81 @@
+================================================================================
+CORREÇÃO FINAL - UMA ÚNICA CONEXÃO
+================================================================================
+
+VOCÊ JÁ TEM TUDO! Só falta UMA conexão.
+
+================================================================================
+O QUE VOCÊ JÁ TEM:
+================================================================================
+
+1. Nó "Get Source Slot Widget" (K2Node_CallFunction_12)
+   - Retorna o widget do slot de origem
+
+2. Nó "Knot 8" (K2Node_Knot_8)
+   - Recebe o ReturnValue do "Get Source Slot Widget"
+   - OutputPin conectado ao self do "Variable Get 3"
+
+3. Nó "Variable Get 3" (K2Node_VariableGet_3)
+   - Obtém "Parent Storage Widget" do slot de origem
+   - self conectado ao OutputPin do "Knot 8"
+   - ParentStorageWidget (ReturnValue) conectado ao "IsValid" (K2Node_CallFunction_17)
+
+4. Nó "MoveItemFromStorage" (K2Node_CallFunction_StorageToInv_6)
+   - self (Target) está VAZIO (não conectado)
+   - StorageItemID conectado
+   - TargetSlotIndex conectado
+
+================================================================================
+O QUE FALTA:
+================================================================================
+
+UMA ÚNICA CONEXÃO:
+
+Conectar o "Return Value" (azul) do "Variable Get 3" 
+ao "self" (Target) (azul) do "MoveItemFromStorage"
+
+================================================================================
+COMO FAZER:
+================================================================================
+
+1. Encontre o nó "Variable Get 3" (K2Node_VariableGet_3)
+   - Está na posição NodePosX=4896, NodePosY=-1360
+   - Tem um pino "ParentStorageWidget" (ReturnValue) à direita (azul)
+
+2. Encontre o nó "MoveItemFromStorage" (K2Node_CallFunction_StorageToInv_6)
+   - Está na posição NodePosX=7296, NodePosY=-1696
+   - Tem um pino "self" (Target) no topo esquerdo (azul) - ESTÁ VAZIO
+
+3. Arraste o pino "ParentStorageWidget" (ReturnValue) do "Variable Get 3"
+   e conecte ao pino "self" (Target) do "MoveItemFromStorage"
+
+================================================================================
+VISUALIZAÇÃO:
+================================================================================
+
+[Variable Get 3]
+    |
+    | ParentStorageWidget (ReturnValue) (azul)
+    |
+    └─→ [MoveItemFromStorage]
+            |
+            | self (Target) (azul) ← CONECTAR AQUI!
+
+================================================================================
+CÓDIGO DA CONEXÃO:
+================================================================================
+
+Modificar o K2Node_CallFunction_StorageToInv_6:
+
+CustomProperties Pin (PinId=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3,PinName="self",...)
+   LinkedTo=(K2Node_VariableGet_3 12C2E71D4F21151D03163F809C8F0555,),...
+
+E modificar o K2Node_VariableGet_3:
+
+CustomProperties Pin (PinId=12C2E71D4F21151D03163F809C8F0555,PinName="ParentStorageWidget",...)
+   LinkedTo=(K2Node_CallFunction_17 FC89ECCF4EDAA00D3AA5A0B655785EA0,K2Node_CallFunction_StorageToInv_6 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3,),...
+
+================================================================================
+PRONTO! 🚀
+================================================================================
+

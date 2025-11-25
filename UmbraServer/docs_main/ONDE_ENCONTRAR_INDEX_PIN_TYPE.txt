@@ -1,0 +1,240 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║               ONDE ENCONTRAR "INDEX PIN TYPE" NO SELECT                     ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│ MÉTODO 1: PROCURAR NO PAINEL DETAILS                                       │
+└────────────────────────────────────────────────────────────────────────────┘
+
+1. Selecione o nó Select (clique nele)
+2. Olhe para o painel DETAILS (geralmente no lado direito da tela)
+3. Procure por uma destas seções:
+
+   ┌───────────────────────────────────────┐
+   │ Details                               │
+   ├───────────────────────────────────────┤
+   │                                       │
+   │ ▼ Select                              │  ← Expanda esta seção
+   │   Index Pin Type: Integer       ▼    │  ← AQUI!
+   │   Option Pin Type: Wildcard     ▼    │
+   │   Advanced Display                    │
+   │                                       │
+   └───────────────────────────────────────┘
+
+   OU:
+
+   ┌───────────────────────────────────────┐
+   │ Details                               │
+   ├───────────────────────────────────────┤
+   │                                       │
+   │ ▼ Node                                │  ← Expanda esta seção
+   │   Index Pin Type: Integer       ▼    │  ← AQUI!
+   │   Option Pin Type: Wildcard     ▼    │
+   │                                       │
+   └───────────────────────────────────────┘
+
+4. Clique no dropdown ao lado de "Index Pin Type"
+5. Selecione: EUmbraItemRarity
+
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│ MÉTODO 2: SE NÃO APARECER - VERSÃO DO UNREAL                               │
+└────────────────────────────────────────────────────────────────────────────┘
+
+EM VERSÕES ANTIGAS (UE 4.x):
+- Pode não existir essa opção no Select
+- SOLUÇÃO: Use Switch + Variável Local (veja ALTERNATIVA_GETRARITY_SEM_SELECT.md)
+
+EM VERSÕES NOVAS (UE 5.x):
+- A opção DEVE existir
+- Se não aparecer, tente:
+  1. Crie um novo nó Select
+  2. Antes de conectar nada, vá no Details
+  3. Procure por "Index Pin Type"
+
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│ MÉTODO 3: CONECTAR PRIMEIRO, DEPOIS CONVERTER                              │
+└────────────────────────────────────────────────────────────────────────────┘
+
+Algumas versões do Unreal detectam o tipo automaticamente:
+
+1. Arraste do pin "Rarity" (enum)
+2. Conecte ao pin "Index" do Select
+3. O Unreal PODE converter automaticamente o Select para usar enum
+4. Se não converter, desconecte e tente configurar manualmente no Details
+
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│ MÉTODO 4: PROCURAR POR "PIN TYPE" EM INGLÊS                                │
+└────────────────────────────────────────────────────────────────────────────┘
+
+O painel Details pode estar em português:
+
+PROCURE POR:
+- "Tipo de Pino de Índice"
+- "Tipo de Pin de Índice"  
+- "Index Pin Type"
+
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│ SE NADA FUNCIONAR - USE SWITCH + VARIÁVEL                                  │
+└────────────────────────────────────────────────────────────────────────────┘
+
+SE VOCÊ TENTOU TUDO E NÃO ENCONTROU:
+
+✅ NÃO PERCA TEMPO!
+✅ Use o método Switch + Variável Local
+✅ É GARANTIDO que funciona em TODAS as versões
+✅ Veja o guia completo em: ALTERNATIVA_GETRARITY_SEM_SELECT.md
+
+
+RESUMO DO MÉTODO ALTERNATIVO:
+────────────────────────────────
+
+1. Crie variável local "Result" (String)
+2. Use "Switch on EUmbraItemRarity"
+3. Para cada case, use "Set Result" com o texto
+4. Conecte todos ao Return Node
+5. Get Result → Return Value
+
+PRONTO! ✅
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                         VISUAL - ONDE PROCURAR                              ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+TELA DO UNREAL ENGINE:
+────────────────────────
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Unreal Engine Editor                                         [-][□][X]   │
+├──────────────────────────────────────────────────────────────────────────┤
+│ File  Edit  Window  ...                                                  │
+├────────────────┬─────────────────────────────────────┬───────────────────┤
+│                │                                     │                   │
+│  My Blueprint  │      Event Graph                    │    Details        │
+│                │                                     │                   │
+│  ▼ Functions   │   ┌──────────────┐                │  ┌──────────────┐ │
+│    GetRarity...│   │              │                 │  │ Select       │ │
+│                │   │   [Select]   │ ◄─── CLIQUE AQUI│  ├──────────────┤ │
+│  ▼ Variables   │   │              │                 │  │              │ │
+│    Result      │   └──────────────┘                │  │ ▼ Node       │ │
+│                │                                     │  │ Index Pin... │ │
+│                │                                     │  │ Option Pin...│ │
+│                │                                     │  │              │ │
+│                │                                     │  └──────────────┘ │
+│                │                                     │   ▲              │
+└────────────────┴─────────────────────────────────────┴───│──────────────┘
+                                                           │
+                                                    OLHE AQUI!
+
+
+PAINEL DETAILS EXPANDIDO:
+───────────────────────────
+
+  ┌──────────────────────────────────────────────────────┐
+  │ Details                                              │
+  ├──────────────────────────────────────────────────────┤
+  │                                                      │
+  │ Search Details...                                    │
+  │ ┌────────────────────────────────────────────────┐  │
+  │ │                                                │  │
+  │ └────────────────────────────────────────────────┘  │
+  │                                                      │
+  │ ▼ Select                                             │ ← EXPANDA
+  │   Node Comment                                       │
+  │   ┌────────────────────────────────────────────┐    │
+  │   │                                            │    │
+  │   └────────────────────────────────────────────┘    │
+  │                                                      │
+  │   Index Pin Type              Integer          ▼    │ ← AQUI! CLIQUE
+  │   Option Pin Type             Wildcard         ▼    │
+  │   Advanced Display            false            ☐    │
+  │                                                      │
+  │ ▼ Graph Node                                         │
+  │   Node Title                  Select                 │
+  │   ...                                                │
+  │                                                      │
+  └──────────────────────────────────────────────────────┘
+          ▲                           ▲
+          │                           │
+          └─── Clique na setinha ─────┘
+               para expandir
+
+
+COMO MUDAR O INDEX PIN TYPE:
+──────────────────────────────
+
+1. Clique no dropdown ao lado de "Index Pin Type"
+
+   ┌────────────────────────────────────────────┐
+   │ Index Pin Type     Integer           ▼    │  ← CLIQUE AQUI
+   └────────────────────────────────────────────┘
+                                          │
+                                          ▼
+                              ┌───────────────────────┐
+                              │ ▼ Byte                │
+                              │   Integer             │
+                              │   Int64               │
+                              │   Name                │
+                              │ ▼ Enum                │
+                              │   EUmbraItemRarity ◄──── ESCOLHA ESTE!
+                              │   EUmbraItemType      │
+                              │   ...                 │
+                              └───────────────────────┘
+
+2. Selecione: EUmbraItemRarity
+3. O nó Select vai mudar automaticamente!
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                      TROUBLESHOOTING RÁPIDO                                 ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+PROBLEMA: Não vejo "Index Pin Type" no Details
+CAUSAS POSSÍVEIS:
+  1. Nó errado selecionado (selecione o Select novamente)
+  2. Painel Details não está visível (Window → Details)
+  3. Seção "Select" ou "Node" está colapsada (clique na setinha ▼)
+  4. Versão antiga do Unreal que não tem essa feature
+  
+SOLUÇÃO:
+  → Use Switch + Variável Local (método alternativo)
+
+
+PROBLEMA: "EUmbraItemRarity" não aparece na lista
+CAUSAS POSSÍVEIS:
+  1. Enum não está compilado no C++
+  2. Projeto não foi recompilado após adicionar o enum
+  
+SOLUÇÃO:
+  1. Feche o Unreal Editor
+  2. Compile o C++ (F5 no Visual Studio)
+  3. Abra o Unreal Editor novamente
+  4. Tente novamente
+
+
+PROBLEMA: Select muda mas não mostra os valores do enum
+CAUSAS POSSÍVEIS:
+  1. Configurou Index mas não configurou Option
+  
+SOLUÇÃO:
+  1. Para GetRarityText: Option Pin Type = String
+  2. Para GetRarityColor: Option Pin Type = Linear Color
+
+
+════════════════════════════════════════════════════════════════════════════════
+
+CONCLUSÃO:
+
+SE VOCÊ ESTÁ PERDENDO MUITO TEMPO PROCURANDO:
+→ Vá direto para o método alternativo!
+→ Abra: ALTERNATIVA_GETRARITY_SEM_SELECT.md
+→ Use Switch + Variável Local
+→ É MUITO MAIS RÁPIDO e FUNCIONA SEMPRE! ✅
+
+════════════════════════════════════════════════════════════════════════════════
+

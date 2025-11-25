@@ -1,0 +1,127 @@
+═══════════════════════════════════════════════════════════════════
+  QUICK FIX: "HANDLED NÃO CONECTA NO RETURN VALUE"
+═══════════════════════════════════════════════════════════════════
+
+PROBLEMA:
+---------
+Você está tentando conectar "Handled" ao "Return Value" do "Return Node"
+no OnDrop, mas não conecta.
+
+
+SOLUÇÃO RÁPIDA:
+---------------
+✅ DEIXE O PIN "RETURN VALUE" VAZIO!
+
+Não precisa conectar nada! O Unreal automaticamente retorna "Unhandled"
+quando o Return Value está vazio, e funciona perfeitamente.
+
+
+═══════════════════════════════════════════════════════════════════
+
+VISUAL DO ONDROP CORRETO:
+
+┌──────────────────────────────────────────────────────────┐
+│ On Drop (Override)                                       │
+├──────────────────────────────────────────────────────────┤
+│                                                          │
+│  [Pointer Event] ──────────────────┐                    │
+│                                    │                    │
+│  ┌─────────────────────────────────▼────┐              │
+│  │ Get Screen Space Position            │              │
+│  │   Output: Mouse Position             │              │
+│  └─────────────────┬────────────────────┘              │
+│                    │                                    │
+│  ┌─────────────────▼────────────────────┐              │
+│  │ Get DragOffset (Variable)            │              │
+│  │   Output: Saved Offset               │              │
+│  └─────────────────┬────────────────────┘              │
+│                    │                                    │
+│  ┌─────────────────▼────────────────────┐              │
+│  │ Subtract (Vector2D - Vector2D)       │              │
+│  │   A: Mouse Position                  │              │
+│  │   B: Saved Offset                    │              │
+│  │   Output: Final Position             │              │
+│  └─────────────────┬────────────────────┘              │
+│                    │                                    │
+│  ┌─────────────────▼────────────────────┐              │
+│  │ Set Position in Viewport             │              │
+│  │   Target: self                       │              │
+│  │   Position: Final Position           │              │
+│  │   Remove DPI Scale: FALSE            │              │
+│  └─────────────────┬────────────────────┘              │
+│                    │ (then)                             │
+│                    │                                    │
+│  ┌─────────────────▼────────────────────┐              │
+│  │ Return Node                          │              │
+│  │   execute: ◄─────────────────────────┘              │
+│  │   Return Value: (VAZIO!)  ←────── NÃO CONECTE NADA │
+│  └──────────────────────────────────────┘              │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════
+
+POR QUE FUNCIONA VAZIO?
+------------------------
+
+O Return Node precisa retornar um "Event Reply".
+
+Se você DEIXAR VAZIO:
+→ O Unreal automaticamente retorna "Unhandled"
+→ Significa: "Não consumi o evento, outros listeners podem processar"
+→ Funciona perfeitamente para nosso caso!
+
+Se você conectar "Handled":
+→ Significa: "Consumi o evento, não propague mais"
+→ Também funciona, mas não é necessário aqui
+→ Às vezes dá erro de conexão dependendo da versão do Unreal
+
+
+═══════════════════════════════════════════════════════════════════
+
+ALTERNATIVAS (SE QUISER CONECTAR ALGO):
+----------------------------------------
+
+OPÇÃO 1: Unhandled
+------------------
+Adicione o nó "Unhandled" e conecte ao Return Value.
+
+  ┌──────────────────┐
+  │ Unhandled        │
+  │   Return Value ──┼──> (conecta ao Return Value do Return Node)
+  └──────────────────┘
+
+
+OPÇÃO 2: Handled
+----------------
+Tente adicionar "Handled" e conectar ao Return Value.
+Se não conectar, use a Opção 1 ou deixe vazio.
+
+  ┌──────────────────┐
+  │ Handled          │
+  │   Return Value ──┼──> (conecta ao Return Value do Return Node)
+  └──────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════
+
+CHECKLIST:
+----------
+□ Set Position in Viewport tem o pin "then" conectado ao "execute" do Return Node
+□ Return Value do Return Node está VAZIO (ou conectado a Unhandled)
+□ NÃO tem nenhum erro de compilação
+□ O inventário pode ser arrastado
+
+
+═══════════════════════════════════════════════════════════════════
+
+RESUMO:
+-------
+✅ DEIXE O RETURN VALUE VAZIO
+❌ NÃO SE PREOCUPE COM HANDLED/UNHANDLED
+✅ CONECTE SÓ A EXECUÇÃO (then → execute)
+
+
+═══════════════════════════════════════════════════════════════════
+

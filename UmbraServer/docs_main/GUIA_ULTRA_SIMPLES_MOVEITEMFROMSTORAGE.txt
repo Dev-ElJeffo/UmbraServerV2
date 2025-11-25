@@ -1,0 +1,73 @@
+================================================================================
+GUIA ULTRA SIMPLES: Conectar ParentStorageWidget ao MoveItemFromStorage
+================================================================================
+
+ONDE: Blueprint WBP_InventorySlot → Evento OnDrop → Seção "ORIGIN = STORAGE"
+
+================================================================================
+PASSO 1: CRIAR O NÓ
+================================================================================
+
+1. Clique com botão direito no espaço vazio do Blueprint
+2. Digite: "Get Parent Storage Widget"
+3. Selecione: "Get Parent Storage Widget" (de Umbra Inventory Slot Widget)
+4. O nó aparecerá com 2 pinos azuis:
+   - Target (esquerda)
+   - Return Value (direita)
+
+================================================================================
+PASSO 2: PRIMEIRA CONEXÃO
+================================================================================
+
+DE: "Get Source Slot Widget" → Return Value (pino azul à direita)
+PARA: "Get Parent Storage Widget" → Target (pino azul à esquerda)
+
+COMO FAZER:
+1. Encontre o nó "Get Source Slot Widget"
+2. Clique e arraste o pino "Return Value" (azul, à direita)
+3. Solte no pino "Target" (azul, à esquerda) do "Get Parent Storage Widget"
+
+================================================================================
+PASSO 3: SEGUNDA CONEXÃO
+================================================================================
+
+DE: "Get Parent Storage Widget" → Return Value (pino azul à direita)
+PARA: "MoveItemFromStorage" → Target (pino azul no topo esquerdo)
+
+COMO FAZER:
+1. Encontre o nó "MoveItemFromStorage" (ou "Move Item From Storage")
+2. Veja o pino "Target" (azul, no topo esquerdo) - ESTÁ VAZIO
+3. Clique e arraste o pino "Return Value" (azul, à direita) do "Get Parent Storage Widget"
+4. Solte no pino "Target" (azul, topo esquerdo) do "MoveItemFromStorage"
+
+================================================================================
+RESUMO VISUAL
+================================================================================
+
+[Get Source Slot Widget]
+         |
+         | Return Value (azul)
+         |
+         ▼
+[Get Parent Storage Widget]
+         |
+         | Return Value (azul)
+         |
+         ▼
+[MoveItemFromStorage]
+         |
+         | Target (azul) ← CONECTAR AQUI!
+
+================================================================================
+VERIFICAÇÃO FINAL
+================================================================================
+
+✓ Existe o nó "Get Parent Storage Widget"?
+✓ O "Target" dele está conectado ao "Return Value" do "Get Source Slot Widget"?
+✓ O "Return Value" dele está conectado ao "Target" do "MoveItemFromStorage"?
+✓ O "MoveItemFromStorage" tem o "execute" conectado ao "then" do "Branch"?
+
+================================================================================
+PRONTO! 🚀
+================================================================================
+

@@ -1,0 +1,252 @@
+===========================================
+  VISUAL: SISTEMA DE OFFSET DRAG & DROP
+===========================================
+
+PROBLEMA:
+---------
+Ao soltar o inventário, ele aparece em uma posição diferente do cursor.
+
+
+CAUSA:
+------
+Quando você clica no inventário para arrastar, o mouse pode estar em
+qualquer ponto dentro do widget (não necessariamente no canto superior esquerdo).
+
+Se não salvarmos ONDE você clicou, o inventário vai "pular" para a nova
+posição usando o canto superior esquerdo como referência.
+
+
+SOLUÇÃO:
+--------
+Salvar o OFFSET (diferença entre posição do mouse e posição do widget)
+quando você clica, e usar esse offset quando você solta.
+
+
+═══════════════════════════════════════════════════════════════════
+
+EXEMPLO VISUAL:
+
+1️⃣ QUANDO VOCÊ CLICA NO INVENTÁRIO (OnMouseButtonDown):
+
+    ┌────────────────────────────────┐
+    │        INVENTÁRIO              │  ← Widget na posição (100, 100)
+    │                                │
+    │         ★ MOUSE AQUI           │  ← Mouse na posição (250, 150)
+    │           (você clicou)        │
+    │                                │
+    └────────────────────────────────┘
+
+    Widget Position: (100, 100)
+    Mouse Position:  (250, 150)
+    
+    OFFSET = Mouse - Widget
+    OFFSET = (250 - 100, 150 - 100)
+    OFFSET = (150, 50)  ← SALVAR ISSO!
+
+
+2️⃣ ENQUANTO ARRASTA:
+
+    O mouse se move, mas o OFFSET permanece salvo na variável DragOffset.
+
+
+3️⃣ QUANDO VOCÊ SOLTA (OnDrop):
+
+    Você soltou o mouse em: (500, 300)
+    
+    Offset salvo: (150, 50)
+    
+    Nova posição do widget = Mouse Position - Offset
+    Nova posição = (500 - 150, 300 - 50)
+    Nova posição = (350, 250)
+    
+    
+    ┌────────────────────────────────┐
+    │        INVENTÁRIO              │  ← Widget na posição (350, 250)
+    │                                │
+    │         ★ MOUSE AQUI           │  ← Mouse na posição (500, 300)
+    │           (você soltou)        │
+    │                                │
+    └────────────────────────────────┘
+    
+    O inventário mantém a MESMA DISTÂNCIA RELATIVA do mouse!
+
+
+═══════════════════════════════════════════════════════════════════
+
+IMPLEMENTAÇÃO BLUEPRINT:
+
+┌─────────────────────────────────────────────────────────────────┐
+│  OnMouseButtonDown (Override)                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  [My Geometry]                                                  │
+│  [Mouse Event] ──────────────────┐                              │
+│                                  │                              │
+│                                  │                              │
+│  ┌───────────────────────────────▼──────────────┐              │
+│  │ Get Position in Viewport (self)              │              │
+│  │   Output: Widget Position (Vector2D)         │              │
+│  └───────────────┬──────────────────────────────┘              │
+│                  │                                              │
+│  ┌───────────────▼──────────────────────────────┐              │
+│  │ Get Screen Space Position (Mouse Event)      │              │
+│  │   Output: Mouse Position (Vector2D)          │              │
+│  └───────────────┬──────────────────────────────┘              │
+│                  │                                              │
+│  ┌───────────────▼──────────────────────────────┐              │
+│  │ Subtract (Vector2D - Vector2D)               │              │
+│  │   A: Mouse Position                          │              │
+│  │   B: Widget Position                         │              │
+│  │   Output: Offset (Vector2D)                  │              │
+│  └───────────────┬──────────────────────────────┘              │
+│                  │                                              │
+│  ┌───────────────▼──────────────────────────────┐              │
+│  │ SET DragOffset (Variable)                    │              │
+│  │   Drag Offset: (Offset)                      │              │
+│  └──────────────────────────────────────────────┘              │
+│                                                                 │
+│  [Mouse Event] ──────────────────┐                              │
+│                                  │                              │
+│  ┌───────────────────────────────▼──────────────┐              │
+│  │ Detected Drag If Pressed                     │              │
+│  │   Pointer Event: Mouse Event                 │              │
+│  │   Drag Key: Left Mouse Button                │              │
+│  └───────────────┬──────────────────────────────┘              │
+│                  │ Return Value                                 │
+│  ┌───────────────▼──────────────────────────────┐              │
+│  │ Return Node                                  │              │
+│  │   Return Value: (Event Reply)                │              │
+│  └──────────────────────────────────────────────┘              │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────┐
+│  OnDrop (Override)                                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  [Pointer Event] ────────────────┐                              │
+│                                  │                              │
+│  ┌───────────────────────────────▼──────────────┐              │
+│  │ Get Screen Space Position                    │              │
+│  │   Target: Pointer Event                      │              │
+│  │   Output: Mouse Position (Vector2D)          │              │
+│  └───────────────┬──────────────────────────────┘              │
+│                  │                                              │
+│  ┌───────────────▼──────────────────────────────┐              │
+│  │ GET DragOffset (Variable)                    │              │
+│  │   Output: Saved Offset (Vector2D)            │              │
+│  └───────────────┬──────────────────────────────┘              │
+│                  │                                              │
+│  ┌───────────────▼──────────────────────────────┐              │
+│  │ Subtract (Vector2D - Vector2D)               │              │
+│  │   A: Mouse Position                          │              │
+│  │   B: Saved Offset                            │              │
+│  │   Output: Final Position (Vector2D)          │              │
+│  └───────────────┬──────────────────────────────┘              │
+│                  │                                              │
+│  ┌───────────────▼──────────────────────────────┐              │
+│  │ Set Position in Viewport                     │              │
+│  │   Target: self (WBP_Inventory)               │              │
+│  │   Position: Final Position                   │              │
+│  │   Remove DPI Scale: FALSE                    │              │
+│  └───────────────┬──────────────────────────────┘              │
+│                  │ (then) ──────────────────────────┐         │
+│                                                      │         │
+│                                                      ▼         │
+│  ┌───────────────────────────────────────────────────────┐   │
+│  │ Return Node                                           │   │
+│  │   execute ◄───────────────────────────────────────────┘   │
+│  │   Return Value: (DEIXE VAZIO ou use Unhandled)        │   │
+│  └───────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  NOTA: O pin Return Value pode ficar vazio!                   │
+│        O Unreal automaticamente retorna Unhandled.            │
+│                                                                 │
+│  OPCIONAL: Se quiser, adicione Handled ou Unhandled:          │
+│  ┌──────────────────────────────────────┐                      │
+│  │ Unhandled (função pura)              │                      │
+│  │   Return Value ──────────────────────┤                      │
+│  └──────────────────────────────────────┘                      │
+│                             │                                  │
+│                             └──> conecte ao Return Value       │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════
+
+PASSO A PASSO PRÁTICO:
+
+1. Crie a variável DragOffset (Vector2D) no WBP_Inventory
+
+2. No OnMouseButtonDown:
+   a) Arraste do canto superior esquerdo e adicione "Get Position in Viewport"
+      (Target: self)
+   b) Do pin Mouse Event, adicione "Get Screen Space Position"
+   c) Adicione "Subtract (Vector2D - Vector2D)"
+      - A: output do Get Screen Space Position
+      - B: output do Get Position in Viewport
+   d) Arraste a variável DragOffset para o graph e selecione "Set"
+   e) Conecte o output do Subtract ao input do Set DragOffset
+   
+   f) Continue com o Detected Drag If Pressed normalmente
+
+3. No OnDrop:
+   a) Do pin Pointer Event, adicione "Get Screen Space Position"
+   b) Arraste a variável DragOffset para o graph e selecione "Get"
+   c) Adicione "Subtract (Vector2D - Vector2D)"
+      - A: output do Get Screen Space Position
+      - B: output do Get DragOffset
+   d) Adicione "Set Position in Viewport"
+      - Target: self
+      - Position: output do Subtract
+      - Remove DPI Scale: FALSE
+   e) Continue com Handled → Return Node
+
+
+═══════════════════════════════════════════════════════════════════
+
+CHECKLIST DE VERIFICAÇÃO:
+
+OnMouseButtonDown:
+□ Get Position in Viewport (self) está antes do Detected Drag
+□ Get Screen Space Position (Mouse Event) está adicionado
+□ Subtract está calculando: Mouse - Widget Position
+□ Set DragOffset está salvando o resultado
+□ Detected Drag If Pressed continua funcionando
+
+OnDrop:
+□ Get Screen Space Position está pegando a posição do drop
+□ Get DragOffset está recuperando o offset salvo
+□ Subtract está calculando: Mouse Position - Offset
+□ Set Position in Viewport usa o resultado do Subtract
+□ Remove DPI Scale está FALSE
+
+Resultado:
+□ Inventário move suavemente ao arrastar
+□ Inventário para EXATAMENTE onde você solta o mouse
+□ Não tem "pulo" ou deslocamento estranho
+
+
+═══════════════════════════════════════════════════════════════════
+
+DICA DE DEBUG:
+
+Se ainda não estiver funcionando, adicione Print Strings:
+
+No OnMouseButtonDown:
+- Print do Widget Position
+- Print do Mouse Position
+- Print do Offset calculado
+
+No OnDrop:
+- Print do Mouse Position (onde soltou)
+- Print do DragOffset (recuperado)
+- Print da Final Position
+
+Verifique se os valores fazem sentido!
+
+
+═══════════════════════════════════════════════════════════════════
+
