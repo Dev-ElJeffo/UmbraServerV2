@@ -1,0 +1,144 @@
+═══════════════════════════════════════════════════════════════════════════════
+        DIAGRAMA VISUAL: Função Update Character Info Display
+═══════════════════════════════════════════════════════════════════════════════
+
+[Entry] (Update Character Info Display)
+        │
+        └─→ [Character Info] (Input: FUmbraCharacterInfo)
+                │
+                └─→ [Break Umbra Character Info]
+                        │
+                        ├─→ HEADER
+                        │   ├─→ [Set Text] → Text_Name (Character Name)
+                        │   ├─→ [Format Text] "Nível: {Level}" → [Set Text] → Text_Level
+                        │   ├─→ [Format Text] "{Experience} / {ExpForNextLevel}" → [Set Text] → Text_EXP
+                        │   └─→ [Divide] Exp Progress Percent / 100.0 → [Set Percent] → ProgressBar_EXP
+                        │
+                        ├─→ CHARACTER INFO (Direita)
+                        │   ├─→ [Set Text] → Text_Class (Class Name)
+                        │   ├─→ [Set Text] → Text_Faction (Faction Name)
+                        │   ├─→ [Set Text] → Text_Guild (Guild Name)
+                        │   ├─→ [Set Text] → Text_Title (Title Name)
+                        │   ├─→ [Format Text] "PVP {PvP}" → [Set Text] → Text_PVP
+                        │   ├─→ [Format Text] "Chaos {Chaos}" → [Set Text] → Text_Chaos
+                        │   └─→ [Format Text] "Honor {Honor}" → [Set Text] → Text_Honor
+                        │
+                        ├─→ STATUS (Esquerda)
+                        │   ├─→ [Format Text] "Strength {Base} / {Total}" → [Set Text] → Text_Strength
+                        │   ├─→ [Format Text] "Dexterity {Base} / {Total}" → [Set Text] → Text_Dexterity
+                        │   ├─→ [Format Text] "Intelligence {Base} / {Total}" → [Set Text] → Text_Intelligence
+                        │   ├─→ [Format Text] "Vitality {Base} / {Total}" → [Set Text] → Text_Vitality
+                        │   ├─→ [Format Text] "Luck {Base} / {Total}" → [Set Text] → Text_Luck
+                        │   ├─→ [Format Text] "Health {Current} / {Max}" → [Set Text] → Text_Health
+                        │   ├─→ [Divide] Current Health / Max Health Total → [Set Percent] → ProgressBar_Health
+                        │   ├─→ [Format Text] "Mana {Current} / {Max}" → [Set Text] → Text_Mana
+                        │   └─→ [Divide] Current Mana / Max Mana Total → [Set Percent] → ProgressBar_Mana
+                        │
+                        └─→ COMBAT STATS
+                            ├─→ [Format Text] "Phys. Atk {Value}" → [Set Text] → Text_PhysAtk
+                            ├─→ [Format Text] "Mag. Atk {Value}" → [Set Text] → Text_MagAtk
+                            ├─→ [Format Text] "Phys. Def {Value}" → [Set Text] → Text_PhysDef
+                            ├─→ [Format Text] "Mag. Def {Value}" → [Set Text] → Text_MagDef
+                            ├─→ [Format Text] "Move Speed {Value}" → [Set Text] → Text_MoveSpeed
+                            ├─→ [Format Text] "Critical Atk {Value}" → [Set Text] → Text_CritRate
+                            ├─→ [Format Text] "Double Atk {Value}" → [Set Text] → Text_DoubleRate
+                            ├─→ [Format Text] "Critical Res {Value}" → [Set Text] → Text_CritRes
+                            ├─→ [Format Text] "Double Res {Value}" → [Set Text] → Text_DoubleRes
+                            ├─→ [Format Text] "Accuracy {Value}" → [Set Text] → Text_Accuracy
+                            └─→ [Format Text] "Dodge {Value}" → [Set Text] → Text_Dodge
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    EXEMPLO DETALHADO: Strength
+═══════════════════════════════════════════════════════════════════════════════
+
+[Break Umbra Character Info]
+        │
+        ├─→ Base Strength (Int)
+        └─→ Total Strength (Int)
+                │
+                └─→ [Format Text]
+                        ├─ Format: "Strength {Base} / {Total}"
+                        ├─ Base: Base Strength
+                        └─ Total: Total Strength
+                                │
+                                └─→ Return Value (String)
+                                        │
+                                        └─→ [Set Text]
+                                                ├─ Target: Text_Strength
+                                                └─ Text: Return Value
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    EXEMPLO DETALHADO: Health Progress Bar
+═══════════════════════════════════════════════════════════════════════════════
+
+[Break Umbra Character Info]
+        │
+        ├─→ Current Health (Int)
+        └─→ Max Health Total (Int)
+                │
+                └─→ [Divide] (Float)
+                        ├─ A: Current Health
+                        └─ B: Max Health Total
+                                │
+                                └─→ Return Value (Float) → 0.0 a 1.0
+                                        │
+                                        └─→ [Set Percent]
+                                                ├─ Target: ProgressBar_Health
+                                                └─ Percent: Return Value
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    MAPEAMENTO COMPLETO: Break → Variável
+═══════════════════════════════════════════════════════════════════════════════
+
+HEADER:
+  Character Name          → Text_Name
+  Level                   → Text_Level (Format: "Nível: {Level}")
+  Experience              → Text_EXP (Format: "{Experience} / {ExpForNextLevel}")
+  Exp Progress Percent    → ProgressBar_EXP (Divide por 100.0)
+
+CHARACTER INFO:
+  Class Name              → Text_Class
+  Faction Name            → Text_Faction
+  Guild Name              → Text_Guild
+  Title Name              → Text_Title
+  PvP                     → Text_PVP (Format: "PVP {PvP}")
+  Chaos                   → Text_Chaos (Format: "Chaos {Chaos}")
+  Honor                   → Text_Honor (Format: "Honor {Honor}")
+
+STATUS (Atributos):
+  Base Strength           → Text_Strength (Format: "Strength {Base} / {Total}")
+  Total Strength          → Text_Strength
+  Base Dexterity          → Text_Dexterity (Format: "Dexterity {Base} / {Total}")
+  Total Dexterity        → Text_Dexterity
+  Base Intelligence      → Text_Intelligence (Format: "Intelligence {Base} / {Total}")
+  Total Intelligence     → Text_Intelligence
+  Base Vitality          → Text_Vitality (Format: "Vitality {Base} / {Total}")
+  Total Vitality         → Text_Vitality
+  Base Luck              → Text_Luck (Format: "Luck {Base} / {Total}")
+  Total Luck             → Text_Luck
+
+STATUS (Recursos):
+  Current Health          → Text_Health (Format: "Health {Current} / {Max}")
+  Max Health Total        → Text_Health + ProgressBar_Health (Divide)
+  Current Mana           → Text_Mana (Format: "Mana {Current} / {Max}")
+  Max Mana Total         → Text_Mana + ProgressBar_Mana (Divide)
+
+COMBAT STATS:
+  Physical Attack         → Text_PhysAtk (Format: "Phys. Atk {Value}")
+  Magic Attack            → Text_MagAtk (Format: "Mag. Atk {Value}")
+  Physical Defense       → Text_PhysDef (Format: "Phys. Def {Value}")
+  Magic Defense           → Text_MagDef (Format: "Mag. Def {Value}")
+  Movement                → Text_MoveSpeed (Format: "Move Speed {Value}")
+  Critical                → Text_CritRate (Format: "Critical Atk {Value}")
+  Double Attack Rate      → Text_DoubleRate (Format: "Double Atk {Value}")
+  Resistance              → Text_CritRes (Format: "Critical Res {Value}")
+  Resistance              → Text_DoubleRes (Format: "Double Res {Value}") [NOTA: pode usar mesmo valor]
+  Accuracy                → Text_Accuracy (Format: "Accuracy {Value}")
+  Dodge                   → Text_Dodge (Format: "Dodge {Value}")
+
+
+═══════════════════════════════════════════════════════════════════════════════
+

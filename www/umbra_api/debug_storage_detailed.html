@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnóstico Detalhado do Storage</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+        }
+        h1 {
+            color: #4CAF50;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        .container {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            background: #1a1a1a;
+            border: 1px solid #4CAF50;
+            color: #e0e0e0;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        .result {
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 15px;
+            border-left: 4px solid #4CAF50;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .error {
+            border-left-color: #f44336;
+            color: #ff6b6b;
+        }
+        .success {
+            border-left-color: #4CAF50;
+            color: #81c784;
+        }
+        .warning {
+            border-left-color: #ff9800;
+            color: #ffb74d;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #333;
+            border-radius: 4px;
+        }
+        .section h3 {
+            margin-top: 0;
+            color: #4CAF50;
+        }
+        .count {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #444;
+        }
+        th {
+            background: #1a1a1a;
+            color: #4CAF50;
+        }
+        tr:hover {
+            background: #2a2a2a;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Diagnóstico Detalhado do Storage</h1>
+    
+    <div class="container">
+        <h2>Configuração</h2>
+        <label for="token">JWT Token:</label>
+        <input type="text" id="token" placeholder="Cole seu JWT token aqui">
+        
+        <div>
+            <button onclick="runDiagnostic()">🔍 Executar Diagnóstico</button>
+            <button onclick="syncStorage()">🔄 Sincronizar Storage</button>
+            <button onclick="testGetStorage()">📦 Testar get_storage.php</button>
+        </div>
+    </div>
+    
+    <div id="results"></div>
+    
+    <script>
+        const API_BASE = 'http://localhost/umbra_api/api';
+        const API_ROOT = 'http://localhost/umbra_api';
+        
+        async function runDiagnostic() {
+            const token = document.getElementById('token').value;
+            if (!token) {
+                alert('Por favor, insira o JWT token');
+                return;
+            }
+            
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<div class="result">Carregando diagnóstico...</div>';
+            
+            try {
+                const response = await fetch(`${API_ROOT}/debug_storage_detailed.php`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ token: token })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    let html = '<div class="container">';
+                    html += '<h2>📊 Resumo</h2>';
+                    html += '<div class="section">';
+                    html += `<p><span class="count">${data.summary.total_items_in_storage_slots}</span> itens em slots de storage (50-149) em player_inventory</p>`;
+                    html += `<p><span class="count">${data.summary.total_storage_entries}</span> entradas em player_storage</p>`;
+                    html += `<p><span class="count">${data.summary.missing_storage_entries}</span> itens SEM entrada em player_storage</p>`;
+                    html += `<p><span class="count">${data.summary.orphan_storage_entries}</span> entradas órfãs ou incorretas</p>`;
+                    html += `<p><span class="count">${data.summary.items_returned_by_get_storage}</span> itens retornados por get_storage.php</p>`;
+                    html += `<p class="${data.summary.missing_storage_entries > 0 ? 'error' : 'success'}"><strong>${data.summary.issue}</strong></p>`;
+                    html += '</div>';
+                    
+                    // Itens em player_inventory (slots 50-149)
+                    html += '<div class="section">';
+                    html += `<h3>Itens em player_inventory (slots 50-149) - ${data.diagnostics.items_in_inventory_storage_slots.count} itens</h3>`;
+                    if (data.diagnostics.items_in_inventory_storage_slots.items.length > 0) {
+                        html += '<table><tr><th>Inventory ID</th><th>Slot Index</th><th>Item Template ID</th><th>Quantity</th></tr>';
+                        data.diagnostics.items_in_inventory_storage_slots.items.forEach(item => {
+                            html += `<tr><td>${item.inventory_id}</td><td>${item.slot_index}</td><td>${item.item_template_id}</td><td>${item.quantity}</td></tr>`;
+                        });
+                        html += '</table>';
+                    } else {
+                        html += '<p>Nenhum item encontrado</p>';
+                    }
+                    html += '</div>';
+                    
+                    // Entradas em player_storage
+                    html += '<div class="section">';
+                    html += `<h3>Entradas em player_storage - ${data.diagnostics.entries_in_player_storage.count} entradas</h3>`;
+                    if (data.diagnostics.entries_in_player_storage.entries.length > 0) {
+                        html += '<table><tr><th>Storage ID</th><th>Inventory ID</th><th>Slot Index</th></tr>';
+                        data.diagnostics.entries_in_player_storage.entries.forEach(entry => {
+                            html += `<tr><td>${entry.storage_id}</td><td>${entry.inventory_id}</td><td>${entry.slot_index}</td></tr>`;
+                        });
+                        html += '</table>';
+                    } else {
+                        html += '<p>Nenhuma entrada encontrada</p>';
+                    }
+                    html += '</div>';
+                    
+                    // Itens faltantes
+                    if (data.diagnostics.missing_in_player_storage.count > 0) {
+                        html += '<div class="section">';
+                        html += `<h3 class="error">⚠️ Itens SEM entrada em player_storage - ${data.diagnostics.missing_in_player_storage.count} itens</h3>`;
+                        html += `<p>${data.diagnostics.missing_in_player_storage.description}</p>`;
+                        html += '<table><tr><th>Inventory ID</th><th>Slot Index</th><th>Item Template ID</th><th>Quantity</th></tr>';
+                        data.diagnostics.missing_in_player_storage.items.forEach(item => {
+                            html += `<tr><td>${item.inventory_id}</td><td>${item.slot_index}</td><td>${item.item_template_id}</td><td>${item.quantity}</td></tr>`;
+                        });
+                        html += '</table>';
+                        html += '</div>';
+                    }
+                    
+                    // Entradas órfãs
+                    if (data.diagnostics.orphan_or_mismatched_storage.count > 0) {
+                        html += '<div class="section">';
+                        html += `<h3 class="warning">⚠️ Entradas órfãs ou incorretas - ${data.diagnostics.orphan_or_mismatched_storage.count} entradas</h3>`;
+                        html += `<p>${data.diagnostics.orphan_or_mismatched_storage.description}</p>`;
+                        html += '<table><tr><th>Storage ID</th><th>Inventory ID</th><th>Problema</th></tr>';
+                        data.diagnostics.orphan_or_mismatched_storage.entries.forEach(entry => {
+                            html += `<tr><td>${entry.storage_id}</td><td>${entry.inventory_id}</td><td>${entry.issue}</td></tr>`;
+                        });
+                        html += '</table>';
+                        html += '</div>';
+                    }
+                    
+                    // Resultado do get_storage.php
+                    html += '<div class="section">';
+                    html += `<h3>Resultado do get_storage.php - ${data.diagnostics.get_storage_query_result.count} itens</h3>`;
+                    html += `<p>${data.diagnostics.get_storage_query_result.description}</p>`;
+                    if (data.diagnostics.get_storage_query_result.items.length > 0) {
+                        html += '<table><tr><th>Storage ID</th><th>Inventory ID</th><th>Slot Index</th><th>Item Template ID</th><th>Quantity</th></tr>';
+                        data.diagnostics.get_storage_query_result.items.forEach(item => {
+                            html += `<tr><td>${item.storage_id}</td><td>${item.inventory_id}</td><td>${item.slot_index}</td><td>${item.item_template_id}</td><td>${item.quantity}</td></tr>`;
+                        });
+                        html += '</table>';
+                    } else {
+                        html += '<p class="error">⚠️ Nenhum item retornado! Isso explica por que o storage está vazio no jogo.</p>';
+                    }
+                    html += '</div>';
+                    
+                    html += '</div>';
+                    resultsDiv.innerHTML = html;
+                } else {
+                    resultsDiv.innerHTML = `<div class="result error">Erro: ${data.message || 'Erro desconhecido'}</div>`;
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="result error">Erro ao executar diagnóstico: ${error.message}</div>`;
+            }
+        }
+        
+        async function syncStorage() {
+            const token = document.getElementById('token').value;
+            if (!token) {
+                alert('Por favor, insira o JWT token');
+                return;
+            }
+            
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<div class="result">Sincronizando storage...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/storage/sync_storage.php`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ token: token })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    resultsDiv.innerHTML = `<div class="result success">✅ Storage sincronizado com sucesso!<br>Itens sincronizados: ${data.synced_items}<br>Itens atualizados: ${data.updated_items}</div>`;
+                } else {
+                    resultsDiv.innerHTML = `<div class="result error">Erro: ${data.message || 'Erro desconhecido'}</div>`;
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="result error">Erro ao sincronizar: ${error.message}</div>`;
+            }
+        }
+        
+        async function testGetStorage() {
+            const token = document.getElementById('token').value;
+            if (!token) {
+                alert('Por favor, insira o JWT token');
+                return;
+            }
+            
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<div class="result">Testando get_storage.php...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/storage/get_storage.php`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ token: token })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    let html = '<div class="container">';
+                    html += '<h2>📦 Resultado do get_storage.php</h2>';
+                    html += `<p class="success">✅ Sucesso! Total de itens: ${data.total_items}</p>`;
+                    html += '<div class="result">';
+                    html += JSON.stringify(data, null, 2);
+                    html += '</div>';
+                    html += '</div>';
+                    resultsDiv.innerHTML = html;
+                } else {
+                    resultsDiv.innerHTML = `<div class="result error">Erro: ${data.message || 'Erro desconhecido'}</div>`;
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="result error">Erro ao testar: ${error.message}</div>`;
+            }
+        }
+    </script>
+</body>
+</html>
+

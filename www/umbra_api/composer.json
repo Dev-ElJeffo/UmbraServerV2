@@ -1,0 +1,15 @@
+{
+    "name": "umbra/eternum-api",
+    "description": "Umbra Eternum REST API",
+    "type": "project",
+    "require": {
+        "php": ">=7.4",
+        "firebase/php-jwt": "^6.10"
+    },
+    "autoload": {
+        "psr-4": {
+            "Umbra\\": "src/"
+        }
+    }
+}
+

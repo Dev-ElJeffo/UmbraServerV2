@@ -1,0 +1,175 @@
+═══════════════════════════════════════════════════════════════════════════════
+              DIAGRAMA VISUAL: Setup Split Input (FUNÇÃO COMPLETA)
+═══════════════════════════════════════════════════════════════════════════════
+
+[Setup Split Input]  ← Função
+  ├─ Input: Source Slot (WBP Inventory Slot Object Reference)
+  ├─ Input: Item Quantity (Integer)
+  │
+  └─ then (exec)
+      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PASSO 1: Setar Variáveis de Instância                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Set Source Slot Widget]
+  ├─ execute: (do then da função)
+  ├─ Value: Source Slot (PARÂMETRO) ← ✅ CONECTAR AQUI!
+  └─ then (exec)
+      ↓
+[Set Current Quantity]
+  ├─ execute: (do then do Set Source Slot Widget)
+  ├─ Value: Item Quantity (PARÂMETRO) ← ✅ CONECTAR AQUI!
+  └─ then (exec)
+      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PASSO 2: Obter Slot Data                                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Get Slot Data]
+  ├─ execute: (do then do Set Current Quantity)
+  ├─ Target: Source Slot (PARÂMETRO) ← ✅ CONECTAR AQUI!
+  └─ Return Value: SlotData
+      ↓
+[Break Umbra Inventory Slot]
+  ├─ Input: SlotData (do Return Value do Get Slot Data)
+  ├─ Item Template: (output)
+  └─ Quantity: (output - não usar, usar parâmetro)
+      ↓
+[Break Umbra Item Template]
+  ├─ Input: Item Template (do Break acima)
+  └─ Item Name: (output)
+      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PASSO 3: Atualizar TextBlocks                                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Set Text] (TextBlock_ItemName)
+  ├─ execute: (do then do Get Slot Data)
+  ├─ Target: TextBlock_ItemName (do Designer)
+  └─ Text: Item Name (do Break Umbra Item Template)
+      ↓
+[Format Text]
+  ├─ Format: "Quantidade: {0}"
+  └─ {0}: Item Quantity (PARÂMETRO) ← ✅ CONECTAR AQUI!
+      ↓
+[Set Text] (TextBlock_CurrentQuantity)
+  ├─ execute: (do then do Set Text ItemName)
+  ├─ Target: TextBlock_CurrentQuantity (do Designer)
+  └─ Text: Result (do Format Text)
+      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PASSO 4: Configurar Slider                                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Set Min Value] (Slider_Amount)
+  ├─ execute: (do then do Set Text CurrentQuantity)
+  ├─ Target: Slider_Amount (do Designer)
+  └─ Min Value: 1.0
+      ↓
+[Subtract]
+  ├─ A: Item Quantity (PARÂMETRO) ← ✅ CONECTAR AQUI!
+  └─ B: 1 (Make Literal Int)
+      ↓
+[Convert Int to Double]
+  ├─ InInt: Return Value (do Subtract)
+  └─ Return Value: (Float)
+      ↓
+[Set Max Value] (Slider_Amount)
+  ├─ execute: (do then do Set Min Value)
+  ├─ Target: Slider_Amount (do Designer)
+  └─ Max Value: Return Value (do Convert Int to Double)
+      ↓
+[Set Value] (Slider_Amount)
+  ├─ execute: (do then do Set Max Value)
+  ├─ Target: Slider_Amount (do Designer)
+  └─ Value: 1.0
+      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PASSO 5: Setar Split Amount Inicial                                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Set Split Amount]
+  ├─ execute: (do then do Set Value)
+  └─ Value: 1 (Make Literal Int)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                          CONEXÕES CRÍTICAS
+═══════════════════════════════════════════════════════════════════════════════
+
+✅ Source Slot (PARÂMETRO) → Usar em:
+   - Set Source Slot Widget: Value
+   - Get Slot Data: Target
+
+✅ Item Quantity (PARÂMETRO) → Usar em:
+   - Set Current Quantity: Value
+   - Format Text: {0}
+   - Subtract: A
+
+✅ Execute (sequência):
+   Função → Set Source Slot → Set Current Quantity → Get Slot Data → 
+   Set Text ItemName → Set Text CurrentQuantity → Set Min Value → 
+   Set Max Value → Set Value → Set Split Amount
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                          COMO OBTER CADA NÓ
+═══════════════════════════════════════════════════════════════════════════════
+
+1. Source Slot (PARÂMETRO):
+   - Vem do K2Node_FunctionEntry_0 (entrada da função)
+   - Arraste o pin "Source Slot" para onde precisar
+
+2. Item Quantity (PARÂMETRO):
+   - Vem do K2Node_FunctionEntry_0 (entrada da função)
+   - Arraste o pin "Item Quantity" para onde precisar
+
+3. Set Source Slot Widget:
+   - Right Click → "Set Source Slot Widget"
+   - Selecione a variável de instância SourceSlotWidget
+
+4. Set Current Quantity:
+   - Right Click → "Set Current Quantity"
+   - Selecione a variável de instância CurrentQuantity
+
+5. Get Slot Data:
+   - Right Click → "Get Slot Data"
+   - Selecione a função do UmbraInventorySlotWidget
+
+6. Break Umbra Inventory Slot:
+   - Right Click → "Break Umbra Inventory Slot"
+
+7. Break Umbra Item Template:
+   - Right Click → "Break Umbra Item Template"
+
+8. Set Text:
+   - Selecione o TextBlock no Designer
+   - Arraste para o Graph
+   - Selecione "Set Text"
+
+9. Format Text:
+   - Right Click → "Format Text"
+
+10. Set Min Value / Set Max Value / Set Value:
+    - Selecione o Slider_Amount no Designer
+    - Arraste para o Graph
+    - Selecione "Set Min Value", "Set Max Value" ou "Set Value"
+
+11. Subtract:
+    - Right Click → "Subtract"
+
+12. Convert Int to Double:
+    - Right Click → "Convert Int to Double"
+
+13. Set Split Amount:
+    - Right Click → "Set Split Amount"
+    - Selecione a variável de instância SplitAmount
+
+14. Make Literal Int:
+    - Right Click → "Make Literal Int"
+    - Digite o valor (1 para Subtract B, 1 para Set Split Amount)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+

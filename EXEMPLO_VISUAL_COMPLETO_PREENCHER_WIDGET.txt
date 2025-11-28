@@ -1,0 +1,287 @@
+═══════════════════════════════════════════════════════════════════════════════
+        EXEMPLO VISUAL COMPLETO: Conexões Exatas dos Nós
+═══════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════
+                    EXEMPLO 1: Text_Name (Simples)
+═══════════════════════════════════════════════════════════════════════════════
+
+[Entry] (Update Character Info Display)
+        │
+        └─→ [Character Info] (Input Pin)
+                │
+                └─→ [Break Umbra Character Info]
+                        │
+                        └─→ Character Name (String)
+                                │
+                                └─→ [Set Text]
+                                        ├─ Target: Text_Name (Self → My Blueprint → Variables → Text_Name)
+                                        └─ Text: Character Name (Break)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    EXEMPLO 2: Text_Level (Formatado)
+═══════════════════════════════════════════════════════════════════════════════
+
+[Break Umbra Character Info]
+        │
+        └─→ Level (Int)
+                │
+                └─→ [Format Text]
+                        ├─ Format: "Nível: {Level}" (digite manualmente)
+                        └─ Level: Level (Break)
+                                │
+                                └─→ Return Value (String)
+                                        │
+                                        └─→ [Set Text]
+                                                ├─ Target: Text_Level
+                                                └─ Text: Return Value (Format Text)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    EXEMPLO 3: Text_Strength (2 Valores)
+═══════════════════════════════════════════════════════════════════════════════
+
+[Break Umbra Character Info]
+        │
+        ├─→ Base Strength (Int)
+        └─→ Total Strength (Int)
+                │
+                └─→ [Format Text]
+                        ├─ Format: "Strength {Base} / {Total}" (digite manualmente)
+                        ├─ Base: Base Strength (Break)
+                        └─ Total: Total Strength (Break)
+                                │
+                                └─→ Return Value (String)
+                                        │
+                                        └─→ [Set Text]
+                                                ├─ Target: Text_Strength
+                                                └─ Text: Return Value (Format Text)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    EXEMPLO 4: ProgressBar_Health (Percentual)
+═══════════════════════════════════════════════════════════════════════════════
+
+[Break Umbra Character Info]
+        │
+        ├─→ Current Health (Int)
+        └─→ Max Health Total (Int)
+                │
+                └─→ [Divide] (Float)
+                        ├─ A: Current Health (Break) [converter Int → Float]
+                        └─ B: Max Health Total (Break) [converter Int → Float]
+                                │
+                                └─→ Return Value (Float) → 0.0 a 1.0
+                                        │
+                                        └─→ [Set Percent]
+                                                ├─ Target: ProgressBar_Health
+                                                └─ Percent: Return Value (Divide)
+
+
+NOTA: Se precisar converter Int para Float:
+  [Current Health] (Int)
+    ↓
+  [To Float] (ou [Make Literal Float])
+    ↓
+  [Divide] A
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    EXEMPLO 5: Text_EXP (2 Valores)
+═══════════════════════════════════════════════════════════════════════════════
+
+[Break Umbra Character Info]
+        │
+        ├─→ Experience (Int)
+        └─→ Exp For Next Level (Int)
+                │
+                └─→ [Format Text]
+                        ├─ Format: "{Experience} / {ExpForNextLevel}"
+                        ├─ Experience: Experience (Break)
+                        └─ ExpForNextLevel: Exp For Next Level (Break)
+                                │
+                                └─→ Return Value (String)
+                                        │
+                                        └─→ [Set Text]
+                                                ├─ Target: Text_EXP
+                                                └─ Text: Return Value (Format Text)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    EXEMPLO 6: ProgressBar_EXP (Percentual)
+═══════════════════════════════════════════════════════════════════════════════
+
+[Break Umbra Character Info]
+        │
+        └─→ Exp Progress Percent (Float)
+                │
+                └─→ [Divide] (Float)
+                        ├─ A: Exp Progress Percent (Break)
+                        └─ B: 100.0 (Make Literal Float)
+                                │
+                                └─→ Return Value (Float)
+                                        │
+                                        └─→ [Set Percent]
+                                                ├─ Target: ProgressBar_EXP
+                                                └─ Percent: Return Value (Divide)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    EXEMPLO 7: Text_PhysAtk (Combat Stat)
+═══════════════════════════════════════════════════════════════════════════════
+
+[Break Umbra Character Info]
+        │
+        └─→ Physical Attack (Int)
+                │
+                └─→ [Format Text]
+                        ├─ Format: "Phys. Atk {Value}"
+                        └─ Value: Physical Attack (Break)
+                                │
+                                └─→ Return Value (String)
+                                        │
+                                        └─→ [Set Text]
+                                                ├─ Target: Text_PhysAtk
+                                                └─ Text: Return Value (Format Text)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    EXEMPLO 8: Text_Class (String Direto)
+═══════════════════════════════════════════════════════════════════════════════
+
+[Break Umbra Character Info]
+        │
+        └─→ Class Name (String)
+                │
+                └─→ [Set Text]
+                        ├─ Target: Text_Class
+                        └─ Text: Class Name (Break)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    EXEMPLO 9: Text_PVP (Formatado com Número)
+═══════════════════════════════════════════════════════════════════════════════
+
+[Break Umbra Character Info]
+        │
+        └─→ PvP (Int)
+                │
+                └─→ [Format Text]
+                        ├─ Format: "PVP {PvP}"
+                        └─ PvP: PvP (Break)
+                                │
+                                └─→ Return Value (String)
+                                        │
+                                        └─→ [Set Text]
+                                                ├─ Target: Text_PVP
+                                                └─ Text: Return Value (Format Text)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    ORDEM COMPLETA DE EXECUÇÃO
+═══════════════════════════════════════════════════════════════════════════════
+
+[Entry]
+  ↓
+[Break Umbra Character Info]
+  ↓
+[Set Text] → Text_Name
+  ↓
+[Format Text] → "Nível: {Level}" → [Set Text] → Text_Level
+  ↓
+[Format Text] → "{Experience} / {ExpForNextLevel}" → [Set Text] → Text_EXP
+  ↓
+[Divide] → Exp Progress Percent / 100.0 → [Set Percent] → ProgressBar_EXP
+  ↓
+[Set Text] → Text_Class
+  ↓
+[Set Text] → Text_Faction
+  ↓
+[Set Text] → Text_Guild
+  ↓
+[Set Text] → Text_Title
+  ↓
+[Format Text] → "PVP {PvP}" → [Set Text] → Text_PVP
+  ↓
+[Format Text] → "Chaos {Chaos}" → [Set Text] → Text_Chaos
+  ↓
+[Format Text] → "Honor {Honor}" → [Set Text] → Text_Honor
+  ↓
+[Format Text] → "Strength {Base} / {Total}" → [Set Text] → Text_Strength
+  ↓
+[Format Text] → "Dexterity {Base} / {Total}" → [Set Text] → Text_Dexterity
+  ↓
+[Format Text] → "Intelligence {Base} / {Total}" → [Set Text] → Text_Intelligence
+  ↓
+[Format Text] → "Vitality {Base} / {Total}" → [Set Text] → Text_Vitality
+  ↓
+[Format Text] → "Luck {Base} / {Total}" → [Set Text] → Text_Luck
+  ↓
+[Format Text] → "Health {Current} / {Max}" → [Set Text] → Text_Health
+  ↓
+[Divide] → Current Health / Max Health Total → [Set Percent] → ProgressBar_Health
+  ↓
+[Format Text] → "Mana {Current} / {Max}" → [Set Text] → Text_Mana
+  ↓
+[Divide] → Current Mana / Max Mana Total → [Set Percent] → ProgressBar_Mana
+  ↓
+[Format Text] → "Phys. Atk {Value}" → [Set Text] → Text_PhysAtk
+  ↓
+[Format Text] → "Mag. Atk {Value}" → [Set Text] → Text_MagAtk
+  ↓
+[Format Text] → "Phys. Def {Value}" → [Set Text] → Text_PhysDef
+  ↓
+[Format Text] → "Mag. Def {Value}" → [Set Text] → Text_MagDef
+  ↓
+[Format Text] → "Move Speed {Value}" → [Set Text] → Text_MoveSpeed
+  ↓
+[Format Text] → "Critical Atk {Value}" → [Set Text] → Text_CritRate
+  ↓
+[Format Text] → "Double Atk {Value}" → [Set Text] → Text_DoubleRate
+  ↓
+[Format Text] → "Critical Res {Value}" → [Set Text] → Text_CritRes
+  ↓
+[Format Text] → "Double Res {Value}" → [Set Text] → Text_DoubleRes
+  ↓
+[Format Text] → "Accuracy {Value}" → [Set Text] → Text_Accuracy
+  ↓
+[Format Text] → "Dodge {Value}" → [Set Text] → Text_Dodge
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    COMO OBTER CADA NÓ
+═══════════════════════════════════════════════════════════════════════════════
+
+1. Break Umbra Character Info:
+   - Clique direito → "Break Umbra Character Info"
+   - Conecte Character Info (input) → Character Info (Break)
+
+2. Format Text:
+   - Clique direito → "Format Text"
+   - Digite o formato manualmente no campo "Format"
+   - Conecte os valores nos campos correspondentes
+
+3. Set Text:
+   - Clique direito → "Set Text"
+   - Target: Arraste a variável TextBlock do "My Blueprint"
+   - Text: Conecte a string (Break ou Format Text Return Value)
+
+4. Set Percent:
+   - Clique direito → "Set Percent"
+   - Target: Arraste a variável ProgressBar do "My Blueprint"
+   - Percent: Conecte o valor Float (0.0 a 1.0)
+
+5. Divide:
+   - Clique direito → "Divide" (Float)
+   - A: Valor atual
+   - B: Valor máximo
+   - Return Value: Resultado (0.0 a 1.0)
+
+6. Make Literal Float:
+   - Clique direito → "Make Literal Float"
+   - Digite o valor (ex: 100.0)
+   - Use para dividir percentuais
+
+═══════════════════════════════════════════════════════════════════════════════
+

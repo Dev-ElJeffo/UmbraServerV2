@@ -1,0 +1,334 @@
+═══════════════════════════════════════════════════════════════════════════════
+                    DIAGRAMA VISUAL: SPLIT COM SHIFT + DRAG
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    WBP_InventorySlot - OnDragDetected                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[OnDragDetected] ← OVERRIDE (não Event, mas Override real)
+│
+├─→ [Get Player Controller]
+│   │
+│   └─→ Return Value: Player Controller
+│
+├─→ [Get Key] OU [Get Input Key State]
+│   │
+│   ├─→ Target: Player Controller (do Get acima)
+│   ├─→ Key: Left Shift
+│   │
+│   └─→ Return Value: Key (ou Boolean se usar Get Input Key State)
+│
+├─→ [Is Key Down?] OU usar diretamente Boolean do Get Input Key State
+│   │
+│   └─→ Return Value: Boolean (true = Shift pressionado)
+│
+└─→ [Branch]
+    │
+    ├─→ TRUE (Shift pressionado):
+    │   │
+    │   ├─→ [Get Slot Data]
+    │   │   │
+    │   │   ├─→ Target: self
+    │   │   └─→ Return Value: SlotData (FUmbraInventorySlot)
+    │   │
+    │   ├─→ [Break Umbra Inventory Slot]
+    │   │   │
+    │   │   ├─→ Input: SlotData (do Get Slot Data)
+    │   │   ├─→ Output: Inventory ID
+    │   │   ├─→ Output: Quantity
+    │   │   └─→ Output: Item Template ID
+    │   │
+    │   ├─→ [Branch] (Quantity > 1?)
+    │   │   │
+    │   │   ├─→ TRUE (Pode dividir):
+    │   │   │   │
+    │   │   │   ├─→ [Create Widget]
+    │   │   │   │   │
+    │   │   │   │   ├─→ Class: WBP_SplitInput
+    │   │   │   │   └─→ Return Value: SplitInputWidget
+    │   │   │   │
+    │   │   │   ├─→ [Setup Split Input] ← Função do WBP_SplitInput
+    │   │   │   │   │
+    │   │   │   │   ├─→ Target: SplitInputWidget (do Create Widget)
+    │   │   │   │   ├─→ Source Slot: self
+    │   │   │   │   └─→ Item Quantity: Quantity (do Break)
+    │   │   │   │
+    │   │   │   ├─→ [Add to Viewport]
+    │   │   │   │   │
+    │   │   │   │   └─→ Target: SplitInputWidget
+    │   │   │   │
+    │   │   │   ├─→ [Set Input Mode UI Only]
+    │   │   │   │   │
+    │   │   │   │   ├─→ Target: Player Controller (do Get Player Controller)
+    │   │   │   │   └─→ Widget to Focus: SplitInputWidget
+    │   │   │   │
+    │   │   │   └─→ [Return Handled] ← IMPORTANTE: Não criar drag normal
+    │   │   │
+    │   │   └─→ FALSE (Não pode dividir):
+    │   │       │
+    │   │       └─→ [Return Unhandled] ← Continuar com drag normal
+    │   │
+    │   └─→ FALSE (Shift NÃO pressionado):
+    │       │
+    │       └─→ [Create Item Drag Drop Operation] ← Drag normal
+    │           │
+    │           ├─→ Target: self
+    │           └─→ Return Value: Operation
+    │           │
+    │           └─→ [Return Handled]
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    WBP_SplitInput - Setup Split Input                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Setup Split Input] ← Função criada no WBP_SplitInput
+│
+├─→ Input: Source Slot (WBP Inventory Slot Object Reference)
+├─→ Input: Item Quantity (Integer)
+│
+├─→ [Set Source Slot Widget] ← Variável local
+│   │
+│   └─→ Value: Source Slot
+│
+├─→ [Set Current Quantity] ← Variável local
+│   │
+│   └─→ Value: Item Quantity
+│
+├─→ [Get Slot Data]
+│   │
+│   ├─→ Target: Source Slot
+│   └─→ Return Value: SlotData
+│
+├─→ [Break Umbra Inventory Slot]
+│   │
+│   └─→ Item Template
+│
+├─→ [Break Umbra Item Template]
+│   │
+│   └─→ Item Name
+│
+├─→ [Set Text] (TextBlock_ItemName)
+│   │
+│   └─→ Text: Item Name
+│
+├─→ [Format Text]
+│   │
+│   ├─→ Format: "Quantidade: {0}"
+│   └─→ {0}: Item Quantity
+│
+├─→ [Set Text] (TextBlock_CurrentQuantity)
+│   │
+│   └─→ Text: (Resultado do Format Text)
+│
+├─→ [Set Min Value] (Slider_Amount)
+│   │
+│   └─→ Value: 1.0
+│
+├─→ [Subtract]
+│   │
+│   ├─→ A: Item Quantity (convertido para Float)
+│   └─→ B: 1.0
+│
+├─→ [Set Max Value] (Slider_Amount)
+│   │
+│   └─→ Value: (Resultado do Subtract)
+│
+├─→ [Set Value] (Slider_Amount)
+│   │
+│   └─→ Value: 1.0
+│
+└─→ [Set Split Amount] ← Variável local
+    │
+    └─→ Value: 1
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              WBP_SplitInput - Slider_Amount On Value Changed                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Slider_Amount: On Value Changed]
+│
+├─→ Input: In Value (Float)
+│
+├─→ [Round to Int]
+│   │
+│   └─→ Value: In Value
+│
+├─→ [Set Split Amount] ← Variável local
+│   │
+│   └─→ Value: (Resultado do Round to Int)
+│
+├─→ [Format Text]
+│   │
+│   ├─→ Format: "Dividir: {0}"
+│   └─→ {0}: Split Amount (convertido para Text)
+│
+└─→ [Set Text] (TextBlock_SplitAmount)
+    │
+    └─→ Text: (Resultado do Format Text)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  WBP_SplitInput - Button_Confirm OnClicked                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Button_Confirm: OnClicked]
+│
+├─→ [Get Player Controller]
+│   │
+│   └─→ Return Value: Player Controller
+│
+├─→ [Set Input Mode Game And UI] ← VOLTAR AO JOGO PRIMEIRO
+│   │
+│   ├─→ Target: Player Controller
+│   └─→ Widget to Focus: None (ou self)
+│
+├─→ [Get Source Slot Widget] ← Variável local
+│   │
+│   └─→ Return Value: Source Slot
+│
+├─→ [Is Valid?]
+│   │
+│   └─→ Object: Source Slot
+│
+└─→ [Branch]
+    │
+    ├─→ TRUE (Source Slot válido):
+    │   │
+    │   ├─→ [Get Split Amount] ← Variável local
+    │   │   │
+    │   │   └─→ Return Value: Split Amount
+    │   │
+    │   ├─→ [Request Split Item] ← Função C++ do UmbraInventorySlotWidget
+    │   │   │
+    │   │   ├─→ Target: Source Slot (do Get Source Slot Widget)
+    │   │   ├─→ Split Amount: Split Amount (do Get Split Amount)
+    │   │   └─→ Target Slot Index: -1 (Make Literal Int)
+    │   │
+    │   └─→ [Remove from Parent]
+    │       │
+    │       └─→ Target: self
+    │
+    └─→ FALSE (Source Slot inválido):
+        │
+        └─→ [Remove from Parent]
+            │
+            └─→ Target: self
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  WBP_SplitInput - Button_Cancel OnClicked                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Button_Cancel: OnClicked]
+│
+├─→ [Get Player Controller]
+│   │
+│   └─→ Return Value: Player Controller
+│
+├─→ [Set Input Mode Game And UI] ← VOLTAR AO JOGO
+│   │
+│   ├─→ Target: Player Controller
+│   └─→ Widget to Focus: None
+│
+└─→ [Remove from Parent]
+    │
+    └─→ Target: self
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                              COMO OBTER CADA NÓ
+═══════════════════════════════════════════════════════════════════════════════
+
+1. ONDRAGDETECTED (Override):
+   - No Event Graph do WBP_InventorySlot
+   - Right Click → Digite "OnDragDetected"
+   - Selecione "Add Event" → "OnDragDetected" (o evento real, não "Event")
+   - OU: No Designer, selecione o widget raiz, Details → Events → On Drag Detected
+
+2. GET PLAYER CONTROLLER:
+   - Right Click → "Get Player Controller"
+
+3. GET KEY OU GET INPUT KEY STATE:
+   - Right Click → "Get Key" OU "Get Input Key State"
+   - Se usar Get Key: Conecte Player Controller ao Target
+   - Se usar Get Input Key State: Conecte Player Controller ao Target
+   - No Details do nó, encontre "Key" e selecione "Left Shift"
+
+4. IS KEY DOWN?:
+   - Right Click → "Is Key Down?"
+   - Conecte o Return Value do Get Key ao Key
+
+5. GET SLOT DATA:
+   - Right Click → "Get Slot Data"
+   - Selecione a função do UmbraInventorySlotWidget
+   - Conecte "self" ao Target
+
+6. BREAK UMBRA INVENTORY SLOT:
+   - Right Click → "Break Umbra Inventory Slot"
+   - Conecte o Return Value do Get Slot Data ao input
+
+7. CREATE WIDGET:
+   - Right Click → "Create Widget"
+   - No Details, encontre "Class" e selecione "WBP_SplitInput"
+
+8. SETUP SPLIT INPUT:
+   - Conecte o Return Value do Create Widget ao Target
+   - Right Click → "Setup Split Input"
+   - Selecione a função que você criou no WBP_SplitInput
+
+9. ADD TO VIEWPORT:
+   - Right Click → "Add to Viewport"
+   - Conecte o Return Value do Create Widget ao Target
+
+10. SET INPUT MODE UI ONLY:
+    - Right Click → "Set Input Mode UI Only"
+    - Conecte Player Controller ao Target
+    - Conecte SplitInputWidget ao Widget to Focus
+
+11. RETURN HANDLED / RETURN UNHANDLED:
+    - Right Click → "Return Handled" OU "Return Unhandled"
+
+12. CREATE ITEM DRAG DROP OPERATION:
+    - Right Click → "Create Item Drag Drop Operation"
+    - Selecione a função do UmbraInventorySlotWidget
+    - Conecte "self" ao Target
+
+13. ROUND TO INT:
+    - Right Click → "Round to Int"
+    - Selecione "Round to Int (Integer)"
+
+14. FORMAT TEXT:
+    - Right Click → "Format Text"
+
+15. SET TEXT:
+    - Selecione o TextBlock no Designer
+    - Arraste para o Event Graph
+    - Selecione "Set Text"
+
+16. SET MIN VALUE / SET MAX VALUE / SET VALUE (Slider):
+    - Selecione o Slider no Designer
+    - Arraste para o Event Graph
+    - Selecione "Set Min Value", "Set Max Value" ou "Set Value"
+
+17. GET SOURCE SLOT WIDGET (Variável):
+    - Right Click → "Get Source Slot Widget"
+    - Selecione a variável que você criou
+
+18. REQUEST SPLIT ITEM:
+    - Right Click → "Request Split Item"
+    - Selecione a função do UmbraInventorySlotWidget
+    - Conecte o Source Slot ao Target
+
+19. REMOVE FROM PARENT:
+    - Right Click → "Remove from Parent"
+    - Conecte "self" ao Target
+
+20. MAKE LITERAL INT:
+    - Right Click → "Make Literal Int"
+    - Digite -1 no campo Value
+
+═══════════════════════════════════════════════════════════════════════════════
+

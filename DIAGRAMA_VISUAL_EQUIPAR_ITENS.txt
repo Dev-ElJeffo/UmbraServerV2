@@ -1,0 +1,382 @@
+═══════════════════════════════════════════════════════════════════════════════
+                    DIAGRAMA VISUAL: SISTEMA DE EQUIPAR ITENS
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         WBP_EQUIPMENTSLOT                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ESTRUTURA DO WIDGET                                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────┐                                                   │
+│  │  Border_Slot        │  ← Borda colorida (raridade)                     │
+│  │  (64x64)            │                                                   │
+│  │                     │                                                   │
+│  │  ┌───────────────┐  │                                                   │
+│  │  │ Image_ItemIcon│  │  ← Ícone do item (60x60)                          │
+│  │  │ (60x60)       │  │                                                   │
+│  │  └───────────────┘  │                                                   │
+│  │                     │                                                   │
+│  │  Text_SlotName      │  ← "Head", "Chest", etc. (opcional)              │
+│  └─────────────────────┘                                                   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  VARIÁVEIS                                                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  EquipmentSlot (EUmbraEquipmentSlot)  ← Slot que este widget representa     │
+│  EquippedItem (FUmbraInventorySlot)  ← Item equipado (pode ser vazio)      │
+│  bIsEmpty (Boolean)                  ← Se está vazio                       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  FUNÇÃO: UPDATE SLOT VISUAL                                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  [Update Slot Visual]                                                       │
+│    └─ Item Slot: (FUmbraInventorySlot)                                      │
+│         │                                                                    │
+│         ▼                                                                    │
+│  [Break Umbra Inventory Slot]                                               │
+│    └─ Item Slot: Item Slot                                                  │
+│         │                                                                    │
+│         ▼                                                                    │
+│  [Is Valid] ← Item Template ID > 0                                          │
+│    │                                                                        │
+│    ├─ TRUE ───────────────────────────────────────────────────────────────┐ │
+│    │                                                                       │ │
+│    │  [Set Brush from Texture] → Image_ItemIcon                           │ │
+│    │    └─ Texture: Item Template > Item Icon                             │ │
+│    │         │                                                             │ │
+│    │         ▼                                                             │ │
+│    │  [Set Visibility] → Image_ItemIcon                                   │ │
+│    │    └─ Visibility: Visible                                            │ │
+│    │         │                                                             │ │
+│    │         ▼                                                             │ │
+│    │  [Get Rarity Color]                                                   │ │
+│    │    └─ Rarity: Item Template > Rarity                                  │ │
+│    │         │                                                             │ │
+│    │         ▼                                                             │ │
+│    │  [Set Brush Color] → Border_Slot                                      │ │
+│    │    └─ Color: Rarity Color                                             │ │
+│    │                                                                       │ │
+│    └───────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│    └─ FALSE ──────────────────────────────────────────────────────────────┐ │
+│                                                                           │ │
+│      [Set Visibility] → Image_ItemIcon                                    │ │
+│        └─ Visibility: Hidden                                             │ │
+│             │                                                             │ │
+│             ▼                                                             │ │
+│      [Set Brush Color] → Border_Slot                                     │ │
+│        └─ Color: Cinza escuro (padrão)                                    │ │
+│                                                                           │ │
+│      └───────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  EVENTO: ONDRAGDETECTED                                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  [OnDragDetected]                                                           │
+│    ├─ Geometry: (FGeometry)                                                │
+│    ├─ MouseEvent: (FPointerEvent)                                          │
+│         │                                                                    │
+│         ▼                                                                    │
+│  [Is Valid] ← Equipped Item > Item Template ID > 0                         │
+│    │                                                                        │
+│    ├─ TRUE ───────────────────────────────────────────────────────────────┐ │
+│    │                                                                       │ │
+│    │  [Create Drag Drop Operation]                                        │ │
+│    │    └─ Operation Class: Umbra Item Drag Drop Operation                │ │
+│    │         │                                                             │ │
+│    │         ▼                                                             │ │
+│    │  [Set Payload] ← No Drag Drop Operation                               │ │
+│    │    ├─ Payload: Equipped Item                                          │ │
+│    │    ├─ Source Slot Type: Equipment                                     │ │
+│    │    └─ Equipment Slot: Equipment Slot                                  │ │
+│    │         │                                                             │ │
+│    │         ▼                                                             │ │
+│    │  [Set Dragged Item] ← No Drag Drop Operation                          │ │
+│    │    └─ Item Slot: Equipped Item                                        │ │
+│    │         │                                                             │ │
+│    │         ▼                                                             │ │
+│    │  [Return Drag Drop Operation]                                         │ │
+│    │                                                                       │ │
+│    └───────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│    └─ FALSE                                                                │
+│         │                                                                    │
+│         ▼                                                                    │
+│      [Return None]                                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  EVENTO: ONDROP                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  [OnDrop]                                                                   │
+│    ├─ Geometry: (FGeometry)                                                │
+│    ├─ Operation: (Drag Drop Operation)                                     │
+│         │                                                                    │
+│         ▼                                                                    │
+│  [Cast to Umbra Item Drag Drop Operation]                                   │
+│    │                                                                        │
+│    ├─ SUCCESS ───────────────────────────────────────────────────────────┐ │
+│    │                                                                       │ │
+│    │  [Get Payload]                                                       │ │
+│    │    └─ Payload: (FUmbraInventorySlot)                                 │ │
+│    │         │                                                             │ │
+│    │         ▼                                                             │ │
+│    │  [Break Umbra Inventory Slot]                                        │ │
+│    │    └─ Payload: Payload                                                │ │
+│    │         │                                                             │ │
+│    │         ▼                                                             │ │
+│    │  [Is Valid] ← Item Template ID > 0                                    │ │
+│    │    │                                                                  │ │
+│    │    ├─ TRUE ────────────────────────────────────────────────────────┐ │ │
+│    │    │                                                               │ │ │
+│    │    │  [Get Item Template]                                         │ │ │
+│    │    │    └─ Item Template: Item Template                            │ │ │
+│    │    │         │                                                     │ │ │
+│    │    │         ▼                                                     │ │ │
+│    │    │  [Break Umbra Item Template]                                  │ │ │
+│    │    │    └─ Item Template: Item Template                            │ │ │
+│    │    │         │                                                     │ │ │
+│    │    │         ▼                                                     │ │ │
+│    │    │  [Get Equipment Slot] ← Do Item Template                      │ │ │
+│    │    │    └─ Equipment Slot: Equipment Slot                          │ │ │
+│    │    │         │                                                     │ │ │
+│    │    │         ▼                                                     │ │ │
+│    │    │  [Equal] ← Equipment Slot == Equipment Slot do Widget         │ │ │
+│    │    │    │                                                           │ │ │
+│    │    │    ├─ TRUE ────────────────────────────────────────────────┐ │ │ │
+│    │    │    │                                                       │ │ │ │
+│    │    │    │  [Equip Item] ← Game Instance                         │ │ │ │
+│    │    │    │    └─ Inventory ID: Inventory ID                      │ │ │ │
+│    │    │    │         │                                             │ │ │ │
+│    │    │    │         ▼                                             │ │ │ │
+│    │    │    │  [Handled]                                            │ │ │ │
+│    │    │    │                                                       │ │ │ │
+│    │    │    └───────────────────────────────────────────────────────┘ │ │ │
+│    │    │                                                               │ │ │
+│    │    │    └─ FALSE                                                  │ │ │
+│    │    │         │                                                     │ │ │
+│    │    │         ▼                                                     │ │ │
+│    │    │      [Unhandled] ← Slot incorreto                             │ │ │
+│    │    │                                                               │ │ │
+│    │    └───────────────────────────────────────────────────────────────┘ │ │
+│    │                                                                       │ │
+│    │    └─ FALSE                                                          │ │
+│    │         │                                                             │ │
+│    │         ▼                                                             │ │
+│    │      [Unhandled]                                                      │ │
+│    │                                                                       │ │
+│    └───────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│    └─ FAIL                                                                 │
+│         │                                                                    │
+│         ▼                                                                    │
+│      [Unhandled]                                                            │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  EVENTO: ONMOUSEBUTTONDOWN (DOUBLE CLICK)                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  [OnMouseButtonDown]                                                        │
+│    ├─ Geometry: (FGeometry)                                                │
+│    ├─ MouseEvent: (FPointerEvent)                                          │
+│         │                                                                    │
+│         ▼                                                                    │
+│  [Get Mouse Button] ← Do MouseEvent                                        │
+│    └─ Button: Left Mouse Button                                            │
+│         │                                                                    │
+│         ▼                                                                    │
+│  [Is Valid] ← Equipped Item > Item Template ID > 0                          │
+│    │                                                                        │
+│    ├─ TRUE ───────────────────────────────────────────────────────────────┐ │
+│    │                                                                       │ │
+│    │  [Get Click Count] ← Do MouseEvent                                    │ │
+│    │    └─ Click Count: (Integer)                                          │ │
+│    │         │                                                             │ │
+│    │         ▼                                                             │ │
+│    │  [Equal] ← Click Count == 2                                           │ │
+│    │    │                                                                  │ │
+│    │    ├─ TRUE ────────────────────────────────────────────────────────┐ │ │
+│    │    │                                                               │ │ │
+│    │    │  [Unequip Item] ← Game Instance                                │ │ │
+│    │    │    └─ Inventory ID: Equipped Item > Inventory ID               │ │ │
+│    │    │         │                                                     │ │ │
+│    │    │         ▼                                                     │ │ │
+│    │    │  [Handled]                                                    │ │ │
+│    │    │                                                               │ │ │
+│    │    └───────────────────────────────────────────────────────────────┘ │ │
+│    │                                                                       │ │
+│    │    └─ FALSE                                                          │ │
+│    │         │                                                             │ │
+│    │         ▼                                                             │ │
+│    │      [Unhandled]                                                      │ │
+│    │                                                                       │ │
+│    └───────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│    └─ FALSE                                                                │
+│         │                                                                    │
+│         ▼                                                                    │
+│      [Unhandled]                                                            │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════════
+                         WBP_CHARACTERINFO
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  LAYOUT: GRID DE EQUIPAMENTOS                                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  Grid_EquipmentSlots (Uniform Grid Panel)                           │   │
+│  │  Columns: 3 ou 4                                                    │   │
+│  │                                                                     │   │
+│  │  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐                           │   │
+│  │  │ Head │  │Chest │  │Hands │  │ Feet │                           │   │
+│  │  └──────┘  └──────┘  └──────┘  └──────┘                           │   │
+│  │                                                                     │   │
+│  │  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐                           │   │
+│  │  │Main  │  │Off   │  │ Ring │  │Amulet│                           │   │
+│  │  │Hand  │  │Hand  │  │      │  │      │                           │   │
+│  │  └──────┘  └──────┘  └──────┘  └──────┘                           │   │
+│  │                                                                     │   │
+│  │  ┌──────┐  ┌──────┐  ┌──────┐                                     │   │
+│  │  │Earring│  │Brace │  │Mount │                                     │   │
+│  │  │      │  │let   │  │      │                                     │   │
+│  │  └──────┘  └──────┘  └──────┘                                     │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  FUNÇÃO: UPDATE EQUIPMENT SLOTS                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  [Update Equipment Slots]                                                   │
+│    └─ Character Info: (FUmbraCharacterInfo)                                │
+│         │                                                                    │
+│         ▼                                                                    │
+│  [Break Umbra Character Info]                                               │
+│    └─ Character Info: Character Info                                        │
+│         │                                                                    │
+│         ▼                                                                    │
+│  [Get Equipped Items] ← TMap                                                │
+│    └─ Equipped Items: (TMap)                                                │
+│         │                                                                    │
+│         ▼                                                                    │
+│  [ForEach Equipped Items]                                                   │
+│    ├─ Key: Equipment Slot (EUmbraEquipmentSlot)                            │
+│    ├─ Value: Inventory Slot (FUmbraInventorySlot)                           │
+│         │                                                                    │
+│         ▼                                                                    │
+│  [Switch on EUmbraEquipmentSlot]                                            │
+│    ├─ Head: [Update Slot Visual] → Slot_Head                                │
+│    ├─ Chest: [Update Slot Visual] → Slot_Chest                             │
+│    ├─ Hands: [Update Slot Visual] → Slot_Hands                               │
+│    ├─ Feet: [Update Slot Visual] → Slot_Feet                                │
+│    ├─ MainHand: [Update Slot Visual] → Slot_MainHand                        │
+│    ├─ OffHand: [Update Slot Visual] → Slot_OffHand                          │
+│    ├─ Ring: [Update Slot Visual] → Slot_Ring                                │
+│    ├─ Amulet: [Update Slot Visual] → Slot_Amulet                            │
+│    ├─ Earring: [Update Slot Visual] → Slot_Earring                           │
+│    ├─ Bracelet: [Update Slot Visual] → Slot_Bracelet                        │
+│    └─ Mount: [Update Slot Visual] → Slot_Mount                               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════════
+                         WBP_INVENTORYSLOT
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  EVENTO: ONMOUSEBUTTONDOWN (DOUBLE CLICK PARA EQUIPAR)                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  [OnMouseButtonDown]                                                        │
+│    ├─ Geometry: (FGeometry)                                                │
+│    ├─ MouseEvent: (FPointerEvent)                                          │
+│         │                                                                    │
+│         ▼                                                                    │
+│  [Get Mouse Button] ← Do MouseEvent                                        │
+│    └─ Button: Left Mouse Button                                            │
+│         │                                                                    │
+│         ▼                                                                    │
+│  [Is Valid] ← Slot Data > Item Template ID > 0                             │
+│    │                                                                        │
+│    ├─ TRUE ───────────────────────────────────────────────────────────────┐ │
+│    │                                                                       │ │
+│    │  [Get Click Count] ← Do MouseEvent                                    │ │
+│    │    └─ Click Count: (Integer)                                          │ │
+│    │         │                                                             │ │
+│    │         ▼                                                             │ │
+│    │  [Equal] ← Click Count == 2                                           │ │
+│    │    │                                                                  │ │
+│    │    ├─ TRUE ────────────────────────────────────────────────────────┐ │ │
+│    │    │                                                               │ │ │
+│    │    │  [Break Umbra Inventory Slot]                                  │ │ │
+│    │    │    └─ Slot Data: Slot Data                                     │ │ │
+│    │    │         │                                                     │ │ │
+│    │    │         ▼                                                     │ │ │
+│    │    │  [Get Item Template]                                          │ │ │
+│    │    │    └─ Item Template: Item Template                            │ │ │
+│    │    │         │                                                     │ │ │
+│    │    │         ▼                                                     │ │ │
+│    │    │  [Break Umbra Item Template]                                  │ │ │
+│    │    │    └─ Item Template: Item Template                            │ │ │
+│    │    │         │                                                     │ │ │
+│    │    │         ▼                                                     │ │ │
+│    │    │  [Get Equipment Slot] ← Do Item Template                      │ │ │
+│    │    │    └─ Equipment Slot: Equipment Slot                          │ │ │
+│    │    │         │                                                     │ │ │
+│    │    │         ▼                                                     │ │ │
+│    │    │  [Not Equal] ← Equipment Slot != None                         │ │ │
+│    │    │    │                                                           │ │ │
+│    │    │    ├─ TRUE ────────────────────────────────────────────────┐ │ │ │
+│    │    │    │                                                       │ │ │ │
+│    │    │    │  [Equip Item] ← Game Instance                         │ │ │ │
+│    │    │    │    └─ Inventory ID: Inventory ID                      │ │ │ │
+│    │    │    │         │                                             │ │ │ │
+│    │    │    │         ▼                                             │ │ │ │
+│    │    │    │  [Handled]                                            │ │ │ │
+│    │    │    │                                                       │ │ │ │
+│    │    │    └───────────────────────────────────────────────────────┘ │ │ │
+│    │    │                                                               │ │ │
+│    │    │    └─ FALSE                                                  │ │ │
+│    │    │         │                                                     │ │ │
+│    │    │         ▼                                                     │ │ │
+│    │    │      [Unhandled] ← Item não equipável                          │ │ │
+│    │    │                                                               │ │ │
+│    │    └───────────────────────────────────────────────────────────────┘ │ │
+│    │                                                                       │ │
+│    │    └─ FALSE                                                          │ │
+│    │         │                                                             │ │
+│    │         ▼                                                             │ │
+│    │      [Unhandled]                                                      │ │
+│    │                                                                       │ │
+│    └───────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│    └─ FALSE                                                                │
+│         │                                                                    │
+│         ▼                                                                    │
+│      [Unhandled]                                                            │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════════
+

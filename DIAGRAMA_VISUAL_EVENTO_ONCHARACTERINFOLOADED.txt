@@ -1,0 +1,166 @@
+═══════════════════════════════════════════════════════════════════════════════
+        DIAGRAMA VISUAL: Evento OnCharacterInfoLoaded_Event
+═══════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════
+                    PASSO 1: Criar o Evento Automaticamente
+═══════════════════════════════════════════════════════════════════════════════
+
+NO EVENT CONSTRUCT:
+  1. Após fazer "Cast to Umbra Game Instance"
+  2. Arraste do pino azul do "As Umbra Game Instance" (Cast)
+  3. Procure: "Assign On Character Info Loaded"
+  4. Isso criará automaticamente um Custom Event chamado "On Character Info Loaded"
+  5. O evento já terá o input "Character Info" (FUmbraCharacterInfo) automaticamente
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    PASSO 2: Event Construct Completo
+═══════════════════════════════════════════════════════════════════════════════
+
+[Event Construct]
+        │
+        └─→ [Get Game Instance]
+                │
+                └─→ Return Value (Object)
+                        │
+                        └─→ [Cast to Umbra Game Instance]
+                                ├─ Object: Return Value (Get Game Instance)
+                                └─ As Umbra Game Instance: (saída)
+                                        │
+                                        ├─→ [Assign On Character Info Loaded]
+                                        │   ├─ Target: As Umbra Game Instance
+                                        │   └─ Event: On Character Info Loaded
+                                        │           │
+                                        │           └─→ (criado automaticamente)
+                                        │
+                                        └─→ [Load Character Info]
+                                            └─ Target: As Umbra Game Instance
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    PASSO 3: On Character Info Loaded
+═══════════════════════════════════════════════════════════════════════════════
+
+[On Character Info Loaded] (Custom Event criado automaticamente)
+        │
+        └─→ Character Info: (FUmbraCharacterInfo) [INPUT automático]
+                │
+                └─→ [Update Character Info Display]
+                        └─ Character Info: Character Info (input do evento)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    COMO OBTER CADA NÓ
+═══════════════════════════════════════════════════════════════════════════════
+
+1. Event Construct:
+   - Clique direito → "Event Construct"
+   - Aparece automaticamente no Event Graph
+
+2. Get Game Instance:
+   - Clique direito → "Get Game Instance"
+   - Retorna: Object (Game Instance)
+
+3. Cast to Umbra Game Instance:
+   - Clique direito → "Cast to Umbra Game Instance"
+   - Object: Conecte Return Value (Get Game Instance)
+   - As Umbra Game Instance: (saída do Cast)
+
+4. Assign On Character Info Loaded:
+   - Arraste do pino azul do "As Umbra Game Instance" (Cast)
+   - Procure "Assign On Character Info Loaded"
+   - Isso criará automaticamente o Custom Event "On Character Info Loaded"
+   - O evento já terá o input "Character Info" (FUmbraCharacterInfo)
+
+5. Load Character Info:
+   - Arraste do pino azul do "As Umbra Game Instance" (Cast)
+   - Procure "Load Character Info"
+   - OU: Clique direito → "Load Character Info"
+   - Target: Conecte As Umbra Game Instance (Cast)
+
+6. On Character Info Loaded:
+   - Criado automaticamente pelo "Assign On Character Info Loaded"
+   - Já tem o input "Character Info" (FUmbraCharacterInfo)
+   - Aparece no Event Graph automaticamente
+
+7. Update Character Info Display:
+   - Função que você criou anteriormente
+   - Input: Character Info (FUmbraCharacterInfo)
+   - Conecte: Character Info (input do evento) → Character Info (input da função)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    VERIFICAÇÃO VISUAL
+═══════════════════════════════════════════════════════════════════════════════
+
+NO EVENT GRAPH, VOCÊ DEVE VER:
+
+1. Event Construct:
+   ┌─────────────────────┐
+   │  Event Construct     │
+   └──────────┬───────────┘
+              │
+              ▼
+   ┌─────────────────────┐
+   │ Get Game Instance    │
+   └──────────┬───────────┘
+              │
+              ▼
+   ┌─────────────────────────────┐
+   │ Cast to Umbra Game Instance │
+   └──────────┬──────────────────┘
+              │
+              ├──────────────────┐
+              │                  │
+              ▼                  ▼
+   ┌──────────────────────────┐  ┌──────────────────────┐
+   │ Bind Event to            │  │ Load Character Info   │
+   │ OnCharacterInfoLoaded    │  └──────────────────────┘
+   └──────────────────────────┘
+
+2. OnCharacterInfoLoaded_Event:
+   ┌──────────────────────────────┐
+   │ OnCharacterInfoLoaded_Event  │
+   │                              │
+   │ Character Info (Input)       │
+   └──────────┬───────────────────┘
+              │
+              ▼
+   ┌──────────────────────────────┐
+   │ Update Character Info        │
+   │ Display                      │
+   │                              │
+   │ Character Info (Input)       │
+   └──────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    ORDEM DE EXECUÇÃO
+═══════════════════════════════════════════════════════════════════════════════
+
+1. Widget é criado
+   ↓
+2. Event Construct é executado
+   ↓
+3. Get Game Instance obtém a instância
+   ↓
+4. Cast to Umbra Game Instance converte para o tipo correto
+   ↓
+5. Bind Event conecta o evento ao delegate
+   ↓
+6. Load Character Info faz a requisição à API
+   ↓
+7. API retorna dados
+   ↓
+8. C++ chama OnCharacterInfoLoaded.Broadcast()
+   ↓
+9. OnCharacterInfoLoaded_Event é disparado no Blueprint
+   ↓
+10. Update Character Info Display é chamado
+   ↓
+11. Widget é atualizado com os dados
+
+
+═══════════════════════════════════════════════════════════════════════════════
+

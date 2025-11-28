@@ -1,0 +1,211 @@
+═══════════════════════════════════════════════════════════════════════════════
+              DIAGRAMA DE CORREÇÃO: Setup Split Input
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    ❌ ERRADO (Atual - Causa dos Erros)                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Setup Split Input]
+  ├─ Input: Source Slot (Parâmetro)
+  ├─ Input: Item Quantity (Parâmetro)
+  ↓
+[Get Source Slot Widget]  ← ❌ ERRADO: Variável de instância está None!
+  └─ Return Value: None (porque não foi setada ainda)
+  ↓
+[Set Source Slot Widget]  ← ❌ ERRADO: Setando None!
+  └─ Value: None (do Get acima)
+  ↓
+[Get Slot Data]
+  └─ Target: None  ← ❌ ERRO: Tentando acessar None!
+  └─ Return Value: None
+  ↓
+[Break Umbra Inventory Slot]
+  └─ Input: None  ← ❌ ERRO: "Nenhum acessado tentando ler Quantity"
+  └─ Output: Quantity = None
+  ↓
+[Set Max Value] (Slider)
+  └─ Value: None - 1  ← ❌ ERRO: Cálculo incorreto
+  └─ Resultado: Slider não funciona
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    ✅ CORRETO (Como Deve Ser)                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Setup Split Input]
+  ├─ Input: Source Slot (Parâmetro) ← ✅ USAR ESTE DIRETAMENTE
+  ├─ Input: Item Quantity (Parâmetro) ← ✅ USAR ESTE DIRETAMENTE
+  ↓
+[Set Source Slot Widget]  ← ✅ Setar variável de instância com PARÂMETRO
+  └─ Value: Source Slot (PARÂMETRO, não Get Source Slot Widget)
+  ↓
+[Set Current Quantity]  ← ✅ Setar variável de instância com PARÂMETRO
+  └─ Value: Item Quantity (PARÂMETRO, não Get Current Quantity)
+  ↓
+[Get Slot Data]  ← ✅ USAR PARÂMETRO como Target
+  └─ Target: Source Slot (PARÂMETRO)
+  └─ Return Value: SlotData
+  ↓
+[Break Umbra Inventory Slot]
+  └─ Input: SlotData (válido)
+  └─ Output: Item Template
+  └─ Output: Quantity
+  ↓
+[Break Umbra Item Template]
+  └─ Input: Item Template
+  └─ Output: Item Name
+  ↓
+[Set Text] (TextBlock_ItemName)
+  └─ Text: Item Name
+  ↓
+[Format Text]
+  └─ Format: "Quantidade: {0}"
+  └─ {0}: Item Quantity (PARÂMETRO) ← ✅ USAR PARÂMETRO
+  ↓
+[Set Text] (TextBlock_CurrentQuantity)
+  └─ Text: (Resultado do Format Text)
+  ↓
+[Set Min Value] (Slider_Amount)
+  └─ Value: 1.0
+  ↓
+[Subtract]
+  ├─ A: Item Quantity (PARÂMETRO) ← ✅ USAR PARÂMETRO
+  └─ B: 1.0
+  ↓
+[Convert Int to Double]  ← ✅ Converter para Float
+  └─ Input: (Resultado do Subtract)
+  ↓
+[Set Max Value] (Slider_Amount)
+  └─ Value: (Resultado do Convert) ← ✅ Valor correto
+  ↓
+[Set Value] (Slider_Amount)
+  └─ Value: 1.0
+  ↓
+[Set Split Amount]  ← ✅ Variável de instância
+  └─ Value: 1
+
+
+═══════════════════════════════════════════════════════════════════════════════
+              DIAGRAMA DE CORREÇÃO: Button Confirm
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    ✅ CORRETO (Como Deve Ser)                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Button_Confirm: OnClicked]
+  ↓
+[Get Player Controller]
+  └─ Return Value: Player Controller
+  ↓
+[Set Input Mode Game And UI]  ← ✅ VOLTAR AO JOGO PRIMEIRO
+  ├─ Target: Player Controller
+  └─ Widget to Focus: None
+  ↓
+[Get Source Slot Widget]  ← ✅ Variável de instância (setada em Setup Split Input)
+  └─ Return Value: Source Slot
+  ↓
+[Is Valid?]
+  └─ Object: Source Slot
+  └─ Return Value: Boolean
+  ↓
+[Branch]
+  ├─ TRUE (Válido):
+  │   ├─ [Get Split Amount]  ← ✅ Variável de instância
+  │   │     └─ Return Value: Split Amount
+  │   ├─ [Request Split Item]
+  │   │     ├─ Target: Source Slot (do Get Source Slot Widget)
+  │   │     ├─ Split Amount: Split Amount
+  │   │     └─ Target Slot Index: -1
+  │   │
+  │   └─ [Remove from Parent]
+  │       └─ Target: self
+  │
+  └─ FALSE (Inválido):
+      └─ [Print String] "Erro: Slot inválido"
+      └─ [Remove from Parent]
+          └─ Target: self
+
+
+═══════════════════════════════════════════════════════════════════════════════
+              DIAGRAMA DE CORREÇÃO: Slider On Value Changed
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    ✅ CORRETO (Como Deve Ser)                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Slider_Amount: On Value Changed]
+  ├─ Input: In Value (Float)
+  ↓
+[Round to Int]  ← ✅ OU Round64 + Convert Int64 to Int
+  └─ Value: In Value
+  └─ Return Value: Integer
+  ↓
+[Set Split Amount]  ← ✅ Variável de instância
+  └─ Value: (Resultado do Round to Int)
+  ↓
+[Get Split Amount]  ← ✅ Pegar valor atualizado
+  └─ Return Value: Split Amount
+  ↓
+[Format Text]
+  └─ Format: "Dividir: {0}"
+  └─ {0}: Split Amount (convertido para Text)
+  ↓
+[Set Text] (TextBlock_SplitAmount)
+  └─ Text: (Resultado do Format Text)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+              DIAGRAMA DE CORREÇÃO: Event Construct
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    ✅ CORRETO (Como Deve Ser)                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Event Construct]
+  ↓
+[Set Source Slot Widget]  ← ✅ Resetar para None
+  └─ Value: None
+  ↓
+[Set Current Quantity]  ← ✅ Resetar para 0
+  └─ Value: 0
+  ↓
+[Set Split Amount]  ← ✅ Resetar para 0
+  └─ Value: 0
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                          MUDANÇAS ESPECÍFICAS
+═══════════════════════════════════════════════════════════════════════════════
+
+1. REMOVER do Setup Split Input:
+   ❌ [Get Source Slot Widget] (no início)
+   ❌ [Set Source Slot Widget] que usa o Get acima
+   ❌ [Get Current Quantity] (se houver)
+
+2. ADICIONAR/ALTERAR no Setup Split Input:
+   ✅ [Set Source Slot Widget] usando Source Slot (PARÂMETRO)
+   ✅ [Set Current Quantity] usando Item Quantity (PARÂMETRO)
+   ✅ [Get Slot Data] usando Source Slot (PARÂMETRO) como Target
+   ✅ [Format Text] usando Item Quantity (PARÂMETRO)
+   ✅ [Subtract] usando Item Quantity (PARÂMETRO)
+   ✅ [Convert Int to Double] antes de Set Max Value
+
+3. GARANTIR no Button Confirm:
+   ✅ [Is Valid?] antes de usar Source Slot
+   ✅ [Get Split Amount] para pegar valor atualizado
+
+4. GARANTIR no Slider On Value Changed:
+   ✅ [Round to Int] ou [Round64] + [Convert Int64 to Int]
+   ✅ [Set Split Amount] atualiza variável de instância
+   ✅ [Get Split Amount] para usar no Format Text
+
+5. ADICIONAR no Event Construct:
+   ✅ Resetar todas as variáveis para valores padrão
+
+
+═══════════════════════════════════════════════════════════════════════════════
+

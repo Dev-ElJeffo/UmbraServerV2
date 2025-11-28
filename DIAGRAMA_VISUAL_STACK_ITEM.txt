@@ -1,0 +1,208 @@
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  WBP_InventorySlot - OnDrop (MODIFICADO)                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[OnDrop]
+│
+├─→ [Get Source Slot Widget] ← Do DragDropOperation
+│   │
+│   └─→ Return Value: Source Slot Widget
+│
+├─→ [Is Valid?]
+│   │
+│   └─→ Object: Source Slot Widget
+│
+└─→ [Branch]
+    │
+    ├─→ TRUE (Source Slot válido):
+    │   │
+    │   ├─→ [Get Slot Data] ← Source Slot Widget
+    │   │   │
+    │   │   └─→ Return Value: Source Slot Data
+    │   │
+    │   ├─→ [Is Slot Empty?] ← self (slot de destino)
+    │   │   │
+    │   │   └─→ Return Value: (Boolean)
+    │   │
+    │   └─→ [Branch] ← Verificar se destino está vazio
+    │       │
+    │       ├─→ TRUE (Destino vazio):
+    │       │   │
+    │       │   └─→ [Request Move Item] ← MOVER NORMALMENTE
+    │       │       │
+    │       │       └─→ [Handled]
+    │       │
+    │       └─→ FALSE (Destino ocupado):
+    │           │
+    │           ├─→ [Get Slot Data] ← self (slot de destino)
+    │           │   │
+    │           │   └─→ Return Value: Target Slot Data
+    │           │
+    │           ├─→ [Can Stack With] ← Source Slot Widget
+    │           │   │
+    │           │   ├─→ Target: Source Slot Widget
+    │           │   ├─→ Other Item Data: Target Slot Data
+    │           │   └─→ Return Value: (Boolean)
+    │           │
+    │           └─→ [Branch] ← Verificar se pode fazer stack
+    │               │
+    │               ├─→ TRUE (PODE FAZER STACK):
+    │               │   │
+    │               │   └─→ [Request Stack Item] ← Source Slot Widget
+    │               │       │
+    │               │       ├─→ Target: Source Slot Widget
+    │               │       └─→ Target Slot Widget: self
+    │               │       │
+    │               │       └─→ [Handled]
+    │               │
+    │               └─→ FALSE (NÃO PODE FAZER STACK):
+    │                   │
+    │                   └─→ [Request Move Item] ← TENTAR SWAP
+    │                       │
+    │                       └─→ [Handled]
+    │
+    └─→ FALSE (Source Slot inválido):
+        │
+        └─→ [Unhandled]
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  WBP_Inventory - Event Construct                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Event Construct]
+│
+├─→ [Get Game Instance]
+│   │
+│   └─→ Return Value: Game Instance
+│
+├─→ [Cast to Umbra Game Instance]
+│   │
+│   └─→ Object: Game Instance
+│   └─→ Return Value: Umbra Game Instance
+│
+├─→ [Bind Event to OnItemStacked] ← ✅ ADICIONAR
+│   │
+│   ├─→ Target: Umbra Game Instance
+│   └─→ Event: OnItemStacked_Event
+│
+└─→ [Bind Event to OnItemStackFailed] ← ✅ ADICIONAR
+    │
+    ├─→ Target: Umbra Game Instance
+    └─→ Event: OnItemStackFailed_Event
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  WBP_Inventory - OnItemStacked_Event                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[OnItemStacked_Event]
+│
+├─→ Source Inventory ID: (Int32)
+├─→ Target Inventory ID: (Int32)
+├─→ Amount Stacked: (Int32)
+└─→ Source Removed: (Boolean)
+│
+└─→ [Refresh Inventory] ← Recarregar inventário
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  WBP_Inventory - OnItemStackFailed_Event                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[OnItemStackFailed_Event]
+│
+└─→ Error Message: (String)
+│
+└─→ [Print String]
+    │
+    └─→ In String: Error Message
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  WBP_Storage - Event Construct                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[Event Construct]
+│
+├─→ [Get Game Instance]
+│   │
+│   └─→ Return Value: Game Instance
+│
+├─→ [Cast to Umbra Game Instance]
+│   │
+│   └─→ Object: Game Instance
+│   └─→ Return Value: Umbra Game Instance
+│
+├─→ [Bind Event to OnItemStacked] ← ✅ ADICIONAR
+│   │
+│   ├─→ Target: Umbra Game Instance
+│   └─→ Event: OnItemStacked_Event
+│
+└─→ [Bind Event to OnItemStackFailed] ← ✅ ADICIONAR
+    │
+    ├─→ Target: Umbra Game Instance
+    └─→ Event: OnItemStackFailed_Event
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  WBP_Storage - OnItemStacked_Event                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+[OnItemStacked_Event]
+│
+├─→ Source Inventory ID: (Int32)
+├─→ Target Inventory ID: (Int32)
+├─→ Amount Stacked: (Int32)
+└─→ Source Removed: (Boolean)
+│
+└─→ [Load Storage] ← Recarregar storage
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  FLUXO COMPLETO DE STACK                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+1. Jogador arrasta Item A sobre Item B
+   │
+   └─→ OnDrop é chamado no slot de Item B
+
+2. Verificações:
+   │
+   ├─→ Item B está vazio? → NÃO
+   │
+   ├─→ Item A e Item B são do mesmo tipo? → SIM
+   │
+   ├─→ Item pode ser empilhado? → SIM
+   │
+   └─→ Item B tem espaço? → SIM
+
+3. Chama RequestStackItem:
+   │
+   └─→ Source: Item A (InventoryID: 123)
+   └─→ Target: Item B (InventoryID: 456)
+
+4. C++ chama API:
+   │
+   └─→ POST /api/inventory/stack_item.php
+   └─→ Body: { source_inventory_id: 123, target_inventory_id: 456 }
+
+5. PHP processa:
+   │
+   ├─→ Verifica se são do mesmo tipo → SIM
+   ├─→ Calcula quanto pode juntar → Ex: 10 unidades
+   ├─→ Atualiza Item B: quantity += 10
+   └─→ Atualiza Item A: quantity -= 10 (ou remove se couber tudo)
+
+6. C++ recebe resposta:
+   │
+   ├─→ OnItemStacked.Broadcast(123, 456, 10, false)
+   ├─→ LoadInventory()
+   └─→ LoadStorage() (se necessário)
+
+7. Blueprint atualiza:
+   │
+   ├─→ OnItemStacked_Event dispara
+   ├─→ Refresh Inventory
+   └─→ Visual atualiza automaticamente
+

@@ -1,0 +1,255 @@
+═══════════════════════════════════════════════════════════════════════════════
+                    DIAGRAMA VISUAL: WBP_CharacterInfo
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         CANVAS PANEL (Root)                                  │
+│                         Size: 1920x1080                                      │
+│                                                                               │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │              IMAGE_BACKGROUND (Overlay Escuro)                      │    │
+│  │              Color: Preto 80% Opacity                               │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                               │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                    VB_MAINCONTAINER (Vertical Box)                   │    │
+│  │                    Size: 1200x900, Center Aligned                    │    │
+│  │                                                                       │    │
+│  │  ┌───────────────────────────────────────────────────────────────┐  │    │
+│  │  │              HB_HEADER (Horizontal Box)                       │  │    │
+│  │  │  ┌──────────────┐  ┌──────────────┐  ┌────────────────────┐  │  │    │
+│  │  │  │ Text_        │  │ Text_        │  │ VB_EXPContainer    │  │  │    │
+│  │  │  │ CharacterName│  │ Level        │  │ ┌────────────────┐ │  │  │    │
+│  │  │  │ "Nome"       │  │ "Nível: 1"   │  │ │ ProgressBar_EXP│ │  │  │    │
+│  │  │  └──────────────┘  └──────────────┘  │ └────────────────┘ │  │  │    │
+│  │  │                                      │ ┌────────────────┐ │  │  │    │
+│  │  │                                      │ │ Text_EXP       │ │  │  │    │
+│  │  │                                      │ │ "0 / 1000"     │ │  │  │    │
+│  │  │                                      │ └────────────────┘ │  │  │    │
+│  │  │                                      └────────────────────┘  │  │    │
+│  │  └───────────────────────────────────────────────────────────────┘  │    │
+│  │                                                                       │    │
+│  │  ┌───────────────────────────────────────────────────────────────┐  │    │
+│  │  │              HB_MAINCONTENT (Horizontal Box)                  │  │    │
+│  │  │                                                                 │  │    │
+│  │  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────┐│  │    │
+│  │  │  │ VB_StatsContainer  │  │ HB_Equipment    │  │ VB_Combat    ││  │    │
+│  │  │  │ (Left - 300px)   │  │ Container       │  │ Stats        ││  │    │
+│  │  │  │                  │  │ (Center)        │  │ (Right-300px)││  │    │
+│  │  │  │ ┌──────────────┐ │  │                 │  │              ││  │    │
+│  │  │  │ │ Text_Stats   │ │  │ ┌────┐ ┌────┐  │  │ ┌──────────┐ ││  │    │
+│  │  │  │ │ Title        │ │  │ │Head│ │Ring│  │  │ │ Text_    │ ││  │    │
+│  │  │  │ └──────────────┘ │  │ └────┘ └────┘  │  │ │ Combat   │ ││  │    │
+│  │  │  │ ┌──────────────┐ │  │ ┌────┐ ┌────┐  │  │ │ Stats    │ ││  │    │
+│  │  │  │ │ Text_        │ │  │ │Chest│ │Earr│  │  │ │ Title    │ ││  │    │
+│  │  │  │ │ Strength    │ │  │ └────┘ └────┘  │  │ └──────────┘ ││  │    │
+│  │  │  │ │ "Força:     │ │  │ ┌────┐ ┌────┐  │  │ ┌──────────┐ ││  │    │
+│  │  │  │ │  10 / 10"   │ │  │ │Hand│ │Brac│  │  │ │ Text_    │ ││  │    │
+│  │  │  │ └──────────────┘ │  │ └────┘ └────┘  │  │ │ Physical │ ││  │    │
+│  │  │  │ ┌──────────────┐ │  │ ┌────┐ ┌────┐  │  │ │ Attack   │ ││  │    │
+│  │  │  │ │ Text_        │ │  │ │Feet│ │Amul│  │  │ │ "Ataque: │ ││  │    │
+│  │  │  │ │ Agility      │ │  │ └────┘ └────┘  │  │ │  0"      │ ││  │    │
+│  │  │  │ └──────────────┘ │  │ ┌────┐ ┌────┐  │  │ └──────────┘ ││  │    │
+│  │  │  │ ... (outros)     │  │ │Main│ │Off │  │  │ ... (outros) ││  │    │
+│  │  │  │                  │  │ │Hand│ │Hand│  │  │              ││  │    │
+│  │  │  │ ┌──────────────┐ │  │ └────┘ └────┘  │  │              ││  │    │
+│  │  │  │ │ VB_Health    │ │  │ ┌────┐        │  │              ││  │    │
+│  │  │  │ │ ┌──────────┐ │ │  │ │Moun│        │  │              ││  │    │
+│  │  │  │ │ │ Text_    │ │ │  │ │t   │        │  │              ││  │    │
+│  │  │  │ │ │ Health   │ │ │  │ └────┘        │  │              ││  │    │
+│  │  │  │ │ └──────────┘ │ │  │                │  │              ││  │    │
+│  │  │  │ │ ┌──────────┐ │ │  │                │  │              ││  │    │
+│  │  │  │ │ │ Progress │ │ │  │                │  │              ││  │    │
+│  │  │  │ │ │ Bar      │ │ │  │                │  │              ││  │    │
+│  │  │  │ │ └──────────┘ │ │  │                │  │              ││  │    │
+│  │  │  │ └──────────────┘ │  │                │  │              ││  │    │
+│  │  │  │ ┌──────────────┐ │  │                │  │              ││  │    │
+│  │  │  │ │ VB_Mana      │ │  │                │  │              ││  │    │
+│  │  │  │ │ (similar)    │ │  │                │  │              ││  │    │
+│  │  │  │ └──────────────┘ │  │                │  │              ││  │    │
+│  │  │  │ ┌──────────────┐ │  │                │  │              ││  │    │
+│  │  │  │ │ VB_Stamina   │ │  │                │  │              ││  │    │
+│  │  │  │ │ (similar)    │ │  │                │  │              ││  │    │
+│  │  │  │ └──────────────┘ │  │                │  │              ││  │    │
+│  │  │  └──────────────────┘  └──────────────────┘  └──────────────┘│  │    │
+│  │  └───────────────────────────────────────────────────────────────┘  │    │
+│  │                                                                       │    │
+│  │  ┌───────────────────────────────────────────────────────────────┐  │    │
+│  │  │              BUTTON_CLOSE                                      │  │    │
+│  │  │              "Fechar (C)"                                      │  │    │
+│  │  │              Size: 150x40                                      │  │    │
+│  │  └───────────────────────────────────────────────────────────────┘  │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    FLUXO DE EVENTOS - EVENT GRAPH
+═══════════════════════════════════════════════════════════════════════════════
+
+[Event Construct]
+        │
+        ├─→ [Get Game Instance]
+        │        │
+        │        └─→ [Cast to Umbra Game Instance]
+        │                 │
+        │                 ├─→ [Bind Event to OnCharacterInfoLoaded]
+        │                 │        │
+        │                 │        └─→ [OnCharacterInfoLoaded_Event] (criado)
+        │                 │
+        │                 ├─→ [Bind Event to OnCharacterInfoFailed]
+        │                 │        │
+        │                 │        └─→ [OnCharacterInfoFailed_Event] (criado)
+        │                 │
+        │                 └─→ [Load Character Info]
+
+
+[OnCharacterInfoLoaded_Event]
+        │
+        └─→ [Update Character Info Display]
+                 │
+                 ├─→ [Break Umbra Character Info]
+                 │
+                 ├─→ [Set Text] → Text_CharacterName
+                 ├─→ [Set Text] → Text_Level
+                 ├─→ [Set Percent] → ProgressBar_EXP
+                 ├─→ [Set Text] → Text_EXP
+                 ├─→ [Set Text] → Text_Strength
+                 ├─→ [Set Text] → Text_Agility
+                 ├─→ ... (outros stats)
+                 ├─→ [Set Text] → Text_Health
+                 ├─→ [Set Percent] → ProgressBar_Health
+                 ├─→ [Set Text] → Text_Mana
+                 ├─→ [Set Percent] → ProgressBar_Mana
+                 ├─→ [Set Text] → Text_Stamina
+                 ├─→ [Set Percent] → ProgressBar_Stamina
+                 ├─→ [Set Text] → Text_PhysicalAttack
+                 ├─→ ... (outros stats de combate)
+                 └─→ [Update Equipment Slots]
+
+
+[Update Equipment Slots]
+        │
+        ├─→ [Break Umbra Character Info]
+        │
+        ├─→ [Get Equipped Items] → TMap<EUmbraEquipmentSlot, FUmbraInventorySlot>
+        │
+        └─→ [Switch on EUmbraEquipmentSlot]
+                 │
+                 ├─→ [Case: Head]
+                 │        │
+                 │        └─→ [Get] (TMap) → [Break Umbra Inventory Slot]
+                 │                 │
+                 │                 └─→ [Set Brush from Texture] → Image_Slot_Head
+                 │
+                 ├─→ [Case: Chest]
+                 │        └─→ ... (similar)
+                 │
+                 ├─→ [Case: Hands]
+                 │        └─→ ... (similar)
+                 │
+                 └─→ ... (outros slots)
+
+
+[Button_Close OnClicked]
+        │
+        └─→ [Remove from Parent] (self)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    FLUXO DE INPUT - CHARACTER/PLAYER CONTROLLER
+═══════════════════════════════════════════════════════════════════════════════
+
+[Event BeginPlay]
+        │
+        ├─→ [Enable Input]
+        │
+        └─→ [Set Input Mode Game And UI]
+
+
+[OpenCharacterInfo (Action Event)]
+        │
+        ├─→ [Is Valid] → CharacterInfoWidget
+        │        │
+        │        ├─→ [True] → [Remove from Parent] (CharacterInfoWidget)
+        │        │
+        │        └─→ [False]
+        │                 │
+        │                 ├─→ [Get Game Instance]
+        │                 │        │
+        │                 │        └─→ [Cast to Umbra Game Instance]
+        │                 │                 │
+        │                 │                 └─→ [Load Character Info]
+        │                 │
+        │                 ├─→ [Create Widget] → WBP_CharacterInfo
+        │                 │
+        │                 └─→ [Add to Viewport]
+        │                          │
+        │                          └─→ [Set] → CharacterInfoWidget
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    ESTRUTURA DE SLOTS DE EQUIPAMENTO
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         EQUIPAMENTOS                                         │
+│                                                                               │
+│  ┌──────────┐         ┌──────────┐         ┌──────────┐                     │
+│  │  HEAD   │         │ MAINHAND │         │  RING    │                     │
+│  │ (Cabeça)│         │ (Mão     │         │ (Anel)   │                     │
+│  │         │         │ Principal)│         │          │                     │
+│  └──────────┘         └──────────┘         └──────────┘                     │
+│                                                                               │
+│  ┌──────────┐         ┌──────────┐         ┌──────────┐                     │
+│  │  CHEST  │         │ OFFHAND  │         │ EARRING  │                     │
+│  │(Armadura)│         │ (Mão     │         │ (Brinco) │                     │
+│  │         │         │ Secund.) │         │          │                     │
+│  └──────────┘         └──────────┘         └──────────┘                     │
+│                                                                               │
+│  ┌──────────┐         ┌──────────┐         ┌──────────┐                     │
+│  │  HANDS  │         │  MOUNT   │         │ BRACELET │                     │
+│  │ (Luvas) │         │(Montaria)│         │(Bracelete)│                     │
+│  │         │         │          │         │          │                     │
+│  └──────────┘         └──────────┘         └──────────┘                     │
+│                                                                               │
+│  ┌──────────┐                                ┌──────────┐                     │
+│  │  FEET   │                                │  AMULET  │                     │
+│  │ (Botas) │                                │ (Colar)  │                     │
+│  │         │                                │          │                     │
+│  └──────────┘                                └──────────┘                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                    MAPEAMENTO DE STATS
+═══════════════════════════════════════════════════════════════════════════════
+
+STATS BASE (7):
+  - Strength (Força)
+  - Dexterity (Destreza)
+  - Intelligence (Inteligência)
+  - Vitality (Vitalidade)
+  - Agility (Agilidade)
+  - Constitution (Constituição)
+  - Luck (Sorte)
+
+RECURSOS (3):
+  - Health (Vida) → Current / Max Total
+  - Mana (Mana) → Current / Max Total
+  - Stamina (Estamina) → Current / Max
+
+STATS DE COMBATE (10):
+  - Physical Attack (Ataque Físico)
+  - Magic Attack (Ataque Mágico)
+  - Physical Defense (Defesa Física)
+  - Magic Defense (Defesa Mágica)
+  - Accuracy (Acerto)
+  - Dodge (Esquiva)
+  - Critical (Crítico)
+  - Movement (Movimento)
+  - Resistance (Resistência)
+  - Double Attack Rate (Taxa de Ataque Duplo)
+
+═══════════════════════════════════════════════════════════════════════════════
+

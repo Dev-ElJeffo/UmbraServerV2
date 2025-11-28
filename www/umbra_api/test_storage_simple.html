@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Teste Simples Storage</title>
+    <style>
+        body { font-family: Arial; padding: 20px; background: #1a1a1a; color: #fff; }
+        input { width: 100%; padding: 10px; margin: 10px 0; }
+        button { padding: 10px 20px; background: #4CAF50; color: white; border: none; cursor: pointer; }
+        button:hover { background: #45a049; }
+        .result { margin-top: 20px; padding: 15px; background: #2a2a2a; border-radius: 5px; }
+        .error { border-left: 4px solid #f44336; }
+        .success { border-left: 4px solid #4CAF50; }
+        pre { overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Teste Simples Storage</h1>
+    <input type="text" id="token" placeholder="Cole seu JWT token aqui">
+    <button onclick="test()">Testar</button>
+    <div id="result"></div>
+    
+    <script>
+        async function test() {
+            const token = document.getElementById('token').value;
+            const resultDiv = document.getElementById('result');
+            
+            if (!token) {
+                resultDiv.innerHTML = '<div class="result error">Por favor, insira o token</div>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<div class="result">Carregando...</div>';
+            
+            try {
+                const response = await fetch('http://localhost/umbra_api/test_storage_simple.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: token })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <div class="result success">
+                            <h3>✅ Sucesso!</h3>
+                            <p>Player ID: ${data.player_id}</p>
+                            <p>Total de Itens: ${data.total_items}</p>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="result error">
+                            <h3>❌ Erro</h3>
+                            <p>${data.message}</p>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        <h3>❌ Erro de Conexão</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>
+
