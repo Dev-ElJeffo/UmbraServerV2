@@ -162,9 +162,47 @@ try {
             exit;
         }
         
-        $unequip_query = "UPDATE player_inventory SET is_equipped = FALSE WHERE inventory_id = :inventory_id";
+        // Encontrar o primeiro slot vazio no inventário (0-49)
+        $find_slot_query = "
+            SELECT MIN(t.slot_index) as first_empty_slot
+            FROM (
+                SELECT 0 as slot_index
+                UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
+                UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9
+                UNION ALL SELECT 10 UNION ALL SELECT 11 UNION ALL SELECT 12 UNION ALL SELECT 13 UNION ALL SELECT 14
+                UNION ALL SELECT 15 UNION ALL SELECT 16 UNION ALL SELECT 17 UNION ALL SELECT 18 UNION ALL SELECT 19
+                UNION ALL SELECT 20 UNION ALL SELECT 21 UNION ALL SELECT 22 UNION ALL SELECT 23 UNION ALL SELECT 24
+                UNION ALL SELECT 25 UNION ALL SELECT 26 UNION ALL SELECT 27 UNION ALL SELECT 28 UNION ALL SELECT 29
+                UNION ALL SELECT 30 UNION ALL SELECT 31 UNION ALL SELECT 32 UNION ALL SELECT 33 UNION ALL SELECT 34
+                UNION ALL SELECT 35 UNION ALL SELECT 36 UNION ALL SELECT 37 UNION ALL SELECT 38 UNION ALL SELECT 39
+                UNION ALL SELECT 40 UNION ALL SELECT 41 UNION ALL SELECT 42 UNION ALL SELECT 43 UNION ALL SELECT 44
+                UNION ALL SELECT 45 UNION ALL SELECT 46 UNION ALL SELECT 47 UNION ALL SELECT 48 UNION ALL SELECT 49
+            ) t
+            LEFT JOIN player_inventory pi ON pi.slot_index = t.slot_index 
+                AND pi.player_id = :player_id 
+                AND pi.is_equipped = FALSE
+            WHERE pi.inventory_id IS NULL
+            LIMIT 1
+        ";
+        $find_slot_stmt = $pdo->prepare($find_slot_query);
+        $find_slot_stmt->execute(['player_id' => $player_id]);
+        $slot_result = $find_slot_stmt->fetch(PDO::FETCH_ASSOC);
+        $target_slot = $slot_result ? (int)$slot_result['first_empty_slot'] : null;
+        
+        if ($target_slot === null) {
+            $pdo->rollBack();
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Inventário cheio. Não é possível desequipar o item.']);
+            exit;
+        }
+        
+        // Desequipar e mover para o primeiro slot vazio
+        $unequip_query = "UPDATE player_inventory SET is_equipped = FALSE, slot_index = :slot_index WHERE inventory_id = :inventory_id";
         $unequip_stmt = $pdo->prepare($unequip_query);
-        $unequip_stmt->execute(['inventory_id' => $inventory_id]);
+        $unequip_stmt->execute([
+            'inventory_id' => $inventory_id,
+            'slot_index' => $target_slot
+        ]);
         
         $pdo->commit();
         
@@ -175,7 +213,8 @@ try {
             'inventory_id' => (int)$inventory_id,
             'item_name' => $item['item_name'],
             'equipment_slot' => $equipment_slot,
-            'is_equipped' => false
+            'is_equipped' => false,
+            'slot_index' => $target_slot
         ], JSON_UNESCAPED_UNICODE);
     }
     

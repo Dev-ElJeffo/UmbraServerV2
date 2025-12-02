@@ -239,37 +239,64 @@ try {
     $intelligence_mana_bonus = floor($total_intelligence / 10) * 30;
     
     // Vitality: cada 5 = 1 Crit Res, cada 10 = 1 Double Res e 30 HP Bonus
+    // NOTA: O bônus de HP será recalculado DEPOIS de somar a Vitality dos equipamentos
     $vitality_crit_res = floor($total_vitality / 5);
     $vitality_double_res = floor($total_vitality / 10);
-    $vitality_hp_bonus = floor($total_vitality / 10) * 30;
     
-    // Inicializar stats totais com base da classe + ganhos por nível + bônus de atributos
+    // Inicializar stats totais APENAS com base da classe + ganhos por nível
+    // Os bônus de atributos serão calculados DEPOIS de somar os stats dos equipamentos
+    // Os stats diretos dos equipamentos serão somados no loop
     $total_stats = [
         'strength' => $total_strength,
         'dexterity' => $total_dexterity,
         'intelligence' => $total_intelligence,
         'vitality' => $total_vitality,
         'luck' => $total_luck,
-        'health_bonus' => $vitality_hp_bonus,
-        'mana_bonus' => $intelligence_mana_bonus,
+        'health_bonus' => 0, // Será recalculado depois
+        'mana_bonus' => 0, // Será recalculado depois
         'defense' => $base_phys_def + $level_phys_def,
         'magic_defense' => $base_mag_def + $level_mag_def,
-        'attack' => $base_phys_atk + $level_phys_atk + $strength_phys_atk + $dexterity_phys_atk,
-        'magic_attack' => $base_mag_atk + $level_mag_atk + $intelligence_mag_atk,
-        'accuracy' => $base_accuracy + $dexterity_accuracy,
-        'dodge' => $base_dodge + $dexterity_dodge,
-        'critical' => $base_critical + $strength_crit_atk + $intelligence_crit_atk,
+        'attack' => $base_phys_atk + $level_phys_atk, // Sem bônus de atributos ainda
+        'magic_attack' => $base_mag_atk + $level_mag_atk, // Sem bônus de atributos ainda
+        'accuracy' => $base_accuracy, // Sem bônus de atributos ainda
+        'dodge' => $base_dodge, // Sem bônus de atributos ainda
+        'critical' => $base_critical, // Sem bônus de atributos ainda
         'movement' => $base_movement,
-        'resistance' => $base_resistance + $vitality_crit_res,
-        'double_attack_rate' => $base_double_atk + $strength_double_atk
+        'resistance' => $base_resistance, // Sem bônus de atributos ainda (será Critical Resistance)
+        'double_attack_resistance' => 0, // Será calculado depois
+        'double_attack_rate' => $base_double_atk // Sem bônus de atributos ainda
     ];
     
     foreach ($equipped_items as $item) {
         $equipment_slot = $item['equipment_slot'];
         $stats = [];
         
-        if (!empty($item['stats_json'])) {
-            $stats = json_decode($item['stats_json'], true) ?: [];
+        // IMPORTANTE: Sempre tentar decodificar stats_json, mesmo se vazio
+        // Isso garante que stats seja sempre um objeto (associative array)
+        if (!empty($item['stats_json']) && trim($item['stats_json']) !== '' && trim($item['stats_json']) !== 'null') {
+            $decoded_stats = json_decode($item['stats_json'], true);
+            
+            // Verificar se json_decode foi bem-sucedido
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded_stats)) {
+                // Verificar se é array associativo (objeto) ou indexado
+                if (empty($decoded_stats)) {
+                    // Array vazio - usar como objeto vazio
+                    $stats = [];
+                } else if (array_keys($decoded_stats) !== range(0, count($decoded_stats) - 1)) {
+                    // É array associativo (objeto JSON) - usar diretamente
+                    $stats = $decoded_stats;
+                } else {
+                    // É array indexado - converter para objeto vazio (não é válido para stats)
+                    $stats = [];
+                }
+            } else {
+                // Erro no json_decode ou não é array - usar objeto vazio
+                $stats = [];
+                error_log("Erro ao decodificar stats_json para item {$item['item_template_id']}: " . json_last_error_msg());
+            }
+        } else {
+            // stats_json vazio, null ou string vazia - usar objeto vazio
+            $stats = [];
         }
         
         // Adicionar item ao array por slot
@@ -308,9 +335,55 @@ try {
         if (isset($stats['dodge'])) $total_stats['dodge'] += (int)$stats['dodge'];
         if (isset($stats['critical'])) $total_stats['critical'] += (int)$stats['critical'];
         if (isset($stats['movement'])) $total_stats['movement'] += (int)$stats['movement'];
-        if (isset($stats['resistance'])) $total_stats['resistance'] += (int)$stats['resistance'];
+        // resistance (legado) mapeia para critical_resistance
+        if (isset($stats['critical_resistance'])) {
+            $total_stats['resistance'] += (int)$stats['critical_resistance'];
+        } else if (isset($stats['resistance'])) {
+            $total_stats['resistance'] += (int)$stats['resistance'];
+        }
+        // Double Attack Resistance: somar valor direto dos equipamentos
+        if (isset($stats['double_attack_resistance'])) {
+            $total_stats['double_attack_resistance'] += (int)$stats['double_attack_resistance'];
+        }
         if (isset($stats['double_attack_rate'])) $total_stats['double_attack_rate'] += (int)$stats['double_attack_rate'];
     }
+    
+    // CALCULAR os bônus baseados nos atributos TOTAIS (incluindo dos equipamentos)
+    // IMPORTANTE: SOMAR os bônus calculados aos stats existentes (que já incluem stats diretos dos equipamentos)
+    
+    // Strength: cada 5 = 2 Phys Atk, cada 10 = 1 Crit Atk e 1 Double Atk
+    $strength_phys_atk_bonus = floor($total_stats['strength'] / 5) * 2;
+    $strength_crit_atk_bonus = floor($total_stats['strength'] / 10);
+    $strength_double_atk_bonus = floor($total_stats['strength'] / 10);
+    
+    // Dexterity: cada 5 = 1 Accuracy, cada 10 = 1 Phys Atk e 1 Dodge
+    $dexterity_accuracy_bonus = floor($total_stats['dexterity'] / 5);
+    $dexterity_phys_atk_bonus = floor($total_stats['dexterity'] / 10);
+    $dexterity_dodge_bonus = floor($total_stats['dexterity'] / 10);
+    
+    // Intelligence: cada 5 = 2 Mag Atk, cada 10 = 1 Crit Atk e 30 MP Bonus
+    $intelligence_mag_atk_bonus = floor($total_stats['intelligence'] / 5) * 2;
+    $intelligence_crit_atk_bonus = floor($total_stats['intelligence'] / 10);
+    $intelligence_mana_bonus_total = floor($total_stats['intelligence'] / 10) * 30;
+    
+    // Vitality: cada 5 = 1 Crit Res, cada 10 = 1 Double Res e 30 HP Bonus
+    $vitality_crit_res_bonus = floor($total_stats['vitality'] / 5);
+    $vitality_double_res_bonus = floor($total_stats['vitality'] / 10);
+    $vitality_hp_bonus_total = floor($total_stats['vitality'] / 10) * 30;
+    
+    // SOMAR os bônus calculados aos stats existentes (que já incluem stats diretos dos equipamentos)
+    $total_stats['attack'] += $strength_phys_atk_bonus + $dexterity_phys_atk_bonus;
+    $total_stats['magic_attack'] += $intelligence_mag_atk_bonus;
+    $total_stats['accuracy'] += $dexterity_accuracy_bonus;
+    $total_stats['dodge'] += $dexterity_dodge_bonus;
+    $total_stats['critical'] += $strength_crit_atk_bonus + $intelligence_crit_atk_bonus;
+    $total_stats['resistance'] += $vitality_crit_res_bonus; // Critical Resistance
+    $total_stats['double_attack_resistance'] += $vitality_double_res_bonus; // Double Attack Resistance
+    $total_stats['double_attack_rate'] += $strength_double_atk_bonus;
+    
+    // Adicionar os bônus de HP e MP calculados aos bônus diretos dos equipamentos
+    $total_stats['health_bonus'] += $vitality_hp_bonus_total;
+    $total_stats['mana_bonus'] += $intelligence_mana_bonus_total;
     
     // 5. Calcular stats finais (base da classe + nível + bônus de atributos + equipamentos)
     $base_health = (int)($player['base_health'] ?? $player['max_health']);
@@ -428,8 +501,9 @@ try {
                     'dodge' => $total_stats['dodge'],
                     'critical' => $total_stats['critical'],
                     'movement' => $total_stats['movement'],
-                    'resistance' => $total_stats['resistance'],
-                    'double_attack_rate' => $total_stats['double_attack_rate']
+                    'critical_resistance' => $total_stats['resistance'], // Renomeado de 'resistance' para 'critical_resistance'
+                    'double_attack_rate' => $total_stats['double_attack_rate'],
+                    'double_attack_resistance' => $total_stats['double_attack_resistance']
                 ]
             ],
             'equipped_items' => $equipped_by_slot,

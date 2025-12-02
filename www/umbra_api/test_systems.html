@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Umbra Eternum - Testes de Sistemas</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            border: 2px solid #4a4a6a;
+        }
+
+        .header h1 {
+            color: #ffd700;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .header p {
+            color: #b0b0b0;
+            font-size: 1.1em;
+        }
+
+        .auth-section {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            border: 2px solid #4a4a6a;
+        }
+
+        .auth-section h2 {
+            color: #ffd700;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+
+        .auth-input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .auth-input-group input {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #4a4a6a;
+            border-radius: 5px;
+            background: #2d2d44;
+            color: #e0e0e0;
+            font-size: 1em;
+        }
+
+        .auth-input-group input:focus {
+            outline: none;
+            border-color: #ffd700;
+        }
+
+        .auth-status {
+            padding: 10px;
+            background: rgba(0, 255, 0, 0.1);
+            border: 2px solid #00ff00;
+            border-radius: 5px;
+            color: #00ff00;
+            margin-top: 10px;
+        }
+
+        .auth-status.hidden {
+            display: none;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            border-bottom: 2px solid #4a4a6a;
+            padding-bottom: 10px;
+        }
+
+        .tab {
+            padding: 12px 24px;
+            background: rgba(0, 0, 0, 0.4);
+            border: 2px solid #4a4a6a;
+            border-radius: 5px 5px 0 0;
+            cursor: pointer;
+            color: #b0b0b0;
+            transition: all 0.3s;
+            font-weight: bold;
+        }
+
+        .tab:hover {
+            background: rgba(0, 0, 0, 0.6);
+            color: #e0e0e0;
+        }
+
+        .tab.active {
+            background: rgba(0, 0, 0, 0.6);
+            border-color: #ffd700;
+            color: #ffd700;
+            border-bottom: 2px solid transparent;
+        }
+
+        .tab-content {
+            display: none;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 30px;
+            border-radius: 10px;
+            border: 2px solid #4a4a6a;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+            color: #1e1e2e;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #ffaa00 0%, #ffd700 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
+        }
+
+        .btn-secondary {
+            background: #4a4a6a;
+            color: #e0e0e0;
+        }
+
+        .btn-secondary:hover {
+            background: #5a5a7a;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            color: #ffd700;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            padding: 12px;
+            border: 2px solid #4a4a6a;
+            border-radius: 5px;
+            background: #2d2d44;
+            color: #e0e0e0;
+            font-size: 1em;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #ffd700;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .message {
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .message.success {
+            background: rgba(0, 255, 0, 0.1);
+            border: 2px solid #00ff00;
+            color: #00ff00;
+        }
+
+        .message.error {
+            background: rgba(255, 0, 0, 0.1);
+            border: 2px solid #ff4444;
+            color: #ff4444;
+        }
+
+        .message.info {
+            background: rgba(0, 150, 255, 0.1);
+            border: 2px solid #0096ff;
+            color: #0096ff;
+        }
+
+        .result-box {
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px;
+            border-radius: 5px;
+            border: 2px solid #4a4a6a;
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .result-box pre {
+            color: #e0e0e0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .iframe-container {
+            width: 100%;
+            height: 800px;
+            border: 2px solid #4a4a6a;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .iframe-container iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: #1e1e2e;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⚙️ Testes de Sistemas</h1>
+            <p>Painel unificado para testar todas as APIs do Umbra Eternum</p>
+        </div>
+
+        <!-- Seção de Autenticação -->
+        <div class="auth-section">
+            <h2>🔐 Autenticação JWT</h2>
+            <div class="auth-input-group">
+                <input type="text" id="jwtToken" placeholder="Cole seu JWT Token aqui..." />
+                <button class="btn btn-primary" onclick="saveToken()">💾 Salvar Token</button>
+            </div>
+            <div id="authStatus" class="auth-status hidden">
+                ✅ Token salvo! Você pode usar todas as funcionalidades.
+            </div>
+        </div>
+
+        <!-- Abas -->
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('update-position')">📍 Update Position</button>
+            <button class="tab" onclick="switchTab('inventory')">🎒 Inventory</button>
+            <button class="tab" onclick="switchTab('storage')">📦 Storage</button>
+            <button class="tab" onclick="switchTab('equip-item')">⚔️ Equip Item</button>
+            <button class="tab" onclick="switchTab('create-item')">✨ Create Item</button>
+        </div>
+
+        <!-- Conteúdo das Abas -->
+        
+        <!-- Tab: Update Position -->
+        <div id="tab-update-position" class="tab-content active">
+            <h2>📍 Test Update Position</h2>
+            <div class="iframe-container">
+                <iframe src="http://localhost/umbra_api/api/character/test_update_position.html" id="iframe-update-position"></iframe>
+            </div>
+        </div>
+
+        <!-- Tab: Inventory -->
+        <div id="tab-inventory" class="tab-content">
+            <h2>🎒 Test Inventory</h2>
+            <div class="iframe-container">
+                <iframe src="http://localhost/umbra_api/test_inventory.php" id="iframe-inventory"></iframe>
+            </div>
+        </div>
+
+        <!-- Tab: Storage -->
+        <div id="tab-storage" class="tab-content">
+            <h2>📦 Test Storage</h2>
+            <div class="iframe-container">
+                <iframe src="http://localhost/umbra_api/api/storage/test_storage.html" id="iframe-storage"></iframe>
+            </div>
+        </div>
+
+        <!-- Tab: Equip Item -->
+        <div id="tab-equip-item" class="tab-content">
+            <h2>⚔️ Test Equip Item</h2>
+            <div class="iframe-container">
+                <iframe src="http://localhost/umbra_api/test_equip_item.html" id="iframe-equip-item"></iframe>
+            </div>
+        </div>
+
+        <!-- Tab: Create Item -->
+        <div id="tab-create-item" class="tab-content">
+            <h2>✨ Create Item</h2>
+            <div class="iframe-container">
+                <iframe src="http://localhost/umbra_api/admin/create_item.html" id="iframe-create-item"></iframe>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Carregar token salvo
+        let jwtToken = localStorage.getItem('umbra_jwt_token');
+        if (jwtToken) {
+            document.getElementById('jwtToken').value = jwtToken;
+            document.getElementById('authStatus').classList.remove('hidden');
+        }
+
+        function saveToken() {
+            const token = document.getElementById('jwtToken').value.trim();
+            if (token) {
+                localStorage.setItem('umbra_jwt_token', token);
+                jwtToken = token;
+                showMessage('Token salvo com sucesso!', 'success');
+                document.getElementById('authStatus').classList.remove('hidden');
+                
+                // Tentar passar o token para os iframes
+                passTokenToIframes();
+            } else {
+                showMessage('Por favor, insira um token válido', 'error');
+            }
+        }
+
+        function passTokenToIframes() {
+            // Tentar passar o token para os iframes que suportam
+            const iframes = document.querySelectorAll('iframe');
+            iframes.forEach(iframe => {
+                try {
+                    // Se o iframe já carregou e tem acesso, tentar passar o token
+                    if (iframe.contentWindow && iframe.contentWindow.postMessage) {
+                        iframe.contentWindow.postMessage({
+                            type: 'JWT_TOKEN',
+                            token: jwtToken
+                        }, '*');
+                    }
+                } catch (e) {
+                    // Ignorar erros de cross-origin
+                }
+            });
+        }
+
+        function switchTab(tabName) {
+            // Esconder todas as abas
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // Remover active de todas as tabs
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Mostrar a aba selecionada
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+            
+            // Ativar a tab correspondente
+            event.target.classList.add('active');
+        }
+
+        function showMessage(text, type = 'info') {
+            // Criar mensagem temporária
+            const message = document.createElement('div');
+            message.className = `message ${type}`;
+            message.textContent = text;
+            message.style.position = 'fixed';
+            message.style.top = '20px';
+            message.style.right = '20px';
+            message.style.zIndex = '10000';
+            message.style.minWidth = '300px';
+            message.style.maxWidth = '500px';
+            
+            document.body.appendChild(message);
+            
+            setTimeout(() => {
+                message.remove();
+            }, 5000);
+        }
+
+        // Escutar mensagens dos iframes
+        window.addEventListener('message', function(event) {
+            // Se algum iframe pedir o token, enviar
+            if (event.data && event.data.type === 'REQUEST_JWT_TOKEN' && jwtToken) {
+                event.source.postMessage({
+                    type: 'JWT_TOKEN',
+                    token: jwtToken
+                }, '*');
+            }
+        });
+
+        // Tentar passar token quando iframes carregarem
+        document.querySelectorAll('iframe').forEach(iframe => {
+            iframe.addEventListener('load', function() {
+                if (jwtToken) {
+                    try {
+                        iframe.contentWindow.postMessage({
+                            type: 'JWT_TOKEN',
+                            token: jwtToken
+                        }, '*');
+                    } catch (e) {
+                        // Ignorar erros de cross-origin
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>
+

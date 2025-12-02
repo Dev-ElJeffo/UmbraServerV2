@@ -1,0 +1,168 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║          DIAGRAMA VISUAL: Conectar Delegates OnItemEquipped/Unequipped       ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         PARTE 1: Criar Eventos                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    [OnItemEquipped_Event]                                   │
+│                                                                              │
+│  Inputs:                                                                    │
+│    - Inventory ID (Integer)                                                 │
+│    - Equipment Slot (EUmbraEquipmentSlot)                                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   [OnItemUnequipped_Event]                                  │
+│                                                                              │
+│  Inputs:                                                                    │
+│    - Inventory ID (Integer)                                                 │
+│    - Equipment Slot (EUmbraEquipmentSlot)                                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    PARTE 2: Lógica dos Eventos                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    [OnItemEquipped_Event]                                   │
+│  ├─ Inventory ID: (Integer)                                                 │
+│  └─ Equipment Slot: (EUmbraEquipmentSlot)                                   │
+│       │                                                                      │
+│       ▼                                                                      │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ [Get Game Instance]                                                 │   │
+│  │   └─ Return Value: Game Instance                                    │   │
+│  │        │                                                             │   │
+│  │        ▼                                                             │   │
+│  │  [Cast to Umbra Game Instance]                                      │   │
+│  │    ├─ Object: Game Instance                                          │   │
+│  │    │                                                                 │   │
+│  │    ├─ Success ───────────────────────────────────────────────┐      │   │
+│  │    │                                                          │      │   │
+│  │    │  [Load Character Info]                                  │      │   │
+│  │    │    └─ Target: As Umbra Game Instance                   │      │   │
+│  │    │                                                          │      │   │
+│  │    └──────────────────────────────────────────────────────────┘      │   │
+│  │                                                                       │   │
+│  │    └─ Fail: [Print String]                                           │   │
+│  │         └─ In String: "Erro ao carregar Game Instance"              │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   [OnItemUnequipped_Event]                                  │
+│  ├─ Inventory ID: (Integer)                                                 │
+│  └─ Equipment Slot: (EUmbraEquipmentSlot)                                   │
+│       │                                                                      │
+│       ▼                                                                      │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ [Get Game Instance]                                                 │   │
+│  │   └─ Return Value: Game Instance                                    │   │
+│  │        │                                                             │   │
+│  │        ▼                                                             │   │
+│  │  [Cast to Umbra Game Instance]                                      │   │
+│  │    ├─ Object: Game Instance                                          │   │
+│  │    │                                                                 │   │
+│  │    ├─ Success ───────────────────────────────────────────────┐      │   │
+│  │    │                                                          │      │   │
+│  │    │  [Load Character Info]                                  │      │   │
+│  │    │    └─ Target: As Umbra Game Instance                   │      │   │
+│  │    │                                                          │      │   │
+│  │    └──────────────────────────────────────────────────────────┘      │   │
+│  │                                                                       │   │
+│  │    └─ Fail: [Print String]                                           │   │
+│  │         └─ In String: "Erro ao carregar Game Instance"              │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              PARTE 3: Conectar Delegates no Event Construct                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         [Event Construct]                                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      [Get Game Instance]                                    │
+│                        └─ Return Value: Game Instance                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                 [Cast to Umbra Game Instance]                                │
+│                   ├─ Object: Game Instance                                  │
+│                   │                                                          │
+│                   ├─ Success ───────────────────────────────────────────┐  │
+│                   │                                                       │  │
+│                   │  ┌───────────────────────────────────────────────┐   │  │
+│                   │  │ [Assign On Item Equipped]                     │   │  │
+│                   │  │   ├─ Target: As Umbra Game Instance           │   │  │
+│                   │  │   └─ Event: OnItemEquipped_Event              │   │  │
+│                   │  │        │                                      │   │  │
+│                   │  │        ▼                                      │   │  │
+│                   │  │  [Assign On Item Unequipped]                 │   │  │
+│                   │  │    ├─ Target: As Umbra Game Instance          │   │  │
+│                   │  │    └─ Event: OnItemUnequipped_Event           │   │  │
+│                   │  └───────────────────────────────────────────────┘   │  │
+│                   │                                                       │  │
+│                   └───────────────────────────────────────────────────────┘  │
+│                                                                              │
+│                   └─ Fail: [Print String]                                    │
+│                        └─ In String: "Erro ao conectar delegates"           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    PARTE 4: Fluxo Completo                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  1. Item é equipado/desequipado                                             │
+│     ↓                                                                        │
+│  2. Game Instance dispara delegate (OnItemEquipped ou OnItemUnequipped)    │
+│     ↓                                                                        │
+│  3. Delegate conectado chama evento no WBP_CharacterInfo                    │
+│     ↓                                                                        │
+│  4. Evento chama Load Character Info                                        │
+│     ↓                                                                        │
+│  5. Load Character Info carrega dados atualizados                          │
+│     ↓                                                                        │
+│  6. OnCharacterInfoLoaded_Event é disparado                                │
+│     ↓                                                                        │
+│  7. Update Equipment Slots é chamado                                        │
+│     ↓                                                                        │
+│  8. Slots são atualizados visualmente                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                         COMO OBTER OS NÓS                                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  "Assign On Item Equipped":                                                 │
+│    1. Arraste "As Umbra Game Instance" (do Cast)                            │
+│    2. Digite: "Assign On Item Equipped"                                     │
+│    3. O nó será criado automaticamente                                      │
+│                                                                              │
+│  "Assign On Item Unequipped":                                               │
+│    1. Arraste "As Umbra Game Instance" (do Cast)                            │
+│    2. Digite: "Assign On Item Unequipped"                                   │
+│    3. O nó será criado automaticamente                                      │
+│                                                                              │
+│  Conectar o Evento:                                                         │
+│    1. Arraste o evento "OnItemEquipped_Event" (do painel "My Blueprint")   │
+│    2. Conecte ao pin "Event" do nó "Assign On Item Equipped"               │
+│    3. Repita para "OnItemUnequipped_Event"                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+

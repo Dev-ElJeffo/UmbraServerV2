@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Umbra Eternum - Criar Item</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            border: 2px solid #4a4a6a;
+        }
+
+        .header h1 {
+            color: #ffd700;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .header p {
+            color: #b0b0b0;
+            font-size: 1.1em;
+        }
+
+        .auth-section {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            border: 2px solid #4a4a6a;
+        }
+
+        .auth-section h2 {
+            color: #ffd700;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+
+        .auth-input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .auth-input-group input {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #4a4a6a;
+            border-radius: 5px;
+            background: #2d2d44;
+            color: #e0e0e0;
+            font-size: 1em;
+        }
+
+        .auth-input-group input:focus {
+            outline: none;
+            border-color: #ffd700;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+            color: #1e1e2e;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #ffaa00 0%, #ffd700 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: linear-gradient(135deg, #cc0000 0%, #ff4444 100%);
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: #4a4a6a;
+            color: #e0e0e0;
+        }
+
+        .btn-secondary:hover {
+            background: #5a5a7a;
+        }
+
+        .form-container {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 30px;
+            border-radius: 10px;
+            border: 2px solid #4a4a6a;
+            margin-bottom: 30px;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-group.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .form-group label {
+            color: #ffd700;
+            margin-bottom: 8px;
+            font-weight: bold;
+            font-size: 0.95em;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            padding: 12px;
+            border: 2px solid #4a4a6a;
+            border-radius: 5px;
+            background: #2d2d44;
+            color: #e0e0e0;
+            font-size: 1em;
+            font-family: inherit;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #ffd700;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .stats-section {
+            background: rgba(255, 215, 0, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            border: 2px solid #ffd700;
+            margin-top: 20px;
+        }
+
+        .stats-section h3 {
+            color: #ffd700;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .stats-subsection {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #4a4a6a;
+        }
+
+        .stats-subsection h4 {
+            color: #ffaa00;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .message {
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .message.success {
+            background: rgba(0, 255, 0, 0.2);
+            border: 2px solid #00ff00;
+            color: #00ff00;
+        }
+
+        .message.error {
+            background: rgba(255, 0, 0, 0.2);
+            border: 2px solid #ff4444;
+            color: #ff4444;
+        }
+
+        .message.info {
+            background: rgba(0, 150, 255, 0.2);
+            border: 2px solid #0096ff;
+            color: #0096ff;
+        }
+
+        .items-list {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 20px;
+            border-radius: 10px;
+            border: 2px solid #4a4a6a;
+            margin-top: 30px;
+        }
+
+        .items-list h2 {
+            color: #ffd700;
+            margin-bottom: 15px;
+        }
+
+        .items-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .item-card {
+            background: #2d2d44;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid #4a4a6a;
+            transition: all 0.3s;
+        }
+
+        .item-card:hover {
+            border-color: #ffd700;
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.2);
+        }
+
+        .item-card h4 {
+            color: #ffd700;
+            margin-bottom: 8px;
+        }
+
+        .item-card p {
+            color: #b0b0b0;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+
+        .item-card .item-id {
+            color: #888;
+            font-size: 0.8em;
+        }
+
+        .item-card .rarity {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-top: 8px;
+        }
+
+        .rarity.common { background: #808080; color: white; }
+        .rarity.uncommon { background: #00ff00; color: black; }
+        .rarity.rare { background: #0096ff; color: white; }
+        .rarity.epic { background: #aa00ff; color: white; }
+        .rarity.legendary { background: #ffaa00; color: black; }
+
+        .delete-btn {
+            margin-top: 10px;
+            width: 100%;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #ffd700;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .actions .btn {
+            flex: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⚔️ Criar Item - Umbra Eternum</h1>
+            <p>Interface de Administração para Gerenciar Itens do Jogo</p>
+        </div>
+
+        <!-- Seção de Autenticação -->
+        <div class="auth-section">
+            <h2>🔐 Autenticação</h2>
+            <div class="auth-input-group">
+                <input type="text" id="jwtToken" placeholder="Cole seu JWT Token aqui (obtido no login)" />
+                <button class="btn btn-primary" onclick="saveToken()">Salvar Token</button>
+            </div>
+            <div id="authStatus" class="message info hidden">
+                Token salvo! Você pode criar itens agora.
+            </div>
+        </div>
+
+        <!-- Mensagens -->
+        <div id="messageContainer"></div>
+
+        <!-- Formulário de Criação -->
+        <div class="form-container">
+            <h2 style="color: #ffd700; margin-bottom: 20px;">📝 Criar Novo Item</h2>
+            
+            <form id="createItemForm">
+                <div class="form-grid">
+                    <!-- Informações Básicas -->
+                    <div class="form-group full-width">
+                        <h3 style="color: #ffd700; margin-bottom: 15px; border-bottom: 2px solid #4a4a6a; padding-bottom: 10px;">Informações Básicas</h3>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="item_name">Nome do Item *</label>
+                        <input type="text" id="item_name" name="item_name" required placeholder="Ex: Espada de Ferro" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="item_type">Tipo *</label>
+                        <select id="item_type" name="item_type" required>
+                            <option value="weapon">Arma (Weapon)</option>
+                            <option value="armor">Armadura (Armor)</option>
+                            <option value="consumable">Consumível (Consumable)</option>
+                            <option value="material">Material (Material)</option>
+                            <option value="quest">Quest (Quest)</option>
+                            <option value="misc">Miscelânea (Misc)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="item_subtype">Subtipo</label>
+                        <input type="text" id="item_subtype" name="item_subtype" placeholder="Ex: sword, helmet, health_potion" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="rarity">Raridade *</label>
+                        <select id="rarity" name="rarity" required>
+                            <option value="common">Comum (Common)</option>
+                            <option value="uncommon">Incomum (Uncommon)</option>
+                            <option value="rare">Raro (Rare)</option>
+                            <option value="epic">Épico (Epic)</option>
+                            <option value="legendary">Lendário (Legendary)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group full-width">
+                        <label for="item_description">Descrição</label>
+                        <textarea id="item_description" name="item_description" placeholder="Descrição detalhada do item..."></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="icon_path">Caminho do Ícone</label>
+                        <input type="text" id="icon_path" name="icon_path" placeholder="/Game/UI/Icons/Items/ICO_ItemName" />
+                    </div>
+
+                    <!-- Propriedades -->
+                    <div class="form-group full-width">
+                        <h3 style="color: #ffd700; margin-top: 20px; margin-bottom: 15px; border-top: 2px solid #4a4a6a; padding-top: 20px; border-bottom: 2px solid #4a4a6a; padding-bottom: 10px;">Propriedades</h3>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="max_stack_size">Tamanho Máximo de Stack</label>
+                        <input type="number" id="max_stack_size" name="max_stack_size" value="1" min="1" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="equipment_slot">Slot de Equipamento</label>
+                        <select id="equipment_slot" name="equipment_slot">
+                            <option value="none">Nenhum (None)</option>
+                            <option value="head">Cabeça (Head)</option>
+                            <option value="chest">Peito (Chest)</option>
+                            <option value="legs">Pernas (Legs)</option>
+                            <option value="feet">Pés (Feet)</option>
+                            <option value="hands">Mãos (Hands)</option>
+                            <option value="main_hand">Mão Principal (Main Hand)</option>
+                            <option value="off_hand">Mão Secundária (Off Hand)</option>
+                            <option value="ring">Anel (Ring)</option>
+                            <option value="amulet">Amuleto (Amulet)</option>
+                            <option value="necklace">Colar (Necklace)</option>
+                            <option value="earring">Brinco (Earring)</option>
+                            <option value="bracelet">Bracelete (Bracelet)</option>
+                            <option value="mount">Montaria (Mount)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="required_level">Nível Requerido</label>
+                        <input type="number" id="required_level" name="required_level" value="1" min="1" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="value">Valor (Moeda)</label>
+                        <input type="number" id="value" name="value" value="0" min="0" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="weight">Peso</label>
+                        <input type="number" id="weight" name="weight" value="0" min="0" step="0.1" />
+                    </div>
+
+                    <!-- Stats -->
+                    <div class="form-group full-width">
+                        <div class="stats-section">
+                            <h3>⚔️ Estatísticas do Item</h3>
+                            
+                            <div class="stats-subsection">
+                                <h4>Atributos Base</h4>
+                                <div class="stats-grid">
+                                    <div class="form-group">
+                                        <label for="stat_strength">Força (Strength)</label>
+                                        <input type="number" id="stat_strength" name="stat_strength" value="0" min="0" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="stat_dexterity">Destreza (Dexterity)</label>
+                                        <input type="number" id="stat_dexterity" name="stat_dexterity" value="0" min="0" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="stat_intelligence">Inteligência (Intelligence)</label>
+                                        <input type="number" id="stat_intelligence" name="stat_intelligence" value="0" min="0" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="stat_vitality">Vitalidade (Vitality)</label>
+                                        <input type="number" id="stat_vitality" name="stat_vitality" value="0" min="0" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="stat_luck">Sorte (Luck)</label>
+                                        <input type="number" id="stat_luck" name="stat_luck" value="0" min="0" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="stats-subsection">
+                                <h4>Stats de Combate</h4>
+                                <div class="stats-grid">
+                                    <div class="form-group">
+                                        <label for="stat_physical_attack">Ataque Físico (Physical Attack)</label>
+                                        <input type="number" id="stat_physical_attack" name="stat_physical_attack" value="0" min="0" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="stat_magic_attack">Ataque Mágico (Magic Attack)</label>
+                                        <input type="number" id="stat_magic_attack" name="stat_magic_attack" value="0" min="0" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="stat_physical_defense">Defesa Física (Physical Defense)</label>
+                                        <input type="number" id="stat_physical_defense" name="stat_physical_defense" value="0" min="0" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="stat_magic_defense">Defesa Mágica (Magic Defense)</label>
+                                        <input type="number" id="stat_magic_defense" name="stat_magic_defense" value="0" min="0" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="stat_accuracy">Precisão (Accuracy)</label>
+                                        <input type="number" id="stat_accuracy" name="stat_accuracy" value="0" min="0" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="stat_dodge">Esquiva (Dodge)</label>
+                                        <input type="number" id="stat_dodge" name="stat_dodge" value="0" min="0" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="stat_critical">Crítico (Critical)</label>
+                                        <input type="number" id="stat_critical" name="stat_critical" value="0" min="0" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="stat_resistance">Resistência (Resistance)</label>
+                                        <input type="number" id="stat_resistance" name="stat_resistance" value="0" min="0" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="stat_double_attack_rate">Taxa de Ataque Duplo (Double Attack Rate)</label>
+                                        <input type="number" id="stat_double_attack_rate" name="stat_double_attack_rate" value="0" min="0" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="stat_double_attack_resistance">Resistência a Ataque Duplo (Double Attack Resistance)</label>
+                                        <input type="number" id="stat_double_attack_resistance" name="stat_double_attack_resistance" value="0" min="0" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="stats-subsection">
+                                <h4>Bônus</h4>
+                                <div class="stats-grid">
+                                    <div class="form-group">
+                                        <label for="stat_health_bonus">Bônus de Vida (Health Bonus)</label>
+                                        <input type="number" id="stat_health_bonus" name="stat_health_bonus" value="0" min="0" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="stat_mana_bonus">Bônus de Mana (Mana Bonus)</label>
+                                        <input type="number" id="stat_mana_bonus" name="stat_mana_bonus" value="0" min="0" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="stat_movement">Movimento (Movement)</label>
+                                        <input type="number" id="stat_movement" name="stat_movement" value="0" min="0" />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button type="submit" class="btn btn-primary">✨ Criar Item</button>
+                    <button type="button" class="btn btn-secondary" onclick="clearForm()">🗑️ Limpar Formulário</button>
+                    <button type="button" class="btn btn-secondary" onclick="loadItems()">📋 Carregar Itens</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Lista de Itens -->
+        <div class="items-list">
+            <h2>📦 Itens Criados</h2>
+            <div id="itemsContainer">
+                <div class="loading">Clique em "Carregar Itens" para ver a lista</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost/umbra_api/api/admin';
+        
+        // Carregar token salvo
+        let jwtToken = localStorage.getItem('umbra_jwt_token');
+        if (jwtToken) {
+            document.getElementById('jwtToken').value = jwtToken;
+            document.getElementById('authStatus').classList.remove('hidden');
+        }
+
+        function saveToken() {
+            const token = document.getElementById('jwtToken').value.trim();
+            if (token) {
+                localStorage.setItem('umbra_jwt_token', token);
+                jwtToken = token;
+                showMessage('Token salvo com sucesso!', 'success');
+                document.getElementById('authStatus').classList.remove('hidden');
+            } else {
+                showMessage('Por favor, insira um token válido', 'error');
+            }
+        }
+
+        function showMessage(text, type = 'info') {
+            const container = document.getElementById('messageContainer');
+            const message = document.createElement('div');
+            message.className = `message ${type}`;
+            message.textContent = text;
+            container.innerHTML = '';
+            container.appendChild(message);
+            setTimeout(() => {
+                message.remove();
+            }, 5000);
+        }
+
+        function clearForm() {
+            document.getElementById('createItemForm').reset();
+            showMessage('Formulário limpo', 'info');
+        }
+
+        function buildStatsObject() {
+            const stats = {};
+            
+            // Atributos Base
+            const strength = parseInt(document.getElementById('stat_strength').value) || 0;
+            const dexterity = parseInt(document.getElementById('stat_dexterity').value) || 0;
+            const intelligence = parseInt(document.getElementById('stat_intelligence').value) || 0;
+            const vitality = parseInt(document.getElementById('stat_vitality').value) || 0;
+            const luck = parseInt(document.getElementById('stat_luck').value) || 0;
+            
+            if (strength > 0) stats.strength = strength;
+            if (dexterity > 0) stats.dexterity = dexterity;
+            if (intelligence > 0) stats.intelligence = intelligence;
+            if (vitality > 0) stats.vitality = vitality;
+            if (luck > 0) stats.luck = luck;
+            
+            // Stats de Combate
+            const physicalAttack = parseInt(document.getElementById('stat_physical_attack').value) || 0;
+            const magicAttack = parseInt(document.getElementById('stat_magic_attack').value) || 0;
+            const physicalDefense = parseInt(document.getElementById('stat_physical_defense').value) || 0;
+            const magicDefense = parseInt(document.getElementById('stat_magic_defense').value) || 0;
+            const accuracy = parseInt(document.getElementById('stat_accuracy').value) || 0;
+            const dodge = parseInt(document.getElementById('stat_dodge').value) || 0;
+            const critical = parseInt(document.getElementById('stat_critical').value) || 0;
+            const resistance = parseInt(document.getElementById('stat_resistance').value) || 0;
+            const doubleAttackRate = parseInt(document.getElementById('stat_double_attack_rate').value) || 0;
+            const doubleAttackResistance = parseInt(document.getElementById('stat_double_attack_resistance').value) || 0;
+            
+            if (physicalAttack > 0) stats.attack = physicalAttack; // Usar "attack" para compatibilidade
+            if (magicAttack > 0) stats.magic_attack = magicAttack;
+            if (physicalDefense > 0) stats.defense = physicalDefense; // Usar "defense" para compatibilidade
+            if (magicDefense > 0) stats.magic_defense = magicDefense;
+            if (accuracy > 0) stats.accuracy = accuracy;
+            if (dodge > 0) stats.dodge = dodge;
+            if (critical > 0) stats.critical = critical;
+            if (resistance > 0) stats.resistance = resistance;
+            if (doubleAttackRate > 0) stats.double_attack_rate = doubleAttackRate;
+            if (doubleAttackResistance > 0) stats.double_attack_resistance = doubleAttackResistance;
+            
+            // Bônus
+            const healthBonus = parseInt(document.getElementById('stat_health_bonus').value) || 0;
+            const manaBonus = parseInt(document.getElementById('stat_mana_bonus').value) || 0;
+            const movement = parseInt(document.getElementById('stat_movement').value) || 0;
+            
+            if (healthBonus > 0) stats.health_bonus = healthBonus;
+            if (manaBonus > 0) stats.mana_bonus = manaBonus;
+            if (movement > 0) stats.movement = movement;
+            
+            return stats;
+        }
+
+        document.getElementById('createItemForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            if (!jwtToken) {
+                showMessage('Por favor, salve seu JWT token primeiro', 'error');
+                return;
+            }
+            
+            const formData = {
+                token: jwtToken,
+                item_name: document.getElementById('item_name').value.trim(),
+                item_description: document.getElementById('item_description').value.trim(),
+                item_type: document.getElementById('item_type').value,
+                item_subtype: document.getElementById('item_subtype').value.trim(),
+                icon_path: document.getElementById('icon_path').value.trim(),
+                max_stack_size: parseInt(document.getElementById('max_stack_size').value) || 1,
+                equipment_slot: document.getElementById('equipment_slot').value,
+                required_level: parseInt(document.getElementById('required_level').value) || 1,
+                rarity: document.getElementById('rarity').value,
+                value: parseInt(document.getElementById('value').value) || 0,
+                weight: parseFloat(document.getElementById('weight').value) || 0.0,
+                stats: buildStatsObject()
+            };
+            
+            try {
+                const response = await fetch(`${API_BASE}/create_item.php`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                // Ler a resposta como texto primeiro para debug
+                const responseText = await response.text();
+                
+                // Log da resposta para debug
+                console.log('Status da resposta:', response.status);
+                console.log('Headers:', Object.fromEntries(response.headers.entries()));
+                console.log('Resposta (primeiros 500 chars):', responseText.substring(0, 500));
+                
+                // Verificar se a resposta está vazia
+                if (!responseText || responseText.trim().length === 0) {
+                    console.error('Resposta vazia da API');
+                    console.error('Status:', response.status);
+                    console.error('Status Text:', response.statusText);
+                    showMessage(`❌ Erro: A API retornou uma resposta vazia. Status: ${response.status}. Verifique os logs do servidor PHP.`, 'error');
+                    return;
+                }
+                
+                // Verificar se a resposta é JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    console.error('Resposta não é JSON:', responseText.substring(0, 500));
+                    showMessage(`❌ Erro: A API retornou HTML em vez de JSON. Verifique o console para detalhes.`, 'error');
+                    return;
+                }
+                
+                // Tentar fazer parse do JSON
+                let result;
+                try {
+                    result = JSON.parse(responseText);
+                } catch (jsonError) {
+                    console.error('Erro ao fazer parse do JSON:', jsonError);
+                    console.error('Resposta completa recebida:', responseText);
+                    showMessage(`❌ Erro: Resposta JSON inválida. Verifique o console para detalhes.`, 'error');
+                    return;
+                }
+                
+                // Log do resultado
+                console.log('Resultado parseado:', result);
+                
+                if (result.success) {
+                    showMessage(`✅ Item "${result.item.item_name}" criado com sucesso! ID: ${result.item_id}`, 'success');
+                    clearForm();
+                    loadItems(); // Recarregar lista
+                } else {
+                    // Mostrar mensagem de erro mais detalhada
+                    let errorMsg = result.message || 'Erro desconhecido';
+                    if (result.error) {
+                        errorMsg += ` (${result.error})`;
+                    }
+                    showMessage(`❌ Erro: ${errorMsg}`, 'error');
+                    if (result.error) {
+                        console.error('Detalhes do erro:', result.error);
+                    }
+                }
+            } catch (error) {
+                showMessage(`❌ Erro ao criar item: ${error.message}`, 'error');
+                console.error('Erro completo:', error);
+                console.error('Stack trace:', error.stack);
+            }
+        });
+
+        async function loadItems() {
+            if (!jwtToken) {
+                showMessage('Por favor, salve seu JWT token primeiro', 'error');
+                return;
+            }
+            
+            const container = document.getElementById('itemsContainer');
+            container.innerHTML = '<div class="loading">Carregando itens...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/list_items.php`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ token: jwtToken })
+                });
+                
+                // Verificar se a resposta é JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    console.error('Resposta não é JSON:', text.substring(0, 500));
+                    container.innerHTML = `<div class="message error">Erro: A API retornou HTML em vez de JSON. Verifique o console para detalhes.<br><small>${text.substring(0, 200)}</small></div>`;
+                    return;
+                }
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayItems(result.items);
+                    showMessage(`✅ ${result.total} item(ns) carregado(s)`, 'success');
+                } else {
+                    container.innerHTML = `<div class="message error">Erro: ${result.message}</div>`;
+                }
+            } catch (error) {
+                container.innerHTML = `<div class="message error">Erro ao carregar itens: ${error.message}</div>`;
+                console.error('Erro:', error);
+            }
+        }
+
+        function displayItems(items) {
+            const container = document.getElementById('itemsContainer');
+            
+            if (items.length === 0) {
+                container.innerHTML = '<div class="message info">Nenhum item encontrado</div>';
+                return;
+            }
+            
+            const grid = document.createElement('div');
+            grid.className = 'items-grid';
+            
+            items.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'item-card';
+                
+                const statsCount = item.stats ? Object.keys(item.stats).length : 0;
+                
+                card.innerHTML = `
+                    <h4>${item.item_name}</h4>
+                    <p class="item-id">ID: ${item.item_id}</p>
+                    <p><strong>Tipo:</strong> ${item.item_type}</p>
+                    <p><strong>Slot:</strong> ${item.equipment_slot}</p>
+                    <p><strong>Nível:</strong> ${item.required_level}</p>
+                    <p><strong>Stats:</strong> ${statsCount} atributo(s)</p>
+                    <span class="rarity ${item.rarity}">${item.rarity.toUpperCase()}</span>
+                    <button class="btn btn-danger delete-btn" onclick="deleteItem(${item.item_id}, '${item.item_name}')">🗑️ Deletar</button>
+                `;
+                
+                grid.appendChild(card);
+            });
+            
+            container.innerHTML = '';
+            container.appendChild(grid);
+        }
+
+        async function deleteItem(itemId, itemName) {
+            if (!jwtToken) {
+                showMessage('Por favor, salve seu JWT token primeiro', 'error');
+                return;
+            }
+            
+            if (!confirm(`Tem certeza que deseja deletar o item "${itemName}" (ID: ${itemId})?`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/delete_item.php`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        token: jwtToken,
+                        item_id: itemId
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(`✅ Item "${itemName}" deletado com sucesso!`, 'success');
+                    loadItems(); // Recarregar lista
+                } else {
+                    showMessage(`❌ Erro: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                showMessage(`❌ Erro ao deletar item: ${error.message}`, 'error');
+                console.error('Erro:', error);
+            }
+        }
+
+        // Carregar itens ao abrir a página se tiver token
+        if (jwtToken) {
+            loadItems();
+        }
+    </script>
+</body>
+</html>
+

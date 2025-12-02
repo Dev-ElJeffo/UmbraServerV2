@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste: Equipar Item</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #fff;
+        }
+        .container {
+            background: #2d2d2d;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        input, button {
+            padding: 10px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+        }
+        input {
+            background: #3d3d3d;
+            color: #fff;
+            width: 200px;
+        }
+        button {
+            background: #0078d4;
+            color: #fff;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #005a9e;
+        }
+        .result {
+            background: #1e1e1e;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .success {
+            color: #4caf50;
+        }
+        .error {
+            color: #f44336;
+        }
+        .info {
+            color: #2196f3;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔧 Teste: Equipar Item</h1>
+    
+    <div class="container">
+        <h2>Configuração</h2>
+        <label>JWT Token:</label><br>
+        <input type="text" id="token" placeholder="Cole seu JWT token aqui" style="width: 100%;">
+        <br><br>
+        <label>Inventory ID:</label><br>
+        <input type="number" id="inventoryId" placeholder="ID do item no inventário" value="1">
+        <br><br>
+        <label>Ação:</label><br>
+        <button onclick="equipItem(true)">Equipar Item</button>
+        <button onclick="equipItem(false)">Desequipar Item</button>
+    </div>
+    
+    <div class="container">
+        <h2>Resultado</h2>
+        <div id="result" class="result"></div>
+    </div>
+    
+    <div class="container">
+        <h2>Verificar Requisitos do Item</h2>
+        <button onclick="checkItemRequirements()">Verificar Requisitos</button>
+        <div id="requirements" class="result"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost/umbra_api';
+        
+        function log(message, type = 'info') {
+            const resultDiv = document.getElementById('result');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'success' ? 'success' : type === 'error' ? 'error' : 'info';
+            resultDiv.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
+            resultDiv.scrollTop = resultDiv.scrollHeight;
+        }
+        
+        function clearLog() {
+            document.getElementById('result').innerHTML = '';
+        }
+        
+        async function equipItem(equip) {
+            clearLog();
+            const token = document.getElementById('token').value;
+            const inventoryId = document.getElementById('inventoryId').value;
+            
+            if (!token) {
+                log('❌ Erro: JWT Token é obrigatório', 'error');
+                return;
+            }
+            
+            if (!inventoryId) {
+                log('❌ Erro: Inventory ID é obrigatório', 'error');
+                return;
+            }
+            
+            log(`📡 Enviando requisição para ${equip ? 'equipar' : 'desequipar'} item...`, 'info');
+            log(`Inventory ID: ${inventoryId}`, 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/inventory/equip_item.php`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        token: token,
+                        inventory_id: parseInt(inventoryId),
+                        equip: equip
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    log(`✅ Sucesso: ${data.message}`, 'success');
+                    log(`Item: ${data.item_name}`, 'success');
+                    log(`Slot: ${data.equipment_slot}`, 'success');
+                    log(`Equipado: ${data.is_equipped ? 'Sim' : 'Não'}`, 'success');
+                    if (data.unequipped_other) {
+                        log(`⚠️ Outro item foi desequipado automaticamente`, 'info');
+                    }
+                } else {
+                    log(`❌ Erro: ${data.message || 'Erro desconhecido'}`, 'error');
+                    if (data.error) {
+                        log(`Detalhes: ${data.error}`, 'error');
+                    }
+                }
+                
+                log(`\nResposta completa:`, 'info');
+                log(JSON.stringify(data, null, 2), 'info');
+                
+            } catch (error) {
+                log(`❌ Erro na requisição: ${error.message}`, 'error');
+            }
+        }
+        
+        async function checkItemRequirements() {
+            const token = document.getElementById('token').value;
+            const inventoryId = document.getElementById('inventoryId').value;
+            const requirementsDiv = document.getElementById('requirements');
+            
+            if (!token || !inventoryId) {
+                requirementsDiv.innerHTML = '<span class="error">Preencha o Token e Inventory ID primeiro</span>';
+                return;
+            }
+            
+            requirementsDiv.innerHTML = 'Carregando...';
+            
+            try {
+                // Primeiro, obter informações do inventário
+                const inventoryResponse = await fetch(`${API_BASE}/api/inventory/get_inventory.php`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        token: token
+                    })
+                });
+                
+                const inventoryData = await inventoryResponse.json();
+                
+                if (!inventoryData.success) {
+                    requirementsDiv.innerHTML = `<span class="error">Erro ao obter inventário: ${inventoryData.message}</span>`;
+                    return;
+                }
+                
+                // Encontrar o item no inventário
+                const item = inventoryData.inventory.find(slot => slot.inventory_id === parseInt(inventoryId));
+                
+                if (!item) {
+                    requirementsDiv.innerHTML = `<span class="error">Item não encontrado no inventário</span>`;
+                    return;
+                }
+                
+                // Verificar requisitos
+                let html = '<h3>Requisitos do Item:</h3>';
+                html += `<p><strong>Nome:</strong> ${item.item_name}</p>`;
+                html += `<p><strong>Equipment Slot:</strong> ${item.equipment_slot || 'none'}</p>`;
+                html += `<p><strong>Required Level:</strong> ${item.required_level || 0}</p>`;
+                html += `<p><strong>Já Equipado:</strong> ${item.is_equipped ? 'Sim' : 'Não'}</p>`;
+                
+                html += '<h3>Status:</h3>';
+                
+                // Verificar se é equipável
+                if (!item.equipment_slot || item.equipment_slot === 'none') {
+                    html += '<p class="error">❌ NÃO EQUIPÁVEL: equipment_slot é "none"</p>';
+                } else {
+                    html += '<p class="success">✅ Equipment Slot válido</p>';
+                }
+                
+                // Verificar nível (precisa obter nível do jogador)
+                if (item.required_level && item.required_level > 0) {
+                    html += `<p class="info">⚠️ Requer nível ${item.required_level} (verifique se o jogador tem nível suficiente)</p>`;
+                } else {
+                    html += '<p class="info">⚠️ Sem nível requerido definido (será considerado nível 1)</p>';
+                }
+                
+                if (item.is_equipped) {
+                    html += '<p class="error">❌ Item já está equipado</p>';
+                } else {
+                    html += '<p class="success">✅ Item não está equipado</p>';
+                }
+                
+                requirementsDiv.innerHTML = html;
+                
+            } catch (error) {
+                requirementsDiv.innerHTML = `<span class="error">Erro: ${error.message}</span>`;
+            }
+        }
+    </script>
+</body>
+</html>
+

@@ -185,4 +185,107 @@ function getAccountIdFromJWT() {
 function isJWTValid() {
     return validateJWTRequest() !== null;
 }
+
+/**
+ * Verifica se o usuário autenticado via JWT é administrador
+ * 
+ * @param array $data Dados da requisição (deve conter 'token')
+ * @param array $server Dados do servidor ($_SERVER)
+ * @return array ['valid' => bool, 'is_admin' => bool, 'account_id' => int|null, 'error' => string|null]
+ */
+function verifyAdminFromJWT($data = [], $server = []) {
+    // Validar JWT primeiro
+    $validation = validateJWTRequest($data, $server);
+    if (!$validation['valid']) {
+        return [
+            'valid' => false,
+            'is_admin' => false,
+            'account_id' => null,
+            'error' => $validation['error'] ?? 'Token inválido ou expirado'
+        ];
+    }
+    
+    $account_id = $validation['payload']['account_id'] ?? null;
+    if (!$account_id) {
+        return [
+            'valid' => false,
+            'is_admin' => false,
+            'account_id' => null,
+            'error' => 'Account ID não encontrado no token'
+        ];
+    }
+    
+    // Verificar se é admin no banco de dados
+    try {
+        // database.php já deve estar incluído, mas verificar se getConnection existe
+        if (!function_exists('getConnection')) {
+            require_once __DIR__ . '/../config/database.php';
+        }
+        $pdo = getConnection();
+        
+        if (!$pdo) {
+            return [
+                'valid' => false,
+                'is_admin' => false,
+                'account_id' => $account_id,
+                'error' => 'Erro ao conectar ao banco de dados'
+            ];
+        }
+        
+        $query = "SELECT id, username, email, isadmin, banned FROM accounts WHERE id = :account_id";
+        $stmt = $pdo->prepare($query);
+        $stmt->execute(['account_id' => $account_id]);
+        $account = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$account) {
+            return [
+                'valid' => false,
+                'is_admin' => false,
+                'account_id' => $account_id,
+                'error' => 'Conta não encontrada'
+            ];
+        }
+        
+        if ($account['banned']) {
+            return [
+                'valid' => false,
+                'is_admin' => false,
+                'account_id' => $account_id,
+                'error' => 'Conta banida'
+            ];
+        }
+        
+        $is_admin = ($account['isadmin'] == 1);
+        
+        if (!$is_admin) {
+            return [
+                'valid' => false,
+                'is_admin' => false,
+                'account_id' => $account_id,
+                'error' => 'Acesso negado. Apenas administradores podem acessar esta funcionalidade.'
+            ];
+        }
+        
+        return [
+            'valid' => true,
+            'is_admin' => true,
+            'account_id' => $account_id,
+            'account' => [
+                'id' => $account['id'],
+                'username' => $account['username'],
+                'email' => $account['email']
+            ],
+            'error' => null
+        ];
+        
+    } catch (Exception $e) {
+        error_log("[JWT Admin] Erro ao verificar admin: " . $e->getMessage());
+        return [
+            'valid' => false,
+            'is_admin' => false,
+            'account_id' => $account_id,
+            'error' => 'Erro ao verificar permissões: ' . $e->getMessage()
+        ];
+    }
+}
 ?>

@@ -72,10 +72,11 @@ try {
             it.weight
         FROM player_inventory pi
         INNER JOIN item_templates it ON pi.item_template_id = it.item_id
-        WHERE pi.player_id = :player_id
-          AND pi.slot_index >= 0
-          AND pi.slot_index < 50
-        ORDER BY pi.slot_index ASC
+    WHERE pi.player_id = :player_id
+      AND pi.slot_index >= 0
+      AND pi.slot_index < 50
+      AND pi.is_equipped = FALSE
+    ORDER BY pi.slot_index ASC
     ";
     
     $stmt = $pdo->prepare($query);
