@@ -41,10 +41,27 @@ if (!$validation['valid']) {
     exit;
 }
 
-$player_id = $validation['payload']['player_id'] ?? null;
+// ✅ PRIORIDADE: Se player_id foi enviado no body JSON, usar esse valor
+// Caso contrário, tentar obter do token JWT
+$player_id = null;
+if (isset($data['player_id']) && is_numeric($data['player_id'])) {
+    $player_id = intval($data['player_id']);
+} else {
+    // Fallback: tentar obter do token JWT
+    $player_id = $validation['payload']['player_id'] ?? null;
+}
+
 if (!$player_id) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Player ID não encontrado no token']);
+    echo json_encode(['success' => false, 'message' => 'Player ID não encontrado. Envie player_id no body JSON ou no token JWT']);
+    exit;
+}
+
+// ✅ VALIDAÇÃO DE SEGURANÇA: Verificar se o player_id pertence à conta autenticada
+$account_id = $validation['payload']['account_id'] ?? null;
+if (!$account_id) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'Account ID não encontrado no token']);
     exit;
 }
 
@@ -102,7 +119,8 @@ try {
                         c.base_dodge,
                         c.base_critical,
                         c.base_movement,
-                        c.base_resistance,
+                        c.base_critical_resistance,
+                        c.base_double_attack_resistance,
                         c.base_double_attack_rate,
                         f.faction_name,
                         g.guild_name,
@@ -120,6 +138,13 @@ try {
     if (!$player) {
         http_response_code(404);
         echo json_encode(['success' => false, 'message' => 'Personagem não encontrado']);
+        exit;
+    }
+    
+    // ✅ VALIDAÇÃO DE SEGURANÇA: Verificar se o personagem pertence à conta autenticada
+    if (intval($player['account_id']) !== intval($account_id)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Acesso negado: Este personagem não pertence à sua conta']);
         exit;
     }
     
@@ -196,7 +221,7 @@ try {
     $base_dodge = (int)($player['base_dodge'] ?? 0);
     $base_critical = (int)($player['base_critical'] ?? 0);
     $base_movement = (int)($player['base_movement'] ?? 0);
-    $base_resistance = (int)($player['base_resistance'] ?? 0);
+    $base_resistance = (int)($player['base_critical_resistance'] ?? 0); // Usar base_critical_resistance
     $base_double_atk = (int)($player['base_double_attack_rate'] ?? 0);
     
     // Obter nível e atributos totais (base da classe + pontos distribuídos)
