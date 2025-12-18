@@ -133,7 +133,38 @@ try {
     $stmt = $pdo->prepare("UPDATE players SET last_played_at = NOW() WHERE id = ?");
     $stmt->execute([$player_id]);
     
-    echo json_encode([
+    // ✅ GERAR NOVO TOKEN COM O NOVO player_id
+    // Isso garante que o inventário seja carregado corretamente para o personagem selecionado
+    $new_token = null;
+    if (function_exists('generateJWT')) {
+        // Obter username da conta
+        $account_query = "SELECT username FROM accounts WHERE id = ?";
+        $account_stmt = $pdo->prepare($account_query);
+        $account_stmt->execute([$account_id]);
+        $account = $account_stmt->fetch(PDO::FETCH_ASSOC);
+        $username = $account ? $account['username'] : '';
+        
+        // Tentar gerar token com parâmetros individuais primeiro (versão api/common/jwt_helper.php)
+        // Se falhar, tentar com array payload (versão helpers/jwt_helper.php)
+        try {
+            // Versão 1: generateJWT($accountId, $playerId, $username, $expirationMinutes)
+            $new_token = @generateJWT($account_id, $player_id, $username, 60);
+        } catch (Exception $e) {
+            // Versão 2: generateJWT($payload, $expiration_hours)
+            $payload = [
+                'account_id' => $account_id,
+                'player_id' => $player_id,
+                'username' => $username
+            ];
+            $new_token = @generateJWT($payload, 1); // 1 hora
+        }
+        
+        if (!$new_token) {
+            error_log("[Select Character] Aviso: Não foi possível gerar novo token JWT");
+        }
+    }
+    
+    $response = [
         'success' => true,
         'message' => 'Personagem selecionado com sucesso!',
         'player' => [
@@ -163,7 +194,14 @@ try {
             'created_at' => $player['created_at'],
             'last_login' => date('Y-m-d H:i:s')
         ]
-    ]);
+    ];
+    
+    // ✅ Adicionar novo token à resposta se foi gerado
+    if ($new_token) {
+        $response['token'] = $new_token;
+    }
+    
+    echo json_encode($response);
     
 } catch (Exception $e) {
     error_log("Select Character Error: " . $e->getMessage());

@@ -31,7 +31,7 @@ require_once __DIR__ . '/../../helpers/jwt_helper.php';
 $json = file_get_contents('php://input');
 $data = json_decode($json, true) ?: [];
 
-// Validar JWT e obter player_id
+// Validar JWT e obter player_id e account_id
 $validation = validateJWTRequest($data, $_SERVER);
 if (!$validation['valid']) {
     http_response_code(401);
@@ -40,9 +40,15 @@ if (!$validation['valid']) {
 }
 
 $player_id = $validation['payload']['player_id'] ?? null;
+$account_id = $validation['payload']['account_id'] ?? null;
 if (!$player_id) {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'Player ID não encontrado no token']);
+    exit;
+}
+if (!$account_id) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'Account ID não encontrado no token']);
     exit;
 }
 
@@ -90,25 +96,37 @@ try {
     
     $current_slot_index = (int)$item['slot_index'];
     
-    // Verificar se o slot de destino no storage está ocupado
-    $storage_query = "SELECT * FROM player_storage WHERE player_id = :player_id AND slot_index = :slot_index";
+    // ✅ STORAGE COMPARTILHADO: Verificar se o slot de destino está ocupado por QUALQUER personagem da conta
+    // JOIN com players para verificar por account_id em vez de apenas player_id
+    $storage_query = "SELECT s.*, i.inventory_id as item_inventory_id 
+                      FROM player_storage s
+                      INNER JOIN player_inventory i ON s.inventory_id = i.inventory_id
+                      INNER JOIN players p ON i.player_id = p.id
+                      WHERE p.account_id = :account_id AND s.slot_index = :slot_index";
     $storage_stmt = $pdo->prepare($storage_query);
-    $storage_stmt->execute(['player_id' => $player_id, 'slot_index' => $target_slot_index]);
+    $storage_stmt->execute(['account_id' => $account_id, 'slot_index' => $target_slot_index]);
     $storage_item = $storage_stmt->fetch(PDO::FETCH_ASSOC);
     
     if ($storage_item) {
         // Swap: Trocar os dois itens de lugar
         $storage_item_id = (int)$storage_item['storage_id'];
         
-        // Mover item do storage para o slot do inventário (temporário)
-        $temp_update_query = "UPDATE player_storage SET slot_index = -1 WHERE storage_id = :storage_id";
-        $temp_stmt = $pdo->prepare($temp_update_query);
-        $temp_stmt->execute(['storage_id' => $storage_item_id]);
-        
         // Obter inventory_id do item que está no storage
-        $target_inventory_id = (int)$storage_item['inventory_id'];
+        // Usar item_inventory_id do SELECT (alias) ou inventory_id do player_storage
+        $target_inventory_id = (int)($storage_item['item_inventory_id'] ?? $storage_item['inventory_id']);
         
-        // Criar ou atualizar entrada no storage para o item do inventário
+        // ✅ CORREÇÃO: Usar slot temporário (-1) no player_inventory para evitar violação de constraint
+        // 1. Mover item do storage para slot temporário no inventário
+        $temp_inventory_query = "UPDATE player_inventory SET slot_index = -1 WHERE inventory_id = :inventory_id";
+        $temp_inv_stmt = $pdo->prepare($temp_inventory_query);
+        $temp_inv_stmt->execute(['inventory_id' => $target_inventory_id]);
+        
+        // 2. Mover item do storage para slot temporário no player_storage
+        $temp_storage_query = "UPDATE player_storage SET slot_index = -1 WHERE storage_id = :storage_id";
+        $temp_storage_stmt = $pdo->prepare($temp_storage_query);
+        $temp_storage_stmt->execute(['storage_id' => $storage_item_id]);
+        
+        // 3. Criar ou atualizar entrada no storage para o item do inventário
         $check_storage_query = "SELECT * FROM player_storage WHERE inventory_id = :inventory_id AND player_id = :player_id";
         $check_stmt = $pdo->prepare($check_storage_query);
         $check_stmt->execute(['inventory_id' => $inventory_id, 'player_id' => $player_id]);
@@ -130,17 +148,17 @@ try {
             ]);
         }
         
-        // Mover item do inventário para o storage (atualizar slot_index)
+        // 4. Mover item do inventário para o storage (atualizar slot_index)
         $move_to_storage_query = "UPDATE player_inventory SET slot_index = :target_slot WHERE inventory_id = :inventory_id";
         $move_stmt = $pdo->prepare($move_to_storage_query);
         $move_stmt->execute(['target_slot' => $target_slot_index, 'inventory_id' => $inventory_id]);
         
-        // Mover item do storage para o inventário (slot original)
+        // 5. Mover item do storage para o inventário (slot original)
         $move_to_inventory_query = "UPDATE player_inventory SET slot_index = :original_slot WHERE inventory_id = :inventory_id";
         $move_inv_stmt = $pdo->prepare($move_to_inventory_query);
         $move_inv_stmt->execute(['original_slot' => $current_slot_index, 'inventory_id' => $target_inventory_id]);
         
-        // Atualizar slot_index do item do storage no player_storage
+        // 6. Atualizar slot_index do item do storage no player_storage
         $update_storage_slot_query = "UPDATE player_storage SET slot_index = :original_slot WHERE storage_id = :storage_id";
         $update_slot_stmt = $pdo->prepare($update_storage_slot_query);
         $update_slot_stmt->execute(['original_slot' => $current_slot_index, 'storage_id' => $storage_item_id]);

@@ -37,21 +37,23 @@ if (!$validation['valid']) {
     exit;
 }
 
-$player_id = $validation['payload']['player_id'] ?? null;
-if (!$player_id) {
+// ✅ STORAGE COMPARTILHADO: Usar account_id em vez de player_id
+// O storage deve ser compartilhado entre todos os personagens da conta
+$account_id = $validation['payload']['account_id'] ?? null;
+if (!$account_id) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Player ID não encontrado no token']);
+    echo json_encode(['success' => false, 'message' => 'Account ID não encontrado no token']);
     exit;
 }
 
 try {
     $pdo = getConnection();
     
-    // Buscar diretamente de player_inventory (slots 50-149)
-    // LEFT JOIN com player_storage apenas para obter storage_id se existir
+    // ✅ BUSCAR STORAGE POR ACCOUNT_ID (compartilhado entre todos os personagens da conta)
+    // Apenas itens realmente no storage (INNER JOIN) e ordenados para facilitar dedupe
     $query = "SELECT 
-                COALESCE(s.storage_id, 0) as storage_id,
-                i.slot_index,
+                s.storage_id,
+                s.slot_index,
                 i.inventory_id,
                 i.player_id,
                 i.item_template_id,
@@ -72,21 +74,66 @@ try {
                 t.value,
                 t.weight,
                 t.stats_json
-              FROM player_inventory i
+              FROM player_storage s
+              INNER JOIN player_inventory i ON s.inventory_id = i.inventory_id
               INNER JOIN item_templates t ON i.item_template_id = t.item_id
-              LEFT JOIN player_storage s ON s.inventory_id = i.inventory_id AND s.player_id = i.player_id
-              WHERE i.player_id = :player_id
-                AND i.slot_index >= 50
-                AND i.slot_index < 150
-              ORDER BY i.slot_index ASC";
+              INNER JOIN players p ON i.player_id = p.id
+              WHERE p.account_id = :account_id
+                AND s.slot_index >= 50
+                AND s.slot_index < 150
+              ORDER BY s.slot_index ASC, s.storage_id DESC";
     
     $stmt = $pdo->prepare($query);
-    $stmt->execute(['player_id' => $player_id]);
+    $stmt->execute(['account_id' => $account_id]);
     $storage_items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // ✅ Filtrar qualquer índice fora de 50-149 (defensivo)
+    $filtered = [];
+    $skipped_out_of_range = 0;
+    foreach ($storage_items as $item) {
+        $slotIdx = (int)$item['slot_index'];
+        if ($slotIdx < 50 || $slotIdx > 149) {
+            $skipped_out_of_range++;
+            continue;
+        }
+        $filtered[] = $item;
+    }
+
+    // ✅ DEDUPLICAÇÃO POR SLOT (caso histórico de duplicados por conta)
+    $deduped = [];
+    $skipped = 0;
+    foreach ($filtered as $item) {
+        $slotIdx = (int)$item['slot_index'];
+        if (array_key_exists($slotIdx, $deduped)) {
+            $skipped++;
+            continue;
+        }
+        $deduped[$slotIdx] = $item;
+    }
+    
+    // #region agent log
+    $log_payload = [
+        "sessionId" => "debug-session",
+        "runId" => "post-fix",
+        "hypothesisId" => "H-storage-dedupe",
+        "location" => "get_storage.php:dedupe",
+        "message" => "storage fetch deduped",
+        "data" => [
+            "account_id" => (int)$account_id,
+            "raw_count" => count($storage_items),
+            "filtered_count" => count($filtered),
+            "deduped_count" => count($deduped),
+            "skipped" => $skipped,
+            "skipped_out_of_range" => $skipped_out_of_range
+        ],
+        "timestamp" => round(microtime(true) * 1000)
+    ];
+    file_put_contents('d:\UmbraServerV2\.cursor\debug.log', json_encode($log_payload, JSON_UNESCAPED_UNICODE) . "\n", FILE_APPEND);
+    // #endregion
     
     // Formatar resposta
     $formatted_items = [];
-    foreach ($storage_items as $item) {
+    foreach ($deduped as $item) {
         // Decodificar stats_json
         $stats = [];
         if (!empty($item['stats_json'])) {
@@ -129,8 +176,8 @@ try {
     echo json_encode([
         'success' => true,
         'message' => 'Storage carregado com sucesso',
-        'player' => [
-            'player_id' => (int)$player_id
+        'account' => [
+            'account_id' => (int)$account_id
         ],
         'storage' => $formatted_items,
         'total_items' => count($formatted_items)

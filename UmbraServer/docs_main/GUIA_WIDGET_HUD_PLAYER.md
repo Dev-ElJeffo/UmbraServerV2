@@ -219,23 +219,40 @@ Canvas Panel (Root)
    - **Relative Rotation:** Yaw: 0 (olhando para frente)
 
 3. **No Event BeginPlay:**
+
+   **IMPORTANTE:** O `CurrentCharacterInfo` pode não estar carregado quando o `Event BeginPlay` executa. Você precisa conectar o nameplate ao delegate `OnCharacterInfoLoaded` para atualização automática.
+
+   **Crie um Custom Event `UpdateNameplateFromCharacterInfo`:**
+   - **Input:** `CharacterInfo` (FUmbraCharacterInfo)
+   - **Lógica:** Obtém o widget do `NameplateWidgetComponent`, faz cast para `WBP_PlayerNameplate`, quebra o `CharacterInfo` e chama `Update Nameplate`
+
+   **No `Event BeginPlay`:**
    ```
    [Event BeginPlay]
-       ↓
-   [Get Widget] (do NameplateWidgetComponent)
-       ↓
-   [Cast to WBP Player Nameplate]
        ↓
    [Get Game Instance]
        ↓
    [Cast to Umbra Game Instance]
        ↓
-   [Get Current Character Info] (função do GameInstance)
+   [Assign OnCharacterInfoLoaded] (delegate do GameInstance)
        ↓
-   [Update Nameplate] (no widget)
-       CharacterName: CurrentCharacterInfo.CharacterName
-       TitleName: CurrentCharacterInfo.TitleName
+   [UpdateNameplateFromCharacterInfo] (seu Custom Event)
+       ↓
+   [Get Current Character Info] (tentativa de atualização inicial)
+       ↓
+   [Break Umbra Character Info]
+       ↓
+   [Is Empty] (Character Name)
+       ↓
+   [Branch]
+       False (tem nome) → [UpdateNameplateFromCharacterInfo]
+                             CharacterInfo: CurrentCharacterInfo
+       True (vazio) → (não faz nada, aguarda o delegate)
    ```
+
+   **Isso garante que:**
+   - O nameplate será atualizado automaticamente quando o `CurrentCharacterInfo` for carregado (via delegate)
+   - Se os dados já estiverem carregados quando o personagem spawnar, o nameplate será atualizado imediatamente
 
 ---
 
@@ -262,30 +279,87 @@ Canvas Panel (Root)
 
 ## ✅ **PASSO 7: Atualizar Barras em Tempo Real**
 
-### **7.1. Criar Evento de Atualização**
+### **7.1. Criar Função de Atualização**
 
-**No `WBP_PlayerHUD`, crie um Custom Event:**
+**No `WBP_PlayerHUD`, crie uma função chamada `UpdateStatsFromCharacterInfo`:**
+
+**Inputs:**
+- `CharacterInfo` (FUmbraCharacterInfo)
+
+**Lógica:**
+```
+[UpdateStatsFromCharacterInfo]
+    Input: CharacterInfo
+    ↓
+[UpdateHPBar]
+    CurrentHP: CharacterInfo.CurrentHealth
+    MaxHP: CharacterInfo.MaxHealthTotal
+    ↓
+[UpdateMPBar]
+    CurrentMP: CharacterInfo.CurrentMana
+    MaxMP: CharacterInfo.MaxManaTotal
+```
+
+### **7.2. Conectar ao Delegate do GameInstance**
+
+**No `Event Construct` do `WBP_PlayerHUD`:**
 
 ```
-[Custom Event: OnStatsUpdated]
+[Event Construct]
     ↓
 [Get Game Instance]
     ↓
 [Cast to Umbra Game Instance]
     ↓
-[Get Current Character Info] (função do GameInstance)
+[Bind Event to OnCharacterInfoLoaded] (do GameInstance)
     ↓
-[UpdateHPBar]
-[UpdateMPBar]
+[Create Custom Event: OnCharacterInfoUpdated]
+    Input: CharacterInfo (FUmbraCharacterInfo)
+    ↓
+[UpdateStatsFromCharacterInfo]
+    CharacterInfo: Input CharacterInfo
 ```
 
-### **7.2. Chamar o Evento**
+**IMPORTANTE:** 
+- No Blueprint, você precisa **conectar o delegate** `OnCharacterInfoLoaded` do GameInstance ao seu Custom Event `OnCharacterInfoUpdated`
+- Isso fará com que o HUD seja atualizado **automaticamente** sempre que o `CurrentCharacterInfo` for atualizado no GameInstance
 
-**Você pode chamar esse evento:**
-- Quando o personagem recebe dano/cura
-- Quando o personagem usa mana
-- Em um Timer (a cada 0.1 segundos, por exemplo)
-- Quando o GameInstance atualiza CurrentCharacterInfo
+### **7.3. Como Conectar o Delegate no Blueprint**
+
+1. **No `Event Construct` do `WBP_PlayerHUD`:**
+   - Obtenha o `Game Instance`
+   - Faça `Cast to Umbra Game Instance`
+   - **Arraste o pin `OnCharacterInfoLoaded`** (delegate) do GameInstance
+   - **Selecione `Assign`** (não `Call`)
+   - Isso abrirá um menu onde você pode criar um novo Custom Event ou selecionar um existente
+
+2. **Crie um Custom Event chamado `OnCharacterInfoUpdated`:**
+   - **Input:** `CharacterInfo` (FUmbraCharacterInfo)
+   - **Lógica:** Chame `UpdateStatsFromCharacterInfo` passando o `CharacterInfo` recebido
+
+3. **Conecte o delegate:**
+   - O pin `OnCharacterInfoLoaded` do GameInstance deve estar conectado ao Custom Event `OnCharacterInfoUpdated`
+
+### **7.4. Inicialização Inicial**
+
+**No `Event Construct`, após conectar o delegate, também chame a atualização inicial:**
+
+```
+[Event Construct]
+    ↓
+[... conectar delegate ...]
+    ↓
+[Get Game Instance]
+    ↓
+[Cast to Umbra Game Instance]
+    ↓
+[Get Current Character Info]
+    ↓
+[UpdateStatsFromCharacterInfo]
+    CharacterInfo: CurrentCharacterInfo obtido
+```
+
+**Isso garante que o HUD seja atualizado mesmo se o `CurrentCharacterInfo` já estiver carregado quando o widget for criado.**
 
 ---
 
@@ -294,9 +368,10 @@ Canvas Panel (Root)
 1. ✅ Criar `WBP_PlayerHUD` com barras de HP/MP
 2. ✅ Criar `WBP_PlayerNameplate` para nome/título
 3. ✅ Adicionar `Widget Component` no personagem para o nameplate
-4. ✅ Criar funções de atualização
+4. ✅ Criar funções de atualização (`UpdateHPBar`, `UpdateMPBar`, `UpdateStatsFromCharacterInfo`)
 5. ✅ Adicionar HUD ao nível
-6. ✅ Conectar com `CurrentCharacterInfo` do GameInstance
+6. ✅ **Conectar delegate `OnCharacterInfoLoaded` do GameInstance ao HUD** (atualização automática)
+7. ✅ Criar Custom Event `OnCharacterInfoUpdated` para receber atualizações do delegate
 
 ---
 
@@ -304,8 +379,20 @@ Canvas Panel (Root)
 
 - O `Widget Component` precisa estar configurado como **World Space** (não Screen Space)
 - Ajuste a posição Z do nameplate conforme a altura do personagem
-- As barras podem ser atualizadas via Timer ou eventos
+- **As barras são atualizadas automaticamente via delegate `OnCharacterInfoLoaded`** quando o `CurrentCharacterInfo` é atualizado no GameInstance
+- Não é necessário usar Timers - o sistema é reativo e eficiente
 - No futuro, este widget será expandido com minimapa, skills, etc.
+
+## 📚 **GUIAS RELACIONADOS**
+
+- **`GUIA_CONECTAR_DELEGATE_CHARACTERINFO.md`** - Guia completo sobre como conectar o delegate `OnCharacterInfoLoaded` ao HUD
+- **`CORRECAO_NAMEPLATE_CHARACTERNAME_VAZIO.md`** - Correção para quando o nome do personagem não aparece no nameplate (CharacterName vazio)
+
+## ⚠️ **PROBLEMA COMUM: Nome Não Aparece no Nameplate**
+
+Se o nome do personagem não aparecer no nameplate, o problema geralmente é que o `Event BeginPlay` executa **antes** do `CurrentCharacterInfo` ser carregado. 
+
+**Solução:** Conecte o nameplate ao delegate `OnCharacterInfoLoaded` do GameInstance para atualização automática quando os dados chegarem. Veja `CORRECAO_NAMEPLATE_CHARACTERNAME_VAZIO.md` para detalhes.
 
 ---
 

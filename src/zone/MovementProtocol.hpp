@@ -21,7 +21,8 @@ namespace Zone {
 enum class MovementMsgType : uint8_t {
   MoveUpdate = 1,
   StateUpdate = 2,
-  PlayerDisconnected = 3
+  PlayerDisconnected = 3,
+  PlayerInfoUpdate = 4
 };
 
 struct MovementFrame {
@@ -182,6 +183,75 @@ inline std::vector<uint8_t> encodePlayerDisconnected(uint32_t playerId) {
   
   write32(playerId);
   return out;
+}
+
+// Codificar mensagem PlayerInfoUpdate: [msgType:uint8][playerId:uint32][nameLen:uint16][name:bytes][titleLen:uint16][title:bytes]
+inline std::vector<uint8_t> encodePlayerInfoUpdate(uint32_t playerId, 
+                                                    const std::string& name, 
+                                                    const std::string& title) {
+  std::vector<uint8_t> out;
+  out.reserve(1 + 4 + 2 + name.size() + 2 + title.size());
+  
+  out.push_back(static_cast<uint8_t>(MovementMsgType::PlayerInfoUpdate));
+  
+  auto write32 = [&out](uint32_t v){
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  
+  auto write16 = [&out](uint16_t v){
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  };
+  
+  write32(playerId);
+  write16(static_cast<uint16_t>(name.size()));
+  out.insert(out.end(), name.begin(), name.end());
+  write16(static_cast<uint16_t>(title.size()));
+  out.insert(out.end(), title.begin(), title.end());
+  
+  return out;
+}
+
+// Decodificar mensagem PlayerInfoUpdate
+inline bool decodePlayerInfoUpdate(const std::vector<uint8_t>& data,
+                                   uint32_t& playerId,
+                                   std::string& name,
+                                   std::string& title) {
+  if (data.size() < 7) return false;  // Mínimo: msgType(1) + playerId(4) + nameLen(2)
+  
+  size_t off = 0;
+  MovementMsgType type = static_cast<MovementMsgType>(data[off++]);
+  if (type != MovementMsgType::PlayerInfoUpdate) return false;
+  
+  auto read32 = [&data](size_t& off)->uint32_t{
+    uint32_t v = static_cast<uint32_t>(data[off]) |
+                 (static_cast<uint32_t>(data[off+1])<<8) |
+                 (static_cast<uint32_t>(data[off+2])<<16) |
+                 (static_cast<uint32_t>(data[off+3])<<24);
+    off += 4; return v;
+  };
+  
+  auto read16 = [&data](size_t& off)->uint16_t{
+    uint16_t v = static_cast<uint16_t>(data[off]) |
+                 (static_cast<uint16_t>(data[off+1])<<8);
+    off += 2; return v;
+  };
+  
+  playerId = read32(off);
+  uint16_t nameLen = read16(off);
+  if (data.size() < off + nameLen + 2) return false;
+  
+  name.assign(reinterpret_cast<const char*>(data.data() + off), nameLen);
+  off += nameLen;
+  
+  uint16_t titleLen = read16(off);
+  if (data.size() < off + titleLen) return false;
+  
+  title.assign(reinterpret_cast<const char*>(data.data() + off), titleLen);
+  return true;
 }
 
 } // namespace Zone

@@ -1,0 +1,4 @@
+---always ask for confirmation before modify any project file
+always ask for permission and say exactly whay you will make before any change in any file
+alwaysApply: true
+---

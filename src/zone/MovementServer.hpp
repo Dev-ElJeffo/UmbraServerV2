@@ -19,6 +19,9 @@ struct PlayerStateNet {
   float speed = 0.0f;
   float velocityZ = 0.0f;
   bool isInAir = false;
+  // Dados do personagem
+  std::string characterName;
+  std::string characterTitle;
 };
 
 class MovementServer {
@@ -43,6 +46,43 @@ public:
     });
 
     ws_.setBinaryCallback([this](uint32_t cid, const std::vector<uint8_t>& data){
+      // Verificar tipo de mensagem primeiro
+      if (data.empty()) return;
+      MovementMsgType msgType = static_cast<MovementMsgType>(data[0]);
+      
+      // Processar PlayerInfoUpdate
+      if (msgType == MovementMsgType::PlayerInfoUpdate) {
+        uint32_t playerId;
+        std::string name, title;
+        if (decodePlayerInfoUpdate(data, playerId, name, title)) {
+          std::lock_guard<std::mutex> lock(mu_);
+          
+          Umbra::Core::Logger::getInstance().info("Received PlayerInfoUpdate from client {}: playerId={}, name={}, title={}", 
+                                                  cid, playerId, name, title);
+          
+          // Atualizar PlayerStateNet
+          if (players_.find(playerId) != players_.end()) {
+            players_[playerId].characterName = name;
+            players_[playerId].characterTitle = title;
+          } else {
+            // Criar novo PlayerStateNet se não existir
+            PlayerStateNet newPlayer;
+            newPlayer.playerId = playerId;
+            newPlayer.characterName = name;
+            newPlayer.characterTitle = title;
+            players_[playerId] = newPlayer;
+          }
+          
+          // Fazer broadcast para todos os clientes
+          auto broadcastMsg = encodePlayerInfoUpdate(playerId, name, title);
+          ws_.broadcastBinary(broadcastMsg);
+          Umbra::Core::Logger::getInstance().info("Broadcasted PlayerInfoUpdate for player {} (name={}, title={})", 
+                                                  playerId, name, title);
+        }
+        return;
+      }
+      
+      // Processar MoveUpdate (código existente)
       MovementFrame f{};
       float speed = 0.0f;
       float velocityZ = 0.0f;
@@ -105,8 +145,22 @@ private:
         sentCount++;
       }
     }
-    Umbra::Core::Logger::getInstance().info("Sent initial snapshot to client {} ({} players)", 
-                                             clientId, sentCount);
+    
+    // Enviar PlayerInfoUpdate de todos os players existentes
+    size_t infoSentCount = 0;
+    for (const auto& [pid, st] : players_) {
+      if (!st.characterName.empty()) {
+        auto infoMsg = encodePlayerInfoUpdate(pid, st.characterName, st.characterTitle);
+        if (ws_.sendBinary(clientId, infoMsg)) {
+          infoSentCount++;
+          Umbra::Core::Logger::getInstance().info("Sent PlayerInfoUpdate to client {}: PlayerID={}, name={}, title={}", 
+                                                   clientId, pid, st.characterName, st.characterTitle);
+        }
+      }
+    }
+    
+    Umbra::Core::Logger::getInstance().info("Sent initial snapshot to client {} ({} players, {} player info)", 
+                                             clientId, sentCount, infoSentCount);
   }
 
   // Versão sem lock - chamada de handleMoveUpdate que já tem lock
