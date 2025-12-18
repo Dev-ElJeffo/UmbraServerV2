@@ -75,3 +75,16 @@
 - tests/ (C++): `test_auth.cpp`, `test_db.cpp`, `test_network.cpp`, `test_zone.cpp`.
 - UmbraServer/: `docs_main/`, `scripts_main/`, `README_NOVO.md`.
 - third_party/: libs externas (spdlog, nlohmann/json, googletest, etc.).
+
+### 13) Git: Commits e Push
+- **Antes de executar** qualquer operação git (commit/push), sempre:
+  1. Verificar status do git em ambos os repositórios
+  2. Listar TODOS os arquivos que serão commitados (modificados, deletados e novos)
+  3. Informar os branches corretos (Principal: `Development`, Submódulo: `develop`)
+  4. Aguardar confirmação EXPLÍCITA do usuário
+- **Ordem de execução**: Sempre commitar/pushar o submódulo (`UmbraEternumUE`) PRIMEIRO, depois o repositório principal.
+- **Não modificar arquivos** durante operações git — apenas comandos git.
+- **Branches padrão**:
+  - Repositório principal (`UmbraServerV2`): branch `Development`
+  - Submódulo (`UmbraEternumUE`): branch `develop`
+- **Mensagens de commit**: usar prefixos `feat:`, `fix:`, `docs:`, `refactor:`, `chore:` conforme o tipo de alteração.
