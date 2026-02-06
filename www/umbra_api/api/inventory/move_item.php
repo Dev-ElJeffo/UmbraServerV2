@@ -367,7 +367,8 @@ if (!$current_is_storage && !$target_is_storage) {
         'message' => 'Item movido no inventário',
         'inventory_id' => (int)$inventory_id,
         'from_slot' => $current_slot_index,
-        'to_slot' => $target_slot_index
+        'to_slot' => $target_slot_index,
+        'was_equipped' => $is_equipped  // Indica se o item estava equipado antes do movimento
     ]);
     exit;
 }
@@ -483,7 +484,8 @@ file_put_contents('d:\UmbraServerV2\.cursor\debug.log', json_encode($log_payload
         'message' => 'Item movido com sucesso',
         'inventory_id' => (int)$inventory_id,
         'from_slot' => $current_slot_index,
-        'to_slot' => (int)$target_slot_index
+        'to_slot' => (int)$target_slot_index,
+        'was_equipped' => $is_equipped  // Indica se o item estava equipado antes do movimento
     ]);
     
 } catch (PDOException $e) {

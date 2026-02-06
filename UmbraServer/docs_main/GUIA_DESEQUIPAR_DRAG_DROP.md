@@ -580,18 +580,18 @@ Event Construct
 ## 9️⃣ Checklist de Implementação
 
 ### WBP_EquipmentSlot
-- [ ] `bCanDragFrom = true`
-- [ ] `bCanDropTo = true`  
-- [ ] `bIsStorageSlot = false`
-- [ ] `OnMouseButtonDown` → `DetectDragIfPressed`
-- [ ] `OnDragDetected` → `CreateItemDragOperation`
+- [x ] `bCanDragFrom = true`
+- [ x] `bCanDropTo = true`  
+- [x ] `bIsStorageSlot = false`
+- [ x] `OnMouseButtonDown` → `DetectDragIfPressed`
+- [ x] `OnDragDetected` → `CreateItemDragOperation`
 
 ### WBP_InventorySlot
-- [ ] `bCanDropTo = true`
+- [ x] `bCanDropTo = true`
 - [ ] Adicionar `Border_Equipped` (visual)
-- [ ] Adicionar `Image_EquippedIcon` (opcional)
-- [ ] Criar função `UpdateEquippedVisual`
-- [ ] Chamar `UpdateEquippedVisual` após `SetSlotData`
+- [x ] Adicionar `Image_EquippedIcon` (opcional)
+- [x ] Criar função `UpdateEquippedVisual`
+- [x ] Chamar `UpdateEquippedVisual` após `SetSlotData`
 
 ### WBP_Inventory / WBP_CharacterInfo
 - [ ] Bind `OnInventoryLoaded` para refresh

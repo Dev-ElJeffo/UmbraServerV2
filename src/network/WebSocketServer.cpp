@@ -155,16 +155,42 @@ void WebSocketServer::broadcastText(const std::string& message) {
 }
 
 void WebSocketServer::broadcastBinary(const std::vector<uint8_t>& data) {
-  std::lock_guard<std::mutex> lock(clientsMutex_);
+  // Se não houver clients, apenas retornar (não causar erro)
+  // Isso é seguro e evita trabalho desnecessário
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    if (clients_.empty()) {
+      return;
+    }
+  }
   
   WebSocketFrame frame;
   frame.opcode = WebSocketFrame::OpCode::BINARY;
   frame.fin = true;
   frame.payload = data;
   
-  for (auto& [id, client] : clients_) {
-    if (client.handshakeComplete) {
-      sendFrame(client.socket, frame);
+  // Criar cópia dos client IDs e sockets para evitar problemas se a lista mudar durante o broadcast
+  std::vector<std::pair<uint32_t, int>> clientsToSend;
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    clientsToSend.reserve(clients_.size());
+    for (const auto& [id, client] : clients_) {
+      if (client.handshakeComplete) {
+        clientsToSend.push_back({id, client.socket});
+      }
+    }
+  }
+  
+  // Enviar para cada client (sem lock para evitar deadlock)
+  for (const auto& [clientId, socket] : clientsToSend) {
+    try {
+      sendFrame(socket, frame);
+    } catch (const std::exception& e) {
+      Core::Logger::getInstance().warn("Exception while broadcasting to client {}: {}", clientId, e.what());
+      // Continuar com outros clients mesmo se um falhar
+    } catch (...) {
+      Core::Logger::getInstance().warn("Unknown exception while broadcasting to client {}", clientId);
+      // Continuar com outros clients mesmo se um falhar
     }
   }
 }
@@ -429,33 +455,53 @@ WebSocketFrame WebSocketServer::receiveFrame(int clientSocket) {
 }
 
 bool WebSocketServer::sendFrame(int clientSocket, const WebSocketFrame& frame) {
-  std::vector<uint8_t> data;
-  
-  uint8_t header = (frame.fin ? 0x80 : 0x00) | static_cast<uint8_t>(frame.opcode);
-  data.push_back(header);
-  
-  size_t payloadLen = frame.payload.size();
-  if (payloadLen < 126) {
-    data.push_back(static_cast<uint8_t>(payloadLen));
-  } else if (payloadLen < 65536) {
-    data.push_back(126);
-    data.push_back(static_cast<uint8_t>((payloadLen >> 8) & 0xFF));
-    data.push_back(static_cast<uint8_t>(payloadLen & 0xFF));
-  } else {
-    data.push_back(127);
-    for (int i = 7; i >= 0; --i) {
-      data.push_back(static_cast<uint8_t>((payloadLen >> (i * 8)) & 0xFF));
-    }
+  // Verificar se o socket é válido antes de tentar enviar
+  if (clientSocket == INVALID_SOCKET) {
+    return false;
   }
   
-  data.insert(data.end(), frame.payload.begin(), frame.payload.end());
-  
-  int result = send(clientSocket, 
-                    reinterpret_cast<const char*>(data.data()), 
-                    static_cast<int>(data.size()), 
-                    0);
-  
-  return result != SOCKET_ERROR;
+  try {
+    std::vector<uint8_t> data;
+    
+    uint8_t header = (frame.fin ? 0x80 : 0x00) | static_cast<uint8_t>(frame.opcode);
+    data.push_back(header);
+    
+    size_t payloadLen = frame.payload.size();
+    if (payloadLen < 126) {
+      data.push_back(static_cast<uint8_t>(payloadLen));
+    } else if (payloadLen < 65536) {
+      data.push_back(126);
+      data.push_back(static_cast<uint8_t>((payloadLen >> 8) & 0xFF));
+      data.push_back(static_cast<uint8_t>(payloadLen & 0xFF));
+    } else {
+      data.push_back(127);
+      for (int i = 7; i >= 0; --i) {
+        data.push_back(static_cast<uint8_t>((payloadLen >> (i * 8)) & 0xFF));
+      }
+    }
+    
+    data.insert(data.end(), frame.payload.begin(), frame.payload.end());
+    
+    int result = send(clientSocket, 
+                      reinterpret_cast<const char*>(data.data()), 
+                      static_cast<int>(data.size()), 
+                      0);
+    
+    // Se send falhou, o socket pode ter sido fechado - isso é normal e não deve parar o servidor
+    if (result == SOCKET_ERROR) {
+      // Log apenas em nível debug para não poluir os logs
+      Core::Logger::getInstance().debug("Failed to send frame to socket {} (socket may be closed)", clientSocket);
+      return false;
+    }
+    
+    return true;
+  } catch (const std::exception& e) {
+    Core::Logger::getInstance().warn("Exception in sendFrame for socket {}: {}", clientSocket, e.what());
+    return false;
+  } catch (...) {
+    Core::Logger::getInstance().warn("Unknown exception in sendFrame for socket {}", clientSocket);
+    return false;
+  }
 }
 
 std::string WebSocketServer::generateAcceptKey(const std::string& clientKey) {

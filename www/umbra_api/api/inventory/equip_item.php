@@ -119,24 +119,72 @@ try {
             exit;
         }
         
-        // Desequipar qualquer item no mesmo slot
-        $unequip_query = "
-            UPDATE player_inventory pi
+        // Verificar se há item equipado no mesmo slot que precisa ser desequipado
+        $check_equipped_query = "
+            SELECT pi.inventory_id
+            FROM player_inventory pi
             INNER JOIN item_templates it ON pi.item_template_id = it.item_id
-            SET pi.is_equipped = FALSE
             WHERE pi.player_id = :player_id 
             AND it.equipment_slot = :equipment_slot 
             AND pi.is_equipped = TRUE
         ";
-        $unequip_stmt = $pdo->prepare($unequip_query);
-        $unequip_stmt->execute([
+        $check_equipped_stmt = $pdo->prepare($check_equipped_query);
+        $check_equipped_stmt->execute([
             'player_id' => $player_id,
             'equipment_slot' => $equipment_slot
         ]);
-        $unequipped_count = $unequip_stmt->rowCount();
+        $equipped_item = $check_equipped_stmt->fetch(PDO::FETCH_ASSOC);
+        $unequipped_count = 0;
         
-        // Equipar o novo item
-        $equip_query = "UPDATE player_inventory SET is_equipped = TRUE WHERE inventory_id = :inventory_id";
+        if ($equipped_item) {
+            // Encontrar o primeiro slot vazio para o item que será desequipado
+            $find_slot_query = "
+                SELECT MIN(t.slot_index) as first_empty_slot
+                FROM (
+                    SELECT 0 as slot_index
+                    UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
+                    UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9
+                    UNION ALL SELECT 10 UNION ALL SELECT 11 UNION ALL SELECT 12 UNION ALL SELECT 13 UNION ALL SELECT 14
+                    UNION ALL SELECT 15 UNION ALL SELECT 16 UNION ALL SELECT 17 UNION ALL SELECT 18 UNION ALL SELECT 19
+                    UNION ALL SELECT 20 UNION ALL SELECT 21 UNION ALL SELECT 22 UNION ALL SELECT 23 UNION ALL SELECT 24
+                    UNION ALL SELECT 25 UNION ALL SELECT 26 UNION ALL SELECT 27 UNION ALL SELECT 28 UNION ALL SELECT 29
+                    UNION ALL SELECT 30 UNION ALL SELECT 31 UNION ALL SELECT 32 UNION ALL SELECT 33 UNION ALL SELECT 34
+                    UNION ALL SELECT 35 UNION ALL SELECT 36 UNION ALL SELECT 37 UNION ALL SELECT 38 UNION ALL SELECT 39
+                    UNION ALL SELECT 40 UNION ALL SELECT 41 UNION ALL SELECT 42 UNION ALL SELECT 43 UNION ALL SELECT 44
+                    UNION ALL SELECT 45 UNION ALL SELECT 46 UNION ALL SELECT 47 UNION ALL SELECT 48 UNION ALL SELECT 49
+                ) t
+                LEFT JOIN player_inventory pi ON pi.slot_index = t.slot_index 
+                    AND pi.player_id = :player_id 
+                    AND pi.slot_index >= 0
+                WHERE pi.inventory_id IS NULL
+                LIMIT 1
+            ";
+            $find_slot_stmt = $pdo->prepare($find_slot_query);
+            $find_slot_stmt->execute(['player_id' => $player_id]);
+            $slot_result = $find_slot_stmt->fetch(PDO::FETCH_ASSOC);
+            $unequip_target_slot = $slot_result ? (int)$slot_result['first_empty_slot'] : null;
+            
+            if ($unequip_target_slot === null) {
+                $pdo->rollBack();
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'Inventário cheio. Não é possível trocar o item equipado.']);
+                exit;
+            }
+            
+            // Desequipar o item anterior e mover para o slot vazio
+            $unequip_query = "UPDATE player_inventory SET is_equipped = FALSE, slot_index = :slot_index WHERE inventory_id = :inventory_id";
+            $unequip_stmt = $pdo->prepare($unequip_query);
+            $unequip_stmt->execute([
+                'inventory_id' => $equipped_item['inventory_id'],
+                'slot_index' => $unequip_target_slot
+            ]);
+            $unequipped_count = 1;
+        }
+        
+        // Equipar o novo item e liberar o slot do inventário
+        // Usamos slot_index = -inventory_id para garantir unicidade (evita conflito com unique_player_slot)
+        // Itens equipados terão slot_index negativo único baseado em seu inventory_id
+        $equip_query = "UPDATE player_inventory SET is_equipped = TRUE, slot_index = -inventory_id WHERE inventory_id = :inventory_id";
         $equip_stmt = $pdo->prepare($equip_query);
         $equip_stmt->execute(['inventory_id' => $inventory_id]);
         
