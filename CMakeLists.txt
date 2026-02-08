@@ -109,6 +109,29 @@ target_link_libraries(gateway_server
   Threads::Threads
 )
 
+# Copiar config/server.json para o diretório de saída (servidor precisa no CWD)
+foreach(TGT umbra_server auth_server world_server zone_server gateway_server)
+  add_custom_command(TARGET ${TGT} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${TGT}>/config"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/config/server.json" "$<TARGET_FILE_DIR:${TGT}>/config/"
+    COMMENT "Copiando config para ${TGT}"
+  )
+endforeach()
+
+# Copiar libmysql.dll para o diretório de saída (necessário em runtime no Windows)
+if(WIN32 AND MYSQL_LIBRARY)
+  get_filename_component(MYSQL_LIB_DIR ${MYSQL_LIBRARY} DIRECTORY)
+  set(LIBMYSQL_DLL "${MYSQL_LIB_DIR}/libmysql.dll")
+  if(EXISTS "${LIBMYSQL_DLL}")
+    foreach(TGT umbra_server auth_server world_server zone_server)
+      add_custom_command(TARGET ${TGT} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${LIBMYSQL_DLL}" "$<TARGET_FILE_DIR:${TGT}>"
+        COMMENT "Copiando libmysql.dll para ${TGT}"
+      )
+    endforeach()
+  endif()
+endif()
+
 # Tests
 enable_testing()
 add_subdirectory(tests)

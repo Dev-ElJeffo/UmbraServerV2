@@ -76,6 +76,20 @@ public:
         return;
       }
       
+      // Trade Started Notify (cliente aceitou via HTTP, notifica para ambos verem WBP_Trade)
+      if (msgType == MovementMsgType::TradeStartedNotify) {
+        uint32_t tradeSessionId, player1Id, player2Id;
+        if (decodeTradeStartedNotify(data, tradeSessionId, player1Id, player2Id)) {
+          Umbra::Core::Logger::getInstance().info("Received TradeStartedNotify from client {}: session={}, p1={}, p2={}", 
+                                                  cid, tradeSessionId, player1Id, player2Id);
+          std::lock_guard<std::mutex> lock(mu_);
+          auto msg = encodeTradeStarted(tradeSessionId, player1Id, player2Id);
+          sendToPlayerUnlocked(player1Id, msg);
+          sendToPlayerUnlocked(player2Id, msg);
+        }
+        return;
+      }
+      
       // Friend Request
       if (msgType == MovementMsgType::FriendRequest) {
         uint32_t fromId, toId;

@@ -191,6 +191,13 @@
             border-radius: 10px;
             margin-bottom: 15px;
             border-left: 4px solid #667eea;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .player-card:hover {
+            background: #e8eaf6;
+            transform: translateX(4px);
         }
         
         .player-name {
@@ -374,6 +381,7 @@
             container.innerHTML = '';
             
             players.forEach(player => {
+                const playerId = player.player_id ?? player.id;
                 const card = document.createElement('div');
                 card.className = 'player-card';
                 card.innerHTML = `
@@ -383,8 +391,34 @@
                         <span>🗺️ ${player.current_zone || 'Zona Inicial'}</span>
                     </div>
                 `;
+                card.onclick = () => selectCharacter(playerId);
                 container.appendChild(card);
             });
+        }
+        
+        async function selectCharacter(playerId) {
+            const authToken = sessionStorage.getItem('auth_token');
+            if (!authToken) {
+                alert('Token não encontrado. Faça login novamente.');
+                return;
+            }
+            try {
+                const response = await fetch('api/character/select_character.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: authToken, player_id: playerId })
+                });
+                const result = await response.json();
+                if (result.success && result.token) {
+                    sessionStorage.setItem('auth_token', result.token);
+                    document.getElementById('authToken').textContent = result.token;
+                    alert('Personagem selecionado! Token atualizado com player_id do personagem.');
+                } else {
+                    alert('Erro: ' + (result.message || 'Falha ao selecionar personagem'));
+                }
+            } catch (error) {
+                alert('Erro ao conectar com servidor');
+            }
         }
         
         function logout() {

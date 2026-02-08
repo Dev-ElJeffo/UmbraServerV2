@@ -16,6 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/trade_helper.php';
 
 $json = file_get_contents('php://input');
 $data = json_decode($json, true) ?: [];
@@ -27,8 +28,8 @@ if (!$validation['valid']) {
     exit;
 }
 
-$player_id = $validation['payload']['player_id'] ?? null;
-$target_player_id = $data['target_player_id'] ?? null;
+$player_id = isset($validation['payload']['player_id']) ? (int) $validation['payload']['player_id'] : null;
+$target_player_id = isset($data['target_player_id']) ? (int) $data['target_player_id'] : null;
 
 if (!$player_id || !$target_player_id) {
     http_response_code(400);
@@ -45,7 +46,10 @@ if ($player_id == $target_player_id) {
 try {
     $pdo = getConnection();
     $pdo->beginTransaction();
-    
+
+    // Limpar solicitações expiradas e sessões abandonadas (permite nova troca)
+    cleanupExpiredTrades($pdo);
+
     // Verificar se o jogador alvo existe
     $check_target = $pdo->prepare("SELECT id, character_name FROM players WHERE id = :target_id");
     $check_target->execute(['target_id' => $target_player_id]);
@@ -58,30 +62,43 @@ try {
         exit;
     }
     
-    // Verificar se já está em uma troca
+    // Verificar se requester ou alvo já está em uma troca
     $check_trade = $pdo->prepare("
         SELECT trade_session_id FROM trade_sessions 
-        WHERE (player1_id = :player_id OR player2_id = :player_id) AND status = 'active'
+        WHERE status = 'active' 
+        AND (player1_id IN (?, ?) OR player2_id IN (?, ?))
     ");
-    $check_trade->execute(['player_id' => $player_id]);
+    $check_trade->execute([$player_id, $target_player_id, $player_id, $target_player_id]);
     if ($check_trade->fetch()) {
         $pdo->rollBack();
         http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'Você já está em uma troca']);
+        echo json_encode(['success' => false, 'message' => 'Um dos jogadores já está em uma troca']);
         exit;
     }
     
     // Verificar se já existe solicitação pendente
     $check_request = $pdo->prepare("
-        SELECT request_id FROM trade_requests 
+        SELECT request_id, expires_at FROM trade_requests 
         WHERE from_player_id = :from_id AND to_player_id = :to_id AND status = 'pending'
     ");
     $check_request->execute(['from_id' => $player_id, 'to_id' => $target_player_id]);
-    if ($check_request->fetch()) {
-        $pdo->rollBack();
-        http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'Já existe uma solicitação pendente para este jogador']);
-        exit;
+    $existing = $check_request->fetch(PDO::FETCH_ASSOC);
+    if ($existing) {
+        if (strtotime($existing['expires_at']) < time()) {
+            $pdo->prepare("UPDATE trade_requests SET status = 'expired' WHERE request_id = :rid")
+                ->execute(['rid' => $existing['request_id']]);
+        } else {
+            $pdo->commit();
+            http_response_code(200);
+            echo json_encode([
+                'success' => true,
+                'message' => 'Solicitação já enviada (reenviando notificação)',
+                'request_id' => (int)$existing['request_id'],
+                'target_player_id' => (int)$target_player_id,
+                'target_player_name' => $target['character_name']
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
     }
     
     // Criar solicitação

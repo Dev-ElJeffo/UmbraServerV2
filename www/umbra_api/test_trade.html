@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste: Trade (Troca)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #ffffff;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2em;
+            color: #ffd700;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .section {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .section h2 {
+            color: #ffd700;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #b0b0b0;
+            font-weight: 600;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #4a4a6a;
+            border-radius: 5px;
+            background: #2d2d44;
+            color: #e0e0e0;
+            font-size: 1em;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #ffd700;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .form-row .form-group {
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+            transition: all 0.3s;
+            margin-right: 10px;
+            margin-top: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+            color: #1e1e2e;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
+        }
+
+        .btn-secondary {
+            background: #4a4a6a;
+            color: #e0e0e0;
+        }
+
+        .btn-secondary:hover {
+            background: #5a5a7a;
+        }
+
+        .result {
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .success { color: #4caf50; }
+        .error { color: #f44336; }
+        .info { color: #2196f3; }
+
+        .help-text {
+            font-size: 0.9em;
+            color: #888;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 Teste: Trade (Troca)</h1>
+
+        <div class="section">
+            <h2>🔐 Configuração (dois usuários para teste)</h2>
+            <div class="form-group">
+                <label>Token Usuário A (ex: ElJeffo):</label>
+                <input type="text" id="tokenA" placeholder="Token do usuário A">
+                <p class="help-text" id="playerIdA"></p>
+            </div>
+            <div class="form-group">
+                <label>Token Usuário B (ex: TheKillZone):</label>
+                <input type="text" id="tokenB" placeholder="Token do usuário B">
+                <p class="help-text" id="playerIdB"></p>
+            </div>
+            <div class="form-group">
+                <label>Token padrão (fallback):</label>
+                <input type="text" id="token" placeholder="Usado quando A/B vazio">
+                <p class="help-text">O token é obtido após login e seleção de personagem.</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>📤 1. Enviar Solicitação de Troca (send_trade_request.php)</h2>
+            <div class="form-group">
+                <label>Usar token de:</label>
+                <select id="tokenSend">
+                    <option value="A">Usuário A</option>
+                    <option value="B">Usuário B</option>
+                    <option value="default">Padrão</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Target Player ID:</label>
+                    <input type="number" id="targetPlayerId" placeholder="ID do jogador alvo" value="">
+                    <p class="help-text"><strong>Para teste A→B:</strong> Target = player_id do receptor. Use o botão abaixo para preencher.</p>
+                </div>
+                <div class="form-group">
+                    <label>Target Player Name (opcional):</label>
+                    <input type="text" id="targetPlayerName" placeholder="Nome do jogador">
+                </div>
+            </div>
+            <button class="btn btn-secondary" onclick="fillTargetFromTokenB()" title="Preenche Target com player_id do Token B">↳ Target = Player B</button>
+            <button class="btn btn-primary" onclick="sendTradeRequest()">Enviar Solicitação de Troca</button>
+        </div>
+
+        <div class="section">
+            <h2>✅ 2. Aceitar Solicitação de Troca (accept_trade_request.php)</h2>
+            <p class="help-text" style="margin-bottom:12px;"><strong>request_id</strong> = ID da solicitação (ex: 26). <strong>from_player_id</strong> = player_id de quem ENVIOU. A API aceita um ou outro (request_id tem prioridade).</p>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Request ID (recomendado):</label>
+                    <input type="number" id="requestId" placeholder="ID da solicitação (ex: 26)" value="">
+                    <p class="help-text">Obtido em "Carregar Pendentes" ou no retorno de "Enviar". É o PK da tabela trade_requests.</p>
+                </div>
+                <div class="form-group">
+                    <label>From Player ID (alternativa):</label>
+                    <input type="number" id="fromPlayerId" placeholder="player_id de quem enviou" value="">
+                    <p class="help-text">player_id de quem ENVIOU (ex: ElJeffo = 1). Usar se não tiver request_id.</p>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Token de quem aceita (receptor):</label>
+                <select id="tokenAcceptSelect">
+                    <option value="A">Usuário A</option>
+                    <option value="B">Usuário B</option>
+                    <option value="default">Padrão</option>
+                </select>
+                <p class="help-text"><strong>Token da conta</strong> que recebeu a solicitação. Como o token é da conta (não do personagem), qualquer token da conta serve — mesmo que o personagem que recebeu seja outro da mesma conta.</p>
+            </div>
+            <button class="btn btn-secondary" onclick="fillFromFromTokenA()" title="Preenche From com player_id do Token A">↳ From = Player A</button>
+            <button class="btn btn-primary" onclick="acceptTradeRequest()">Aceitar Troca</button>
+        </div>
+
+        <div class="section">
+            <h2>📋 3. Obter Convites Pendentes (get_pending_invites.php)</h2>
+            <p class="help-text">Carrega pendentes de ambos os usuários (A e B) para comparar.</p>
+            <button class="btn btn-secondary" onclick="getPendingInvites()">Carregar Pendentes (A + B)</button>
+        </div>
+
+        <div class="section">
+            <h2>❌ 4. Cancelar Troca Ativa (cancel_trade.php)</h2>
+            <p class="help-text">Se aparecer "Um dos jogadores já está em uma troca", use para cancelar a sessão ativa e poder testar novamente.</p>
+            <div class="form-group">
+                <label>Usar token de:</label>
+                <select id="tokenCancelSelect">
+                    <option value="A">Usuário A</option>
+                    <option value="B">Usuário B</option>
+                    <option value="default">Padrão</option>
+                </select>
+            </div>
+            <button class="btn btn-secondary" onclick="cancelTrade()">Cancelar Troca Ativa</button>
+        </div>
+
+        <div class="section">
+            <h2>📄 Resultado</h2>
+            <div id="result" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost/umbra_api';
+
+        function decodeJWT(token) {
+            try {
+                const parts = token.split('.');
+                if (parts.length !== 3) return null;
+                const payload = JSON.parse(atob(parts[1]));
+                return payload.player_id ? `player_id=${payload.player_id}` : null;
+            } catch (e) { return null; }
+        }
+
+        function getPlayerIdFromToken(token) {
+            try {
+                const parts = token.split('.');
+                if (parts.length !== 3) return null;
+                const payload = JSON.parse(atob(parts[1]));
+                return payload.player_id ? parseInt(payload.player_id) : null;
+            } catch (e) { return null; }
+        }
+
+        function updatePlayerIdHints() {
+            const tA = document.getElementById('tokenA').value.trim();
+            const tB = document.getElementById('tokenB').value.trim();
+            document.getElementById('playerIdA').textContent = tA ? `→ ${decodeJWT(tA) || 'token inválido'}` : '';
+            document.getElementById('playerIdB').textContent = tB ? `→ ${decodeJWT(tB) || 'token inválido'}` : '';
+        }
+
+        document.getElementById('tokenA').addEventListener('input', updatePlayerIdHints);
+        document.getElementById('tokenB').addEventListener('input', updatePlayerIdHints);
+
+        window.addEventListener('message', function(event) {
+            if (event.data && event.data.type === 'JWT_TOKEN' && event.data.token) {
+                document.getElementById('tokenA').value = event.data.token;
+                updatePlayerIdHints();
+            }
+        });
+
+        window.addEventListener('load', function() {
+            if (window.parent !== window) window.parent.postMessage({ type: 'REQUEST_JWT_TOKEN' }, '*');
+            const saved = localStorage.getItem('umbra_jwt_token');
+            if (saved) document.getElementById('tokenA').value = saved;
+            updatePlayerIdHints();
+        });
+
+        function getToken(which) {
+            if (which === 'A') return document.getElementById('tokenA').value.trim();
+            if (which === 'B') return document.getElementById('tokenB').value.trim();
+            return document.getElementById('token').value.trim();
+        }
+
+        function fillTargetFromTokenB() {
+            const tokenB = getToken('B');
+            const pid = getPlayerIdFromToken(tokenB);
+            if (pid) {
+                document.getElementById('targetPlayerId').value = pid;
+                document.getElementById('result').innerHTML += `<span class="info">[${new Date().toLocaleTimeString()}] Target preenchido com player_id do Token B: ${pid}</span>\n`;
+            } else {
+                document.getElementById('result').innerHTML += `<span class="error">[${new Date().toLocaleTimeString()}] Token B vazio ou inválido. Preencha o Token B primeiro.</span>\n`;
+            }
+        }
+
+        function fillFromFromTokenA() {
+            const tokenA = getToken('A');
+            const pid = getPlayerIdFromToken(tokenA);
+            if (pid) {
+                document.getElementById('fromPlayerId').value = pid;
+                document.getElementById('result').innerHTML += `<span class="info">[${new Date().toLocaleTimeString()}] From preenchido com player_id do Token A: ${pid}</span>\n`;
+            } else {
+                document.getElementById('result').innerHTML += `<span class="error">[${new Date().toLocaleTimeString()}] Token A vazio ou inválido. Preencha o Token A primeiro.</span>\n`;
+            }
+        }
+
+        function log(message, type = 'info') {
+            const resultDiv = document.getElementById('result');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'success' ? 'success' : type === 'error' ? 'error' : 'info';
+            resultDiv.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
+            resultDiv.scrollTop = resultDiv.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('result').innerHTML = '';
+        }
+
+        async function sendTradeRequest() {
+            clearLog();
+            const which = document.getElementById('tokenSend').value;
+            const token = getToken(which);
+            const targetPlayerId = document.getElementById('targetPlayerId').value;
+            const targetPlayerName = document.getElementById('targetPlayerName').value;
+
+            if (!token) {
+                log('❌ Erro: JWT Token é obrigatório', 'error');
+                return;
+            }
+            if (!targetPlayerId) {
+                log('❌ Erro: Target Player ID é obrigatório', 'error');
+                return;
+            }
+
+            log(`📡 Enviando solicitação de troca para Player ID ${targetPlayerId}...`, 'info');
+
+            try {
+                const body = {
+                    token: token,
+                    target_player_id: parseInt(targetPlayerId)
+                };
+                if (targetPlayerName) body.target_player_name = targetPlayerName;
+
+                const response = await fetch(`${API_BASE}/api/social/send_trade_request.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    log(`✅ Sucesso: ${data.message}`, 'success');
+                    log(`Request ID: ${data.request_id} (ID da solicitação, não do personagem)`, 'success');
+                    log(`Target: ${data.target_player_name} (player_id: ${data.target_player_id})`, 'success');
+                } else {
+                    log(`❌ Erro: ${data.message || 'Erro desconhecido'}`, 'error');
+                }
+                log('\nResposta completa:', 'info');
+                log(JSON.stringify(data, null, 2), 'info');
+            } catch (error) {
+                log(`❌ Erro na requisição: ${error.message}`, 'error');
+            }
+        }
+
+        async function acceptTradeRequest() {
+            clearLog();
+            const which = document.getElementById('tokenAcceptSelect').value;
+            const token = getToken(which);
+            const requestId = document.getElementById('requestId').value.trim();
+            const fromPlayerId = document.getElementById('fromPlayerId').value.trim();
+
+            if (!token) {
+                log('❌ Erro: Token do receptor é obrigatório. Selecione Usuário A ou B com token preenchido.', 'error');
+                return;
+            }
+            if (!requestId && !fromPlayerId) {
+                log('❌ Erro: Preencha Request ID ou From Player ID', 'error');
+                return;
+            }
+
+            const pid = decodeJWT(token);
+            const body = { token: token };
+            if (requestId) {
+                body.request_id = parseInt(requestId);
+                log(`📡 Aceitando solicitação request_id=${requestId}...`, 'info');
+            } else {
+                body.from_player_id = parseInt(fromPlayerId);
+                log(`📡 Aceitando troca de from_player_id=${fromPlayerId}...`, 'info');
+            }
+            log(`(Token: ${which}, ${pid || '?'})`, 'info');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/social/accept_trade_request.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    log(`✅ Sucesso: ${data.message}`, 'success');
+                    log(`Trade Session ID: ${data.trade_session_id}`, 'success');
+                    log(`Player 1: ${data.player1_id} | Player 2: ${data.player2_id}`, 'success');
+                } else {
+                    log(`❌ Erro: ${data.message || 'Erro desconhecido'}`, 'error');
+                }
+                log('\nResposta completa:', 'info');
+                log(JSON.stringify(data, null, 2), 'info');
+            } catch (error) {
+                log(`❌ Erro na requisição: ${error.message}`, 'error');
+            }
+        }
+
+        async function getPendingInvites() {
+            clearLog();
+            const tokenA = getToken('A');
+            const tokenB = getToken('B');
+
+            if (!tokenA && !tokenB) {
+                log('❌ Erro: Preencha pelo menos Token A ou Token B', 'error');
+                return;
+            }
+
+            log('📡 Carregando convites pendentes dos dois usuários...', 'info');
+
+            async function fetchForUser(label, token) {
+                if (!token) return null;
+                const res = await fetch(`${API_BASE}/api/social/get_pending_invites.php?type=all`, {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+                });
+                const data = await res.json();
+                return { label, token, data };
+            }
+
+            try {
+                const [rA, rB] = await Promise.all([
+                    fetchForUser('Usuário A', tokenA),
+                    fetchForUser('Usuário B', tokenB)
+                ]);
+
+                for (const r of [rA, rB].filter(Boolean)) {
+                    log(`\n═══ ${r.label} (${decodeJWT(r.token) || '?'}) ═══`, 'info');
+                    if (r.data.success) {
+                        const d = r.data.data || {};
+                        const trade = (d.trade_requests || []).length;
+                        const party = (d.party_invites || []).length;
+                        const friend = (d.friend_requests || []).length;
+                        log(`Trade: ${trade} | Party: ${party} | Friend: ${friend}`, 'success');
+                        if (trade > 0) {
+                            (d.trade_requests || []).forEach(tr => {
+                                log(`  • request_id=${tr.request_id} (solicitação) | de ${tr.from_player_name} (from_player_id=${tr.from_player_id})`, 'info');
+                                log(`    [Usar request_id=${tr.request_id} para aceitar]`, 'info');
+                            });
+                        }
+                    } else {
+                        log(`❌ ${r.data.message || 'Erro'}`, 'error');
+                    }
+                }
+                log('\nResposta completa A:', 'info');
+                if (rA) log(JSON.stringify(rA.data, null, 2), 'info');
+                log('\nResposta completa B:', 'info');
+                if (rB) log(JSON.stringify(rB.data, null, 2), 'info');
+            } catch (error) {
+                log(`❌ Erro: ${error.message}`, 'error');
+            }
+        }
+
+        async function cancelTrade() {
+            clearLog();
+            const which = document.getElementById('tokenCancelSelect').value;
+            const token = getToken(which);
+            if (!token) {
+                log('❌ Erro: Token é obrigatório', 'error');
+                return;
+            }
+            log('📡 Cancelando troca ativa...', 'info');
+            try {
+                const response = await fetch(`${API_BASE}/api/social/cancel_trade.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: token })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    log(`✅ ${data.message} (sessão ${data.trade_session_id})`, 'success');
+                } else {
+                    log(`❌ ${data.message || 'Erro'}`, 'error');
+                }
+                log(JSON.stringify(data, null, 2), 'info');
+            } catch (error) {
+                log(`❌ Erro: ${error.message}`, 'error');
+            }
+        }
+    </script>
+</body>
+</html>

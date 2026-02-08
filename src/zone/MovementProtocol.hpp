@@ -35,6 +35,7 @@ enum class MovementMsgType : uint8_t {
   TradeRequestResponse = 22,  // Cliente -> Servidor: Aceitar/Recusar
   TradeStarted = 23,          // Servidor -> Clientes: Troca iniciada
   TradeCancelled = 24,        // Servidor -> Clientes: Troca cancelada
+  TradeStartedNotify = 25,    // Cliente -> Servidor: Notificar troca aceita (após HTTP)
   FriendRequest = 30,         // Cliente -> Servidor: Solicitar amizade
   FriendRequestReceived = 31,// Servidor -> Cliente: Receber solicitação
   FriendRequestResponse = 32, // Cliente -> Servidor: Aceitar/Recusar
@@ -518,6 +519,76 @@ inline std::vector<uint8_t> encodeTradeRequestReceived(uint32_t fromPlayerId, ui
   write32(fromPlayerId);
   write32(toPlayerId);
   return out;
+}
+
+// Cliente -> Servidor: Notificar troca aceita (após HTTP)
+// [msgType:25][tradeSessionId:uint32][player1Id:uint32][player2Id:uint32]
+inline std::vector<uint8_t> encodeTradeStartedNotify(uint32_t tradeSessionId, uint32_t player1Id, uint32_t player2Id) {
+  std::vector<uint8_t> out;
+  out.reserve(13);
+  out.push_back(static_cast<uint8_t>(MovementMsgType::TradeStartedNotify));
+  auto write32 = [&out](uint32_t v){
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  write32(tradeSessionId);
+  write32(player1Id);
+  write32(player2Id);
+  return out;
+}
+
+// Servidor -> Clientes: Troca iniciada
+// [msgType:23][tradeSessionId:uint32][player1Id:uint32][player2Id:uint32]
+inline std::vector<uint8_t> encodeTradeStarted(uint32_t tradeSessionId, uint32_t player1Id, uint32_t player2Id) {
+  std::vector<uint8_t> out;
+  out.reserve(13);
+  out.push_back(static_cast<uint8_t>(MovementMsgType::TradeStarted));
+  auto write32 = [&out](uint32_t v){
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  write32(tradeSessionId);
+  write32(player1Id);
+  write32(player2Id);
+  return out;
+}
+
+// Decodificar TradeStartedNotify (cliente -> servidor)
+inline bool decodeTradeStartedNotify(const std::vector<uint8_t>& data, uint32_t& tradeSessionId, uint32_t& player1Id, uint32_t& player2Id) {
+  if (data.size() < 13) return false;
+  size_t off = 1;
+  auto read32 = [&data](size_t& o)->uint32_t{
+    uint32_t v = static_cast<uint32_t>(data[o]) |
+                 (static_cast<uint32_t>(data[o+1])<<8) |
+                 (static_cast<uint32_t>(data[o+2])<<16) |
+                 (static_cast<uint32_t>(data[o+3])<<24);
+    o += 4; return v;
+  };
+  tradeSessionId = read32(off);
+  player1Id = read32(off);
+  player2Id = read32(off);
+  return true;
+}
+
+// Decodificar TradeStarted (servidor -> cliente)
+inline bool decodeTradeStarted(const std::vector<uint8_t>& data, uint32_t& tradeSessionId, uint32_t& player1Id, uint32_t& player2Id) {
+  if (data.size() < 13) return false;
+  size_t off = 1;
+  auto read32 = [&data](size_t& o)->uint32_t{
+    uint32_t v = static_cast<uint32_t>(data[o]) |
+                 (static_cast<uint32_t>(data[o+1])<<8) |
+                 (static_cast<uint32_t>(data[o+2])<<16) |
+                 (static_cast<uint32_t>(data[o+3])<<24);
+    o += 4; return v;
+  };
+  tradeSessionId = read32(off);
+  player1Id = read32(off);
+  player2Id = read32(off);
+  return true;
 }
 
 inline std::vector<uint8_t> encodeFriendRequestReceived(uint32_t fromPlayerId, uint32_t toPlayerId) {

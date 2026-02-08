@@ -14,6 +14,7 @@ header('Access-Control-Allow-Headers: Content-Type, Authorization');
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/trade_helper.php';
 
 $data = [];
 $headers = getallheaders();
@@ -39,8 +40,12 @@ if (!$player_id) {
 
 try {
     $pdo = getConnection();
+
+    // Limpar solicitações expiradas e sessões abandonadas (evita listar expiradas)
+    cleanupExpiredTrades($pdo);
+
     $result = [];
-    
+
     // Party Invites
     if ($type == 'all' || $type == 'party') {
         $party_query = $pdo->prepare("
@@ -55,14 +60,15 @@ try {
         $result['party_invites'] = $party_query->fetchAll(PDO::FETCH_ASSOC);
     }
     
-    // Trade Requests
+    // Trade Requests (útil para teste/debug; em produção o cliente usa WebSocket tempo real)
     if ($type == 'all' || $type == 'trade') {
         $trade_query = $pdo->prepare("
-            SELECT tr.request_id, tr.trade_session_id, tr.from_player_id, tr.created_at,
+            SELECT tr.request_id, tr.trade_session_id, tr.from_player_id, tr.created_at, tr.expires_at,
                    p.character_name as from_player_name
             FROM trade_requests tr
             INNER JOIN players p ON tr.from_player_id = p.id
             WHERE tr.to_player_id = :player_id AND tr.status = 'pending'
+            AND (tr.expires_at IS NULL OR tr.expires_at > NOW())
             ORDER BY tr.created_at DESC
         ");
         $trade_query->execute(['player_id' => $player_id]);

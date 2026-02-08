@@ -21,9 +21,9 @@ function validateJWT($token, $secret = null) {
         return false;
     }
     
-    // Usar chave secreta padrão se não fornecida
+    // Usar chave secreta padrão (DEVE ser a mesma de helpers/jwt_helper.php)
     if ($secret === null) {
-        $secret = getenv('JWT_SECRET') ?: 'UmbraEternum2025SecretKey123456789';
+        $secret = getenv('JWT_SECRET') ?: 'umbra_eternum_secret_key_2024_very_secure';
     }
     
     // Separar token em partes
@@ -160,9 +160,9 @@ function base64UrlEncode($input) {
  * @return string Token JWT completo (header.payload.signature)
  */
 function generateJWT($accountId, $playerId, $username, $expirationMinutes = 60, $secret = null) {
-    // Usar chave secreta padrão se não fornecida
+    // Usar chave secreta padrão (DEVE ser a mesma de helpers/jwt_helper.php)
     if ($secret === null) {
-        $secret = getenv('JWT_SECRET') ?: 'UmbraEternum2025SecretKey123456789';
+        $secret = getenv('JWT_SECRET') ?: 'umbra_eternum_secret_key_2024_very_secure';
     }
     
     // Criar header (mesmo formato do C++)
