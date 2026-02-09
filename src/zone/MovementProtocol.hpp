@@ -36,6 +36,9 @@ enum class MovementMsgType : uint8_t {
   TradeStarted = 23,          // Servidor -> Clientes: Troca iniciada
   TradeCancelled = 24,        // Servidor -> Clientes: Troca cancelada
   TradeStartedNotify = 25,    // Cliente -> Servidor: Notificar troca aceita (após HTTP)
+  PartyAcceptNotify = 26,     // Cliente -> Servidor: Notificar aceite de grupo (após HTTP)
+  PartyStatsRefresh = 27,     // Cliente -> Servidor: HP/MP mudou (equip/unequip), broadcast para refrescar
+  PartyMemberLeftNotify = 28, // Cliente -> Servidor: Saiu do grupo (após HTTP), broadcast para outros
   FriendRequest = 30,         // Cliente -> Servidor: Solicitar amizade
   FriendRequestReceived = 31,// Servidor -> Cliente: Receber solicitação
   FriendRequestResponse = 32, // Cliente -> Servidor: Aceitar/Recusar
@@ -632,6 +635,98 @@ inline std::vector<uint8_t> encodeWhisperReceived(uint32_t fromPlayerId, uint32_
   out.insert(out.end(), message.begin(), message.end());
   
   return out;
+}
+
+// Cliente -> Servidor: Notificar aceite de grupo (após HTTP)
+inline std::vector<uint8_t> encodePartyAcceptNotify(uint32_t partyId) {
+  std::vector<uint8_t> out;
+  out.reserve(5);
+  out.push_back(static_cast<uint8_t>(MovementMsgType::PartyAcceptNotify));
+  auto write32 = [&out](uint32_t v){
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  write32(partyId);
+  return out;
+}
+
+inline bool decodePartyAcceptNotify(const std::vector<uint8_t>& data, uint32_t& partyId) {
+  if (data.size() < 5) return false;
+  partyId = static_cast<uint32_t>(data[1]) | (static_cast<uint32_t>(data[2]) << 8) |
+            (static_cast<uint32_t>(data[3]) << 16) | (static_cast<uint32_t>(data[4]) << 24);
+  return true;
+}
+
+// Servidor -> Clientes: Membro entrou no grupo (broadcast para todos refrescarem)
+inline std::vector<uint8_t> encodePartyMemberJoined(uint32_t partyId) {
+  std::vector<uint8_t> out;
+  out.reserve(5);
+  out.push_back(static_cast<uint8_t>(MovementMsgType::PartyMemberJoined));
+  auto write32 = [&out](uint32_t v){
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  write32(partyId);
+  return out;
+}
+
+inline bool decodePartyMemberJoined(const std::vector<uint8_t>& data, uint32_t& partyId) {
+  if (data.size() < 5) return false;
+  partyId = static_cast<uint32_t>(data[1]) | (static_cast<uint32_t>(data[2]) << 8) |
+            (static_cast<uint32_t>(data[3]) << 16) | (static_cast<uint32_t>(data[4]) << 24);
+  return true;
+}
+
+// Servidor -> Clientes: Membro saiu (broadcast para refrescarem)
+inline std::vector<uint8_t> encodePartyMemberLeft(uint32_t partyId) {
+  std::vector<uint8_t> out;
+  out.reserve(5);
+  out.push_back(static_cast<uint8_t>(MovementMsgType::PartyMemberLeft));
+  auto write32 = [&out](uint32_t v){
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  write32(partyId);
+  return out;
+}
+
+inline bool decodePartyMemberLeft(const std::vector<uint8_t>& data, uint32_t& partyId) {
+  if (data.size() < 5) return false;
+  partyId = static_cast<uint32_t>(data[1]) | (static_cast<uint32_t>(data[2]) << 8) |
+            (static_cast<uint32_t>(data[3]) << 16) | (static_cast<uint32_t>(data[4]) << 24);
+  return true;
+}
+
+// PartyStatsRefresh e PartyMemberLeftNotify usam mesmo formato [msgType][partyId]
+inline std::vector<uint8_t> encodePartyStatsRefresh(uint32_t partyId) {
+  std::vector<uint8_t> out;
+  out.reserve(5);
+  out.push_back(static_cast<uint8_t>(MovementMsgType::PartyStatsRefresh));
+  auto write32 = [&out](uint32_t v){
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  write32(partyId);
+  return out;
+}
+
+inline bool decodePartyStatsRefresh(const std::vector<uint8_t>& data, uint32_t& partyId) {
+  if (data.size() < 5) return false;
+  partyId = static_cast<uint32_t>(data[1]) | (static_cast<uint32_t>(data[2]) << 8) |
+            (static_cast<uint32_t>(data[3]) << 16) | (static_cast<uint32_t>(data[4]) << 24);
+  return true;
+}
+
+inline bool decodePartyMemberLeftNotify(const std::vector<uint8_t>& data, uint32_t& partyId) {
+  return decodePartyStatsRefresh(data, partyId);  // mesmo formato
 }
 
 } // namespace Zone

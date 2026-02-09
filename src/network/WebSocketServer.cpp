@@ -196,16 +196,20 @@ void WebSocketServer::broadcastBinary(const std::vector<uint8_t>& data) {
 }
 
 void WebSocketServer::disconnect(uint32_t clientId) {
-  std::lock_guard<std::mutex> lock(clientsMutex_);
-  
-  auto it = clients_.find(clientId);
-  if (it != clients_.end()) {
-    closeSocket(it->second.socket);
-    clients_.erase(it);
-    
-    if (connectionCallback_) {
-      connectionCallback_(clientId, false);
+  bool shouldNotify = false;
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    auto it = clients_.find(clientId);
+    if (it != clients_.end()) {
+      closeSocket(it->second.socket);
+      clients_.erase(it);
+      shouldNotify = (connectionCallback_ != nullptr);
     }
+  }
+  // IMPORTANTE: Chamar callback FORA do lock - o callback pode chamar broadcastBinary
+  // que precisa adquirir clientsMutex_. Manter o lock causaria deadlock.
+  if (shouldNotify && connectionCallback_) {
+    connectionCallback_(clientId, false);
   }
 }
 

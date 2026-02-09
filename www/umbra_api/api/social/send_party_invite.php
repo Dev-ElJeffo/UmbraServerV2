@@ -57,6 +57,9 @@ try {
     $pdo = getConnection();
     $pdo->beginTransaction();
     
+    // Marcar convites expirados (NULL ou após 1 min) para permitir remetente reenviar
+    $pdo->exec("UPDATE party_invites SET status = 'expired' WHERE status = 'pending' AND (expires_at IS NULL OR expires_at < NOW())");
+    
     // Verificar se o jogador alvo existe
     $check_target = $pdo->prepare("SELECT id, character_name FROM players WHERE id = :target_id");
     $check_target->execute(['target_id' => $target_player_id]);
@@ -69,29 +72,17 @@ try {
         exit;
     }
     
-    // Verificar se já existe convite pendente
-    $check_invite = $pdo->prepare("
-        SELECT invite_id FROM party_invites 
-        WHERE from_player_id = :from_id AND to_player_id = :to_id AND status = 'pending'
-    ");
-    $check_invite->execute(['from_id' => $player_id, 'to_id' => $target_player_id]);
-    if ($check_invite->fetch()) {
-        $pdo->rollBack();
-        http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'Já existe um convite pendente para este jogador']);
-        exit;
-    }
-    
-    // Verificar se já está em um grupo
+    // Convites pendentes removidos: remetente pode sempre enviar novo convite (sem bloqueio).
+    // Verificar se já está em um grupo (para associar convite e retornar party_id)
     $check_party = $pdo->prepare("
         SELECT pm.party_id FROM party_members pm
         WHERE pm.player_id = :player_id
     ");
     $check_party->execute(['player_id' => $player_id]);
-    $existing_party = $check_party->fetch();
+    $existing_party = $check_party->fetch(PDO::FETCH_ASSOC);
     
-    // Criar convite
-    $expires_at = date('Y-m-d H:i:s', strtotime('+5 minutes'));
+    // Criar convite (expira em 1 minuto; após expirar, remetente pode enviar novo convite)
+    $expires_at = date('Y-m-d H:i:s', strtotime('+1 minute'));
     $insert = $pdo->prepare("
         INSERT INTO party_invites (from_player_id, to_player_id, expires_at)
         VALUES (:from_id, :to_id, :expires_at)
@@ -112,6 +103,8 @@ try {
     }
     
     $pdo->commit();
+
+    $party_id = isset($existing_party['party_id']) ? (int)$existing_party['party_id'] : 0;
     
     http_response_code(200);
     echo json_encode([
@@ -119,7 +112,8 @@ try {
         'message' => 'Convite de grupo enviado com sucesso',
         'invite_id' => (int)$invite_id,
         'target_player_id' => (int)$target_player_id,
-        'target_player_name' => $target['character_name']
+        'target_player_name' => $target['character_name'],
+        'party_id' => $party_id
     ], JSON_UNESCAPED_UNICODE);
     
 } catch (PDOException $e) {

@@ -3,6 +3,7 @@
 #include <unordered_map>
 #include <mutex>
 #include <chrono>
+#include <functional>
 #include "network/WebSocketServer.hpp"
 #include "zone/MovementProtocol.hpp"
 #include "core/Logger.hpp"
@@ -28,6 +29,11 @@ class MovementServer {
 public:
   explicit MovementServer(uint16_t port)
     : ws_(port) {}
+
+  /** Callback chamado quando um jogador desconecta. Usado para remover do grupo no servidor. Retorna party_id se estava em grupo, 0 caso contrário. */
+  void setOnPlayerDisconnectCallback(std::function<uint32_t(uint32_t playerId)> cb) {
+    onPlayerDisconnect_ = std::move(cb);
+  }
 
   bool start() {
     ws_.setConnectionCallback([this](uint32_t cid, bool connected){
@@ -90,6 +96,42 @@ public:
         return;
       }
       
+      // Party Accept Notify (cliente aceitou grupo via HTTP, broadcast para todos refrescarem)
+      if (msgType == MovementMsgType::PartyAcceptNotify) {
+        uint32_t partyId;
+        if (decodePartyAcceptNotify(data, partyId)) {
+          Umbra::Core::Logger::getInstance().info("Received PartyAcceptNotify from client {}: partyId={}", cid, partyId);
+          std::lock_guard<std::mutex> lock(mu_);
+          auto msg = encodePartyMemberJoined(partyId);
+          ws_.broadcastBinary(msg);
+        }
+        return;
+      }
+
+      // Party Stats Refresh (cliente equipou/desequipou item, broadcast HP/MP atualizado)
+      if (msgType == MovementMsgType::PartyStatsRefresh) {
+        uint32_t partyId;
+        if (decodePartyStatsRefresh(data, partyId)) {
+          Umbra::Core::Logger::getInstance().info("Received PartyStatsRefresh from client {}: partyId={}", cid, partyId);
+          std::lock_guard<std::mutex> lock(mu_);
+          auto msg = encodePartyStatsRefresh(partyId);
+          ws_.broadcastBinary(msg);
+        }
+        return;
+      }
+
+      // Party Member Left Notify (cliente saiu do grupo via Leave Party, broadcast para todos refrescarem)
+      if (msgType == MovementMsgType::PartyMemberLeftNotify) {
+        uint32_t partyId;
+        if (decodePartyMemberLeftNotify(data, partyId)) {
+          Umbra::Core::Logger::getInstance().info("Received PartyMemberLeftNotify from client {}: partyId={}", cid, partyId);
+          std::lock_guard<std::mutex> lock(mu_);
+          auto msg = encodePartyMemberLeft(partyId);
+          ws_.broadcastBinary(msg);
+        }
+        return;
+      }
+      
       // Friend Request
       if (msgType == MovementMsgType::FriendRequest) {
         uint32_t fromId, toId;
@@ -140,6 +182,9 @@ public:
           
           Umbra::Core::Logger::getInstance().info("Received PlayerInfoUpdate from client {}: playerId={}, name={}, title={}", 
                                                   cid, playerId, name, title);
+          
+          // Mapear clientId -> playerId para handleClientDisconnect poder remover do grupo
+          clientIdToPlayerId_[cid] = playerId;
           
           // Verificar se é um novo player
           bool isNewPlayer = (players_.find(playerId) == players_.end());
@@ -506,6 +551,23 @@ private:
       if (playerIt != players_.end()) {
         Umbra::Core::Logger::getInstance().info("Removing player {} (client {}) from players map", playerId, cid);
         players_.erase(playerIt);
+
+        // Remover jogador do grupo no servidor (party_members no DB) e broadcast PartyMemberLeft se estava em grupo
+        uint32_t partyId = 0;
+        if (onPlayerDisconnect_) {
+          try {
+            partyId = onPlayerDisconnect_(playerId);
+          } catch (const std::exception& e) {
+            Umbra::Core::Logger::getInstance().error("Exception in onPlayerDisconnect for player {}: {}", playerId, e.what());
+          } catch (...) {
+            Umbra::Core::Logger::getInstance().error("Unknown exception in onPlayerDisconnect for player {}", playerId);
+          }
+        }
+        if (partyId > 0) {
+          auto memberLeftMsg = encodePartyMemberLeft(partyId);
+          ws_.broadcastBinary(memberLeftMsg);
+          Umbra::Core::Logger::getInstance().info("Broadcasted PartyMemberLeft for party {} (player {} disconnected)", partyId, playerId);
+        }
         
         // Notificar todos os OUTROS clientes que este player desconectou
         // IMPORTANTE: Não fazer broadcast se não houver outros clients conectados
@@ -556,6 +618,7 @@ private:
   std::mutex mu_;
   std::unordered_map<uint32_t, PlayerStateNet> players_;
   std::unordered_map<uint32_t, uint32_t> clientIdToPlayerId_; // Mapeamento ClientID -> PlayerID
+  std::function<uint32_t(uint32_t)> onPlayerDisconnect_;
   float maxSpeed_ = 1200.0f;
   float maxTeleportDist_ = 3000.0f;
   uint32_t maxDelayMs_ = 300;

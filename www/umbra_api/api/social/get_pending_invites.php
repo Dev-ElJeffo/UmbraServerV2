@@ -44,21 +44,14 @@ try {
     // Limpar solicitações expiradas e sessões abandonadas (evita listar expiradas)
     cleanupExpiredTrades($pdo);
 
+    // Marcar convites de grupo expirados (limpeza no banco)
+    $pdo->exec("UPDATE party_invites SET status = 'expired' WHERE status = 'pending' AND (expires_at IS NULL OR expires_at < NOW())");
+
     $result = [];
 
-    // Party Invites
-    if ($type == 'all' || $type == 'party') {
-        $party_query = $pdo->prepare("
-            SELECT pi.invite_id, pi.party_id, pi.from_player_id, pi.created_at,
-                   p.character_name as from_player_name
-            FROM party_invites pi
-            INNER JOIN players p ON pi.from_player_id = p.id
-            WHERE pi.to_player_id = :player_id AND pi.status = 'pending'
-            ORDER BY pi.created_at DESC
-        ");
-        $party_query->execute(['player_id' => $player_id]);
-        $result['party_invites'] = $party_query->fetchAll(PDO::FETCH_ASSOC);
-    }
+    // Party Invites removidos: convites pendentes de grupo não são mais listados ou carregados ao logar.
+    // Convites são recebidos apenas via WebSocket em tempo real.
+    $result['party_invites'] = [];
     
     // Trade Requests (útil para teste/debug; em produção o cliente usa WebSocket tempo real)
     if ($type == 'all' || $type == 'trade') {

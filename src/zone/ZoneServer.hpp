@@ -7,6 +7,7 @@
 #include "zone/MovementServer.hpp"
 
 namespace Umbra {
+namespace Database { class MySQLConnector; }
 namespace Zone {
 
 class ZoneServer {
@@ -17,6 +18,7 @@ class ZoneServer {
     uint16_t port = 8082;
     uint32_t maxPlayers = 1000;
     float tickRate = 60.0f;
+    std::shared_ptr<Umbra::Database::MySQLConnector> dbConnector;
   };
   
   explicit ZoneServer(const Config& config);
