@@ -82,12 +82,20 @@ try {
         exit;
     }
     
-    $from_player_id = $request['from_player_id'];
-    
-    // Verificar se já são amigos
+    $from_player_id = (int) $request['from_player_id'];
+    $player_id = (int) $player_id;
+
+    if ($from_player_id <= 0 || $player_id <= 0) {
+        $pdo->rollBack();
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'IDs de jogador inválidos']);
+        exit;
+    }
+
+    // Verificar se já são amigos (player1_id < player2_id para consistência)
     $player1_id = min($from_player_id, $player_id);
     $player2_id = max($from_player_id, $player_id);
-    
+
     $check_friend = $pdo->prepare("
         SELECT friendship_id FROM friends 
         WHERE player1_id = :p1 AND player2_id = :p2

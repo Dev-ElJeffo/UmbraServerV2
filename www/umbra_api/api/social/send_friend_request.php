@@ -74,34 +74,48 @@ try {
         exit;
     }
     
-    // Verificar se já existe solicitação pendente
+    // Verificar se já existe solicitação (unique = from_player_id, to_player_id) — pendente, recusada ou expirada
     $check_request = $pdo->prepare("
-        SELECT request_id FROM friend_requests 
-        WHERE ((from_player_id = :from_id AND to_player_id = :to_id) 
-           OR (from_player_id = :to_id AND to_player_id = :from_id))
-        AND status = 'pending'
+        SELECT request_id, status FROM friend_requests
+        WHERE from_player_id = :from_id AND to_player_id = :to_id
     ");
     $check_request->execute(['from_id' => $player_id, 'to_id' => $target_player_id]);
-    if ($check_request->fetch()) {
-        $pdo->rollBack();
-        http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'Já existe uma solicitação pendente']);
-        exit;
-    }
-    
-    // Criar solicitação
+    $existing = $check_request->fetch(PDO::FETCH_ASSOC);
     $expires_at = date('Y-m-d H:i:s', strtotime('+7 days'));
-    $insert = $pdo->prepare("
-        INSERT INTO friend_requests (from_player_id, to_player_id, expires_at)
-        VALUES (:from_id, :to_id, :expires_at)
-    ");
-    $insert->execute([
-        'from_id' => $player_id,
-        'to_id' => $target_player_id,
-        'expires_at' => $expires_at
-    ]);
-    
-    $request_id = $pdo->lastInsertId();
+
+    if ($existing) {
+        if ($existing['status'] === 'pending') {
+            $pdo->commit();
+            http_response_code(200);
+            echo json_encode([
+                'success' => true,
+                'message' => 'Solicitação já enviada (reenviando notificação)',
+                'request_id' => (int)$existing['request_id'],
+                'target_player_id' => (int)$target_player_id,
+                'target_player_name' => $target['character_name']
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        // declined ou expired: reutilizar a linha (UPDATE para pending)
+        $update = $pdo->prepare("
+            UPDATE friend_requests SET status = 'pending', expires_at = :expires_at, responded_at = NULL
+            WHERE request_id = :request_id
+        ");
+        $update->execute(['expires_at' => $expires_at, 'request_id' => $existing['request_id']]);
+        $request_id = $existing['request_id'];
+    } else {
+        // Criar nova solicitação
+        $insert = $pdo->prepare("
+            INSERT INTO friend_requests (from_player_id, to_player_id, expires_at)
+            VALUES (:from_id, :to_id, :expires_at)
+        ");
+        $insert->execute([
+            'from_id' => $player_id,
+            'to_id' => $target_player_id,
+            'expires_at' => $expires_at
+        ]);
+        $request_id = $pdo->lastInsertId();
+    }
     
     $pdo->commit();
     

@@ -6,6 +6,14 @@ namespace Umbra {
 namespace Zone {
 
 namespace {
+void removePlayerFromSessions(Umbra::Database::MySQLConnector* db, uint32_t playerId) {
+  if (!db || !db->isConnected()) return;
+  std::string pidStr = std::to_string(playerId);
+  if (db->execute("DELETE FROM player_sessions WHERE player_id = " + pidStr)) {
+    Core::Logger::getInstance().info("Player {} removed from player_sessions (disconnect)", playerId);
+  }
+}
+
 uint32_t removePlayerFromParty(Umbra::Database::MySQLConnector* db, uint32_t playerId) {
   if (!db || !db->isConnected()) return 0;
   std::string pidStr = std::to_string(playerId);
@@ -51,6 +59,7 @@ bool ZoneServer::start() {
   if (config_.dbConnector && config_.dbConnector->isConnected()) {
     movementServer_->setOnPlayerDisconnectCallback(
       [db = config_.dbConnector.get()](uint32_t playerId) {
+        removePlayerFromSessions(db, playerId);  // lista de amigos: marcar offline
         return removePlayerFromParty(db, playerId);
       });
   }
