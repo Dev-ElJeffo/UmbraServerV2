@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste: Report (Denunciar Jogador)</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #ffffff;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container { max-width: 700px; margin: 0 auto; }
+        h1 {
+            text-align: center;
+            margin-bottom: 25px;
+            font-size: 1.8em;
+            color: #ffd700;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        .section {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .section h2 { color: #ffd700; margin-bottom: 15px; font-size: 1.2em; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; color: #b0b0b0; font-weight: 600; }
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #4a4a6a;
+            border-radius: 5px;
+            background: #2d2d44;
+            color: #e0e0e0;
+            font-size: 1em;
+        }
+        .form-group textarea { min-height: 120px; resize: vertical; }
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #ffd700;
+        }
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+            transition: all 0.3s;
+            margin-right: 10px;
+            margin-top: 10px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+            color: #1e1e2e;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
+        }
+        .btn-secondary { background: #4a4a6a; color: #e0e0e0; }
+        .btn-secondary:hover { background: #5a5a7a; }
+        .result {
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+            max-height: 350px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        .success { color: #4caf50; }
+        .error { color: #f44336; }
+        .info { color: #2196f3; }
+        .help-text { font-size: 0.9em; color: #888; margin-top: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚨 Teste: Report (Denunciar Jogador)</h1>
+
+        <div class="section">
+            <h2>🔐 Token JWT</h2>
+            <div class="form-group">
+                <label>Token (quem denuncia):</label>
+                <input type="text" id="token" placeholder="JWT Token do jogador que está denunciando">
+                <p class="help-text">Pode vir do localStorage (umbra_jwt_token) ao abrir dentro do test_systems.html.</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>📝 Denunciar jogador</h2>
+            <div class="form-group">
+                <label>ID do jogador denunciado (reported_player_id):</label>
+                <input type="number" id="reportedPlayerId" placeholder="Ex: 2" min="1">
+                <p class="help-text">player_id do jogador que você está denunciando.</p>
+            </div>
+            <div class="form-group">
+                <label>Motivo da denúncia (reason) — mínimo 10 caracteres:</label>
+                <textarea id="reason" placeholder="Descreva o motivo da denúncia (mín. 10 caracteres)..."></textarea>
+                <p class="help-text">Obrigatório; a API exige pelo menos 10 caracteres.</p>
+            </div>
+            <button class="btn btn-primary" onclick="sendReport()">Enviar denúncia</button>
+        </div>
+
+        <div class="section">
+            <h2>📄 Resultado</h2>
+            <div id="result" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost/umbra_api';
+
+        // Tentar obter token do localStorage ou da URL (embed)
+        function initToken() {
+            const fromStorage = localStorage.getItem('umbra_jwt_token');
+            const input = document.getElementById('token');
+            if (fromStorage && !input.value.trim()) {
+                input.value = fromStorage;
+            }
+        }
+        initToken();
+        window.addEventListener('message', function(event) {
+            if (event.data && event.data.type === 'JWT_TOKEN' && event.data.token) {
+                document.getElementById('token').value = event.data.token;
+            }
+        });
+
+        function getToken() {
+            return document.getElementById('token').value.trim();
+        }
+
+        function log(msg, className) {
+            const el = document.getElementById('result');
+            el.innerHTML = msg;
+            el.className = 'result ' + (className || 'info');
+        }
+
+        async function sendReport() {
+            const token = getToken();
+            const reportedPlayerId = document.getElementById('reportedPlayerId').value.trim();
+            const reason = document.getElementById('reason').value.trim();
+
+            if (!token) {
+                log('Erro: informe o token JWT.', 'error');
+                return;
+            }
+            if (!reportedPlayerId || parseInt(reportedPlayerId, 10) < 1) {
+                log('Erro: informe o ID do jogador denunciado.', 'error');
+                return;
+            }
+            if (reason.length < 10) {
+                log('Erro: o motivo deve ter pelo menos 10 caracteres.', 'error');
+                return;
+            }
+
+            log('Enviando denúncia...', 'info');
+
+            try {
+                const res = await fetch(API_BASE + '/api/social/report_player.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        token: token,
+                        reported_player_id: parseInt(reportedPlayerId, 10),
+                        reason: reason
+                    })
+                });
+                const data = await res.json().catch(() => ({}));
+                const text = JSON.stringify(data, null, 2);
+                if (res.ok && data.success) {
+                    log('Sucesso:\n' + text, 'success');
+                } else {
+                    log('Resposta:\n' + text, 'error');
+                }
+            } catch (err) {
+                log('Erro de rede: ' + err.message, 'error');
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste: Block / Unblock</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #ffffff;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container { max-width: 700px; margin: 0 auto; }
+        h1 {
+            text-align: center;
+            margin-bottom: 25px;
+            font-size: 1.8em;
+            color: #ffd700;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        .section {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .section h2 { color: #ffd700; margin-bottom: 15px; font-size: 1.2em; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; color: #b0b0b0; font-weight: 600; }
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #4a4a6a;
+            border-radius: 5px;
+            background: #2d2d44;
+            color: #e0e0e0;
+            font-size: 1em;
+        }
+        .form-group input:focus { outline: none; border-color: #ffd700; }
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+            transition: all 0.3s;
+            margin-right: 10px;
+            margin-top: 10px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+            color: #1e1e2e;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
+        }
+        .btn-danger { background: #c62828; color: #fff; }
+        .btn-danger:hover { background: #b71c1c; }
+        .btn-secondary { background: #4a4a6a; color: #e0e0e0; }
+        .btn-secondary:hover { background: #5a5a7a; }
+        .result {
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+            max-height: 350px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        .success { color: #4caf50; }
+        .error { color: #f44336; }
+        .info { color: #2196f3; }
+        .help-text { font-size: 0.9em; color: #888; margin-top: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚫 Teste: Block / Unblock</h1>
+
+        <div class="section">
+            <h2>🔐 Token JWT</h2>
+            <div class="form-group">
+                <label>Token (quem bloqueia/desbloqueia):</label>
+                <input type="text" id="token" placeholder="JWT Token do jogador">
+                <p class="help-text">Pode vir do localStorage (umbra_jwt_token) ao abrir dentro do test_systems.html.</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>🚫 Bloquear jogador (block_player.php)</h2>
+            <div class="form-group">
+                <label>ID do jogador a bloquear (blocked_player_id):</label>
+                <input type="number" id="blockPlayerId" placeholder="Ex: 2" min="1">
+                <p class="help-text">player_id do jogador que será bloqueado. Não é possível bloquear a si mesmo.</p>
+            </div>
+            <button class="btn btn-primary" onclick="blockPlayer()">Bloquear</button>
+        </div>
+
+        <div class="section">
+            <h2>✅ Desbloquear jogador (unblock_player.php)</h2>
+            <div class="form-group">
+                <label>ID do jogador a desbloquear (blocked_player_id):</label>
+                <input type="number" id="unblockPlayerId" placeholder="Ex: 2" min="1">
+                <p class="help-text">player_id do jogador que será desbloqueado.</p>
+            </div>
+            <button class="btn btn-secondary" onclick="unblockPlayer()">Desbloquear</button>
+        </div>
+
+        <div class="section">
+            <h2>📄 Resultado</h2>
+            <div id="result" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost/umbra_api';
+
+        function initToken() {
+            const fromStorage = localStorage.getItem('umbra_jwt_token');
+            const input = document.getElementById('token');
+            if (fromStorage && !input.value.trim()) {
+                input.value = fromStorage;
+            }
+        }
+        initToken();
+        window.addEventListener('message', function(event) {
+            if (event.data && event.data.type === 'JWT_TOKEN' && event.data.token) {
+                document.getElementById('token').value = event.data.token;
+            }
+        });
+
+        function getToken() {
+            return document.getElementById('token').value.trim();
+        }
+
+        function log(msg, className) {
+            const el = document.getElementById('result');
+            el.innerHTML = msg;
+            el.className = 'result ' + (className || 'info');
+        }
+
+        async function blockPlayer() {
+            const token = getToken();
+            const blockedPlayerId = document.getElementById('blockPlayerId').value.trim();
+
+            if (!token) {
+                log('Erro: informe o token JWT.', 'error');
+                return;
+            }
+            if (!blockedPlayerId || parseInt(blockedPlayerId, 10) < 1) {
+                log('Erro: informe o ID do jogador a bloquear.', 'error');
+                return;
+            }
+
+            log('Bloqueando jogador...', 'info');
+
+            try {
+                const res = await fetch(API_BASE + '/api/social/block_player.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        token: token,
+                        blocked_player_id: parseInt(blockedPlayerId, 10)
+                    })
+                });
+                const data = await res.json().catch(() => ({}));
+                const text = JSON.stringify(data, null, 2);
+                if (res.ok && data.success) {
+                    log('Sucesso (bloqueado):\n' + text, 'success');
+                } else {
+                    log('Resposta:\n' + text, 'error');
+                }
+            } catch (err) {
+                log('Erro de rede: ' + err.message, 'error');
+            }
+        }
+
+        async function unblockPlayer() {
+            const token = getToken();
+            const blockedPlayerId = document.getElementById('unblockPlayerId').value.trim();
+
+            if (!token) {
+                log('Erro: informe o token JWT.', 'error');
+                return;
+            }
+            if (!blockedPlayerId || parseInt(blockedPlayerId, 10) < 1) {
+                log('Erro: informe o ID do jogador a desbloquear.', 'error');
+                return;
+            }
+
+            log('Desbloqueando jogador...', 'info');
+
+            try {
+                const res = await fetch(API_BASE + '/api/social/unblock_player.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        token: token,
+                        blocked_player_id: parseInt(blockedPlayerId, 10)
+                    })
+                });
+                const data = await res.json().catch(() => ({}));
+                const text = JSON.stringify(data, null, 2);
+                if (res.ok && data.success) {
+                    log('Sucesso (desbloqueado):\n' + text, 'success');
+                } else {
+                    log('Resposta:\n' + text, 'error');
+                }
+            } catch (err) {
+                log('Erro de rede: ' + err.message, 'error');
+            }
+        }
+    </script>
+</body>
+</html>

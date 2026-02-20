@@ -36,7 +36,7 @@ if (!$player_id) {
 try {
     $pdo = getConnection();
     
-    // Buscar amigos onde o jogador é player1 ou player2 (parâmetros separados: PDO HY093 não permite mesmo nome 2x)
+    // Buscar amigos onde o jogador é player1 ou player2; excluir quem estiver na lista de bloqueados
     $query = $pdo->prepare("
         SELECT
             CASE WHEN f.player1_id = :pid1 THEN f.player2_id ELSE f.player1_id END AS friend_id,
@@ -46,13 +46,18 @@ try {
         WHERE (f.player1_id = :pid3 OR f.player2_id = :pid4)
           AND f.player1_id IS NOT NULL
           AND f.player2_id IS NOT NULL
+          AND (CASE WHEN f.player1_id = :pid5 THEN f.player2_id ELSE f.player1_id END) NOT IN (
+              SELECT blocked_player_id FROM blocked_players WHERE player_id = :pid6
+          )
         ORDER BY f.created_at DESC
     ");
     $query->execute([
         'pid1' => $player_id,
         'pid2' => $player_id,
         'pid3' => $player_id,
-        'pid4' => $player_id
+        'pid4' => $player_id,
+        'pid5' => $player_id,
+        'pid6' => $player_id
     ]);
     $friends = $query->fetchAll(PDO::FETCH_ASSOC);
 

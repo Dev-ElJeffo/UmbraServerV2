@@ -108,6 +108,19 @@ try {
         exit;
     }
     
+    // Não permitir se algum tiver o outro na lista de bloqueados
+    $check_block = $pdo->prepare("
+        SELECT 1 FROM blocked_players
+        WHERE (player_id = :p1 AND blocked_player_id = :p2) OR (player_id = :p2b AND blocked_player_id = :p1b)
+    ");
+    $check_block->execute(['p1' => $player1_id, 'p2' => $player2_id, 'p2b' => $player2_id, 'p1b' => $player1_id]);
+    if ($check_block->fetch()) {
+        $pdo->rollBack();
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Não é possível aceitar: um de vocês está na lista de bloqueados. Desbloqueie primeiro.']);
+        exit;
+    }
+    
     // Criar amizade
     $add_friend = $pdo->prepare("
         INSERT INTO friends (player1_id, player2_id) 

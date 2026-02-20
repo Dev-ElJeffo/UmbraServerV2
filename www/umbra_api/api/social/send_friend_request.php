@@ -58,6 +58,25 @@ try {
         exit;
     }
     
+    // Não permitir se algum estiver na lista de bloqueados (em qualquer direção)
+    $check_block = $pdo->prepare("
+        SELECT 1 FROM blocked_players
+        WHERE (player_id = :pid AND blocked_player_id = :target_id)
+           OR (player_id = :target_id2 AND blocked_player_id = :pid2)
+    ");
+    $check_block->execute([
+        'pid' => $player_id,
+        'target_id' => $target_player_id,
+        'target_id2' => $target_player_id,
+        'pid2' => $player_id
+    ]);
+    if ($check_block->fetch()) {
+        $pdo->rollBack();
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Não é possível adicionar à lista de amigos: um de vocês está na lista de bloqueados. Desbloqueie primeiro.']);
+        exit;
+    }
+    
     // Verificar se já são amigos
     $player1_id = min($player_id, $target_player_id);
     $player2_id = max($player_id, $target_player_id);

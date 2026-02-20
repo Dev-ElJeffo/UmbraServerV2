@@ -71,6 +71,14 @@ try {
         exit;
     }
     
+    // Se forem amigos, remover da lista de amigos (não pode estar em friendlist e blocklist ao mesmo tempo)
+    $p1 = min((int)$player_id, (int)$blocked_player_id);
+    $p2 = max((int)$player_id, (int)$blocked_player_id);
+    $remove_friend = $pdo->prepare("
+        DELETE FROM friends WHERE player1_id = :p1 AND player2_id = :p2
+    ");
+    $remove_friend->execute(['p1' => $p1, 'p2' => $p2]);
+    
     // Bloquear jogador
     $insert = $pdo->prepare("
         INSERT INTO blocked_players (player_id, blocked_player_id)

@@ -290,6 +290,8 @@
             <button class="tab" onclick="switchTab('equip-item')">⚔️ Equip Item</button>
             <button class="tab" onclick="switchTab('create-item')">✨ Create Item</button>
             <button class="tab" onclick="switchTab('trade')">🔄 Trade</button>
+            <button class="tab" onclick="switchTab('report')">🚨 Report</button>
+            <button class="tab" onclick="switchTab('block')">🚫 Block</button>
         </div>
 
         <!-- Conteúdo das Abas -->
@@ -339,6 +341,22 @@
             <h2>🔄 Test Trade</h2>
             <div class="iframe-container">
                 <iframe src="http://localhost/umbra_api/test_trade.html" id="iframe-trade"></iframe>
+            </div>
+        </div>
+
+        <!-- Tab: Report -->
+        <div id="tab-report" class="tab-content">
+            <h2>🚨 Test Report (Denunciar)</h2>
+            <div class="iframe-container">
+                <iframe src="http://localhost/umbra_api/test_report.html" id="iframe-report"></iframe>
+            </div>
+        </div>
+
+        <!-- Tab: Block -->
+        <div id="tab-block" class="tab-content">
+            <h2>🚫 Test Block / Unblock</h2>
+            <div class="iframe-container">
+                <iframe src="http://localhost/umbra_api/test_block.html" id="iframe-block"></iframe>
             </div>
         </div>
     </div>
