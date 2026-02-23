@@ -611,9 +611,11 @@ inline std::vector<uint8_t> encodeFriendRequestReceived(uint32_t fromPlayerId, u
   return out;
 }
 
-inline std::vector<uint8_t> encodeWhisperReceived(uint32_t fromPlayerId, uint32_t toPlayerId, const std::string& message) {
+// WhisperReceived: [msgType=41][fromId:4][toId:4][nameLen:2][name:UTF-8][msgLen:2][message:UTF-8]
+inline std::vector<uint8_t> encodeWhisperReceived(uint32_t fromPlayerId, uint32_t toPlayerId,
+  const std::string& fromPlayerName, const std::string& message) {
   std::vector<uint8_t> out;
-  out.reserve(1 + 4 + 4 + 2 + message.size());
+  out.reserve(1 + 4 + 4 + 2 + fromPlayerName.size() + 2 + message.size());
   
   out.push_back(static_cast<uint8_t>(MovementMsgType::WhisperReceived));
   
@@ -631,6 +633,8 @@ inline std::vector<uint8_t> encodeWhisperReceived(uint32_t fromPlayerId, uint32_
   
   write32(fromPlayerId);
   write32(toPlayerId);
+  write16(static_cast<uint16_t>(fromPlayerName.size()));
+  out.insert(out.end(), fromPlayerName.begin(), fromPlayerName.end());
   write16(static_cast<uint16_t>(message.size()));
   out.insert(out.end(), message.begin(), message.end());
   

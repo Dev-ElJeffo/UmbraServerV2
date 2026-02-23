@@ -43,7 +43,7 @@
 
 ### 9) Consolidação (itens confirmados)
 - Portas/hosts: consultar `config/server.json` (Gateway 9000, Auth 8080, World 8081, Zone base 8082, Chat 8083) antes de alterar fluxos.
-- Build servidor C++: cd d:\UmbraServerV2\build; cmake --build . --config Release em `build/`. --targer (nome do server)
+- Build servidor C++: cd d:\UmbraServerV2\build; cmake --build . --config Release --target (nome server) em `build/`.
 - Config/segredos: usar `config/server.json` e exemplos `config/*.example`; não versionar segredos; gerar chave JWT segura.
 - Estilo: C++17 (2 espaços, PascalCase classes, camelCase métodos/variáveis, comentários curtos); Unreal com macros/reflexão; PHP PSR-12.
 - Mudanças de protocolo/DB: sincronizar servidor C++ + UE + PHP + docs e retestar.

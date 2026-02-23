@@ -149,10 +149,23 @@ public:
         uint32_t fromId, toId;
         std::string message;
         if (decodeWhisper(data, fromId, toId, message)) {
-          Umbra::Core::Logger::getInstance().info("Received Whisper from client {} (player {}): to={}, msg={}", 
-                                                  cid, fromId, toId, message);
           std::lock_guard<std::mutex> lock(mu_);
-          sendToPlayerUnlocked(toId, encodeWhisperReceived(fromId, toId, message));
+          // Usar o player ID associado à conexão (autoritativo), não o fromId do payload
+          uint32_t senderPlayerId = fromId;
+          auto cidIt = clientIdToPlayerId_.find(cid);
+          if (cidIt != clientIdToPlayerId_.end()) {
+            senderPlayerId = cidIt->second;
+          }
+          std::string fromName;
+          auto it = players_.find(senderPlayerId);
+          if (it != players_.end() && !it->second.characterName.empty()) {
+            fromName = it->second.characterName;
+          } else {
+            fromName = "Player_" + std::to_string(senderPlayerId);
+          }
+          Umbra::Core::Logger::getInstance().info("Received Whisper from client {} (player {}): to={}, fromName={}, msg={}",
+                                                  cid, senderPlayerId, toId, fromName, message);
+          sendToPlayerUnlocked(toId, encodeWhisperReceived(senderPlayerId, toId, fromName, message));
         }
         return;
       }
@@ -471,6 +484,13 @@ private:
                                               f.playerId, cid, f.x, f.y, f.z);
     }
     
+    // Preservar nome/título se já existir (PlayerInfoUpdate pode ter chegado antes do MoveUpdate)
+    std::string prevName, prevTitle;
+    auto itPrev = players_.find(f.playerId);
+    if (itPrev != players_.end()) {
+      prevName = itPrev->second.characterName;
+      prevTitle = itPrev->second.characterTitle;
+    }
     // Atualizar estado do player com dados de animação se disponíveis
     players_[f.playerId] = PlayerStateNet{
       f.playerId, 
@@ -481,6 +501,10 @@ private:
       velocityZ,
       isInAir
     };
+    if (!prevName.empty() || !prevTitle.empty()) {
+      players_[f.playerId].characterName = std::move(prevName);
+      players_[f.playerId].characterTitle = std::move(prevTitle);
+    }
     
     if (isFirstPositionUpdate) {
       // ✅ CRÍTICO: Se esta é a primeira vez que a posição é definida (era 0,0,0 ou é novo player),
