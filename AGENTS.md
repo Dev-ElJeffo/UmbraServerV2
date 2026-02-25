@@ -88,3 +88,36 @@
   - Repositório principal (`UmbraServerV2`): branch `Development`
   - Submódulo (`UmbraEternumUE`): branch `develop`
 - **Mensagens de commit**: usar prefixos `feat:`, `fix:`, `docs:`, `refactor:`, `chore:` conforme o tipo de alteração.
+
+## Cursor Cloud specific instructions
+
+### Serviços e como iniciar
+
+O projeto tem 3 componentes principais que rodam neste ambiente Linux:
+
+| Componente | Tecnologia | Como iniciar |
+|---|---|---|
+| **Servidor C++ (monolítico)** | C++17 / CMake | `cd /workspace/build/bin && ./umbra_server` (Auth:8080, World:8081, Gateway:9000) |
+| **API PHP REST** | PHP 8.3 / Apache | `sudo service apache2 start` (porta 80, symlink em `/var/www/html/umbra_api`) |
+| **MySQL** | MySQL 8.0 | `sudo service mysql start` (porta 3306, banco `umbra_eternum`, root password em `config/server.json`) |
+
+O cliente UE5 (`UmbraEternumUE/`) é um submódulo Windows-only e não é buildável neste ambiente.
+
+### Gotchas importantes
+
+- **Socket MySQL**: Após iniciar o MySQL, executar `sudo chmod 755 /var/run/mysqld && sudo chmod 777 /var/run/mysqld/mysqld.sock` para que o servidor C++ e testes consigam conectar via socket.
+- **CMake com g++**: O ambiente tem Clang como default, mas a build precisa de `g++`. Sempre configurar com `-DCMAKE_CXX_COMPILER=g++`.
+- **Build**: `cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++ && cmake --build build --parallel`.
+- **Testes**: `cd build && ctest -C Release --output-on-failure --timeout 20`. O teste `DatabaseTests` dá timeout pois tenta conectar ao MySQL com credenciais padrão (senha vazia, banco `umbra_eternum_test`); os outros 6 testes passam normalmente.
+- **Lint**: CI usa `git grep -I --perl-regexp '\s+$' -- '*.cpp' '*.hpp'` para whitespace e `file | grep CRLF` para line endings.
+- **Código Windows-only**: Alguns arquivos usam APIs Windows (`sprintf_s`, includes implícitos). As correções de compatibilidade Linux foram aplicadas em `Matchmaking.hpp`, `EntitySystem.hpp`, `MovementServer.hpp`, `GatewayServer.cpp` e `tests/CMakeLists.txt`.
+- **Schema DB**: Rodar `scripts_main/setup_database.sql` + scripts em `www/umbra_api/scripts/` (na ordem: `create_*`, `add_*`) para criar o schema completo. Alguns scripts falham parcialmente se colunas já existem (idempotente).
+- **PHP API**: Composer deps em `www/umbra_api/`: `cd www/umbra_api && composer install`.
+
+### Fluxo de teste "hello world"
+
+1. Iniciar MySQL + Apache + servidor C++
+2. `curl POST /umbra_api/api/register.php` (criar conta)
+3. `curl POST /umbra_api/api/login.php` (obter JWT)
+4. `curl POST /umbra_api/api/character/create_character.php` (criar personagem com token)
+5. Conectar TCP na porta 9000 para verificar Gateway

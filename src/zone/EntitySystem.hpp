@@ -4,6 +4,7 @@
 #include <mutex>
 #include <cstdint>
 #include <string>
+#include <atomic>
 
 namespace Umbra {
 namespace Zone {

@@ -406,6 +406,7 @@ private:
         if (dist2 > 0.01f) {  // Ignorar movimentos muito pequenos (< 0.1 unidades)
           uint32_t prevTs = it->second.tsMs;
           float dt;
+          bool skipSpeedCheck = false;
           
           // Se é o primeiro movimento após spawn ou timestamp anterior é 0, usar intervalo padrão
           if (prevTs == 0) {
@@ -427,30 +428,24 @@ private:
               }
             }
           } else {
-            // Timestamp regrediu ou igual: pode ser reset de Game Time no cliente
-            // Se a distância for razoável (não é teleporte), aceitar sem validação de velocidade
-            // Se for grande, já foi validado como teleporte acima
             if (dist2 > (maxTeleportDist_ * maxTeleportDist_)) {
-              // Distância grande: já passou validação de teleporte, aceitar
-              dt = 0.033f;  // Usar padrão, mas não validar velocidade (teleporte legítimo)
+              dt = 0.033f;
             } else {
-              // Distância pequena: usar dt conservador maior para evitar rejeição incorreta
-              dt = 0.1f;  // 100ms como padrão mais conservador
+              dt = 0.1f;
             }
             Umbra::Core::Logger::getInstance().debug("Timestamp regressed or equal for player {} (prev={}, curr={}), using dt={}s (dist={})", 
                                                       f.playerId, prevTs, f.tsMs, dt, std::sqrt(dist2));
-            // Quando timestamp regrediu, não validar velocidade (pode ser reset legítimo)
-            // Apenas validar teleporte (já feito acima)
-            goto skip_speed_check;
+            skipSpeedCheck = true;
           }
           
-          float calculatedSpeed = std::sqrt(dist2) / dt;
-          if (calculatedSpeed > maxSpeed_) {
-            Umbra::Core::Logger::getInstance().warn("MoveUpdate from client {} rejected: speed too high (speed={}, dist={}, dt={}, prevTs={}, currTs={})", 
-                                                    cid, calculatedSpeed, std::sqrt(dist2), dt, prevTs, f.tsMs);
-            return;
+          if (!skipSpeedCheck) {
+            float calculatedSpeed = std::sqrt(dist2) / dt;
+            if (calculatedSpeed > maxSpeed_) {
+              Umbra::Core::Logger::getInstance().warn("MoveUpdate from client {} rejected: speed too high (speed={}, dist={}, dt={}, prevTs={}, currTs={})", 
+                                                      cid, calculatedSpeed, std::sqrt(dist2), dt, prevTs, f.tsMs);
+              return;
+            }
           }
-          skip_speed_check:;
         }
       }
     } else {
