@@ -19,6 +19,9 @@ lib/
 config/jwt_secret.key
 config/db.json
 
+# PHP vendor (instalado via composer install)
+www/umbra_api/vendor/
+
 # Logs
 *.log
 logs/

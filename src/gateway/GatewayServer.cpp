@@ -338,7 +338,7 @@ void GatewayServer::handleClientMessage(uint32_t clientId,
         std::string hexPreview;
         for (size_t i = 0; i < std::min(static_cast<size_t>(20), decoded.size()); i++) {
           char hex[4];
-          sprintf_s(hex, sizeof(hex), "%02X ", static_cast<unsigned char>(decoded[i]));
+          snprintf(hex, sizeof(hex), "%02X ", static_cast<unsigned char>(decoded[i]));
           hexPreview += hex;
         }
         Core::Logger::getInstance().debug("First 20 bytes (hex): {}", hexPreview);

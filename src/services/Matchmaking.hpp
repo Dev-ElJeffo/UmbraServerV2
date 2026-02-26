@@ -3,6 +3,8 @@
 #include <vector>
 #include <mutex>
 #include <cstdint>
+#include <string>
+#include <atomic>
 
 namespace Umbra {
 namespace Services {
