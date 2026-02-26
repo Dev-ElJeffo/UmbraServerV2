@@ -57,6 +57,7 @@ bool MySQLConnector::createPooledConnection(PooledConnection& conn) {
   }
 
   mysql_set_character_set(mysql, "utf8mb4");
+  mysql_autocommit(mysql, 1);
   conn.mysql = mysql;
   conn.inUse = false;
   return true;
@@ -145,6 +146,8 @@ bool MySQLConnector::connect() {
   if (mysql_set_character_set(mysql, "utf8mb4") != 0) {
     Core::Logger::getInstance().warn("Failed to set UTF-8 charset: {}", mysql_error(mysql));
   }
+
+  mysql_autocommit(mysql, 1);
 
   connection_ = mysql;
   connected_ = true;

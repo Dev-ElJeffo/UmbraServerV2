@@ -23,30 +23,31 @@ uint32_t removePlayerFromParty(Umbra::Database::MySQLConnector* db, uint32_t pla
   if (!partyIdOpt || partyIdOpt->empty()) return 0;
   std::string partyIdStr = *partyIdOpt;
   uint32_t partyId = static_cast<uint32_t>(std::stoul(partyIdStr));
-  db->beginTransaction();
-  bool ok = db->executePreparedInsert(
-    "DELETE FROM party_members WHERE party_id = ? AND player_id = ?", {partyIdStr, pid});
-  if (!ok) { db->rollback(); return 0; }
-  auto countOpt = db->executePreparedScalar(
-    "SELECT COUNT(*) FROM party_members WHERE party_id = ?", {partyIdStr});
-  int count = countOpt ? std::stoi(*countOpt) : 0;
-  if (count == 0) {
-    db->executePreparedInsert("DELETE FROM parties WHERE party_id = ?", {partyIdStr});
-  } else {
-    auto leaderOpt = db->executePreparedScalar(
-      "SELECT leader_id FROM parties WHERE party_id = ?", {partyIdStr});
-    if (leaderOpt && *leaderOpt == pid) {
-      auto newLeaderOpt = db->executePreparedScalar(
-        "SELECT player_id FROM party_members WHERE party_id = ? ORDER BY joined_at ASC LIMIT 1", {partyIdStr});
-      if (newLeaderOpt && !newLeaderOpt->empty()) {
-        db->executePreparedInsert(
-          "UPDATE parties SET leader_id = ? WHERE party_id = ? AND leader_id = ?",
-          {*newLeaderOpt, partyIdStr, pid});
+  try {
+    db->executePreparedInsert(
+      "DELETE FROM party_members WHERE party_id = ? AND player_id = ?", {partyIdStr, pid});
+    auto countOpt = db->executePreparedScalar(
+      "SELECT COUNT(*) FROM party_members WHERE party_id = ?", {partyIdStr});
+    int count = countOpt ? std::stoi(*countOpt) : 0;
+    if (count == 0) {
+      db->executePreparedInsert("DELETE FROM parties WHERE party_id = ?", {partyIdStr});
+    } else {
+      auto leaderOpt = db->executePreparedScalar(
+        "SELECT leader_id FROM parties WHERE party_id = ?", {partyIdStr});
+      if (leaderOpt && *leaderOpt == pid) {
+        auto newLeaderOpt = db->executePreparedScalar(
+          "SELECT player_id FROM party_members WHERE party_id = ? ORDER BY joined_at ASC LIMIT 1", {partyIdStr});
+        if (newLeaderOpt && !newLeaderOpt->empty()) {
+          db->executePreparedInsert(
+            "UPDATE parties SET leader_id = ? WHERE party_id = ? AND leader_id = ?",
+            {*newLeaderOpt, partyIdStr, pid});
+        }
       }
     }
+    Core::Logger::getInstance().info("Player {} removed from party {} (disconnect)", playerId, partyIdStr);
+  } catch (...) {
+    Core::Logger::getInstance().error("Error removing player {} from party", playerId);
   }
-  db->commit();
-  Core::Logger::getInstance().info("Player {} removed from party {} (disconnect)", playerId, partyIdStr);
   return partyId;
 }
 }  // namespace
@@ -100,11 +101,10 @@ void ZoneServer::update(float deltaTime) {
     snapshotAccumulator_ = 0.0f;
   }
 
-  autoSaveAccumulator_ += deltaTime;
-  if (autoSaveAccumulator_ >= autoSaveInterval_) {
-    autoSavePlayerPositions();
-    autoSaveAccumulator_ = 0.0f;
-  }
+  // Auto-save desabilitado: as posicoes sao salvas pelo PHP (update_position.php)
+  // O auto-save C++ competia por locks na tabela players com o PHP, causando
+  // "Lock wait timeout exceeded" em todas as APIs (select_character, party, trade, etc.)
+  // TODO: reabilitar quando o update_position.php for removido do fluxo do UE5
 }
 
 void ZoneServer::autoSavePlayerPositions() {
