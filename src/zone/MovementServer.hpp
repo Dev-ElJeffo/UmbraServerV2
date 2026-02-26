@@ -645,7 +645,7 @@ private:
   std::unordered_map<uint32_t, PlayerStateNet> players_;
   std::unordered_map<uint32_t, uint32_t> clientIdToPlayerId_;
   std::function<uint32_t(uint32_t)> onPlayerDisconnect_;
-  SpatialGrid aoiGrid_{200.0f};
+  SpatialGrid aoiGrid_{10000.0f};
   uint64_t moveUpdateCount_ = 0;
   float maxSpeed_ = 1200.0f;
   float maxTeleportDist_ = 3000.0f;

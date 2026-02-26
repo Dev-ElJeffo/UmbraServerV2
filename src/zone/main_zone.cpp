@@ -72,13 +72,13 @@ int main(int argc, char* argv[]) {
 
   std::cout << "[OK] Zone Server '" << zoneName << "' running on port " << zonePort << "\n";
   std::cout << "\n  Systems active:\n";
-  std::cout << "    - Spatial Grid AOI (cell=200u, 3x3 neighborhood)\n";
+  std::cout << "    - Spatial Grid AOI (cell=10000u, 3x3 = 30000u radius)\n";
   std::cout << "    - Auto-save positions (every 30s)\n";
   std::cout << "    - Per-client Rate Limiting (via SocketServer)\n";
   std::cout << "    - Movement validation (speed/teleport checks)\n";
   std::cout << "\n  Press Ctrl+C to stop.\n\n";
 
-  Umbra::Core::Logger::getInstance().info("Zone '{}' ready. AOI=200u cells, AutoSave=30s, MaxPlayers={}",
+  Umbra::Core::Logger::getInstance().info("Zone '{}' ready. AOI=10000u cells (30000u radius), AutoSave=30s, MaxPlayers={}",
                                            zoneName, config.maxPlayers);
 
   auto lastUpdate = std::chrono::steady_clock::now();
