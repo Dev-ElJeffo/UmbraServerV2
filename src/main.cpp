@@ -114,7 +114,7 @@ int main(int, char*[]) {
   std::cout << "\n  Systems active:\n";
   std::cout << "    - MySQL Connection Pool (" << dbConfig.poolSize << " connections)\n";
   std::cout << "    - Per-client Rate Limiting (" << gatewayConfig.rateLimitPerSecond << " msg/s)\n";
-  std::cout << "    - Spatial Grid AOI (cell=200u, range=3x3)\n";
+  std::cout << "    - Spatial Grid AOI (cell=10000u, range=3x3 = 30000u radius)\n";
   std::cout << "    - Auto-save positions (every 30s)\n";
   std::cout << "    - Zone Orchestrator (available for zone_server)\n";
   std::cout << "\n  Ports:\n";
@@ -125,7 +125,7 @@ int main(int, char*[]) {
   std::cout << std::endl;
 
   Umbra::Core::Logger::getInstance().info("All servers initialized successfully");
-  Umbra::Core::Logger::getInstance().info("Systems: DB Pool={}, RateLimit={}/s, AOI=200u cells, AutoSave=30s",
+  Umbra::Core::Logger::getInstance().info("Systems: DB Pool={}, RateLimit={}/s, AOI=10000u cells (30000u radius), AutoSave=30s",
                                            dbConfig.poolSize, gatewayConfig.rateLimitPerSecond);
 
   // Main loop
