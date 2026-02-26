@@ -54,6 +54,7 @@ target_link_libraries(test_network
 # Teste das implementações da Fase 1
 find_package(OpenSSL REQUIRED)
 add_executable(test_fase1 ../scripts_main/test_fase1_implementations.cpp)
+target_include_directories(test_fase1 PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(test_fase1
   umbra_core
   umbra_auth
