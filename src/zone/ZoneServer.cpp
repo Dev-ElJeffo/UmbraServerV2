@@ -114,8 +114,6 @@ void ZoneServer::autoSavePlayerPositions() {
   auto players = movementServer_->getPlayerStates();
   if (players.empty()) return;
 
-  config_.dbConnector->beginTransaction();
-
   uint32_t saved = 0;
   for (const auto& [pid, state] : players) {
     if (state.x == 0.0f && state.y == 0.0f && state.z == 0.0f) continue;
@@ -127,10 +125,8 @@ void ZoneServer::autoSavePlayerPositions() {
     }
   }
 
-  config_.dbConnector->commit();
-
   if (saved > 0) {
-    Core::Logger::getInstance().info("[AutoSave] Saved {}/{} positions in '{}' (batch transaction)",
+    Core::Logger::getInstance().info("[AutoSave] Saved {}/{} positions in '{}'",
                                      saved, players.size(), config_.zoneName);
   }
 }
