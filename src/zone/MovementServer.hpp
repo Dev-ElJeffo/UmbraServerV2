@@ -6,6 +6,7 @@
 #include <functional>
 #include "network/WebSocketServer.hpp"
 #include "zone/MovementProtocol.hpp"
+#include "zone/SpatialGrid.hpp"
 #include "core/Logger.hpp"
 
 namespace Umbra {
@@ -280,15 +281,36 @@ public:
 
   void stop() { ws_.stop(); }
 
-  // snapshot a 10–20 Hz deve ser chamado externamente por um timer
+  /** Snapshot periódico (10-20 Hz). Agora usa AOI: cada jogador recebe apenas updates de jogadores próximos. */
   void broadcastSnapshot() {
     std::lock_guard<std::mutex> lock(mu_);
     for (const auto& [pid, st] : players_) {
       MovementFrame f{MovementMsgType::StateUpdate, st.playerId, st.x, st.y, st.z, st.yaw, st.tsMs};
-      // Usar encodeWithAnimation se houver dados de animação (sempre usar agora)
       auto bytes = encodeWithAnimation(f, st.speed, st.velocityZ, st.isInAir);
-      ws_.broadcastBinary(bytes);
+
+      uint32_t sourceClientId = 0;
+      for (const auto& [cid, mappedPid] : clientIdToPlayerId_) {
+        if (mappedPid == pid) { sourceClientId = cid; break; }
+      }
+
+      if (sourceClientId > 0) {
+        auto nearby = aoiGrid_.getNearbyPlayers(sourceClientId);
+        for (uint32_t nearbyClientId : nearby) {
+          ws_.sendBinary(nearbyClientId, bytes);
+        }
+      }
     }
+  }
+
+  /** Retorna cópia dos estados dos players (thread-safe, para auto-save). */
+  std::unordered_map<uint32_t, PlayerStateNet> getPlayerStates() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return players_;
+  }
+
+  size_t getOnlinePlayerCount() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return players_.size();
   }
 
   void setLimits(float maxSpeed, float maxTeleportDist, uint32_t maxDelayMs) {
@@ -479,6 +501,13 @@ private:
                                               f.playerId, cid, f.x, f.y, f.z);
     }
     
+    // Atualizar grid espacial (AOI)
+    if (isNewPlayer) {
+      aoiGrid_.addPlayer(cid, f.x, f.y);
+    } else {
+      aoiGrid_.updatePlayer(cid, f.x, f.y);
+    }
+
     // Preservar nome/título se já existir (PlayerInfoUpdate pode ter chegado antes do MoveUpdate)
     std::string prevName, prevTitle;
     auto itPrev = players_.find(f.playerId);
@@ -486,7 +515,6 @@ private:
       prevName = itPrev->second.characterName;
       prevTitle = itPrev->second.characterTitle;
     }
-    // Atualizar estado do player com dados de animação se disponíveis
     players_[f.playerId] = PlayerStateNet{
       f.playerId, 
       f.x, f.y, f.z, 
@@ -553,11 +581,9 @@ private:
                                                broadcastBytes[0], broadcastBytes[1], broadcastBytes[2], broadcastBytes[3], broadcastBytes[4]);
     }
     
-    // ✅ IMPORTANTE: Se já fizemos broadcast acima (isFirstPositionUpdate), não fazer novamente aqui
-    // para evitar duplicação
     if (!isFirstPositionUpdate) {
-      ws_.broadcastBinary(broadcastBytes);
-      Umbra::Core::Logger::getInstance().debug("Broadcasted StateUpdate for player {} (from client {}, ts={}, hasAnimation={})", f.playerId, cid, finalTimestamp, hasAnimation);
+      broadcastToNearby(cid, f.x, f.y, broadcastBytes);
+      Umbra::Core::Logger::getInstance().debug("Broadcasted StateUpdate (AOI) for player {} (from client {}, ts={}, hasAnimation={})", f.playerId, cid, finalTimestamp, hasAnimation);
     }
   }
 
@@ -569,6 +595,7 @@ private:
       auto playerIt = players_.find(playerId);
       if (playerIt != players_.end()) {
         Umbra::Core::Logger::getInstance().info("Removing player {} (client {}) from players map", playerId, cid);
+        aoiGrid_.removePlayer(cid);
         players_.erase(playerIt);
 
         // Remover jogador do grupo no servidor (party_members no DB) e broadcast PartyMemberLeft se estava em grupo
@@ -633,11 +660,27 @@ private:
     sendToPlayerUnlocked(playerId, message);
   }
 
+  /** Broadcast para jogadores próximos (AOI) em vez de todos. Usa SpatialGrid. */
+  void broadcastToNearby(uint32_t sourceClientId, float x, float y,
+                         const std::vector<uint8_t>& data) {
+    auto nearby = aoiGrid_.getNearbyPlayers(sourceClientId);
+    for (uint32_t nearbyClientId : nearby) {
+      ws_.sendBinary(nearbyClientId, data);
+    }
+    ws_.sendBinary(sourceClientId, data);
+  }
+
+  /** Broadcast para TODOS (mensagens sociais, disconnect, etc.). */
+  void broadcastToAll(const std::vector<uint8_t>& data) {
+    ws_.broadcastBinary(data);
+  }
+
   Umbra::Network::WebSocketServer ws_;
-  std::mutex mu_;
+  mutable std::mutex mu_;
   std::unordered_map<uint32_t, PlayerStateNet> players_;
-  std::unordered_map<uint32_t, uint32_t> clientIdToPlayerId_; // Mapeamento ClientID -> PlayerID
+  std::unordered_map<uint32_t, uint32_t> clientIdToPlayerId_;
   std::function<uint32_t(uint32_t)> onPlayerDisconnect_;
+  SpatialGrid aoiGrid_{200.0f};
   float maxSpeed_ = 1200.0f;
   float maxTeleportDist_ = 3000.0f;
   uint32_t maxDelayMs_ = 300;

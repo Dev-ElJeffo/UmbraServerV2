@@ -38,7 +38,11 @@ class ZoneServer {
   std::unique_ptr<EntitySystem> entitySystem_;
   std::unique_ptr<MovementServer> movementServer_;
   float snapshotAccumulator_ = 0.0f;
+  float autoSaveAccumulator_ = 0.0f;
+  float autoSaveInterval_ = 30.0f;
   bool running_;
+
+  void autoSavePlayerPositions();
 };
 
 }  // namespace Zone

@@ -264,10 +264,20 @@ void SocketServer::handleTcpClient(int clientSocket,
       break;
     }
     
+    if (!checkRateLimit(clientId)) {
+      Core::Logger::getInstance().warn("Rate limit exceeded for client {}, disconnecting", clientId);
+      break;
+    }
+    
     if (messageCallback_) {
       std::vector<uint8_t> data(buffer.begin(), buffer.begin() + bytesReceived);
       messageCallback_(clientId, data);
     }
+  }
+  
+  {
+    std::lock_guard<std::mutex> rateLock(rateMutex_);
+    clientRates_.erase(clientId);
   }
   
   disconnectClient(clientId);
@@ -305,6 +315,24 @@ void SocketServer::closeSocket(int socket) {
   if (socket != INVALID_SOCKET) {
     CLOSE_SOCKET(socket);
   }
+}
+
+bool SocketServer::checkRateLimit(uint32_t clientId) {
+  if (rateLimitPerSecond_ == 0) return true;
+  
+  std::lock_guard<std::mutex> lock(rateMutex_);
+  auto now = std::chrono::steady_clock::now();
+  auto& info = clientRates_[clientId];
+  
+  auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - info.windowStart);
+  if (elapsed.count() >= 1) {
+    info.messageCount = 1;
+    info.windowStart = now;
+    return true;
+  }
+  
+  ++info.messageCount;
+  return info.messageCount <= rateLimitPerSecond_;
 }
 
 ClientConnection* SocketServer::findClient(uint32_t clientId) {

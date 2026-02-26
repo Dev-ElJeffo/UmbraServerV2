@@ -7,6 +7,8 @@
 #include <thread>
 #include <vector>
 #include <mutex>
+#include <unordered_map>
+#include <chrono>
 
 namespace Umbra {
 namespace Network {
@@ -122,6 +124,15 @@ class SocketServer {
   ConnectionCallback connectionCallback_;
   
   uint32_t rateLimitPerSecond_;
+  
+  struct ClientRateInfo {
+    uint32_t messageCount = 0;
+    std::chrono::steady_clock::time_point windowStart;
+  };
+  std::unordered_map<uint32_t, ClientRateInfo> clientRates_;
+  std::mutex rateMutex_;
+  
+  bool checkRateLimit(uint32_t clientId);
   
   bool initializeSocket();
   void acceptLoop();
