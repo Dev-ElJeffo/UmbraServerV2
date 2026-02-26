@@ -4,15 +4,17 @@
 #include <mysql.h>
 #include <cstring>
 #include <memory>
+#include <chrono>
 
 namespace Umbra {
 namespace Database {
+
+static const size_t POOL_NONE = SIZE_MAX;
 
 MySQLConnector::MySQLConnector(const Config& config)
     : config_(config),
       connection_(nullptr),
       connected_(false) {
-  // Inicializar MySQL client library se necessário
   static bool mysqlInitialized = false;
   if (!mysqlInitialized) {
     if (mysql_library_init(0, nullptr, nullptr) != 0) {
@@ -28,73 +30,167 @@ MySQLConnector::~MySQLConnector() {
   disconnect();
 }
 
-bool MySQLConnector::connect() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  
-  if (connected_ && connection_ != nullptr) {
-    Core::Logger::getInstance().warn("Already connected to MySQL");
-    return true;
-  }
-  
-  Core::Logger::getInstance().info("Connecting to MySQL: {}:{}/{}", 
-                                   config_.host, config_.port, config_.database);
-  
-  // Criar conexão MySQL
+// ---------------------------------------------------------------------------
+// Pool management
+// ---------------------------------------------------------------------------
+
+bool MySQLConnector::createPooledConnection(PooledConnection& conn) {
   MYSQL* mysql = mysql_init(nullptr);
-  if (mysql == nullptr) {
-    Core::Logger::getInstance().error("MySQL initialization failed: out of memory");
+  if (!mysql) {
+    Core::Logger::getInstance().error("Pool: mysql_init failed");
     return false;
   }
-  
-  // Configurar opções de conexão
+
   unsigned int timeout = config_.connectionTimeout;
   mysql_options(mysql, MYSQL_OPT_CONNECT_TIMEOUT, &timeout);
   mysql_options(mysql, MYSQL_OPT_RECONNECT, &config_.autoReconnect);
-  
-  // Conectar ao servidor
+
   MYSQL* result = mysql_real_connect(
-    mysql,
-    config_.host.c_str(),
-    config_.username.c_str(),
-    config_.password.c_str(),
-    config_.database.c_str(),
-    config_.port,
-    nullptr, // unix_socket
-    0        // client_flag
-  );
-  
-  if (result == nullptr) {
+    mysql, config_.host.c_str(), config_.username.c_str(),
+    config_.password.c_str(), config_.database.c_str(),
+    config_.port, nullptr, 0);
+
+  if (!result) {
+    Core::Logger::getInstance().error("Pool: connection failed: {}", mysql_error(mysql));
+    mysql_close(mysql);
+    return false;
+  }
+
+  mysql_set_character_set(mysql, "utf8mb4");
+  conn.mysql = mysql;
+  conn.inUse = false;
+  return true;
+}
+
+size_t MySQLConnector::acquireConnection(uint32_t timeoutMs) {
+  std::unique_lock<std::mutex> lock(poolMutex_);
+
+  if (!poolInitialized_ || pool_.empty()) {
+    return POOL_NONE;
+  }
+
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+
+  while (available_.empty()) {
+    if (poolCond_.wait_until(lock, deadline) == std::cv_status::timeout) {
+      Core::Logger::getInstance().warn("Pool: acquire timed out after {}ms", timeoutMs);
+      return POOL_NONE;
+    }
+  }
+
+  size_t idx = available_.front();
+  available_.pop();
+  pool_[idx].inUse = true;
+
+  MYSQL* mysql = static_cast<MYSQL*>(pool_[idx].mysql);
+  if (mysql_ping(mysql) != 0) {
+    Core::Logger::getInstance().warn("Pool: connection {} lost, reconnecting...", idx);
+    mysql_close(mysql);
+    pool_[idx].mysql = nullptr;
+    if (!createPooledConnection(pool_[idx])) {
+      pool_[idx].inUse = false;
+      available_.push(idx);
+      poolCond_.notify_one();
+      return POOL_NONE;
+    }
+    pool_[idx].inUse = true;
+  }
+
+  return idx;
+}
+
+void MySQLConnector::releaseConnection(size_t index) {
+  std::lock_guard<std::mutex> lock(poolMutex_);
+  if (index < pool_.size()) {
+    pool_[index].inUse = false;
+    available_.push(index);
+    poolCond_.notify_one();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// connect / disconnect
+// ---------------------------------------------------------------------------
+
+bool MySQLConnector::connect() {
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  if (connected_) return true;
+
+  Core::Logger::getInstance().info("Connecting to MySQL: {}:{}/{}",
+                                   config_.host, config_.port, config_.database);
+
+  MYSQL* mysql = mysql_init(nullptr);
+  if (!mysql) {
+    Core::Logger::getInstance().error("MySQL initialization failed: out of memory");
+    return false;
+  }
+
+  unsigned int timeout = config_.connectionTimeout;
+  mysql_options(mysql, MYSQL_OPT_CONNECT_TIMEOUT, &timeout);
+  mysql_options(mysql, MYSQL_OPT_RECONNECT, &config_.autoReconnect);
+
+  MYSQL* result = mysql_real_connect(
+    mysql, config_.host.c_str(), config_.username.c_str(),
+    config_.password.c_str(), config_.database.c_str(),
+    config_.port, nullptr, 0);
+
+  if (!result) {
     std::string error = mysql_error(mysql);
     Core::Logger::getInstance().error("MySQL connection failed: {}", error);
     mysql_close(mysql);
     return false;
   }
-  
-  // Definir charset para UTF-8
+
   if (mysql_set_character_set(mysql, "utf8mb4") != 0) {
     Core::Logger::getInstance().warn("Failed to set UTF-8 charset: {}", mysql_error(mysql));
   }
-  
+
   connection_ = mysql;
   connected_ = true;
-  
   Core::Logger::getInstance().info("Connected to MySQL successfully");
+
+  {
+    std::lock_guard<std::mutex> poolLock(poolMutex_);
+    uint32_t poolSize = config_.poolSize;
+    if (poolSize < 1) poolSize = 1;
+
+    pool_.resize(poolSize);
+    uint32_t created = 0;
+    for (uint32_t i = 0; i < poolSize; ++i) {
+      if (createPooledConnection(pool_[i])) {
+        available_.push(i);
+        ++created;
+      }
+    }
+    poolInitialized_ = true;
+    Core::Logger::getInstance().info("MySQL connection pool: {}/{} connections created", created, poolSize);
+  }
+
   return true;
 }
 
 void MySQLConnector::disconnect() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  
-  if (!connected_ || connection_ == nullptr) {
-    return;
+  {
+    std::lock_guard<std::mutex> poolLock(poolMutex_);
+    for (auto& conn : pool_) {
+      if (conn.mysql) {
+        mysql_close(static_cast<MYSQL*>(conn.mysql));
+        conn.mysql = nullptr;
+      }
+    }
+    pool_.clear();
+    while (!available_.empty()) available_.pop();
+    poolInitialized_ = false;
   }
-  
-  MYSQL* mysql = static_cast<MYSQL*>(connection_);
-  mysql_close(mysql);
-  
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!connected_ || !connection_) return;
+
+  mysql_close(static_cast<MYSQL*>(connection_));
   connected_ = false;
   connection_ = nullptr;
-  
+
   Core::Logger::getInstance().info("Disconnected from MySQL");
 }
 
@@ -103,186 +199,354 @@ bool MySQLConnector::isConnected() const {
   return connected_;
 }
 
-bool MySQLConnector::execute(const std::string& query) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  
-  if (!connected_ || connection_ == nullptr) {
-    logError("Cannot execute query: not connected");
-    return false;
-  }
-  
-  MYSQL* mysql = static_cast<MYSQL*>(connection_);
-  
-  Core::Logger::getInstance().debug("Executing query: {}", query);
-  
+// ---------------------------------------------------------------------------
+// Helpers that run a query on a specific MYSQL*
+// ---------------------------------------------------------------------------
+
+bool MySQLConnector::executeOnConnection(void* conn, const std::string& query) {
+  MYSQL* mysql = static_cast<MYSQL*>(conn);
   if (mysql_real_query(mysql, query.c_str(), static_cast<unsigned long>(query.length())) != 0) {
-    std::string error = mysql_error(mysql);
-    logError("Query execution failed: " + error);
+    logError("Query failed: " + std::string(mysql_error(mysql)));
     return false;
   }
-  
-  // Limpar resultados se houver
-  MYSQL_RES* result = mysql_store_result(mysql);
-  if (result != nullptr) {
-    mysql_free_result(result);
-  }
-  
+  MYSQL_RES* res = mysql_store_result(mysql);
+  if (res) mysql_free_result(res);
   return true;
 }
 
-std::optional<std::string> MySQLConnector::executeScalar(const std::string& query) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  
-  if (!connected_ || connection_ == nullptr) {
-    logError("Cannot execute scalar query: not connected");
-    return std::nullopt;
-  }
-  
-  MYSQL* mysql = static_cast<MYSQL*>(connection_);
-  
-  Core::Logger::getInstance().debug("Executing scalar query: {}", query);
-  
+std::optional<std::string> MySQLConnector::executeScalarOnConnection(void* conn, const std::string& query) {
+  MYSQL* mysql = static_cast<MYSQL*>(conn);
   if (mysql_real_query(mysql, query.c_str(), static_cast<unsigned long>(query.length())) != 0) {
-    std::string error = mysql_error(mysql);
-    logError("Scalar query execution failed: " + error);
+    logError("Scalar query failed: " + std::string(mysql_error(mysql)));
     return std::nullopt;
   }
-  
-  MYSQL_RES* result = mysql_store_result(mysql);
-  if (result == nullptr) {
-    // Pode ser que a query não retorne resultados ou houve erro
-    if (mysql_field_count(mysql) == 0) {
-      // Query sem resultado (INSERT, UPDATE, DELETE, etc.)
-      return std::nullopt;
-    }
-    logError("Failed to store result: " + std::string(mysql_error(mysql)));
+  MYSQL_RES* res = mysql_store_result(mysql);
+  if (!res) {
+    if (mysql_field_count(mysql) == 0) return std::nullopt;
+    logError("Store result failed: " + std::string(mysql_error(mysql)));
     return std::nullopt;
   }
-  
-  MYSQL_ROW row = mysql_fetch_row(result);
-  if (row == nullptr || mysql_num_fields(result) == 0) {
-    mysql_free_result(result);
+  MYSQL_ROW row = mysql_fetch_row(res);
+  if (!row || mysql_num_fields(res) == 0) {
+    mysql_free_result(res);
     return std::nullopt;
   }
-  
   std::string value = row[0] ? row[0] : "";
-  mysql_free_result(result);
-  
+  mysql_free_result(res);
   return value;
 }
 
-uint32_t MySQLConnector::prepareStatement(const std::string& query) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  
-  if (!connected_ || connection_ == nullptr) {
-    logError("Cannot prepare statement: not connected");
-    return 0;
+std::vector<std::vector<std::string>> MySQLConnector::executeQueryOnConnection(void* conn, const std::string& query) {
+  std::vector<std::vector<std::string>> results;
+  MYSQL* mysql = static_cast<MYSQL*>(conn);
+  if (mysql_real_query(mysql, query.c_str(), static_cast<unsigned long>(query.length())) != 0) {
+    logError("Query failed: " + std::string(mysql_error(mysql)));
+    return results;
   }
-  
-  // TODO: Implement prepared statement usando mysql_stmt_init
-  // Por enquanto, retornar placeholder
-  // Prepared statements requerem gerenciamento de estado adicional
-  Core::Logger::getInstance().warn("Prepared statements not yet fully implemented. Use execute() instead.");
-  Core::Logger::getInstance().debug("Preparing statement: {}", query);
-  
-  return 0;  // Placeholder - não implementado ainda
+  MYSQL_RES* res = mysql_store_result(mysql);
+  if (!res) {
+    if (mysql_field_count(mysql) == 0) return results;
+    logError("Store result failed: " + std::string(mysql_error(mysql)));
+    return results;
+  }
+  unsigned int numFields = mysql_num_fields(res);
+  MYSQL_ROW row;
+  while ((row = mysql_fetch_row(res)) != nullptr) {
+    std::vector<std::string> rowData;
+    for (unsigned int i = 0; i < numFields; i++) {
+      rowData.push_back(row[i] ? row[i] : "");
+    }
+    results.push_back(std::move(rowData));
+  }
+  mysql_free_result(res);
+  return results;
 }
 
-bool MySQLConnector::executePrepared(uint32_t statementId, 
-                                     const std::vector<std::string>& params) {
+// ---------------------------------------------------------------------------
+// Public API — uses pool when available, falls back to primary connection
+// ---------------------------------------------------------------------------
+
+bool MySQLConnector::execute(const std::string& query) {
+  size_t idx = acquireConnection(5000);
+  if (idx != POOL_NONE) {
+    Core::Logger::getInstance().debug("Executing query (pool[{}]): {}", idx, query);
+    bool ok = executeOnConnection(pool_[idx].mysql, query);
+    releaseConnection(idx);
+    return ok;
+  }
+
   std::lock_guard<std::mutex> lock(mutex_);
-  
-  if (!connected_ || connection_ == nullptr) {
-    logError("Cannot execute prepared statement: not connected");
+  if (!connected_ || !connection_) {
+    logError("Cannot execute query: not connected");
     return false;
   }
-  
-  if (statementId == 0) {
-    logError("Invalid prepared statement ID");
-    return false;
-  }
-  
-  // TODO: Implement prepared statement execution
-  Core::Logger::getInstance().warn("Prepared statements not yet fully implemented. Use execute() instead.");
-  Core::Logger::getInstance().debug("Executing prepared statement {} with {} params", 
-                                    statementId, params.size());
-  
-  return false;  // Não implementado ainda
+  Core::Logger::getInstance().debug("Executing query (primary): {}", query);
+  return executeOnConnection(connection_, query);
 }
+
+std::optional<std::string> MySQLConnector::executeScalar(const std::string& query) {
+  size_t idx = acquireConnection(5000);
+  if (idx != POOL_NONE) {
+    Core::Logger::getInstance().debug("Executing scalar (pool[{}]): {}", idx, query);
+    auto result = executeScalarOnConnection(pool_[idx].mysql, query);
+    releaseConnection(idx);
+    return result;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!connected_ || !connection_) {
+    logError("Cannot execute scalar: not connected");
+    return std::nullopt;
+  }
+  Core::Logger::getInstance().debug("Executing scalar (primary): {}", query);
+  return executeScalarOnConnection(connection_, query);
+}
+
+std::vector<std::vector<std::string>> MySQLConnector::executeQuery(const std::string& query) {
+  size_t idx = acquireConnection(5000);
+  if (idx != POOL_NONE) {
+    Core::Logger::getInstance().debug("Executing result query (pool[{}]): {}", idx, query);
+    auto result = executeQueryOnConnection(pool_[idx].mysql, query);
+    releaseConnection(idx);
+    return result;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!connected_ || !connection_) {
+    logError("Cannot execute query: not connected");
+    return {};
+  }
+  Core::Logger::getInstance().debug("Executing result query (primary): {}", query);
+  return executeQueryOnConnection(connection_, query);
+}
+
+// ---------------------------------------------------------------------------
+// Prepared statements
+// ---------------------------------------------------------------------------
+
+uint32_t MySQLConnector::prepareStatement(const std::string& query) {
+  Core::Logger::getInstance().warn("prepareStatement(id) deprecated — use executePreparedQuery/executePreparedInsert directly");
+  return 0;
+}
+
+bool MySQLConnector::executePrepared(uint32_t statementId, const std::vector<std::string>& params) {
+  Core::Logger::getInstance().warn("executePrepared(id) deprecated — use executePreparedInsert directly");
+  return false;
+}
+
+bool MySQLConnector::executePreparedInsert(const std::string& query, const std::vector<std::string>& params) {
+  size_t idx = acquireConnection(5000);
+  void* conn = nullptr;
+  bool usedPool = false;
+
+  if (idx != POOL_NONE) {
+    conn = pool_[idx].mysql;
+    usedPool = true;
+  } else {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!connected_ || !connection_) {
+      logError("Cannot execute prepared insert: not connected");
+      return false;
+    }
+    conn = connection_;
+  }
+
+  MYSQL* mysql = static_cast<MYSQL*>(conn);
+  MYSQL_STMT* stmt = mysql_stmt_init(mysql);
+  if (!stmt) {
+    logError("mysql_stmt_init failed");
+    if (usedPool) releaseConnection(idx);
+    return false;
+  }
+
+  bool ok = false;
+  if (mysql_stmt_prepare(stmt, query.c_str(), static_cast<unsigned long>(query.length())) != 0) {
+    logError("Prepare failed: " + std::string(mysql_stmt_error(stmt)));
+  } else {
+    unsigned long paramCount = mysql_stmt_param_count(stmt);
+    if (paramCount != params.size()) {
+      logError("Param count mismatch: expected " + std::to_string(paramCount) + " got " + std::to_string(params.size()));
+    } else if (paramCount > 0) {
+      std::vector<MYSQL_BIND> binds(paramCount);
+      std::vector<unsigned long> lengths(paramCount);
+      memset(binds.data(), 0, sizeof(MYSQL_BIND) * paramCount);
+
+      for (unsigned long i = 0; i < paramCount; ++i) {
+        binds[i].buffer_type = MYSQL_TYPE_STRING;
+        binds[i].buffer = const_cast<char*>(params[i].c_str());
+        lengths[i] = static_cast<unsigned long>(params[i].size());
+        binds[i].length = &lengths[i];
+        binds[i].is_null = nullptr;
+      }
+
+      if (mysql_stmt_bind_param(stmt, binds.data()) != 0) {
+        logError("Bind failed: " + std::string(mysql_stmt_error(stmt)));
+      } else if (mysql_stmt_execute(stmt) != 0) {
+        logError("Execute failed: " + std::string(mysql_stmt_error(stmt)));
+      } else {
+        ok = true;
+        if (usedPool) pool_[idx].lastInsertId = mysql_stmt_insert_id(stmt);
+      }
+    } else {
+      if (mysql_stmt_execute(stmt) != 0) {
+        logError("Execute (no params) failed: " + std::string(mysql_stmt_error(stmt)));
+      } else {
+        ok = true;
+      }
+    }
+  }
+
+  mysql_stmt_close(stmt);
+  if (usedPool) releaseConnection(idx);
+  return ok;
+}
+
+std::vector<std::vector<std::string>> MySQLConnector::executePreparedQuery(
+    const std::string& query, const std::vector<std::string>& params) {
+  std::vector<std::vector<std::string>> results;
+
+  size_t idx = acquireConnection(5000);
+  void* conn = nullptr;
+  bool usedPool = false;
+
+  if (idx != POOL_NONE) {
+    conn = pool_[idx].mysql;
+    usedPool = true;
+  } else {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!connected_ || !connection_) {
+      logError("Cannot execute prepared query: not connected");
+      return results;
+    }
+    conn = connection_;
+  }
+
+  MYSQL* mysql = static_cast<MYSQL*>(conn);
+  MYSQL_STMT* stmt = mysql_stmt_init(mysql);
+  if (!stmt) {
+    logError("mysql_stmt_init failed");
+    if (usedPool) releaseConnection(idx);
+    return results;
+  }
+
+  if (mysql_stmt_prepare(stmt, query.c_str(), static_cast<unsigned long>(query.length())) != 0) {
+    logError("Prepare failed: " + std::string(mysql_stmt_error(stmt)));
+    mysql_stmt_close(stmt);
+    if (usedPool) releaseConnection(idx);
+    return results;
+  }
+
+  unsigned long paramCount = mysql_stmt_param_count(stmt);
+  if (paramCount != params.size()) {
+    logError("Param count mismatch");
+    mysql_stmt_close(stmt);
+    if (usedPool) releaseConnection(idx);
+    return results;
+  }
+
+  if (paramCount > 0) {
+    std::vector<MYSQL_BIND> binds(paramCount);
+    std::vector<unsigned long> lengths(paramCount);
+    memset(binds.data(), 0, sizeof(MYSQL_BIND) * paramCount);
+
+    for (unsigned long i = 0; i < paramCount; ++i) {
+      binds[i].buffer_type = MYSQL_TYPE_STRING;
+      binds[i].buffer = const_cast<char*>(params[i].c_str());
+      lengths[i] = static_cast<unsigned long>(params[i].size());
+      binds[i].length = &lengths[i];
+      binds[i].is_null = nullptr;
+    }
+
+    if (mysql_stmt_bind_param(stmt, binds.data()) != 0) {
+      logError("Bind failed: " + std::string(mysql_stmt_error(stmt)));
+      mysql_stmt_close(stmt);
+      if (usedPool) releaseConnection(idx);
+      return results;
+    }
+  }
+
+  if (mysql_stmt_execute(stmt) != 0) {
+    logError("Execute failed: " + std::string(mysql_stmt_error(stmt)));
+    mysql_stmt_close(stmt);
+    if (usedPool) releaseConnection(idx);
+    return results;
+  }
+
+  MYSQL_RES* meta = mysql_stmt_result_metadata(stmt);
+  if (!meta) {
+    mysql_stmt_close(stmt);
+    if (usedPool) releaseConnection(idx);
+    return results;
+  }
+
+  unsigned int numFields = mysql_num_fields(meta);
+  std::vector<MYSQL_BIND> resultBinds(numFields);
+  std::vector<std::vector<char>> buffers(numFields, std::vector<char>(1024, 0));
+  std::vector<unsigned long> resultLengths(numFields, 0);
+  std::vector<bool> isNullVec(numFields, false);
+  std::vector<char> isNull(numFields, 0);
+  memset(resultBinds.data(), 0, sizeof(MYSQL_BIND) * numFields);
+
+  for (unsigned int i = 0; i < numFields; ++i) {
+    resultBinds[i].buffer_type = MYSQL_TYPE_STRING;
+    resultBinds[i].buffer = buffers[i].data();
+    resultBinds[i].buffer_length = 1024;
+    resultBinds[i].length = &resultLengths[i];
+    resultBinds[i].is_null = reinterpret_cast<bool*>(&isNull[i]);
+  }
+
+  if (mysql_stmt_bind_result(stmt, resultBinds.data()) != 0) {
+    logError("Bind result failed: " + std::string(mysql_stmt_error(stmt)));
+    mysql_free_result(meta);
+    mysql_stmt_close(stmt);
+    if (usedPool) releaseConnection(idx);
+    return results;
+  }
+
+  mysql_stmt_store_result(stmt);
+
+  while (mysql_stmt_fetch(stmt) == 0) {
+    std::vector<std::string> row;
+    for (unsigned int i = 0; i < numFields; ++i) {
+      if (isNull[i]) {
+        row.emplace_back("");
+      } else {
+        row.emplace_back(buffers[i].data(), resultLengths[i]);
+      }
+    }
+    results.push_back(std::move(row));
+  }
+
+  mysql_free_result(meta);
+  mysql_stmt_close(stmt);
+  if (usedPool) releaseConnection(idx);
+  return results;
+}
+
+std::optional<std::string> MySQLConnector::executePreparedScalar(
+    const std::string& query, const std::vector<std::string>& params) {
+  auto results = executePreparedQuery(query, params);
+  if (results.empty() || results[0].empty()) return std::nullopt;
+  return results[0][0];
+}
+
+// ---------------------------------------------------------------------------
+// Utility
+// ---------------------------------------------------------------------------
 
 std::string MySQLConnector::escapeString(const std::string& input) {
-  // Use Utils sanitization as fallback
   return Core::Utils::sanitizeInput(input);
 }
 
 uint64_t MySQLConnector::getLastInsertId() {
   std::lock_guard<std::mutex> lock(mutex_);
-  
-  if (!connected_ || connection_ == nullptr) {
-    return 0;
-  }
-  
-  MYSQL* mysql = static_cast<MYSQL*>(connection_);
-  return static_cast<uint64_t>(mysql_insert_id(mysql));
+  if (!connected_ || !connection_) return 0;
+  return static_cast<uint64_t>(mysql_insert_id(static_cast<MYSQL*>(connection_)));
 }
 
-std::vector<std::vector<std::string>> MySQLConnector::executeQuery(const std::string& query) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  
-  std::vector<std::vector<std::string>> results;
-  
-  if (!connected_ || connection_ == nullptr) {
-    logError("Cannot execute query: not connected");
-    return results;
-  }
-  
-  MYSQL* mysql = static_cast<MYSQL*>(connection_);
-  
-  Core::Logger::getInstance().debug("Executing query for result set: {}", query);
-  
-  if (mysql_real_query(mysql, query.c_str(), static_cast<unsigned long>(query.length())) != 0) {
-    std::string error = mysql_error(mysql);
-    logError("Query execution failed: " + error);
-    return results;
-  }
-  
-  MYSQL_RES* result = mysql_store_result(mysql);
-  if (result == nullptr) {
-    if (mysql_field_count(mysql) == 0) {
-      // Query sem resultado
-      return results;
-    }
-    logError("Failed to store result: " + std::string(mysql_error(mysql)));
-    return results;
-  }
-  
-  unsigned int numFields = mysql_num_fields(result);
-  MYSQL_ROW row;
-  
-  while ((row = mysql_fetch_row(result)) != nullptr) {
-    std::vector<std::string> rowData;
-    for (unsigned int i = 0; i < numFields; i++) {
-      rowData.push_back(row[i] ? row[i] : "");
-    }
-    results.push_back(rowData);
-  }
-  
-  mysql_free_result(result);
-  
-  return results;
-}
-
-bool MySQLConnector::beginTransaction() {
-  return execute("START TRANSACTION");
-}
-
-bool MySQLConnector::commit() {
-  return execute("COMMIT");
-}
-
-bool MySQLConnector::rollback() {
-  return execute("ROLLBACK");
-}
+bool MySQLConnector::beginTransaction() { return execute("START TRANSACTION"); }
+bool MySQLConnector::commit() { return execute("COMMIT"); }
+bool MySQLConnector::rollback() { return execute("ROLLBACK"); }
 
 bool MySQLConnector::reconnect() {
   disconnect();
@@ -295,4 +559,3 @@ void MySQLConnector::logError(const std::string& message) {
 
 }  // namespace Database
 }  // namespace Umbra
-

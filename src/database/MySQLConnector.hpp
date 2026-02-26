@@ -5,13 +5,13 @@
 #include <mutex>
 #include <vector>
 #include <optional>
+#include <queue>
+#include <condition_variable>
+#include <functional>
 
 namespace Umbra {
 namespace Database {
 
-/**
- * @brief Interface para conexão com banco de dados
- */
 class IDatabaseConnector {
  public:
   virtual ~IDatabaseConnector() = default;
@@ -24,11 +24,6 @@ class IDatabaseConnector {
   virtual std::optional<std::string> executeScalar(const std::string& query) = 0;
 };
 
-/**
- * @brief Wrapper para MySQL connector com prepared statements
- * 
- * Gerencia pool de conexões e execução segura de queries.
- */
 class MySQLConnector : public IDatabaseConnector {
  public:
   struct Config {
@@ -39,6 +34,7 @@ class MySQLConnector : public IDatabaseConnector {
     std::string password = "";
     uint32_t connectionTimeout = 10;
     bool autoReconnect = true;
+    uint32_t poolSize = 5;
   };
   
   explicit MySQLConnector(const Config& config);
@@ -48,84 +44,58 @@ class MySQLConnector : public IDatabaseConnector {
   void disconnect() override;
   bool isConnected() const override;
   
-  /**
-   * @brief Executa query sem retorno
-   * @param query Query SQL
-   * @return true se executado com sucesso
-   */
   bool execute(const std::string& query) override;
-  
-  /**
-   * @brief Executa query e retorna um valor escalar
-   * @param query Query SQL
-   * @return Valor escalar ou nullopt
-   */
   std::optional<std::string> executeScalar(const std::string& query) override;
-  
-  /**
-   * @brief Prepara statement para execução
-   * @param query Query SQL com placeholders (?)
-   * @return ID do statement preparado
-   */
+
   uint32_t prepareStatement(const std::string& query);
-  
-  /**
-   * @brief Executa prepared statement
-   * @param statementId ID do statement
-   * @param params Parâmetros para bind
-   * @return true se executado com sucesso
-   */
   bool executePrepared(uint32_t statementId, 
                        const std::vector<std::string>& params);
-  
-  /**
-   * @brief Escapa string para prevenir SQL injection
-   * @param input String a escapar
-   * @return String escapada
-   */
+
+  bool executePreparedInsert(const std::string& query,
+                             const std::vector<std::string>& params);
+  std::vector<std::vector<std::string>> executePreparedQuery(
+      const std::string& query, const std::vector<std::string>& params);
+  std::optional<std::string> executePreparedScalar(
+      const std::string& query, const std::vector<std::string>& params);
+
   std::string escapeString(const std::string& input);
-  
-  /**
-   * @brief Obtém ID do último insert
-   * @return ID do último registro inserido
-   */
   uint64_t getLastInsertId();
-  
-  /**
-   * @brief Executa query e retorna resultado completo (para parsing)
-   * @param query Query SQL
-   * @return Vector de rows (cada row é um vector de strings)
-   */
   std::vector<std::vector<std::string>> executeQuery(const std::string& query);
-  
-  /**
-   * @brief Inicia transação
-   * @return true se iniciado com sucesso
-   */
+
   bool beginTransaction();
-  
-  /**
-   * @brief Commit de transação
-   * @return true se commit realizado
-   */
   bool commit();
-  
-  /**
-   * @brief Rollback de transação
-   * @return true se rollback realizado
-   */
   bool rollback();
 
  private:
   Config config_;
-  void* connection_;  // Pointer to MYSQL* connection
+
+  struct PooledConnection {
+    void* mysql = nullptr;
+    bool inUse = false;
+    uint64_t lastInsertId = 0;
+  };
+
+  std::vector<PooledConnection> pool_;
+  std::queue<size_t> available_;
+  mutable std::mutex poolMutex_;
+  std::condition_variable poolCond_;
+  bool poolInitialized_ = false;
+
+  void* connection_;
   mutable std::mutex mutex_;
   bool connected_;
-  
+
+  bool createPooledConnection(PooledConnection& conn);
+  size_t acquireConnection(uint32_t timeoutMs = 5000);
+  void releaseConnection(size_t index);
+
+  bool executeOnConnection(void* mysql, const std::string& query);
+  std::optional<std::string> executeScalarOnConnection(void* mysql, const std::string& query);
+  std::vector<std::vector<std::string>> executeQueryOnConnection(void* mysql, const std::string& query);
+
   bool reconnect();
   void logError(const std::string& message);
 };
 
 }  // namespace Database
 }  // namespace Umbra
-

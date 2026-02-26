@@ -1,6 +1,7 @@
 #include "ZoneServer.hpp"
 #include "core/Logger.hpp"
 #include "database/MySQLConnector.hpp"
+#include "database/PlayerDAO.hpp"
 
 namespace Umbra {
 namespace Zone {
@@ -85,11 +86,39 @@ bool ZoneServer::isRunning() const {
 void ZoneServer::update(float deltaTime) {
   playerManager_->update(deltaTime);
   entitySystem_->update(deltaTime);
-  // Snapshot a ~10 Hz
+
   snapshotAccumulator_ += deltaTime;
   if (snapshotAccumulator_ >= 0.1f) {
     if (movementServer_) movementServer_->broadcastSnapshot();
     snapshotAccumulator_ = 0.0f;
+  }
+
+  autoSaveAccumulator_ += deltaTime;
+  if (autoSaveAccumulator_ >= autoSaveInterval_) {
+    autoSavePlayerPositions();
+    autoSaveAccumulator_ = 0.0f;
+  }
+}
+
+void ZoneServer::autoSavePlayerPositions() {
+  if (!config_.dbConnector || !config_.dbConnector->isConnected()) return;
+  if (!movementServer_) return;
+
+  auto players = movementServer_->getPlayerStates();
+  if (players.empty()) return;
+
+  Database::PlayerDAO dao(config_.dbConnector);
+  uint32_t saved = 0;
+  for (const auto& [pid, state] : players) {
+    if (state.x == 0.0f && state.y == 0.0f && state.z == 0.0f) continue;
+    if (dao.updatePosition(pid, state.x, state.y, state.z, config_.zoneName)) {
+      ++saved;
+    }
+  }
+
+  if (saved > 0) {
+    Core::Logger::getInstance().info("[AutoSave] Saved {}/{} player positions in zone '{}'",
+                                     saved, players.size(), config_.zoneName);
   }
 }
 
