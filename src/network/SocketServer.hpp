@@ -108,6 +108,8 @@ class SocketServer {
    */
   void setRateLimit(uint32_t maxMessagesPerSecond);
 
+  void setMaxConnections(uint32_t maxConnections);
+
  private:
   ProtocolType type_;
   uint16_t port_;
@@ -124,6 +126,7 @@ class SocketServer {
   ConnectionCallback connectionCallback_;
   
   uint32_t rateLimitPerSecond_;
+  uint32_t maxConnections_ = 10000;
   
   struct ClientRateInfo {
     uint32_t messageCount = 0;

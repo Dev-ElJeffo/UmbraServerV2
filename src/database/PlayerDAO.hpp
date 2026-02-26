@@ -104,6 +104,7 @@ class PlayerDAO {
 
  private:
   std::shared_ptr<MySQLConnector> connector_;
+  static const std::string PLAYER_SELECT_FIELDS;
   
   /**
    * @brief Parse player from MySQL query result

@@ -9,32 +9,39 @@ namespace Zone {
 namespace {
 void removePlayerFromSessions(Umbra::Database::MySQLConnector* db, uint32_t playerId) {
   if (!db || !db->isConnected()) return;
-  std::string pidStr = std::to_string(playerId);
-  if (db->execute("DELETE FROM player_sessions WHERE player_id = " + pidStr)) {
+  std::string pid = std::to_string(playerId);
+  if (db->executePreparedInsert("DELETE FROM player_sessions WHERE player_id = ?", {pid})) {
     Core::Logger::getInstance().info("Player {} removed from player_sessions (disconnect)", playerId);
   }
 }
 
 uint32_t removePlayerFromParty(Umbra::Database::MySQLConnector* db, uint32_t playerId) {
   if (!db || !db->isConnected()) return 0;
-  std::string pidStr = std::to_string(playerId);
-  auto partyIdOpt = db->executeScalar("SELECT party_id FROM party_members WHERE player_id = " + pidStr);
+  std::string pid = std::to_string(playerId);
+  auto partyIdOpt = db->executePreparedScalar(
+    "SELECT party_id FROM party_members WHERE player_id = ?", {pid});
   if (!partyIdOpt || partyIdOpt->empty()) return 0;
   std::string partyIdStr = *partyIdOpt;
   uint32_t partyId = static_cast<uint32_t>(std::stoul(partyIdStr));
   db->beginTransaction();
-  bool ok = db->execute("DELETE FROM party_members WHERE party_id = " + partyIdStr + " AND player_id = " + pidStr);
+  bool ok = db->executePreparedInsert(
+    "DELETE FROM party_members WHERE party_id = ? AND player_id = ?", {partyIdStr, pid});
   if (!ok) { db->rollback(); return 0; }
-  auto countOpt = db->executeScalar("SELECT COUNT(*) FROM party_members WHERE party_id = " + partyIdStr);
+  auto countOpt = db->executePreparedScalar(
+    "SELECT COUNT(*) FROM party_members WHERE party_id = ?", {partyIdStr});
   int count = countOpt ? std::stoi(*countOpt) : 0;
   if (count == 0) {
-    db->execute("DELETE FROM parties WHERE party_id = " + partyIdStr);
+    db->executePreparedInsert("DELETE FROM parties WHERE party_id = ?", {partyIdStr});
   } else {
-    auto leaderOpt = db->executeScalar("SELECT leader_id FROM parties WHERE party_id = " + partyIdStr);
-    if (leaderOpt && *leaderOpt == pidStr) {
-      auto newLeaderOpt = db->executeScalar("SELECT player_id FROM party_members WHERE party_id = " + partyIdStr + " ORDER BY joined_at ASC LIMIT 1");
+    auto leaderOpt = db->executePreparedScalar(
+      "SELECT leader_id FROM parties WHERE party_id = ?", {partyIdStr});
+    if (leaderOpt && *leaderOpt == pid) {
+      auto newLeaderOpt = db->executePreparedScalar(
+        "SELECT player_id FROM party_members WHERE party_id = ? ORDER BY joined_at ASC LIMIT 1", {partyIdStr});
       if (newLeaderOpt && !newLeaderOpt->empty()) {
-        db->execute("UPDATE parties SET leader_id = " + *newLeaderOpt + " WHERE party_id = " + partyIdStr + " AND leader_id = " + pidStr);
+        db->executePreparedInsert(
+          "UPDATE parties SET leader_id = ? WHERE party_id = ? AND leader_id = ?",
+          {*newLeaderOpt, partyIdStr, pid});
       }
     }
   }
@@ -107,17 +114,23 @@ void ZoneServer::autoSavePlayerPositions() {
   auto players = movementServer_->getPlayerStates();
   if (players.empty()) return;
 
-  Database::PlayerDAO dao(config_.dbConnector);
+  config_.dbConnector->beginTransaction();
+
   uint32_t saved = 0;
   for (const auto& [pid, state] : players) {
     if (state.x == 0.0f && state.y == 0.0f && state.z == 0.0f) continue;
-    if (dao.updatePosition(pid, state.x, state.y, state.z, config_.zoneName)) {
+    if (config_.dbConnector->executePreparedInsert(
+          "UPDATE players SET pos_x=?, pos_y=?, pos_z=?, current_zone=? WHERE id=?",
+          {std::to_string(state.x), std::to_string(state.y), std::to_string(state.z),
+           config_.zoneName, std::to_string(pid)})) {
       ++saved;
     }
   }
 
+  config_.dbConnector->commit();
+
   if (saved > 0) {
-    Core::Logger::getInstance().info("[AutoSave] Saved {}/{} player positions in zone '{}'",
+    Core::Logger::getInstance().info("[AutoSave] Saved {}/{} positions in '{}' (batch transaction)",
                                      saved, players.size(), config_.zoneName);
   }
 }
