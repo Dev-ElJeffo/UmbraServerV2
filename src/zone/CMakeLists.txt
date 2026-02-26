@@ -2,8 +2,11 @@ add_library(umbra_zone STATIC
   ZoneServer.cpp
   PlayerManager.cpp
   EntitySystem.cpp
+  ZoneOrchestrator.cpp
   MovementServer.hpp
   MovementProtocol.hpp
+  SpatialGrid.hpp
+  ZoneOrchestrator.hpp
 )
 
 target_link_libraries(umbra_zone
