@@ -88,3 +88,16 @@
   - Repositório principal (`UmbraServerV2`): branch `Development`
   - Submódulo (`UmbraEternumUE`): branch `develop`
 - **Mensagens de commit**: usar prefixos `feat:`, `fix:`, `docs:`, `refactor:`, `chore:` conforme o tipo de alteração.
+# 1. Push do submódulo UmbraEternumUE (branch develop)
+cd D:\UmbraServerV2\UmbraEternumUE
+git add -A
+git status
+git commit -m "feat: skill drag & drop e remoção do wrapper"
+git push -u origin develop
+
+# 2. Push do repositório principal UmbraServerV2 (branch Development)
+cd D:\UmbraServerV2
+git add -A
+git status
+git commit -m "feat: atualizar submódulo UmbraEternumUE"
+git push -u origin Development
