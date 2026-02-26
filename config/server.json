@@ -10,7 +10,8 @@
     "password": "!Mister4126",
     "max_connections": 500,
     "connection_timeout": 10,
-    "auto_reconnect": true
+    "auto_reconnect": true,
+    "pool_size": 5
   },
   
   "redis": {

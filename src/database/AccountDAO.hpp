@@ -96,12 +96,10 @@ class AccountDAO {
  private:
   std::shared_ptr<MySQLConnector> connector_;
   
-  /**
-   * @brief Parse account from MySQL query result
-   * @param query SQL query to execute
-   * @return Account object or nullopt if not found
-   */
+  static const std::string ACCOUNT_SELECT_FIELDS;
+  
   std::optional<Account> parseAccountFromQuery(const std::string& query);
+  std::optional<Account> parseAccountRow(const std::vector<std::string>& row);
 };
 
 }  // namespace Database

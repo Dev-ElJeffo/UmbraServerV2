@@ -165,6 +165,10 @@ void SocketServer::setRateLimit(uint32_t maxMessagesPerSecond) {
   rateLimitPerSecond_ = maxMessagesPerSecond;
 }
 
+void SocketServer::setMaxConnections(uint32_t maxConnections) {
+  maxConnections_ = maxConnections;
+}
+
 bool SocketServer::initializeSocket() {
   int socketType = (type_ == ProtocolType::TCP) ? SOCK_STREAM : SOCK_DGRAM;
   serverSocket_ = socket(AF_INET, socketType, 0);
@@ -221,7 +225,17 @@ void SocketServer::acceptLoop() {
     
     std::string clientAddress = inet_ntoa(clientAddr.sin_addr);
     uint16_t clientPort = ntohs(clientAddr.sin_port);
-    
+
+    {
+      std::lock_guard<std::mutex> lock(clientsMutex_);
+      if (clients_.size() >= maxConnections_) {
+        Core::Logger::getInstance().warn("Max connections ({}) reached, rejecting {}:{}",
+                                         maxConnections_, clientAddress, clientPort);
+        CLOSE_SOCKET(clientSocket);
+        continue;
+      }
+    }
+
     Core::Logger::getInstance().info("New connection from {}:{}", 
                                      clientAddress, clientPort);
     
