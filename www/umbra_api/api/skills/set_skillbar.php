@@ -39,8 +39,15 @@ try {
     
     $playerId = $jwtResult['payload']['player_id'] ?? null;
     $slotIndex = $data['slot_index'] ?? null;
-    $skillId = $data['skill_id'] ?? null; // null para limpar slot
     $keybind = $data['keybind'] ?? null;
+
+    // Limpar slot: omitir skill_id, null, 0 ou string vazia (VaRest/JSON envia 0 como inteiro)
+    $rawSkillId = $data['skill_id'] ?? null;
+    if ($rawSkillId === null || $rawSkillId === '' || (int) $rawSkillId <= 0) {
+        $skillId = null;
+    } else {
+        $skillId = (int) $rawSkillId;
+    }
     
     if (!$playerId) {
         http_response_code(400);
@@ -56,8 +63,8 @@ try {
     
     $pdo = getConnection();
     
-    // Se está atribuindo uma skill, verificar se o jogador aprendeu
-    if ($skillId !== null) {
+    // Se está atribuindo uma skill (ID > 0), verificar se o jogador aprendeu
+    if ($skillId !== null && $skillId > 0) {
         $stmt = $pdo->prepare("
             SELECT ps.skill_id, s.skill_name
             FROM player_skills ps
