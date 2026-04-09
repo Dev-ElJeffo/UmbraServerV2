@@ -100,10 +100,18 @@ try {
     ");
     $check_request->execute(['from_id' => $player_id, 'to_id' => $target_player_id]);
     $existing = $check_request->fetch(PDO::FETCH_ASSOC);
-    $expires_at = date('Y-m-d H:i:s', strtotime('+7 days'));
 
     if ($existing) {
         if ($existing['status'] === 'pending') {
+            // OBRIGATÓRIO: renovar expires_at em todo reenvio. Sem isso, linhas pending antigas
+            // ficam com expires_at no passado → accept_friend_request falha com "Solicitação expirada"
+            // enquanto get_pending_invites ainda lista (não filtra por data).
+            $renew = $pdo->prepare('
+                UPDATE friend_requests
+                SET expires_at = DATE_ADD(NOW(), INTERVAL 7 DAY)
+                WHERE request_id = :rid AND status = \'pending\'
+            ');
+            $renew->execute(['rid' => $existing['request_id']]);
             $pdo->commit();
             http_response_code(200);
             echo json_encode([
@@ -116,22 +124,22 @@ try {
             exit;
         }
         // declined ou expired: reutilizar a linha (UPDATE para pending)
+        // expires_at sempre com DATE_ADD(NOW(), ...) no MySQL — mesmo relógio que accept + procedures
         $update = $pdo->prepare("
-            UPDATE friend_requests SET status = 'pending', expires_at = :expires_at, responded_at = NULL
+            UPDATE friend_requests
+            SET status = 'pending', expires_at = DATE_ADD(NOW(), INTERVAL 7 DAY), responded_at = NULL
             WHERE request_id = :request_id
         ");
-        $update->execute(['expires_at' => $expires_at, 'request_id' => $existing['request_id']]);
+        $update->execute(['request_id' => $existing['request_id']]);
         $request_id = $existing['request_id'];
     } else {
-        // Criar nova solicitação
         $insert = $pdo->prepare("
             INSERT INTO friend_requests (from_player_id, to_player_id, expires_at)
-            VALUES (:from_id, :to_id, :expires_at)
+            VALUES (:from_id, :to_id, DATE_ADD(NOW(), INTERVAL 7 DAY))
         ");
         $insert->execute([
             'from_id' => $player_id,
             'to_id' => $target_player_id,
-            'expires_at' => $expires_at
         ]);
         $request_id = $pdo->lastInsertId();
     }

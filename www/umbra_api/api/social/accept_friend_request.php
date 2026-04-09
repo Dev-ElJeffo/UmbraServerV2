@@ -27,13 +27,14 @@ if (!$validation['valid']) {
     exit;
 }
 
-$player_id = $validation['payload']['player_id'] ?? null;
-$request_id = $data['request_id'] ?? null;
-$from_player_id = $data['from_player_id'] ?? null;
+$account_id = intval($validation['payload']['account_id'] ?? 0);
+$player_id = intval($validation['payload']['player_id'] ?? 0);
+$request_id = isset($data['request_id']) ? intval($data['request_id']) : null;
+$from_player_id = isset($data['from_player_id']) ? intval($data['from_player_id']) : null;
 
-if (!$player_id) {
+if ($player_id <= 0 || $account_id <= 0) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Token inválido']);
+    echo json_encode(['success' => false, 'message' => 'Token sem personagem ou conta válidos. Selecione o personagem novamente.']);
     exit;
 }
 
@@ -45,6 +46,19 @@ if (!$request_id && !$from_player_id) {
 
 try {
     $pdo = getConnection();
+
+    // Garantir que player_id do JWT é um personagem desta conta (evita token desatualizado pós-login)
+    $ownStmt = $pdo->prepare('SELECT id FROM players WHERE id = ? AND account_id = ? LIMIT 1');
+    $ownStmt->execute([$player_id, $account_id]);
+    if (!$ownStmt->fetch()) {
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Personagem do token não pertence à sua conta. Selecione o personagem novamente para atualizar o token.',
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     $pdo->beginTransaction();
     
     // Buscar solicitação
@@ -73,15 +87,16 @@ try {
         echo json_encode(['success' => false, 'message' => 'Solicitação já foi respondida ou expirou']);
         exit;
     }
-    
-    // Verificar se expirou
-    if ($request['expires_at'] && strtotime($request['expires_at']) < time()) {
-        $pdo->rollBack();
-        http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'Solicitação expirada']);
-        exit;
-    }
-    
+
+    // Linhas pending com expires_at no passado (ex.: reenvio antigo não renovava a data) ainda aparecem na API
+    // de pendentes; alinhar com NOW() aqui para o aceite não falhar indevidamente.
+    $pdo->prepare('
+        UPDATE friend_requests
+        SET expires_at = DATE_ADD(NOW(), INTERVAL 7 DAY)
+        WHERE request_id = :rid AND status = \'pending\'
+          AND expires_at IS NOT NULL AND expires_at <= NOW()
+    ')->execute(['rid' => (int) $request['request_id']]);
+
     $from_player_id = (int) $request['from_player_id'];
     $player_id = (int) $player_id;
 

@@ -29,17 +29,29 @@ if (!$validation['valid']) {
     exit;
 }
 
-$player_id = $validation['payload']['player_id'] ?? null;
+$account_id = intval($validation['payload']['account_id'] ?? 0);
+$player_id = intval($validation['payload']['player_id'] ?? 0);
 $type = $_GET['type'] ?? 'all';
 
-if (!$player_id) {
+if ($player_id <= 0 || $account_id <= 0) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Token inválido']);
+    echo json_encode(['success' => false, 'message' => 'Token sem personagem ativo. Selecione o personagem novamente.']);
     exit;
 }
 
 try {
     $pdo = getConnection();
+
+    $ownStmt = $pdo->prepare('SELECT id FROM players WHERE id = ? AND account_id = ? LIMIT 1');
+    $ownStmt->execute([$player_id, $account_id]);
+    if (!$ownStmt->fetch()) {
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Personagem do token não pertence à conta. Selecione o personagem novamente.',
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
 
     // Limpar solicitações expiradas e sessões abandonadas (evita listar expiradas)
     cleanupExpiredTrades($pdo);
