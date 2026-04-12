@@ -1,4 +1,7 @@
----always ask for confirmation before modify any project file
-always ask for permission and say exactly whay you will make before any change in any file
+---
+always ask for confirmation before modify any project file
+always ask for permission and say exactly what you will make before any change in any file
+- Respostas ao usuário: **português do Brasil (pt-BR)** — usar *você*, vocabulário e tom brasileiros; evitar português de Portugal (ex.: *ficheiro* → **arquivo**; *grelha* em UI → **grade**; *ecrã* → **tela**). Lista maior: `AGENTS.md` §0.1.
+- **Unreal Engine:** o projeto do cliente (`UmbraEternumUE`) usa **UE 5.6.1** — ao orientar UMG, Slate, compilação ou APIs, alinhar a essa versão; guia nó a nó da loja/nameplate/comprador: `docs_main/GUIA_NODOS_LOJA_NAMEPLATE_COMPRADOR_UE561.md`.
 alwaysApply: true
 ---

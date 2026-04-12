@@ -87,12 +87,58 @@ public:
       if (msgType == MovementMsgType::TradeStartedNotify) {
         uint32_t tradeSessionId, player1Id, player2Id;
         if (decodeTradeStartedNotify(data, tradeSessionId, player1Id, player2Id)) {
-          Umbra::Core::Logger::getInstance().info("Received TradeStartedNotify from client {}: session={}, p1={}, p2={}", 
+          Umbra::Core::Logger::getInstance().info("Received TradeStartedNotify from client {}: session={}, p1={}, p2={}",
                                                   cid, tradeSessionId, player1Id, player2Id);
           std::lock_guard<std::mutex> lock(mu_);
           auto msg = encodeTradeStarted(tradeSessionId, player1Id, player2Id);
           sendToPlayerUnlocked(player1Id, msg);
           sendToPlayerUnlocked(player2Id, msg);
+        }
+        return;
+      }
+
+      // Loja pessoal: cliente abriu loja via HTTP
+      if (msgType == MovementMsgType::PersonalShopOpenNotify) {
+        uint32_t sellerId, shopId;
+        std::string shopName;
+        if (decodePersonalShopOpenPayload(data, sellerId, shopId, shopName)) {
+          std::lock_guard<std::mutex> lock(mu_);
+          uint32_t mappedPid = 0;
+          auto cidIt = clientIdToPlayerId_.find(cid);
+          if (cidIt != clientIdToPlayerId_.end()) mappedPid = cidIt->second;
+          if (mappedPid != 0 && mappedPid != sellerId) {
+            Umbra::Core::Logger::getInstance().warn("PersonalShopOpenNotify: client {} player {} != payload seller {}",
+                                                    cid, mappedPid, sellerId);
+            return;
+          }
+          if (mappedPid == 0) {
+            clientIdToPlayerId_[cid] = sellerId;
+          }
+          personalShopOpenByPlayerId_[sellerId] = std::make_pair(shopId, shopName);
+          auto opened = encodePersonalShopOpened(sellerId, shopId, shopName);
+          ws_.broadcastBinary(opened);
+          Umbra::Core::Logger::getInstance().info("PersonalShopOpened broadcast: seller={}, shop={}, name_len={}",
+                                                  sellerId, shopId, shopName.size());
+        }
+        return;
+      }
+
+      if (msgType == MovementMsgType::PersonalShopCloseNotify) {
+        uint32_t sellerId, shopId;
+        if (decodePersonalShopClosePayload(data, sellerId, shopId)) {
+          std::lock_guard<std::mutex> lock(mu_);
+          uint32_t mappedPid = 0;
+          auto cidIt = clientIdToPlayerId_.find(cid);
+          if (cidIt != clientIdToPlayerId_.end()) mappedPid = cidIt->second;
+          if (mappedPid != 0 && mappedPid != sellerId) {
+            Umbra::Core::Logger::getInstance().warn("PersonalShopCloseNotify: client {} player {} != payload seller {}",
+                                                    cid, mappedPid, sellerId);
+            return;
+          }
+          personalShopOpenByPlayerId_.erase(sellerId);
+          auto closed = encodePersonalShopClosed(sellerId, shopId);
+          ws_.broadcastBinary(closed);
+          Umbra::Core::Logger::getInstance().info("PersonalShopClosed broadcast: seller={}, shop={}", sellerId, shopId);
         }
         return;
       }
@@ -348,6 +394,13 @@ private:
         sentStateCount++;
       }
     }
+    for (const auto& [pid, info] : personalShopOpenByPlayerId_) {
+      auto shopMsg = encodePersonalShopOpened(pid, info.first, info.second);
+      if (ws_.sendBinary(clientId, shopMsg)) {
+        Umbra::Core::Logger::getInstance().debug("Initial snapshot: PersonalShopOpened to client {} for seller {}", clientId, pid);
+      }
+    }
+
     Umbra::Core::Logger::getInstance().info("Initial snapshot to client {}: {} info + {} states", 
                                              clientId, sentInfoCount, sentStateCount);
   }
@@ -367,6 +420,11 @@ private:
     
     // Atualizar mapeamento ClientID -> PlayerID
     clientIdToPlayerId_[cid] = f.playerId;
+
+    if (personalShopOpenByPlayerId_.find(f.playerId) != personalShopOpenByPlayerId_.end()) {
+      Umbra::Core::Logger::getInstance().debug("MoveUpdate rejected: player {} has personal shop open", f.playerId);
+      return;
+    }
     
     bool isNewPlayer = (players_.find(f.playerId) == players_.end());
     
@@ -562,6 +620,7 @@ private:
         Umbra::Core::Logger::getInstance().info("Removing player {} (client {}) from players map", playerId, cid);
         aoiGrid_.removePlayer(cid);
         players_.erase(playerIt);
+        personalShopOpenByPlayerId_.erase(playerId);
 
         // Remover jogador do grupo no servidor (party_members no DB) e broadcast PartyMemberLeft se estava em grupo
         uint32_t partyId = 0;
@@ -646,6 +705,8 @@ private:
   std::unordered_map<uint32_t, uint32_t> clientIdToPlayerId_;
   std::function<uint32_t(uint32_t)> onPlayerDisconnect_;
   SpatialGrid aoiGrid_{10000.0f};
+  /** Jogadores com loja pessoal aberta: bloqueia MoveUpdate. Par = (shop_id, nome UTF-8). */
+  std::unordered_map<uint32_t, std::pair<uint32_t, std::string>> personalShopOpenByPlayerId_;
   uint64_t moveUpdateCount_ = 0;
   float maxSpeed_ = 1200.0f;
   float maxTeleportDist_ = 3000.0f;

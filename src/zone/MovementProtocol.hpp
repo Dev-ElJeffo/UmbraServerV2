@@ -49,7 +49,11 @@ enum class MovementMsgType : uint8_t {
   DuelRequestReceived = 51,   // Servidor -> Cliente: Receber desafio
   DuelRequestResponse = 52,   // Cliente -> Servidor: Aceitar/Recusar
   DuelStarted = 53,           // Servidor -> Clientes: Duelo iniciado
-  DuelEnded = 54              // Servidor -> Clientes: Duelo terminado
+  DuelEnded = 54,             // Servidor -> Clientes: Duelo terminado
+  PersonalShopOpenNotify = 60,   // Cliente -> Servidor: loja aberta (após HTTP)
+  PersonalShopOpened = 61,       // Servidor -> Clientes: broadcast loja
+  PersonalShopCloseNotify = 62,  // Cliente -> Servidor: loja fechada
+  PersonalShopClosed = 63        // Servidor -> Clientes: broadcast fim loja
 };
 
 struct MovementFrame {
@@ -731,6 +735,103 @@ inline bool decodePartyStatsRefresh(const std::vector<uint8_t>& data, uint32_t& 
 
 inline bool decodePartyMemberLeftNotify(const std::vector<uint8_t>& data, uint32_t& partyId) {
   return decodePartyStatsRefresh(data, partyId);  // mesmo formato
+}
+
+// Loja pessoal: [msgType][sellerId:4][shopId:4][nameLen:2 LE][name UTF-8]
+inline std::vector<uint8_t> encodePersonalShopOpenPayload(MovementMsgType msgType, uint32_t sellerId,
+                                                          uint32_t shopId, const std::string& shopNameUtf8) {
+  std::vector<uint8_t> out;
+  const size_t maxNameBytes = 256;
+  size_t nb = shopNameUtf8.size();
+  if (nb > maxNameBytes) nb = maxNameBytes;
+  uint16_t nameLen = static_cast<uint16_t>(nb);
+  out.reserve(1 + 4 + 4 + 2 + nb);
+  out.push_back(static_cast<uint8_t>(msgType));
+  auto write32 = [&out](uint32_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  write32(sellerId);
+  write32(shopId);
+  out.push_back(static_cast<uint8_t>(nameLen & 0xFF));
+  out.push_back(static_cast<uint8_t>((nameLen >> 8) & 0xFF));
+  for (uint16_t i = 0; i < nameLen; ++i) {
+    out.push_back(static_cast<uint8_t>(shopNameUtf8[i]));
+  }
+  return out;
+}
+
+inline std::vector<uint8_t> encodePersonalShopOpenNotify(uint32_t sellerId, uint32_t shopId,
+                                                         const std::string& shopNameUtf8) {
+  return encodePersonalShopOpenPayload(MovementMsgType::PersonalShopOpenNotify, sellerId, shopId, shopNameUtf8);
+}
+
+inline std::vector<uint8_t> encodePersonalShopOpened(uint32_t sellerId, uint32_t shopId,
+                                                     const std::string& shopNameUtf8) {
+  return encodePersonalShopOpenPayload(MovementMsgType::PersonalShopOpened, sellerId, shopId, shopNameUtf8);
+}
+
+inline bool decodePersonalShopOpenPayload(const std::vector<uint8_t>& data, uint32_t& sellerId, uint32_t& shopId,
+                                          std::string& shopNameUtf8) {
+  if (data.size() < 1 + 4 + 4 + 2) return false;
+  size_t off = 1;
+  auto read32 = [&data](size_t& o) -> uint32_t {
+    uint32_t v = static_cast<uint32_t>(data[o]) | (static_cast<uint32_t>(data[o + 1]) << 8) |
+                 (static_cast<uint32_t>(data[o + 2]) << 16) | (static_cast<uint32_t>(data[o + 3]) << 24);
+    o += 4;
+    return v;
+  };
+  sellerId = read32(off);
+  shopId = read32(off);
+  uint16_t nameLen = static_cast<uint16_t>(data[off]) | (static_cast<uint16_t>(data[off + 1]) << 8);
+  off += 2;
+  if (data.size() < off + nameLen) return false;
+  shopNameUtf8.assign(reinterpret_cast<const char*>(data.data() + off), nameLen);
+  return true;
+}
+
+// [msgType][sellerId:4][shopId:4]
+inline std::vector<uint8_t> encodePersonalShopCloseNotify(uint32_t sellerId, uint32_t shopId) {
+  std::vector<uint8_t> out;
+  out.reserve(9);
+  out.push_back(static_cast<uint8_t>(MovementMsgType::PersonalShopCloseNotify));
+  auto write32 = [&out](uint32_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  write32(sellerId);
+  write32(shopId);
+  return out;
+}
+
+inline std::vector<uint8_t> encodePersonalShopClosed(uint32_t sellerId, uint32_t shopId) {
+  std::vector<uint8_t> out;
+  out.reserve(9);
+  out.push_back(static_cast<uint8_t>(MovementMsgType::PersonalShopClosed));
+  auto write32 = [&out](uint32_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  write32(sellerId);
+  write32(shopId);
+  return out;
+}
+
+inline bool decodePersonalShopClosePayload(const std::vector<uint8_t>& data, uint32_t& sellerId, uint32_t& shopId) {
+  if (data.size() < 9) return false;
+  size_t off = 1;
+  sellerId = static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) |
+               (static_cast<uint32_t>(data[off + 2]) << 16) | (static_cast<uint32_t>(data[off + 3]) << 24);
+  off += 4;
+  shopId = static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) |
+           (static_cast<uint32_t>(data[off + 2]) << 16) | (static_cast<uint32_t>(data[off + 3]) << 24);
+  return true;
 }
 
 } // namespace Zone

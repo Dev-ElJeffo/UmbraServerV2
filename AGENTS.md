@@ -2,6 +2,12 @@
 
 ### 0) Regra global
 - Seguir `.cursor/rules/modify-files.mdc`: pedir permissão antes de editar e dizer exatamente o que será alterado.
+- **Idioma:** todas as respostas ao usuário em **português do Brasil (pt-BR)** — normas e exemplos na **§0.1**.
+
+### 0.1) Idioma — português do Brasil (pt-BR)
+- Respostas ao **usuário** em **português do Brasil (pt-BR)**: **você**, vocabulário e tom brasileiros.
+- **Evitar** português de Portugal (ex.: *ficheiro* → **arquivo**; *grelha* (UI) → **grade**; *ecrã* → **tela**; *noutro* → **em outro**; *tem de* → **tem que** / **precisa**; *está a* / *a ser* → **está** / **sendo**; preferir expressões usadas no Brasil ao explicar UI/docs).
+- Documentação ou comentários em português **só quando o usuário pedir**; quando forem em português, seguir **pt-BR**.
 
 ### 1) Confirmação e escopo
 - Antes de editar: listar arquivos/trechos e o objetivo (ex.: `src/auth/AuthServer.hpp` para ajuste de validação).
@@ -11,6 +17,10 @@
 - Servidor C++: consultar arquivos relevantes em `src/` antes de propor mudança (`src/auth/AuthServer.hpp`, `src/network/SocketServer.hpp`, `src/zone/MovementProtocol.hpp`, `src/core/Logger.hpp`).
 - Cliente UE: consultar `UmbraEternumUE/Source/UmbraEternumUE/Core/UmbraGameInstance.cpp`; para TCP, também `.../Network/UmbraTCPClient.cpp`.
 - Movimento: frames binários little-endian 25B/34B conforme `src/zone/MovementProtocol.hpp`.
+
+### 2.1) Unreal Engine — versão do projeto (**5.6.1**)
+- O cliente **UmbraEternumUE** é desenvolvido e testado em **Unreal Engine 5.6.1**. Ao sugerir APIs UMG/Slate, `UWidgetTree::ConstructWidget`, módulos ou depreciações, usar como referência a documentação da **5.6.x**.
+- Guia nó a nó (loja + nameplate + comprador + bloqueio de movimento): `docs_main/GUIA_NODOS_LOJA_NAMEPLATE_COMPRADOR_UE561.md`.
 
 ### 3) Fluxos que não podem ser quebrados
 - Login cliente: HTTP via VaRest → token/conta → carregar personagens → conectar TCP com delay e binds (`UmbraGameInstance.cpp`, endpoints PHP em `www/umbra_api/api/*`).
@@ -61,7 +71,7 @@
 ### 11) Estrutura do projeto
 - Raiz: `README.md`, `README_NOVO.md`, `config/` (exemplos e server.json), `scripts/`, `scripts_main/`, `docs/`, `docs_main/`, `tests/`.
 - Servidor C++: `src/` com módulos `auth/`, `gateway/`, `world/`, `zone/`, `chat/`, `network/`, `core/`, `database/`, `services/`; builds via `CMakeLists.txt`.
-- Cliente UE5: `UmbraEternumUE/` (código em `Source/`, assets em `Content/`, docs em `docs/`, scripts de build/clean em `scripts/`).
+- Cliente UE5 (**5.6.1**): `UmbraEternumUE/` (código em `Source/`, assets em `Content/`, docs em `docs/`, scripts de build/clean em `scripts/`).
 - APIs PHP: `www/umbra_api/` (config em `config/database.php`, endpoints em `api/`, helpers em `helpers/`, scripts SQL em `scripts/`).
 - Terceiros: `third_party/` (spdlog, nlohmann/json, googletest, etc.).
 - Documentação adicional: `UmbraServer/docs_main/` e `docs/` para guias, troubleshooting e integrações.
@@ -119,7 +129,7 @@ O projeto tem 3 componentes principais que rodam neste ambiente Linux:
 | **API PHP REST** | PHP 8.3 / Apache | `sudo service apache2 start` (porta 80, symlink em `/var/www/html/umbra_api`) |
 | **MySQL** | MySQL 8.0 | `sudo service mysql start` (porta 3306, banco `umbra_eternum`, root password em `config/server.json`) |
 
-O cliente UE5 (`UmbraEternumUE/`) é um submódulo Windows-only e não é buildável neste ambiente.
+O cliente UE **5.6.1** (`UmbraEternumUE/`) é um submódulo orientado a Windows e **não** é buildável neste ambiente Linux do Cursor Cloud.
 
 ### Gotchas importantes
 
