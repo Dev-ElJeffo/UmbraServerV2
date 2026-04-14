@@ -12,9 +12,11 @@ Este guia assume **Unreal Engine 5.6.1** e o código C++ já presente no reposit
 | Modal de preço | `UUmbraSetItemPriceWidget` | `.../UI/UmbraSetItemPriceWidget.h/.cpp` |
 | Slot da grade da loja | `UUmbraStoreSlotWidget` (opcional) / `UUmbraInventorySlotWidget` | `.../UI/` |
 | **Nameplate** remoto + balão | `UUmbraRemoteNameplateWidget` | `.../UI/UmbraRemoteNameplateWidget.h/.cpp` |
-| **Comprador** | `UUmbraPersonalShopBuyerWidget`, `UUmbraShopBuyButton` | `.../UI/UmbraPersonalShopBuyerWidget.*`, `UmbraShopBuyButton.*` |
+| **Comprador** | `UUmbraPersonalShopBuyerWidget`, `UUmbraBuyerListingSelectButton`, `UUmbraShopBuyButton` | `.../UI/UmbraPersonalShopBuyerWidget.*`, `UmbraBuyerListingSelectButton.*`, `UmbraShopBuyButton.*` |
 | HTTP / WS / abrir UI comprador | `UUmbraGameInstance::OpenPersonalShopBuyerUI`, `UpdateRemotePlayerPersonalShopSign`, `LoadPersonalShopBySeller`, `PurchasePersonalShopListing` | `.../Core/UmbraGameInstance.h/.cpp` |
 | PHP loja | `shop_bootstrap.php`, `open_personal_shop.php`, `get_personal_shop.php`, `purchase_listing.php` | `www/umbra_api/api/shop/` |
+
+**Guia completo só do WBP comprador** (hierarquia, `TXT_StoreInfo`, `BTN_BuyItem`, seleção vs compra): [GUIA_IMPLEMENTACAO_WBP_PERSONAL_SHOP_BUYER_UE561.md](GUIA_IMPLEMENTACAO_WBP_PERSONAL_SHOP_BUYER_UE561.md).
 
 ---
 
@@ -122,6 +124,8 @@ Pontos que impactam o **nameplate**:
 
 ## 5. Widget do comprador — criar `WBP_PersonalShopBuyer` (mínimo)
 
+Detalhamento completo (paridade com vendedor, `TXT_StoreInfo`, `BTN_BuyItem`, hit-test): **[GUIA_IMPLEMENTACAO_WBP_PERSONAL_SHOP_BUYER_UE561.md](GUIA_IMPLEMENTACAO_WBP_PERSONAL_SHOP_BUYER_UE561.md)**.
+
 | # | Ação |
 |---|------|
 | 5.1 | **Content Browser** → **User Interface** → **Widget Blueprint** → nome sugerido: `WBP_PersonalShopBuyer`. |
@@ -132,9 +136,11 @@ Pontos que impactam o **nameplate**:
 
 | Nome exato | Tipo | Função |
 |-------------|------|--------|
-| **`VBox_Listings`** | `Vertical Box` | O C++ **limpa** e **preenche** com linhas (nome do item, preço, botão Comprar). Deve ter altura razoável (ex.: anchor preenchendo o centro). |
+| **`VBox_Listings`** | `Vertical Box` | O C++ **limpa** e **preenche** com linhas (nome do item, preço, botão **Selecionar**). Nada por cima deste painel com hit ativo. |
 | **`Btn_Close`** | `Button` | Fecha o widget (`RemoveFromParent`). |
 | **`Text_ShopTitle`** | `Text` (opcional) | Título com nome da loja após o GET. |
+| **`TXT_StoreInfo`** | `Text` (recomendado) | Mensagens de estado / erro (delegate `OnPersonalShopActionFailed`). |
+| **`BTN_BuyItem`** | `Button` (recomendado) | Confirma compra do item **selecionado**; sem este botão, **Selecionar** compra na hora. |
 
 ### 5.5 Event Graph
 
@@ -160,7 +166,7 @@ Voltar à **§2** e apontar **Personal Shop Buyer Widget Class** para este asset
 | 6.1 | **Editor Preferences** → **Play** → número de jogadores **2** (se quiser testar remoto + comprador). |
 | 6.2 | **Cliente 1:** login, abrir loja, colocar itens, preço, **Confirmar oferta**, **Start Store**. |
 | 6.3 | **Cliente 2:** aproximar-se do personagem do cliente 1; no nameplate deve aparecer o **balão** / botão quando a loja estiver aberta. |
-| 6.4 | Clicar em **`BTN_OpenPersonalShop`** → deve abrir **`WBP_PersonalShopBuyer`** com lista e **Comprar** chamando `PurchasePersonalShopListing`. |
+| 6.4 | Clicar em **`BTN_OpenPersonalShop`** → deve abrir **`WBP_PersonalShopBuyer`** com lista; **Selecionar** + **Comprar item** (ou só **Selecionar** se não houver `BTN_BuyItem`) → `PurchasePersonalShopListing`. |
 | 6.5 | **Cliente 1:** com o painel da loja aberto, tentar WASD → movimento deve estar **bloqueado**; ao fechar o painel, deve voltar. |
 
 ---
@@ -194,6 +200,7 @@ O caminho preferido continua sendo **`UmbraRemoteNameplateWidget`** (tudo em C++
 |---------|----------------|-------------|
 | Erro de compile `ConstructWidget`: não deduz template | UE 5.6 exige **`WidgetTree->ConstructWidget<UHorizontalBox>()`** (tipo explícito), não `ConstructWidget(UHorizontalBox::StaticClass())` | Já corrigido em `UmbraPersonalShopBuyerWidget.cpp` |
 | Clique no nameplate não abre loja | `PersonalShopBuyerWidgetClass` None ou WBP não herda `UmbraPersonalShopBuyerWidget` | **§2** e **§5** |
+| Balão / texto da loja aparecem mas o clique **não faz nada** | `UpdateRemotePlayerPersonalShopSign` não encontrava o ator em `RemotePlayerActorsMap`, logo `CachedSellerPlayerId` nunca era preenchido | Corrigido em C++: o nameplate escuta `OnRemotePersonalShopVisualUpdated`, casa o ID com o dono do `WidgetComponent` e repõe estado com `TryGetLastRemotePersonalShopVisual` no `NativeConstruct`. Nome do botão: `BTN_OpenPersonalShop` ou `Btn_OpenPersonalShop` |
 | Lista vazia no comprador | `VBox_Listings` com nome errado ou fora da hierarquia visível | Conferir nome exato **§5.4** |
 | Balão nunca aparece | Nameplate não é `UmbraRemoteNameplateWidget` e não existe `UpdatePersonalShopSign` | **§3** ou **§8** |
 | `TXT_StoreInfo` com erro PHP | Helper em falta no WAMP | **§7** |

@@ -1,7 +1,7 @@
 <?php
 /**
- * POST /api/shop/purchase_listing.php
- * Body JSON: token, listing_id (ou shop_id + slot_index)
+ * POST /api/auction/purchase_auction_listing.php
+ * Body JSON: token, listing_id
  */
 
 header('Content-Type: application/json; charset=utf-8');
@@ -14,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-require_once __DIR__ . '/shop_bootstrap.php';
+require_once __DIR__ . '/auction_bootstrap.php';
 
 $json = file_get_contents('php://input');
 $data = json_decode($json, true) ?: [];
@@ -28,10 +28,7 @@ if (!$validation['valid']) {
 
 $account_id = (int)($validation['payload']['account_id'] ?? 0);
 $buyer_id = (int)($validation['payload']['player_id'] ?? 0);
-
 $listing_id = isset($data['listing_id']) ? (int)$data['listing_id'] : 0;
-$shop_id = isset($data['shop_id']) ? (int)$data['shop_id'] : 0;
-$slot_index = isset($data['slot_index']) ? (int)$data['slot_index'] : -1;
 
 if ($buyer_id <= 0 || $account_id <= 0) {
     http_response_code(400);
@@ -39,9 +36,9 @@ if ($buyer_id <= 0 || $account_id <= 0) {
     exit;
 }
 
-if ($listing_id <= 0 && ($shop_id <= 0 || $slot_index < 0)) {
+if ($listing_id <= 0) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Informe listing_id ou (shop_id e slot_index).']);
+    echo json_encode(['success' => false, 'message' => 'listing_id inválido.']);
     exit;
 }
 
@@ -56,33 +53,28 @@ try {
 
     $pdo->beginTransaction();
 
-    if ($listing_id > 0) {
-        $lq = $pdo->prepare("
-            SELECT psl.listing_id, psl.shop_id, psl.slot_index, psl.inventory_id, psl.price_gold, psl.status,
-                   ps.seller_player_id, ps.status AS shop_status
-            FROM personal_shop_listings psl
-            INNER JOIN personal_shops ps ON psl.shop_id = ps.shop_id
-            WHERE psl.listing_id = ?
-            FOR UPDATE
-        ");
-        $lq->execute([$listing_id]);
-    } else {
-        $lq = $pdo->prepare("
-            SELECT psl.listing_id, psl.shop_id, psl.slot_index, psl.inventory_id, psl.price_gold, psl.status,
-                   ps.seller_player_id, ps.status AS shop_status
-            FROM personal_shop_listings psl
-            INNER JOIN personal_shops ps ON psl.shop_id = ps.shop_id
-            WHERE psl.shop_id = ? AND psl.slot_index = ?
-            FOR UPDATE
-        ");
-        $lq->execute([$shop_id, $slot_index]);
-    }
-
+    $lq = $pdo->prepare("
+        SELECT listing_id, seller_player_id, inventory_id, price_gold, status, expires_at
+        FROM auction_listings
+        WHERE listing_id = ?
+        FOR UPDATE
+    ");
+    $lq->execute([$listing_id]);
     $L = $lq->fetch(PDO::FETCH_ASSOC);
-    if (!$L || $L['status'] !== 'listed' || $L['shop_status'] !== 'open') {
+
+    if (!$L || $L['status'] !== 'active') {
         $pdo->rollBack();
         http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'Anúncio indisponível ou loja fechada.']);
+        echo json_encode(['success' => false, 'message' => 'Anúncio indisponível.']);
+        exit;
+    }
+
+    $expires = strtotime($L['expires_at'] ?? '');
+    if ($expires !== false && $expires < time()) {
+        $pdo->prepare("UPDATE auction_listings SET status = 'expired' WHERE listing_id = ?")->execute([$listing_id]);
+        $pdo->commit();
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Anúncio expirado.']);
         exit;
     }
 
@@ -93,7 +85,7 @@ try {
     if ($seller_id === $buyer_id) {
         $pdo->rollBack();
         http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'Não pode comprar da própria loja.']);
+        echo json_encode(['success' => false, 'message' => 'Não pode comprar o próprio anúncio.']);
         exit;
     }
 
@@ -131,7 +123,7 @@ try {
     $pdo->prepare("UPDATE player_inventory SET player_id = ?, slot_index = ?, is_equipped = 0 WHERE inventory_id = ?")
         ->execute([$buyer_id, $free, $inv_id]);
 
-    $pdo->prepare("UPDATE personal_shop_listings SET status = 'sold' WHERE listing_id = ?")->execute([(int)$L['listing_id']]);
+    $pdo->prepare("UPDATE auction_listings SET status = 'sold' WHERE listing_id = ?")->execute([$listing_id]);
 
     $pdo->commit();
 
@@ -143,18 +135,17 @@ try {
     echo json_encode([
         'success' => true,
         'message' => 'Compra concluída.',
-        'listing_id' => (int)$L['listing_id'],
-        'shop_id' => (int)$L['shop_id'],
+        'listing_id' => $listing_id,
         'buyer_player_id' => $buyer_id,
         'seller_player_id' => $seller_id,
         'price_gold' => $price,
         'buyer_gold' => $newBuyerGold,
     ], JSON_UNESCAPED_UNICODE);
 } catch (PDOException $e) {
-    if ($pdo->inTransaction()) {
+    if (isset($pdo) && $pdo->inTransaction()) {
         $pdo->rollBack();
     }
-    error_log('purchase_listing: ' . $e->getMessage());
+    error_log('purchase_auction_listing: ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['success' => false, 'message' => 'Erro na compra', 'error' => $e->getMessage()]);
 }

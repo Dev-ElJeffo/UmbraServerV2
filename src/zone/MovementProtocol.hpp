@@ -53,7 +53,10 @@ enum class MovementMsgType : uint8_t {
   PersonalShopOpenNotify = 60,   // Cliente -> Servidor: loja aberta (após HTTP)
   PersonalShopOpened = 61,       // Servidor -> Clientes: broadcast loja
   PersonalShopCloseNotify = 62,  // Cliente -> Servidor: loja fechada
-  PersonalShopClosed = 63        // Servidor -> Clientes: broadcast fim loja
+  PersonalShopClosed = 63,       // Servidor -> Clientes: broadcast fim loja
+  // Loja pessoal: após compra HTTP bem-sucedida, o comprador notifica o Zone; todos refrescam listagens via HTTP
+  PersonalShopListingSoldNotify = 64,  // Cliente -> Servidor: [buyerId:4][sellerId:4][shopId:4][listingId:4]
+  PersonalShopListingsChanged = 65     // Servidor -> Clientes: [sellerId:4][shopId:4][listingId:4]
 };
 
 struct MovementFrame {
@@ -827,10 +830,78 @@ inline bool decodePersonalShopClosePayload(const std::vector<uint8_t>& data, uin
   if (data.size() < 9) return false;
   size_t off = 1;
   sellerId = static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) |
-               (static_cast<uint32_t>(data[off + 2]) << 16) | (static_cast<uint32_t>(data[off + 3]) << 24);
+             (static_cast<uint32_t>(data[off + 2]) << 16) | (static_cast<uint32_t>(data[off + 3]) << 24);
   off += 4;
   shopId = static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) |
            (static_cast<uint32_t>(data[off + 2]) << 16) | (static_cast<uint32_t>(data[off + 3]) << 24);
+  return true;
+}
+
+// [64][buyerId:4][sellerId:4][shopId:4][listingId:4]
+inline std::vector<uint8_t> encodePersonalShopListingSoldNotify(uint32_t buyerId, uint32_t sellerId, uint32_t shopId,
+                                                                uint32_t listingId) {
+  std::vector<uint8_t> out;
+  out.reserve(17);
+  out.push_back(static_cast<uint8_t>(MovementMsgType::PersonalShopListingSoldNotify));
+  auto write32 = [&out](uint32_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  write32(buyerId);
+  write32(sellerId);
+  write32(shopId);
+  write32(listingId);
+  return out;
+}
+
+inline bool decodePersonalShopListingSoldNotify(const std::vector<uint8_t>& data, uint32_t& buyerId, uint32_t& sellerId,
+                                                uint32_t& shopId, uint32_t& listingId) {
+  if (data.size() < 17) return false;
+  size_t off = 1;
+  auto read32 = [&data](size_t& o) -> uint32_t {
+    uint32_t v = static_cast<uint32_t>(data[o]) | (static_cast<uint32_t>(data[o + 1]) << 8) |
+                 (static_cast<uint32_t>(data[o + 2]) << 16) | (static_cast<uint32_t>(data[o + 3]) << 24);
+    o += 4;
+    return v;
+  };
+  buyerId = read32(off);
+  sellerId = read32(off);
+  shopId = read32(off);
+  listingId = read32(off);
+  return true;
+}
+
+// [65][sellerId:4][shopId:4][listingId:4]
+inline std::vector<uint8_t> encodePersonalShopListingsChanged(uint32_t sellerId, uint32_t shopId, uint32_t listingId) {
+  std::vector<uint8_t> out;
+  out.reserve(13);
+  out.push_back(static_cast<uint8_t>(MovementMsgType::PersonalShopListingsChanged));
+  auto write32 = [&out](uint32_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  write32(sellerId);
+  write32(shopId);
+  write32(listingId);
+  return out;
+}
+
+inline bool decodePersonalShopListingsChanged(const std::vector<uint8_t>& data, uint32_t& sellerId, uint32_t& shopId,
+                                              uint32_t& listingId) {
+  if (data.size() < 13) return false;
+  size_t off = 1;
+  sellerId = static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) |
+             (static_cast<uint32_t>(data[off + 2]) << 16) | (static_cast<uint32_t>(data[off + 3]) << 24);
+  off += 4;
+  shopId = static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) |
+           (static_cast<uint32_t>(data[off + 2]) << 16) | (static_cast<uint32_t>(data[off + 3]) << 24);
+  off += 4;
+  listingId = static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) |
+              (static_cast<uint32_t>(data[off + 2]) << 16) | (static_cast<uint32_t>(data[off + 3]) << 24);
   return true;
 }
 

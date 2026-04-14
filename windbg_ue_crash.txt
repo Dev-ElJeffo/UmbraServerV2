@@ -1,0 +1,296 @@
+Opened log file 'D:\UmbraServerV2\windbg_ue_crash.txt'
+
+************* Preparing the environment for Debugger Extensions Gallery repositories **************
+   ExtensionRepository : Implicit
+   UseExperimentalFeatureForNugetShare : true
+   AllowNugetExeUpdate : true
+   NonInteractiveNuget : true
+   AllowNugetMSCredentialProviderInstall : true
+   AllowParallelInitializationOfLocalRepositories : true
+   EnableRedirectToChakraJsProvider : false
+
+   -- Configuring repositories
+      ----> Repository : LocalInstalled, Enabled: true
+      ----> Repository : UserExtensions, Enabled: true
+
+>>>>>>>>>>>>> Preparing the environment for Debugger Extensions Gallery repositories completed, duration 0.000 seconds
+
+************* Waiting for Debugger Extensions Gallery to Initialize **************
+
+>>>>>>>>>>>>> Waiting for Debugger Extensions Gallery to Initialize completed, duration 0.578 seconds
+   ----> Repository : UserExtensions, Enabled: true, Packages count: 0
+   ----> Repository : LocalInstalled, Enabled: true, Packages count: 46
+
+Microsoft (R) Windows Debugger Version 10.0.29547.1002 AMD64
+Copyright (c) Microsoft Corporation. All rights reserved.
+
+
+Loading Dump File [C:\Users\Jeff O mestre\AppData\Local\UnrealEngine\5.6\Saved\Crashes\_0000\UEMinidump.dmp]
+User Mini Dump File: Only registers, stack and portions of memory are available
+
+Symbol search path is: srv*
+Executable search path is: 
+Windows 10 Version 22631 MP (12 procs) Free x64
+Product: WinNt, suite: SingleUserTS
+Edition build lab: 22621.1.amd64fre.ni_release.220506-1250
+Debug session time: Tue Apr 14 10:05:54.000 2026 (UTC - 3:00)
+System Uptime: not available
+Process Uptime: 0 days 0:00:03.000
+.NatVis script successfully loaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\atlmfc.natvis'
+NatVis script successfully loaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\concurrency.natvis'
+NatVis script successfully loaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\cpp_rest.natvis'
+NatVis script successfully loaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\ObjectiveC.natvis'
+NatVis script successfully loaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\stl.natvis'
+NatVis script successfully loaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\Windows.Data.Json.natvis'
+NatVis script successfully loaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\Windows.Devices.Geolocation.natvis'
+NatVis script successfully loaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\Windows.Devices.Sensors.natvis'
+NatVis script successfully loaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\Windows.Media.natvis'
+NatVis script successfully loaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\windows.natvis'
+NatVis script successfully loaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\winrt.natvis'
+...............................................................
+................................................................
+................................................................
+.................................CLR providers have been placed in the service container
+...............................
+................................................................
+................................................................
+................................................................
+.............................................................
+This dump file has an exception of interest stored in it.
+The stored exception information can be accessed via .ecxr
+(4624.46c4): Access violation - code c0000005 (first/second chance not available)
+ReadVirtual() failed in GetXStateConfiguration() first read attempt (error == 0.)
+Invalid mini-dump Miscellaneous information in InitializeConfiguration()
+For analysis of this file, run !analyze -v
+ntdll!NtWaitForSingleObject+0x14:
+00007ffe`5cf70e84 c3              ret
+0:000> .symfix;.reload;!analyze -v;kv;q
+.symfix;.reload;!analyze -v;kv;q
+................................................................
+................................................................
+................................................................
+................................................................
+.............................
+
+************* Symbol Loading Error Summary **************
+Module name            Error
+UnrealEditor           The system cannot find the file specified
+UnrealEditor-Core      The system cannot find the file specified
+
+You can troubleshoot most symbol related issues by turning on symbol loading diagnostics (!sym noisy) and repeating the command that caused symbols to be loaded.
+You should also verify that your symbol search path (.sympath) is correct.
+................................................................
+................................................................
+................................................................
+................................................................
+.............................
+
+************* Symbol Loading Error Summary **************
+Module name            Error
+UnrealEditor           The system cannot find the file specified
+UnrealEditor-Core      The system cannot find the file specified
+
+You can troubleshoot most symbol related issues by turning on symbol loading diagnostics (!sym noisy) and repeating the command that caused symbols to be loaded.
+You should also verify that your symbol search path (.sympath) is correct.
+*******************************************************************************
+*                                                                             *
+*                        Exception Analysis                                   *
+*                                                                             *
+*******************************************************************************
+
+
+KEY_VALUES_STRING: 1
+
+    Key  : AV.Type
+    Value: Read
+
+    Key  : Analysis.CPU.mSec
+    Value: 546
+
+    Key  : Analysis.Elapsed.mSec
+    Value: 13520
+
+    Key  : Analysis.IO.Other.Mb
+    Value: 3
+
+    Key  : Analysis.IO.Read.Mb
+    Value: 1
+
+    Key  : Analysis.IO.Write.Mb
+    Value: 35
+
+    Key  : Analysis.Init.CPU.mSec
+    Value: 625
+
+    Key  : Analysis.Init.Elapsed.mSec
+    Value: 12234
+
+    Key  : Analysis.Memory.CommitPeak.Mb
+    Value: 120
+
+    Key  : Analysis.Version.DbgEng
+    Value: 10.0.29547.1002
+
+    Key  : Analysis.Version.Description
+    Value: 10.2602.27.2 amd64fre
+
+    Key  : Analysis.Version.Ext
+    Value: 1.2602.27.2
+
+    Key  : Failure.Bucket
+    Value: INVALID_POINTER_READ_c0000005_UnrealEditor-Core.dll!Unknown
+
+    Key  : Failure.Exception.Code
+    Value: 0xc0000005
+
+    Key  : Failure.Exception.IP.Address
+    Value: 0x7ffdb849ec37
+
+    Key  : Failure.Exception.IP.Module
+    Value: UnrealEditor_Core
+
+    Key  : Failure.Exception.IP.Offset
+    Value: 0x5bec37
+
+    Key  : Failure.Hash
+    Value: {55ef0f04-c68b-27f2-5f5c-4d035453f755}
+
+    Key  : Failure.ProblemClass.Primary
+    Value: INVALID_POINTER_READ
+
+    Key  : Faulting.IP.Type
+    Value: Paged
+
+    Key  : Timeline.Process.Start.DeltaSec
+    Value: 3
+
+    Key  : WER.OS.Branch
+    Value: ni_release
+
+    Key  : WER.OS.Version
+    Value: 10.0.22621.1
+
+    Key  : WER.Process.Version
+    Value: 5.6.1.0
+
+
+FILE_IN_CAB:  UEMinidump.dmp
+
+CONTEXT:  (.ecxr)
+.ecxr
+rax=00000148c3c90000 rbx=0000000000000a56 rcx=00000148c3c90000
+rdx=00000148c3c90000 rsi=00000148c3c90000 rdi=00007ffe0d035000
+rip=00007ffdb849ec37 rsp=0000001ca277bdd0 rbp=0000000000000004
+ r8=0000000000000001  r9=00000148c3c90000 r10=00000148c3c90000
+r11=00007ffedc7d30a7 r12=00007ffe0cf30000 r13=00007ffdb7ee0000
+r14=0000000000000000 r15=0000000000000a56
+iopl=0         nv up ei pl nz na po nc
+cs=0033  ss=002b  ds=002b  es=002b  fs=0053  gs=002b             efl=00010202
+UnrealEditor_Core!FHistogram::AddMeasurement+0x407:
+00007ffd`b849ec37 410fb62b        movzx   ebp,byte ptr [r11] ds:00007ffe`dc7d30a7=??
+.cxr
+Resetting default scope
+
+EXCEPTION_RECORD:  (.exr -1)
+.exr -1
+ExceptionAddress: 00007ffdb849ec37 (UnrealEditor_Core!FHistogram::AddMeasurement+0x0000000000000407)
+   ExceptionCode: c0000005 (Access violation)
+  ExceptionFlags: 00000000
+NumberParameters: 2
+   Parameter[0]: 0000000000000000
+   Parameter[1]: 00007ffedc7d30a7
+Attempt to read from address 00007ffedc7d30a7
+
+PROCESS_NAME:  UnrealEditor.exe
+
+READ_ADDRESS:  00007ffedc7d30a7 
+
+ERROR_CODE: (NTSTATUS) 0xc0000005 - A instru  o no 0x%p referenciou a mem ria no 0x%p. A mem ria n o p de ser %s.
+
+EXCEPTION_CODE_STR:  c0000005
+
+EXCEPTION_PARAMETER1:  0000000000000000
+
+EXCEPTION_PARAMETER2:  00007ffedc7d30a7
+
+STACK_TEXT:  
+0000001c`a277bdd0 00007ffd`b84b966e     : 00000148`c2f38400 00007ffe`0cf30000 00007ffd`b9187780 00000006`00009520 : UnrealEditor_Core!FHistogram::AddMeasurement+0x407
+0000001c`a277bea0 00007ffd`b84a3e65     : 00000148`becbfb40 0000001c`a277c120 00000000`00000000 00000000`00000000 : UnrealEditor_Core!MemoryTrace_UpdateAlloc+0x99e
+0000001c`a277bfb0 00007ffd`b8439a31     : 00000000`00000006 00000000`00000000 00000148`c38c61c0 00000000`00000000 : UnrealEditor_Core!CallstackTrace_GetCurrentId+0x165
+0000001c`a277bff0 00007ffd`b84b5cb1     : 00000000`00000006 00000000`00000003 00000148`c38c61c0 0000001c`a277bfc8 : UnrealEditor_Core!FPaths::BugItDir+0x19a1
+0000001c`a277c020 00007ff6`7bb4a317     : 00000006`8bc9eab3 00000000`00000001 00000148`c38b75f0 00000148`c2f9b708 : UnrealEditor_Core!FTraceAuxiliary::Initialize+0xac1
+0000001c`a277c3c0 00007ff6`7bb3e376     : 00000000`0000037a 00000148`c2f9b812 00000148`c2f9b812 00000148`c38b75f0 : UnrealEditor!LaunchWindowsStartup+0x8487
+0000001c`a277d9b0 00007ff6`7bb3e6ba     : 00000148`c2f9b72e 00000148`c2f9b708 00000000`00000000 00000000`00000000 : UnrealEditor!EngineTick+0x5746
+0000001c`a277eaf0 00007ff6`7bb4209e     : 00000148`c2f9b708 00000000`00000000 00000000`00000000 00007ff6`7bb10000 : UnrealEditor!GuardedMainWrapper+0x1a
+0000001c`a277eb30 00007ff6`7bb54e44     : 00000000`0000000a 00000000`00000000 00000148`bec49861 00000000`00000000 : UnrealEditor!LaunchWindowsStartup+0x20e
+0000001c`a277fb80 00007ff6`7bb580fa     : 00000000`0000000a 00007ff6`7bb581f5 00000000`00000000 00000000`00000000 : UnrealEditor!ThisIsAnUnrealEngineModule+0x24
+0000001c`a277fbc0 00007ffe`5b8d259d     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : UnrealEditor!ThisIsAnUnrealEngineModule+0x32da
+0000001c`a277fc00 00007ffe`5cf2af78     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : kernel32!BaseThreadInitThunk+0x1d
+0000001c`a277fc30 00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x28
+
+
+STACK_COMMAND: ~0s; .ecxr ; kb
+
+IP_IN_PAGED_CODE: 
+UnrealEditor_Core!FHistogram::AddMeasurement+407
+00007ffd`b849ec37 410fb62b        movzx   ebp,byte ptr [r11]
+
+SYMBOL_NAME:  UnrealEditor_Core+5bec37
+
+MODULE_NAME: UnrealEditor_Core
+
+IMAGE_NAME:  UnrealEditor-Core.dll
+
+FAILURE_BUCKET_ID:  INVALID_POINTER_READ_c0000005_UnrealEditor-Core.dll!Unknown
+
+OS_VERSION:  10.0.22621.1
+
+BUILDLAB_STR:  ni_release
+
+OSPLATFORM_TYPE:  x64
+
+OSNAME:  Windows 10
+
+IMAGE_VERSION:  5.6.1.0
+
+FAILURE_ID_HASH:  {55ef0f04-c68b-27f2-5f5c-4d035453f755}
+
+Followup:     MachineOwner
+---------
+
+ # Child-SP          RetAddr               : Args to Child                                                           : Call Site
+00 0000001c`a277ada8 00007ffe`5a6d9d0e     : fffffffb`00000001 00000148`c2380210 0000001c`a277aec0 0000001c`a277aec2 : ntdll!NtWaitForSingleObject+0x14
+01 0000001c`a277adb0 00007ffd`b85fa0fd     : 0000001c`a277af00 00000006`8c82e8a7 0000001c`00000000 00000000`00000258 : KERNELBASE!WaitForSingleObjectEx+0x8e
+02 0000001c`a277ae50 00007ff6`7bb5d470     : 00000000`00000001 404e0000`00000000 00007ff6`7bb3e6ba 00007ffe`5cef0fba : UnrealEditor_Core!ReportCrash+0x14d
+03 0000001c`a277ae90 00007ffe`47d0f53f     : 0000001c`a277afd0 00000000`00000000 0000001c`a277af88 0000001c`a277b570 : UnrealEditor!ThisIsAnUnrealEngineModule+0x8650
+04 0000001c`a277aed0 00007ffe`5cf75e9f     : 00000000`00000000 0000001c`a277b4d0 0000001c`a277bbb0 0000001c`a277bbb0 : VCRUNTIME140!__C_specific_handler+0x9f [D:\a\_work\1\s\src\vctools\crt\vcruntime\src\eh\riscchandler.cpp @ 389] 
+05 0000001c`a277af40 00007ffe`5ceee8c6     : 0000001c`a277bbb0 00007ff6`7bb10000 00007ff6`7bb3e6ba 00007ff6`7bb96cbc : ntdll!RtlpExecuteHandlerForException+0xf
+06 0000001c`a277af70 00007ffe`5cf74e9e     : 0000001c`a277b6ec 0000001c`a277b6e8 00000000`00000a56 00000000`00000000 : ntdll!RtlDispatchException+0x286
+07 0000001c`a277b6c0 00007ffd`b849ec37     : 00000000`00000a56 00000000`0000002f 00000148`bed01820 00000148`c7d67000 : ntdll!KiUserExceptionDispatch+0x2e
+08 0000001c`a277bdd0 00007ffd`b84b966e     : 00000148`c2f38400 00007ffe`0cf30000 00007ffd`b9187780 00000006`00009520 : UnrealEditor_Core!FHistogram::AddMeasurement+0x407
+09 0000001c`a277bea0 00007ffd`b84a3e65     : 00000148`becbfb40 0000001c`a277c120 00000000`00000000 00000000`00000000 : UnrealEditor_Core!MemoryTrace_UpdateAlloc+0x99e
+0a 0000001c`a277bfb0 00007ffd`b8439a31     : 00000000`00000006 00000000`00000000 00000148`c38c61c0 00000000`00000000 : UnrealEditor_Core!CallstackTrace_GetCurrentId+0x165
+0b 0000001c`a277bff0 00007ffd`b84b5cb1     : 00000000`00000006 00000000`00000003 00000148`c38c61c0 0000001c`a277bfc8 : UnrealEditor_Core!FPaths::BugItDir+0x19a1
+0c 0000001c`a277c020 00007ff6`7bb4a317     : 00000006`8bc9eab3 00000000`00000001 00000148`c38b75f0 00000148`c2f9b708 : UnrealEditor_Core!FTraceAuxiliary::Initialize+0xac1
+0d 0000001c`a277c3c0 00007ff6`7bb3e376     : 00000000`0000037a 00000148`c2f9b812 00000148`c2f9b812 00000148`c38b75f0 : UnrealEditor!LaunchWindowsStartup+0x8487
+0e 0000001c`a277d9b0 00007ff6`7bb3e6ba     : 00000148`c2f9b72e 00000148`c2f9b708 00000000`00000000 00000000`00000000 : UnrealEditor!EngineTick+0x5746
+0f 0000001c`a277eaf0 00007ff6`7bb4209e     : 00000148`c2f9b708 00000000`00000000 00000000`00000000 00007ff6`7bb10000 : UnrealEditor!GuardedMainWrapper+0x1a
+10 0000001c`a277eb30 00007ff6`7bb54e44     : 00000000`0000000a 00000000`00000000 00000148`bec49861 00000000`00000000 : UnrealEditor!LaunchWindowsStartup+0x20e
+11 0000001c`a277fb80 00007ff6`7bb580fa     : 00000000`0000000a 00007ff6`7bb581f5 00000000`00000000 00000000`00000000 : UnrealEditor!ThisIsAnUnrealEngineModule+0x24
+12 0000001c`a277fbc0 00007ffe`5b8d259d     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : UnrealEditor!ThisIsAnUnrealEngineModule+0x32da
+13 0000001c`a277fc00 00007ffe`5cf2af78     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : kernel32!BaseThreadInitThunk+0x1d
+14 0000001c`a277fc30 00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x28
+Exit a remote ntsd/cdb client with Ctrl-b<enter>.
+Exit a remote windbg client with File.Exit (Alt-F4).
+If you really want the server to quit use an extra q, such as 'qq' or 'qqd'.
+NatVis script unloaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\atlmfc.natvis'
+NatVis script unloaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\concurrency.natvis'
+NatVis script unloaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\cpp_rest.natvis'
+NatVis script unloaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\ObjectiveC.natvis'
+NatVis script unloaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\stl.natvis'
+NatVis script unloaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\Windows.Data.Json.natvis'
+NatVis script unloaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\Windows.Devices.Geolocation.natvis'
+NatVis script unloaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\Windows.Devices.Sensors.natvis'
+NatVis script unloaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\Windows.Media.natvis'
+NatVis script unloaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\windows.natvis'
+NatVis script unloaded from 'C:\Program Files\WindowsApps\Microsoft.WinDbg_1.2603.20001.0_x64__8wekyb3d8bbwe\amd64\Visualizers\winrt.natvis'

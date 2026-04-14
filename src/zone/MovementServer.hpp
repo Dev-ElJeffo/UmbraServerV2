@@ -142,6 +142,27 @@ public:
         }
         return;
       }
+
+      if (msgType == MovementMsgType::PersonalShopListingSoldNotify) {
+        uint32_t buyerId, sellerId, shopId, listingId;
+        if (decodePersonalShopListingSoldNotify(data, buyerId, sellerId, shopId, listingId)) {
+          std::lock_guard<std::mutex> lock(mu_);
+          uint32_t mappedPid = 0;
+          auto cidIt = clientIdToPlayerId_.find(cid);
+          if (cidIt != clientIdToPlayerId_.end()) mappedPid = cidIt->second;
+          if (mappedPid == 0 || mappedPid != buyerId) {
+            Umbra::Core::Logger::getInstance().warn(
+                "PersonalShopListingSoldNotify: client {} mapped player {} != buyer {}",
+                cid, mappedPid, buyerId);
+            return;
+          }
+          auto changed = encodePersonalShopListingsChanged(sellerId, shopId, listingId);
+          ws_.broadcastBinary(changed);
+          Umbra::Core::Logger::getInstance().info(
+              "PersonalShopListingsChanged broadcast: seller={}, shop={}, listing={}", sellerId, shopId, listingId);
+        }
+        return;
+      }
       
       // Party Accept Notify (cliente aceitou grupo via HTTP, broadcast para todos refrescarem)
       if (msgType == MovementMsgType::PartyAcceptNotify) {
