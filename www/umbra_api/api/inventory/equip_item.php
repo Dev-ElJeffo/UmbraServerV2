@@ -28,6 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/auction_helper.php';
 
 // Obter dados do POST
 $json = file_get_contents('php://input');
@@ -77,6 +78,13 @@ try {
         $pdo->rollBack();
         http_response_code(404);
         echo json_encode(['success' => false, 'message' => 'Item não encontrado ou não pertence a este jogador']);
+        exit;
+    }
+
+    if (playerInventoryRowHeldForAuction($item)) {
+        $pdo->rollBack();
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Este item está anunciado no mercado e não pode ser equipado.']);
         exit;
     }
     

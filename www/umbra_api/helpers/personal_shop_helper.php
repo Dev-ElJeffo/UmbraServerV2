@@ -29,7 +29,10 @@ function sanitizePersonalShopName($name) {
  * Primeiro slot livre no inventário do jogador (0-49), igual ao trade
  */
 function personalShopFindFreeSlot(PDO $pdo, int $player_id): ?int {
-    $stmt = $pdo->prepare("SELECT slot_index FROM player_inventory WHERE player_id = ? AND slot_index >= 0 AND slot_index < 50");
+    $stmt = $pdo->prepare("
+        SELECT slot_index FROM player_inventory
+        WHERE player_id = ? AND slot_index >= 0 AND slot_index < 50 AND auction_listing_id IS NULL
+    ");
     $stmt->execute([$player_id]);
     $occupied = $stmt->fetchAll(PDO::FETCH_COLUMN);
     for ($s = 0; $s < 50; $s++) {

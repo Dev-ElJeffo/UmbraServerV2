@@ -76,6 +76,7 @@ try {
       AND pi.slot_index >= 0
       AND pi.slot_index < 50
       AND pi.is_equipped = FALSE
+      AND pi.auction_listing_id IS NULL
     ORDER BY pi.slot_index ASC
     ";
     

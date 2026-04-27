@@ -71,6 +71,14 @@ try {
 
     $expires = strtotime($L['expires_at'] ?? '');
     if ($expires !== false && $expires < time()) {
+        $invExpire = (int) $L['inventory_id'];
+        $sellerMid = (int) $L['seller_player_id'];
+        if (!auctionReturnInventoryToSellerBag($pdo, $listing_id, $invExpire, $sellerMid)) {
+            $pdo->rollBack();
+            http_response_code(500);
+            echo json_encode(['success' => false, 'message' => 'Anúncio expirado mas não foi possível devolver o item ao vendedor.']);
+            exit;
+        }
         $pdo->prepare("UPDATE auction_listings SET status = 'expired' WHERE listing_id = ?")->execute([$listing_id]);
         $pdo->commit();
         http_response_code(400);
@@ -89,10 +97,16 @@ try {
         exit;
     }
 
-    $inv = $pdo->prepare("SELECT inventory_id, player_id, is_equipped FROM player_inventory WHERE inventory_id = ? FOR UPDATE");
+    $inv = $pdo->prepare(
+        'SELECT inventory_id, player_id, is_equipped, auction_listing_id FROM player_inventory WHERE inventory_id = ? FOR UPDATE'
+    );
     $inv->execute([$inv_id]);
     $invRow = $inv->fetch(PDO::FETCH_ASSOC);
-    if (!$invRow || (int)$invRow['player_id'] !== $seller_id || !empty($invRow['is_equipped'])) {
+    $pid = $invRow ? (int) $invRow['player_id'] : 0;
+    $heldId = $invRow ? (int) ($invRow['auction_listing_id'] ?? 0) : 0;
+    $sellerOk = $invRow && $pid === $seller_id
+        && ($heldId === 0 || $heldId === $listing_id);
+    if (!$invRow || !$sellerOk || !empty($invRow['is_equipped'])) {
         $pdo->rollBack();
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'Item não está mais disponível.']);
@@ -120,8 +134,9 @@ try {
     $pdo->prepare("UPDATE players SET gold = gold - ? WHERE id = ?")->execute([$price, $buyer_id]);
     $pdo->prepare("UPDATE players SET gold = gold + ? WHERE id = ?")->execute([$price, $seller_id]);
 
-    $pdo->prepare("UPDATE player_inventory SET player_id = ?, slot_index = ?, is_equipped = 0 WHERE inventory_id = ?")
-        ->execute([$buyer_id, $free, $inv_id]);
+    $pdo->prepare(
+        'UPDATE player_inventory SET player_id = ?, slot_index = ?, is_equipped = 0, auction_listing_id = NULL WHERE inventory_id = ?'
+    )->execute([$buyer_id, $free, $inv_id]);
 
     $pdo->prepare("UPDATE auction_listings SET status = 'sold' WHERE listing_id = ?")->execute([$listing_id]);
 

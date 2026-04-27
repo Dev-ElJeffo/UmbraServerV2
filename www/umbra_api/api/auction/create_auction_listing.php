@@ -82,7 +82,7 @@ try {
     }
 
     $chk = $pdo->prepare("
-        SELECT inventory_id, player_id, is_equipped, slot_index
+        SELECT inventory_id, player_id, is_equipped, slot_index, auction_listing_id
         FROM player_inventory
         WHERE inventory_id = ? FOR UPDATE
     ");
@@ -92,6 +92,12 @@ try {
         $pdo->rollBack();
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'Item não encontrado no seu inventário.']);
+        exit;
+    }
+    if (playerInventoryRowHeldForAuction($row)) {
+        $pdo->rollBack();
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Item já está retido no mercado.']);
         exit;
     }
     if (!empty($row['is_equipped'])) {
@@ -115,6 +121,13 @@ try {
     ");
     $ins->execute([$player_id, $inventory_id, $price_gold, $expiresAt]);
     $listing_id = (int)$pdo->lastInsertId();
+
+    if (!auctionAttachListingToInventory($pdo, $listing_id, $inventory_id, $player_id)) {
+        $pdo->rollBack();
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Não foi possível reservar o item no inventário.']);
+        exit;
+    }
 
     $ex = $pdo->prepare("SELECT expires_at FROM auction_listings WHERE listing_id = ?");
     $ex->execute([$listing_id]);

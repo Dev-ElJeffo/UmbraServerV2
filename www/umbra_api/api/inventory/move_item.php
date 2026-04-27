@@ -33,6 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/auction_helper.php';
 
 // Obter dados do POST
 $json = file_get_contents('php://input');
@@ -101,6 +102,13 @@ try {
     $is_equipped = (bool)$item['is_equipped'];
     $item_player_id = (int)$item['player_id'];
     $item_account_id = (int)$item['account_id'];
+
+    if (playerInventoryRowHeldForAuction($item)) {
+        $pdo->rollBack();
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Este item está anunciado no mercado e não pode ser movido.']);
+        exit;
+    }
     
     // ✅ Validação de segurança:
     // - Se o item está no inventário (0-49): deve pertencer ao player_id atual

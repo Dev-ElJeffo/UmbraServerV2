@@ -54,7 +54,7 @@ try {
     $pdo->beginTransaction();
 
     $lq = $pdo->prepare("
-        SELECT listing_id, seller_player_id, status
+        SELECT listing_id, seller_player_id, status, inventory_id
         FROM auction_listings
         WHERE listing_id = ?
         FOR UPDATE
@@ -77,6 +77,13 @@ try {
     }
 
     $pdo->prepare("UPDATE auction_listings SET status = 'cancelled' WHERE listing_id = ?")->execute([$listing_id]);
+    $invId = (int) $L['inventory_id'];
+    if (!auctionReturnInventoryToSellerBag($pdo, $listing_id, $invId, $player_id)) {
+        $pdo->rollBack();
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Sem espaço no inventário para devolver o item. Libere um slot e tente novamente.']);
+        exit;
+    }
     $pdo->commit();
 
     http_response_code(200);
