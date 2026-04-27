@@ -103,6 +103,14 @@ try {
         'message' => 'Erro ao obter informações do personagem',
         'error' => $e->getMessage()
     ]);
+} catch (Throwable $e) {
+    error_log("Erro get_character_info: " . $e->getMessage());
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'message' => 'Erro ao obter informações do personagem',
+        'error' => $e->getMessage()
+    ]);
 }
 ?>
 

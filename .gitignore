@@ -21,6 +21,7 @@ config/db.json
 
 # PHP vendor (instalado via composer install)
 www/umbra_api/vendor/
+www/umbra_api/composer.phar
 
 # Logs
 *.log
