@@ -1,0 +1,625 @@
+/**
+ * UmbraEternum - Dark Fantasy CSS Global
+ * Estilo inspirado em MMORPGs dark fantasy modernos
+ * Tendências Future Medieval 2026
+ */
+
+/* ========================================
+   IMPORTS - FONTES
+   ======================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap');
+
+/* ========================================
+   CSS RESET
+   ======================================== */
+
+*, *::before, *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+    overflow-x: hidden;
+}
+
+body {
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--color-text-primary);
+    background-color: var(--color-bg-primary);
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
+a {
+    text-decoration: none;
+    color: inherit;
+    transition: all 0.3s ease;
+}
+
+button {
+    font-family: inherit;
+    cursor: pointer;
+    border: none;
+    background: none;
+    transition: all 0.3s ease;
+}
+
+ul, ol {
+    list-style: none;
+}
+
+input, textarea, select {
+    font-family: inherit;
+    font-size: inherit;
+}
+
+/* ========================================
+   VARIÁVEIS CSS - PALETA DARK FANTASY
+   ======================================== */
+
+:root {
+    /* Cores Primárias Dark */
+    --color-bg-primary: #0a0a0f;
+    --color-bg-secondary: #1a1a2e;
+    --color-bg-tertiary: #2d2d44;
+    --color-bg-card: rgba(26, 26, 46, 0.8);
+    --color-bg-overlay: rgba(10, 10, 15, 0.95);
+    
+    /* Cores de Pedra/Slate */
+    --color-stone-dark: #2d2d44;
+    --color-stone-medium: #3a3a52;
+    --color-stone-light: #4a4a6a;
+    --color-stone-lighter: #5a5a7a;
+    
+    /* Acentos Vermelhos (Blood Red) */
+    --color-red-dark: #8b0000;
+    --color-red-medium: #c41e3a;
+    --color-red-bright: #ff4444;
+    --color-red-light: #ff6b6b;
+    
+    /* Manter dourado para compatibilidade (agora aponta para vermelho) */
+    --color-gold-dark: #8b0000;
+    --color-gold-medium: #c41e3a;
+    --color-gold-bright: #ff4444;
+    --color-gold-light: #ff6b6b;
+    
+    /* Roxo/Místico */
+    --color-purple-deep: #5e3a8c;
+    --color-purple-vibrant: #8b5cf6;
+    --color-purple-light: #a78bfa;
+    
+    /* Verde Vida */
+    --color-green-dark: #2d5016;
+    
+    /* Verde Vida */
+    --color-green-dark: #2d5016;
+    --color-green-medium: #4caf50;
+    --color-green-bright: #7cfc00;
+    
+    /* Azul Mana */
+    --color-blue-dark: #1a2c4a;
+    --color-blue-medium: #3b82f6;
+    --color-blue-bright: #60a5fa;
+    
+    /* Texto */
+    --color-text-primary: #e8e8f0;
+    --color-text-secondary: #b8b8c8;
+    --color-text-muted: #888898;
+    --color-text-dark: #1a1a2e;
+    
+    /* Bordas */
+    --color-border-dark: #2d2d44;
+    --color-border-medium: #4a4a6a;
+    --color-border-gold: #c41e3a;
+    --color-border-red: #c41e3a;
+    
+    /* Raridades de Itens */
+    --rarity-common: #808080;
+    --rarity-uncommon: #4caf50;
+    --rarity-rare: #3b82f6;
+    --rarity-epic: #a855f7;
+    --rarity-legendary: #fbbf24;
+    
+    /* Fontes */
+    --font-title: 'Cinzel', serif;
+    --font-heading: 'Cormorant Garamond', serif;
+    --font-body: 'Inter', sans-serif;
+    
+    /* Tamanhos de Fonte */
+    --font-size-xs: 0.75rem;    /* 12px */
+    --font-size-sm: 0.875rem;   /* 14px */
+    --font-size-base: 1rem;     /* 16px */
+    --font-size-lg: 1.125rem;   /* 18px */
+    --font-size-xl: 1.25rem;    /* 20px */
+    --font-size-2xl: 1.5rem;    /* 24px */
+    --font-size-3xl: 1.875rem;  /* 30px */
+    --font-size-4xl: 2.25rem;   /* 36px */
+    --font-size-5xl: 3rem;      /* 48px */
+    
+    /* Sombras */
+    --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.5);
+    --shadow-xl: 0 12px 24px rgba(0, 0, 0, 0.6);
+    --shadow-2xl: 0 20px 40px rgba(0, 0, 0, 0.7);
+    --shadow-gold: 0 0 20px rgba(196, 30, 58, 0.3);
+    --shadow-gold-strong: 0 0 30px rgba(196, 30, 58, 0.6);
+    --shadow-red: 0 0 20px rgba(255, 68, 68, 0.3);
+    --shadow-red-strong: 0 0 30px rgba(255, 68, 68, 0.6);
+    
+    /* Brilhos */
+    --glow-gold: 0 0 10px rgba(255, 68, 68, 0.5);
+    --glow-red: 0 0 10px rgba(255, 68, 68, 0.5);
+    --glow-purple: 0 0 10px rgba(139, 92, 246, 0.5);
+    
+    /* Espaçamentos */
+    --spacing-xs: 0.25rem;   /* 4px */
+    --spacing-sm: 0.5rem;    /* 8px */
+    --spacing-md: 1rem;      /* 16px */
+    --spacing-lg: 1.5rem;    /* 24px */
+    --spacing-xl: 2rem;      /* 32px */
+    --spacing-2xl: 3rem;     /* 48px */
+    --spacing-3xl: 4rem;     /* 64px */
+    
+    /* Border Radius */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --radius-full: 9999px;
+    
+    /* Transições */
+    --transition-fast: 0.15s ease;
+    --transition-base: 0.3s ease;
+    --transition-slow: 0.5s ease;
+    
+    /* Z-index */
+    --z-dropdown: 1000;
+    --z-sticky: 1020;
+    --z-fixed: 1030;
+    --z-modal-backdrop: 1040;
+    --z-modal: 1050;
+    --z-popover: 1060;
+    --z-tooltip: 1070;
+}
+
+/* ========================================
+   UTILITÁRIOS - TIPOGRAFIA
+   ======================================== */
+
+.font-title {
+    font-family: var(--font-title);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+}
+
+.font-heading {
+    font-family: var(--font-heading);
+    font-weight: 600;
+}
+
+.font-body {
+    font-family: var(--font-body);
+}
+
+.text-xs { font-size: var(--font-size-xs); }
+.text-sm { font-size: var(--font-size-sm); }
+.text-base { font-size: var(--font-size-base); }
+.text-lg { font-size: var(--font-size-lg); }
+.text-xl { font-size: var(--font-size-xl); }
+.text-2xl { font-size: var(--font-size-2xl); }
+.text-3xl { font-size: var(--font-size-3xl); }
+.text-4xl { font-size: var(--font-size-4xl); }
+.text-5xl { font-size: var(--font-size-5xl); }
+
+.text-gold { color: var(--color-gold-bright); }
+.text-purple { color: var(--color-purple-vibrant); }
+.text-red { color: var(--color-red-bright); }
+.text-muted { color: var(--color-text-muted); }
+
+.text-center { text-align: center; }
+.text-left { text-align: left; }
+.text-right { text-align: right; }
+
+/* ========================================
+   UTILITÁRIOS - BOTÕES
+   ======================================== */
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-sm);
+    padding: 0.75rem 1.5rem;
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-base);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    position: relative;
+    overflow: hidden;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, var(--color-gold-medium) 0%, var(--color-gold-bright) 100%);
+    color: var(--color-text-dark);
+    box-shadow: var(--shadow-md);
+}
+
+.btn-primary:hover {
+    background: linear-gradient(135deg, var(--color-gold-bright) 0%, var(--color-gold-light) 100%);
+    box-shadow: var(--shadow-gold-strong);
+    transform: translateY(-2px);
+}
+
+.btn-secondary {
+    background: transparent;
+    border: 2px solid var(--color-gold-medium);
+    color: var(--color-gold-bright);
+}
+
+.btn-secondary:hover {
+    background: var(--color-gold-medium);
+    color: var(--color-text-dark);
+    box-shadow: var(--shadow-gold);
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, var(--color-red-dark) 0%, var(--color-red-bright) 100%);
+    color: var(--color-text-primary);
+}
+
+.btn-danger:hover {
+    background: linear-gradient(135deg, var(--color-red-medium) 0%, var(--color-red-bright) 100%);
+    transform: translateY(-2px);
+}
+
+.btn-ghost {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-border-medium);
+}
+
+.btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: var(--color-gold-medium);
+}
+
+.btn-sm {
+    padding: 0.5rem 1rem;
+    font-size: var(--font-size-sm);
+}
+
+.btn-lg {
+    padding: 1rem 2rem;
+    font-size: var(--font-size-lg);
+}
+
+/* ========================================
+   UTILITÁRIOS - CARDS
+   ======================================== */
+
+.card {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border-dark);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(10px);
+    transition: all var(--transition-base);
+}
+
+.card:hover {
+    border-color: var(--color-border-medium);
+    box-shadow: var(--shadow-xl);
+}
+
+.card-medieval {
+    background: var(--color-bg-card);
+    border: 2px solid var(--color-gold-dark);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-xl);
+    box-shadow: var(--shadow-xl);
+    position: relative;
+}
+
+.card-medieval::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--color-gold-bright), transparent);
+}
+
+.card-medieval:hover {
+    border-color: var(--color-gold-bright);
+    box-shadow: var(--shadow-gold-strong);
+    transform: translateY(-4px);
+}
+
+/* ========================================
+   UTILITÁRIOS - BORDAS E ORNAMENTOS
+   ======================================== */
+
+.border-gold {
+    border: 2px solid var(--color-gold-medium);
+}
+
+.border-gold-thick {
+    border: 3px solid var(--color-gold-medium);
+}
+
+.border-top-gold {
+    border-top: 2px solid var(--color-gold-medium);
+}
+
+.border-bottom-gold {
+    border-bottom: 2px solid var(--color-gold-medium);
+}
+
+.divider-gold {
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--color-gold-medium), transparent);
+    margin: var(--spacing-lg) 0;
+}
+
+.divider-ornament {
+    display: flex;
+    align-items: center;
+    text-align: center;
+    margin: var(--spacing-xl) 0;
+    color: var(--color-gold-medium);
+}
+
+.divider-ornament::before,
+.divider-ornament::after {
+    content: '';
+    flex: 1;
+    border-bottom: 1px solid var(--color-gold-dark);
+}
+
+.divider-ornament:not(:empty)::before {
+    margin-right: var(--spacing-md);
+}
+
+.divider-ornament:not(:empty)::after {
+    margin-left: var(--spacing-md);
+}
+
+/* ========================================
+   UTILITÁRIOS - LAYOUT
+   ======================================== */
+
+.container {
+    width: 100%;
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 var(--spacing-lg);
+}
+
+.container-fluid {
+    width: 100%;
+    padding: 0 var(--spacing-lg);
+}
+
+.section {
+    padding: var(--spacing-3xl) 0;
+}
+
+.section-dark {
+    background: var(--color-bg-secondary);
+}
+
+.flex {
+    display: flex;
+}
+
+.flex-col {
+    display: flex;
+    flex-direction: column;
+}
+
+.items-center {
+    align-items: center;
+}
+
+.justify-center {
+    justify-content: center;
+}
+
+.justify-between {
+    justify-content: space-between;
+}
+
+.gap-sm { gap: var(--spacing-sm); }
+.gap-md { gap: var(--spacing-md); }
+.gap-lg { gap: var(--spacing-lg); }
+.gap-xl { gap: var(--spacing-xl); }
+
+.grid {
+    display: grid;
+    gap: var(--spacing-lg);
+}
+
+.grid-cols-2 {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+.grid-cols-3 {
+    grid-template-columns: repeat(3, 1fr);
+}
+
+.grid-cols-4 {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+@media (max-width: 768px) {
+    .grid-cols-2,
+    .grid-cols-3,
+    .grid-cols-4 {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ========================================
+   UTILITÁRIOS - ESPAÇAMENTO
+   ======================================== */
+
+.m-0 { margin: 0; }
+.m-auto { margin: auto; }
+.mt-sm { margin-top: var(--spacing-sm); }
+.mt-md { margin-top: var(--spacing-md); }
+.mt-lg { margin-top: var(--spacing-lg); }
+.mt-xl { margin-top: var(--spacing-xl); }
+.mb-sm { margin-bottom: var(--spacing-sm); }
+.mb-md { margin-bottom: var(--spacing-md); }
+.mb-lg { margin-bottom: var(--spacing-lg); }
+.mb-xl { margin-bottom: var(--spacing-xl); }
+
+.p-sm { padding: var(--spacing-sm); }
+.p-md { padding: var(--spacing-md); }
+.p-lg { padding: var(--spacing-lg); }
+.p-xl { padding: var(--spacing-xl); }
+
+/* ========================================
+   UTILITÁRIOS - EFEITOS
+   ======================================== */
+
+.shadow-sm { box-shadow: var(--shadow-sm); }
+.shadow-md { box-shadow: var(--shadow-md); }
+.shadow-lg { box-shadow: var(--shadow-lg); }
+.shadow-xl { box-shadow: var(--shadow-xl); }
+.shadow-gold { box-shadow: var(--shadow-gold); }
+
+.glow-gold {
+    box-shadow: var(--glow-gold);
+}
+
+.glow-purple {
+    box-shadow: var(--glow-purple);
+}
+
+.backdrop-blur {
+    backdrop-filter: blur(10px);
+}
+
+.opacity-50 {
+    opacity: 0.5;
+}
+
+.opacity-75 {
+    opacity: 0.75;
+}
+
+/* ========================================
+   UTILITÁRIOS - RARIDADES
+   ======================================== */
+
+.rarity-common {
+    color: var(--rarity-common);
+    border-color: var(--rarity-common);
+}
+
+.rarity-uncommon {
+    color: var(--rarity-uncommon);
+    border-color: var(--rarity-uncommon);
+}
+
+.rarity-rare {
+    color: var(--rarity-rare);
+    border-color: var(--rarity-rare);
+}
+
+.rarity-epic {
+    color: var(--rarity-epic);
+    border-color: var(--rarity-epic);
+}
+
+.rarity-legendary {
+    color: var(--rarity-legendary);
+    border-color: var(--rarity-legendary);
+}
+
+/* ========================================
+   UTILITÁRIOS - ESTADOS
+   ======================================== */
+
+.hidden {
+    display: none !important;
+}
+
+.invisible {
+    visibility: hidden;
+}
+
+.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+    cursor: not-allowed;
+}
+
+/* ========================================
+   SCROLLBAR CUSTOMIZADO
+   ======================================== */
+
+::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--color-bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-stone-medium);
+    border-radius: var(--radius-md);
+    border: 2px solid var(--color-bg-secondary);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-gold-dark);
+}
+
+/* Firefox */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-stone-medium) var(--color-bg-secondary);
+}
+
+/* ========================================
+   SELEÇÃO DE TEXTO
+   ======================================== */
+
+::selection {
+    background: var(--color-gold-medium);
+    color: var(--color-text-dark);
+}
+
+::-moz-selection {
+    background: var(--color-gold-medium);
+    color: var(--color-text-dark);
+}

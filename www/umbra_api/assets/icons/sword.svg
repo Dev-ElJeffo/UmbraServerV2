@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <g stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Lâmina -->
+    <path d="M32 8 L32 48" stroke="#d4af37" stroke-width="3"/>
+    <path d="M28 10 L36 10" stroke="#d4af37"/>
+    <path d="M28 20 L36 20" stroke="#d4af37"/>
+    <path d="M28 30 L36 30" stroke="#d4af37"/>
+    
+    <!-- Guarda -->
+    <rect x="20" y="48" width="24" height="4" fill="#c9a961" stroke="#d4af37"/>
+    
+    <!-- Punho -->
+    <rect x="28" y="52" width="8" height="8" fill="#4a4a6a" stroke="#d4af37"/>
+    
+    <!-- Pomo -->
+    <circle cx="32" cy="62" r="2" fill="#d4af37"/>
+  </g>
+</svg>

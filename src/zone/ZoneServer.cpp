@@ -1,7 +1,9 @@
 #include "ZoneServer.hpp"
 #include "core/Logger.hpp"
+#include "core/ConfigManager.hpp"
 #include "database/MySQLConnector.hpp"
 #include "database/PlayerDAO.hpp"
+#include <vector>
 
 namespace Umbra {
 namespace Zone {
@@ -50,6 +52,32 @@ uint32_t removePlayerFromParty(Umbra::Database::MySQLConnector* db, uint32_t pla
   }
   return partyId;
 }
+
+std::vector<uint32_t> resolvePartyMembers(Umbra::Database::MySQLConnector* db, uint32_t playerId) {
+  std::vector<uint32_t> members;
+  if (!db || !db->isConnected() || playerId == 0) {
+    return members;
+  }
+  const std::string pid = std::to_string(playerId);
+  auto partyIdOpt = db->executePreparedScalar(
+    "SELECT party_id FROM party_members WHERE player_id = ? LIMIT 1", {pid});
+  if (!partyIdOpt || partyIdOpt->empty()) {
+    return members;
+  }
+
+  auto rows = db->executePreparedQuery(
+    "SELECT player_id FROM party_members WHERE party_id = ?",
+    {*partyIdOpt});
+  for (const auto& row : rows) {
+    if (!row.empty()) {
+      try {
+        members.push_back(static_cast<uint32_t>(std::stoul(row[0])));
+      } catch (...) {
+      }
+    }
+  }
+  return members;
+}
 }  // namespace
 
 ZoneServer::ZoneServer(const Config& config)
@@ -65,11 +93,22 @@ ZoneServer::~ZoneServer() {
 
 bool ZoneServer::start() {
   running_ = true;
+  auto& configManager = Umbra::Core::ConfigManager::getInstance();
+  const size_t maxMessageLength = static_cast<size_t>(configManager.get<uint32_t>("chat.max_message_length", 500));
+  const uint32_t rateLimitPerMinute = configManager.get<uint32_t>("chat.rate_limit_per_minute", 30);
+  movementServer_->setChatLimits(maxMessageLength, rateLimitPerMinute);
+  Core::Logger::getInstance().info("Zone chat limits: max_message_length={}, rate_limit_per_minute={}",
+                                   maxMessageLength, rateLimitPerMinute);
+
   if (config_.dbConnector && config_.dbConnector->isConnected()) {
     movementServer_->setOnPlayerDisconnectCallback(
       [db = config_.dbConnector.get()](uint32_t playerId) {
         removePlayerFromSessions(db, playerId);  // lista de amigos: marcar offline
         return removePlayerFromParty(db, playerId);
+      });
+    movementServer_->setResolvePartyMembersCallback(
+      [db = config_.dbConnector.get()](uint32_t playerId) {
+        return resolvePartyMembers(db, playerId);
       });
   }
   Core::Logger::getInstance().info("ZoneServer '{}' (ID: {}) started on port {}", 

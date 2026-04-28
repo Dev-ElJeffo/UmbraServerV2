@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Teste - Site Images API</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #1a1a25;
+            color: #e0e0e0;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .box {
+            background: #2a2a35;
+            border: 2px solid #c41e3a;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        button {
+            background: #c41e3a;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #ff2d55;
+        }
+        pre {
+            background: #0a0a0f;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        input {
+            background: #2a2a35;
+            border: 2px solid #3a3a45;
+            color: #e0e0e0;
+            padding: 8px;
+            border-radius: 5px;
+            width: 300px;
+        }
+        h2 {
+            color: #c41e3a;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Teste - Site Images API</h1>
+    
+    <div class="box">
+        <h2>1. Login</h2>
+        <input type="text" id="username" value="jeffo" placeholder="Username">
+        <button onclick="setUsername()">Definir Username</button>
+        <p>Username atual: <strong id="currentUsername">-</strong></p>
+    </div>
+
+    <div class="box">
+        <h2>2. Escanear Site Images</h2>
+        <button onclick="scanSiteImages()">Escanear Todas as Imagens</button>
+        <pre id="scanResult">Clique no botão para escanear...</pre>
+    </div>
+
+    <div class="box">
+        <h2>3. Ver Site Images JSON</h2>
+        <button onclick="getSiteImages()">Carregar site_images.json</button>
+        <pre id="siteImagesResult">Clique no botão para carregar...</pre>
+    </div>
+
+    <div class="box">
+        <h2>4. Adicionar Imagem de Teste</h2>
+        <button onclick="addTestImage()">Adicionar Hero Background</button>
+        <pre id="addResult">Clique para testar add...</pre>
+    </div>
+
+    <div class="box">
+        <h2>5. Adicionar Portrait de Classe</h2>
+        <button onclick="addClassPortrait()">Adicionar Barbarian Portrait</button>
+        <pre id="addClassResult">Clique para testar add classe...</pre>
+    </div>
+
+    <script>
+        const API_BASE = '../api/admin/gallery';
+        let username = 'jeffo';
+
+        function setUsername() {
+            username = document.getElementById('username').value;
+            document.getElementById('currentUsername').textContent = username;
+        }
+
+        async function scanSiteImages() {
+            try {
+                const response = await fetch(`${API_BASE}/scan_site_images.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username })
+                });
+                
+                const data = await response.json();
+                document.getElementById('scanResult').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('scanResult').textContent = 'ERRO: ' + error.message;
+            }
+        }
+
+        async function getSiteImages() {
+            try {
+                const response = await fetch(`${API_BASE}/get_site_images.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username })
+                });
+                
+                const data = await response.json();
+                document.getElementById('siteImagesResult').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('siteImagesResult').textContent = 'ERRO: ' + error.message;
+            }
+        }
+
+        async function addTestImage() {
+            try {
+                const response = await fetch(`${API_BASE}/manage_site_image.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username,
+                        action: 'add',
+                        category: 'backgrounds',
+                        filename: 'hero-bg.jpg',
+                        title: 'Hero Section Background',
+                        description: 'Fundo principal da landing page com castelo sombrio',
+                        usage: 'index.html - Hero Section',
+                        tags: ['background', 'hero', 'landing', 'dark-fantasy']
+                    })
+                });
+                
+                const data = await response.json();
+                document.getElementById('addResult').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('addResult').textContent = 'ERRO: ' + error.message;
+            }
+        }
+
+        async function addClassPortrait() {
+            try {
+                const response = await fetch(`${API_BASE}/manage_site_image.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username,
+                        action: 'add',
+                        category: 'classes',
+                        filename: 'barbarian.jpg',
+                        title: 'Barbarian - Filha da Ruína',
+                        description: 'Portrait da classe Barbarian para card na seção de classes',
+                        usage: 'index.html - Classes Section - Barbarian Card',
+                        tags: ['classe', 'barbarian', 'feminino', 'guerreiro']
+                    })
+                });
+                
+                const data = await response.json();
+                document.getElementById('addClassResult').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('addClassResult').textContent = 'ERRO: ' + error.message;
+            }
+        }
+
+        // Set username inicial
+        setUsername();
+    </script>
+</body>
+</html>

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <vector>
 #include <cstring>
+#include <string>
 
 namespace Umbra {
 namespace Zone {
@@ -56,7 +57,33 @@ enum class MovementMsgType : uint8_t {
   PersonalShopClosed = 63,       // Servidor -> Clientes: broadcast fim loja
   // Loja pessoal: após compra HTTP bem-sucedida, o comprador notifica o Zone; todos refrescam listagens via HTTP
   PersonalShopListingSoldNotify = 64,  // Cliente -> Servidor: [buyerId:4][sellerId:4][shopId:4][listingId:4]
-  PersonalShopListingsChanged = 65     // Servidor -> Clientes: [sellerId:4][shopId:4][listingId:4]
+  PersonalShopListingsChanged = 65,    // Servidor -> Clientes: [sellerId:4][shopId:4][listingId:4]
+  ChatLocalMessage = 66,               // Cliente -> Servidor: [msgType][fromPlayerId:4][msgLen:2][msg:utf8]
+  ChatGlobalMessage = 67,              // Cliente -> Servidor: [msgType][fromPlayerId:4][msgLen:2][msg:utf8]
+  ChatGroupMessage = 68,               // Cliente -> Servidor: [msgType][fromPlayerId:4][msgLen:2][msg:utf8]
+  ChatLocalReceived = 69,              // Servidor -> Cliente: [msgType][fromPlayerId:4][nameLen:2][name:utf8][msgLen:2][msg:utf8]
+  ChatGlobalReceived = 70,             // Servidor -> Cliente: [msgType][fromPlayerId:4][nameLen:2][name:utf8][msgLen:2][msg:utf8]
+  ChatGroupReceived = 71,              // Servidor -> Cliente: [msgType][fromPlayerId:4][nameLen:2][name:utf8][msgLen:2][msg:utf8]
+  ChatServerError = 72,                // Servidor -> Cliente: [msgType][errorCode:2][msgLen:2][error:utf8]
+  GuildInviteReceived = 80,            // Servidor -> Cliente: [msgType][inviteId:4][guildId:4][fromPlayerId:4]
+  GuildStateRefresh = 81,              // Servidor -> Cliente: [msgType][guildId:4]
+  GuildMemberUpdated = 82,             // Servidor -> Cliente: [msgType][guildId:4][playerId:4]
+  GuildMemberKicked = 83               // Servidor -> Cliente: [msgType][guildId:4][playerId:4]
+};
+
+enum class ChatChannel : uint8_t {
+  Local = 1,
+  Global = 2,
+  Group = 3
+};
+
+enum class ChatErrorCode : uint16_t {
+  Unknown = 0,
+  InvalidPayload = 1,
+  EmptyMessage = 2,
+  MessageTooLong = 3,
+  RateLimitExceeded = 4,
+  NotAuthenticated = 5
 };
 
 struct MovementFrame {
@@ -219,12 +246,15 @@ inline std::vector<uint8_t> encodePlayerDisconnected(uint32_t playerId) {
   return out;
 }
 
-// Codificar mensagem PlayerInfoUpdate: [msgType:uint8][playerId:uint32][nameLen:uint16][name:bytes][titleLen:uint16][title:bytes]
+// Codificar mensagem PlayerInfoUpdate:
+// [msgType:uint8][playerId:uint32][nameLen:uint16][name:bytes][titleLen:uint16][title:bytes][guildLen:uint16][guild:bytes]
+// Compatível: clientes antigos ignoram dados extras.
 inline std::vector<uint8_t> encodePlayerInfoUpdate(uint32_t playerId, 
                                                     const std::string& name, 
-                                                    const std::string& title) {
+                                                    const std::string& title,
+                                                    const std::string& guildName = "") {
   std::vector<uint8_t> out;
-  out.reserve(1 + 4 + 2 + name.size() + 2 + title.size());
+  out.reserve(1 + 4 + 2 + name.size() + 2 + title.size() + 2 + guildName.size());
   
   out.push_back(static_cast<uint8_t>(MovementMsgType::PlayerInfoUpdate));
   
@@ -245,6 +275,8 @@ inline std::vector<uint8_t> encodePlayerInfoUpdate(uint32_t playerId,
   out.insert(out.end(), name.begin(), name.end());
   write16(static_cast<uint16_t>(title.size()));
   out.insert(out.end(), title.begin(), title.end());
+  write16(static_cast<uint16_t>(guildName.size()));
+  out.insert(out.end(), guildName.begin(), guildName.end());
   
   return out;
 }
@@ -253,7 +285,9 @@ inline std::vector<uint8_t> encodePlayerInfoUpdate(uint32_t playerId,
 inline bool decodePlayerInfoUpdate(const std::vector<uint8_t>& data,
                                    uint32_t& playerId,
                                    std::string& name,
-                                   std::string& title) {
+                                   std::string& title,
+                                   std::string& guildName) {
+  guildName.clear();
   if (data.size() < 7) return false;  // Mínimo: msgType(1) + playerId(4) + nameLen(2)
   
   size_t off = 0;
@@ -285,6 +319,93 @@ inline bool decodePlayerInfoUpdate(const std::vector<uint8_t>& data,
   if (data.size() < off + titleLen) return false;
   
   title.assign(reinterpret_cast<const char*>(data.data() + off), titleLen);
+  off += titleLen;
+
+  // Campo opcional no final do payload (compat com clientes/servidores antigos)
+  if (data.size() >= off + 2) {
+    uint16_t guildLen = read16(off);
+    if (data.size() < off + guildLen) return false;
+    guildName.assign(reinterpret_cast<const char*>(data.data() + off), guildLen);
+    off += guildLen;
+  }
+  return true;
+}
+
+// Compatibilidade com chamadas antigas sem guildName.
+inline bool decodePlayerInfoUpdate(const std::vector<uint8_t>& data,
+                                   uint32_t& playerId,
+                                   std::string& name,
+                                   std::string& title) {
+  std::string ignoredGuild;
+  return decodePlayerInfoUpdate(data, playerId, name, title, ignoredGuild);
+}
+
+inline std::vector<uint8_t> encodeGuildNotify(MovementMsgType msgType, uint32_t guildId) {
+  std::vector<uint8_t> out;
+  out.reserve(5);
+  out.push_back(static_cast<uint8_t>(msgType));
+  out.push_back(static_cast<uint8_t>(guildId & 0xFF));
+  out.push_back(static_cast<uint8_t>((guildId >> 8) & 0xFF));
+  out.push_back(static_cast<uint8_t>((guildId >> 16) & 0xFF));
+  out.push_back(static_cast<uint8_t>((guildId >> 24) & 0xFF));
+  return out;
+}
+
+inline std::vector<uint8_t> encodeGuildMemberNotify(MovementMsgType msgType, uint32_t guildId, uint32_t playerId) {
+  std::vector<uint8_t> out;
+  out.reserve(9);
+  out.push_back(static_cast<uint8_t>(msgType));
+  auto write32 = [&out](uint32_t v){
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  write32(guildId);
+  write32(playerId);
+  return out;
+}
+
+inline bool decodeGuildNotify(const std::vector<uint8_t>& data, uint32_t& guildId) {
+  if (data.size() < 5) return false;
+  guildId = static_cast<uint32_t>(data[1]) |
+            (static_cast<uint32_t>(data[2]) << 8) |
+            (static_cast<uint32_t>(data[3]) << 16) |
+            (static_cast<uint32_t>(data[4]) << 24);
+  return true;
+}
+
+inline std::vector<uint8_t> encodeGuildInviteReceived(uint32_t inviteId, uint32_t guildId, uint32_t fromPlayerId, uint32_t toPlayerId) {
+  std::vector<uint8_t> out;
+  out.reserve(17);
+  out.push_back(static_cast<uint8_t>(MovementMsgType::GuildInviteReceived));
+  auto write32 = [&out](uint32_t v){
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  write32(inviteId);
+  write32(guildId);
+  write32(fromPlayerId);
+  write32(toPlayerId);
+  return out;
+}
+
+inline bool decodeGuildInviteReceived(const std::vector<uint8_t>& data, uint32_t& inviteId, uint32_t& guildId, uint32_t& fromPlayerId, uint32_t& toPlayerId) {
+  if (data.size() < 17) return false;
+  size_t off = 1;
+  auto read32 = [&data](size_t& o)->uint32_t{
+    uint32_t v = static_cast<uint32_t>(data[o]) |
+                 (static_cast<uint32_t>(data[o+1])<<8) |
+                 (static_cast<uint32_t>(data[o+2])<<16) |
+                 (static_cast<uint32_t>(data[o+3])<<24);
+    o += 4; return v;
+  };
+  inviteId = read32(off);
+  guildId = read32(off);
+  fromPlayerId = read32(off);
+  toPlayerId = read32(off);
   return true;
 }
 
@@ -427,6 +548,129 @@ inline std::vector<uint8_t> encodeWhisper(uint32_t fromPlayerId, uint32_t toPlay
   out.insert(out.end(), message.begin(), message.end());
   
   return out;
+}
+
+// Chat (cliente -> servidor): [msgType][fromPlayerId:4][msgLen:2][message:utf8]
+inline std::vector<uint8_t> encodeChatClientMessage(MovementMsgType msgType, uint32_t fromPlayerId, const std::string& message) {
+  std::vector<uint8_t> out;
+  out.reserve(1 + 4 + 2 + message.size());
+  out.push_back(static_cast<uint8_t>(msgType));
+  auto write32 = [&out](uint32_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  auto write16 = [&out](uint16_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  };
+  write32(fromPlayerId);
+  write16(static_cast<uint16_t>(message.size()));
+  out.insert(out.end(), message.begin(), message.end());
+  return out;
+}
+
+inline bool decodeChatClientMessage(const std::vector<uint8_t>& data, uint32_t& fromPlayerId, std::string& message) {
+  if (data.size() < 7) return false;
+  size_t off = 1;
+  auto read32 = [&data](size_t& o)->uint32_t{
+    uint32_t v = static_cast<uint32_t>(data[o]) |
+                 (static_cast<uint32_t>(data[o+1])<<8) |
+                 (static_cast<uint32_t>(data[o+2])<<16) |
+                 (static_cast<uint32_t>(data[o+3])<<24);
+    o += 4;
+    return v;
+  };
+  auto read16 = [&data](size_t& o)->uint16_t{
+    uint16_t v = static_cast<uint16_t>(data[o]) |
+                 (static_cast<uint16_t>(data[o+1])<<8);
+    o += 2;
+    return v;
+  };
+  fromPlayerId = read32(off);
+  uint16_t msgLen = read16(off);
+  if (data.size() < off + msgLen) return false;
+  message.assign(reinterpret_cast<const char*>(data.data() + off), msgLen);
+  return true;
+}
+
+// Chat recebido (servidor -> cliente): [msgType][fromPlayerId:4][nameLen:2][name:utf8][msgLen:2][msg:utf8]
+inline std::vector<uint8_t> encodeChatReceived(MovementMsgType msgType, uint32_t fromPlayerId,
+                                                const std::string& fromPlayerName, const std::string& message) {
+  std::vector<uint8_t> out;
+  out.reserve(1 + 4 + 2 + fromPlayerName.size() + 2 + message.size());
+  out.push_back(static_cast<uint8_t>(msgType));
+  auto write32 = [&out](uint32_t v){
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  auto write16 = [&out](uint16_t v){
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  };
+  write32(fromPlayerId);
+  write16(static_cast<uint16_t>(fromPlayerName.size()));
+  out.insert(out.end(), fromPlayerName.begin(), fromPlayerName.end());
+  write16(static_cast<uint16_t>(message.size()));
+  out.insert(out.end(), message.begin(), message.end());
+  return out;
+}
+
+inline bool decodeChatReceived(const std::vector<uint8_t>& data, uint32_t& fromPlayerId,
+                               std::string& fromPlayerName, std::string& message) {
+  if (data.size() < 9) return false;
+  size_t off = 1;
+  auto read32 = [&data](size_t& o)->uint32_t{
+    uint32_t v = static_cast<uint32_t>(data[o]) |
+                 (static_cast<uint32_t>(data[o+1])<<8) |
+                 (static_cast<uint32_t>(data[o+2])<<16) |
+                 (static_cast<uint32_t>(data[o+3])<<24);
+    o += 4;
+    return v;
+  };
+  auto read16 = [&data](size_t& o)->uint16_t{
+    uint16_t v = static_cast<uint16_t>(data[o]) |
+                 (static_cast<uint16_t>(data[o+1])<<8);
+    o += 2;
+    return v;
+  };
+  fromPlayerId = read32(off);
+  uint16_t nameLen = read16(off);
+  if (data.size() < off + nameLen + 2) return false;
+  fromPlayerName.assign(reinterpret_cast<const char*>(data.data() + off), nameLen);
+  off += nameLen;
+  uint16_t msgLen = read16(off);
+  if (data.size() < off + msgLen) return false;
+  message.assign(reinterpret_cast<const char*>(data.data() + off), msgLen);
+  return true;
+}
+
+// Erro de chat (servidor -> cliente): [msgType][errorCode:2][msgLen:2][error:utf8]
+inline std::vector<uint8_t> encodeChatServerError(ChatErrorCode errorCode, const std::string& errorMessage) {
+  std::vector<uint8_t> out;
+  out.reserve(1 + 2 + 2 + errorMessage.size());
+  out.push_back(static_cast<uint8_t>(MovementMsgType::ChatServerError));
+  uint16_t code = static_cast<uint16_t>(errorCode);
+  out.push_back(static_cast<uint8_t>(code & 0xFF));
+  out.push_back(static_cast<uint8_t>((code >> 8) & 0xFF));
+  uint16_t msgLen = static_cast<uint16_t>(errorMessage.size());
+  out.push_back(static_cast<uint8_t>(msgLen & 0xFF));
+  out.push_back(static_cast<uint8_t>((msgLen >> 8) & 0xFF));
+  out.insert(out.end(), errorMessage.begin(), errorMessage.end());
+  return out;
+}
+
+inline bool decodeChatServerError(const std::vector<uint8_t>& data, ChatErrorCode& errorCode, std::string& errorMessage) {
+  if (data.size() < 5) return false;
+  uint16_t code = static_cast<uint16_t>(data[1]) | (static_cast<uint16_t>(data[2]) << 8);
+  uint16_t msgLen = static_cast<uint16_t>(data[3]) | (static_cast<uint16_t>(data[4]) << 8);
+  if (data.size() < 5 + msgLen) return false;
+  errorCode = static_cast<ChatErrorCode>(code);
+  errorMessage.assign(reinterpret_cast<const char*>(data.data() + 5), msgLen);
+  return true;
 }
 
 // Decodificar mensagem de whisper

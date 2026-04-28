@@ -4,248 +4,300 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - UmbraEternum</title>
+    
+    <!-- Fontes -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Estilos -->
+    <link rel="stylesheet" href="styles/dark-fantasy.css">
+    <link rel="stylesheet" href="styles/components.css">
+    <link rel="stylesheet" href="styles/animations.css">
+    
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, rgba(10, 10, 15, 0.95) 0%, rgba(26, 26, 46, 0.95) 100%),
+                        url('assets/images/backgrounds/login-bg.jpg') center/cover no-repeat fixed;
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 20px;
+            padding: var(--spacing-lg);
+            position: relative;
+            overflow: hidden;
         }
         
-        .container {
-            background: white;
-            border-radius: 15px;
-            padding: 40px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            max-width: 450px;
+        /* Partículas de fundo */
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at 20% 50%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 50%, rgba(196, 30, 58, 0.1) 0%, transparent 50%);
+            animation: pulse 6s ease-in-out infinite;
+            pointer-events: none;
+        }
+        
+        .login-container {
+            background: var(--color-bg-card);
+            border: 2px solid var(--color-red-medium);
+            border-radius: var(--radius-xl);
+            padding: var(--spacing-2xl);
+            box-shadow: var(--shadow-2xl), var(--shadow-red-strong);
+            max-width: 480px;
             width: 100%;
-            animation: slideIn 0.5s ease;
+            backdrop-filter: blur(10px);
+            position: relative;
+            z-index: 1;
+            animation: slideInUp 0.8s ease;
         }
         
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateY(-20px); }
-            to { opacity: 1; transform: translateY(0); }
+        .login-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, var(--color-red-bright), transparent);
         }
         
-        .logo {
+        .logo-section {
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: var(--spacing-xl);
         }
         
-        .logo h1 {
-            color: #667eea;
-            font-size: 32px;
-            margin-bottom: 5px;
+        .logo-image {
+            width: 120px;
+            height: 120px;
+            margin: 0 auto var(--spacing-lg);
+            filter: drop-shadow(0 0 20px rgba(255, 68, 68, 0.5));
+            animation: float 3s ease-in-out infinite;
         }
         
-        .logo p {
-            color: #666;
-            font-size: 14px;
+        .logo-title {
+            font-family: var(--font-title);
+            font-size: var(--font-size-4xl);
+            color: var(--color-red-bright);
+            text-shadow: 0 0 20px rgba(255, 68, 68, 0.5);
+            margin-bottom: var(--spacing-xs);
+            letter-spacing: 0.1em;
         }
         
-        .form-group {
-            margin-bottom: 20px;
+        .logo-subtitle {
+            font-family: var(--font-heading);
+            font-size: var(--font-size-lg);
+            color: var(--color-text-secondary);
+            letter-spacing: 0.05em;
         }
         
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            color: #333;
-            font-weight: 500;
+        .divider-ornament {
+            margin: var(--spacing-xl) 0;
         }
         
-        .form-group input {
-            width: 100%;
-            padding: 12px 15px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 15px;
-            transition: all 0.3s;
+        .input-group {
+            margin-bottom: var(--spacing-lg);
+            position: relative;
         }
         
-        .form-group input:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-        
-        .checkbox-group {
+        .input-group .input-label {
             display: flex;
             align-items: center;
-            margin-bottom: 20px;
+            gap: var(--spacing-xs);
+            margin-bottom: var(--spacing-sm);
         }
         
-        .checkbox-group input[type="checkbox"] {
-            width: auto;
-            margin-right: 8px;
+        .input-group .input-label i {
+            color: var(--color-red-medium);
         }
         
-        .checkbox-group label {
-            margin: 0;
-            font-weight: normal;
-            color: #666;
-            font-size: 14px;
+        .input-with-icon {
+            position: relative;
         }
         
-        .btn {
-            width: 100%;
-            padding: 14px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
+        .input-with-icon i {
+            position: absolute;
+            left: var(--spacing-md);
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--color-red-medium);
+            font-size: var(--font-size-lg);
         }
         
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
-        }
-        
-        .btn:active {
-            transform: translateY(0);
-        }
-        
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .links {
-            text-align: center;
-            margin-top: 20px;
-            padding-top: 20px;
-            border-top: 1px solid #e0e0e0;
-        }
-        
-        .links a {
-            color: #667eea;
-            text-decoration: none;
-            font-weight: 500;
-        }
-        
-        .links a:hover {
-            text-decoration: underline;
-        }
-        
-        .alert {
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            display: none;
-        }
-        
-        .alert.show {
-            display: block;
-            animation: slideDown 0.3s ease;
-        }
-        
-        @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .alert-success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-        
-        .alert-error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-        
-        .alert-info {
-            background: #d1ecf1;
-            color: #0c5460;
-            border: 1px solid #bee5eb;
-        }
-        
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 1s ease-in-out infinite;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+        .input-with-icon input {
+            padding-left: 3rem;
         }
         
         .forgot-password {
             text-align: right;
-            margin-top: -10px;
-            margin-bottom: 20px;
+            margin-top: calc(var(--spacing-md) * -1);
+            margin-bottom: var(--spacing-md);
         }
         
         .forgot-password a {
-            color: #667eea;
-            text-decoration: none;
-            font-size: 14px;
+            font-size: var(--font-size-sm);
+            color: var(--color-red-medium);
+            transition: color var(--transition-fast);
         }
         
         .forgot-password a:hover {
-            text-decoration: underline;
+            color: var(--color-red-bright);
+        }
+        
+        .remember-group {
+            margin-bottom: var(--spacing-lg);
+        }
+        
+        .submit-btn {
+            width: 100%;
+            margin-bottom: var(--spacing-lg);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .submit-btn::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+        
+        .submit-btn:hover::after {
+            width: 300px;
+            height: 300px;
+        }
+        
+        .links-section {
+            text-align: center;
+            padding-top: var(--spacing-lg);
+            border-top: 1px solid var(--color-border-dark);
+        }
+        
+        .links-section p {
+            color: var(--color-text-secondary);
+            margin-bottom: var(--spacing-sm);
+        }
+        
+        .links-section a {
+            color: var(--color-red-bright);
+            font-weight: 600;
+            transition: all var(--transition-fast);
+        }
+        
+        .links-section a:hover {
+            color: var(--color-red-light);
+            text-shadow: 0 0 10px rgba(255, 68, 68, 0.5);
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .login-container {
+                padding: var(--spacing-xl);
+            }
+            
+            .logo-image {
+                width: 80px;
+                height: 80px;
+            }
+            
+            .logo-title {
+                font-size: var(--font-size-3xl);
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="logo">
-            <h1>🎮 UmbraEternum</h1>
-            <p>Entrar na sua conta</p>
+    <!-- Container principal -->
+    <div class="login-container">
+        <!-- Logo e título -->
+        <div class="logo-section">
+            <img src="assets/images/logo.svg" alt="UmbraEternum" class="logo-image">
+            <h1 class="logo-title">UMBRA</h1>
+            <p class="logo-subtitle">Entre nas Trevas Eternas</p>
         </div>
         
-        <div id="alert" class="alert"></div>
+        <div class="divider-ornament">
+            <i class="fas fa-dragon"></i>
+        </div>
         
+        <!-- Alert para mensagens -->
+        <div id="alert" class="alert" style="display: none;"></div>
+        
+        <!-- Formulário de Login -->
         <form id="loginForm">
-            <div class="form-group">
-                <label for="username">Username</label>
-                <input type="text" id="username" name="username" 
-                       placeholder="Seu username" required autofocus>
+            <div class="input-group">
+                <label class="input-label">
+                    <i class="fas fa-user"></i>
+                    <span>Usuário</span>
+                </label>
+                <div class="input-with-icon">
+                    <i class="fas fa-sword"></i>
+                    <input type="text" 
+                           id="username" 
+                           name="username" 
+                           class="input-medieval" 
+                           placeholder="Digite seu nome de usuário" 
+                           required 
+                           autofocus>
+                </div>
             </div>
             
-            <div class="form-group">
-                <label for="password">Senha</label>
-                <input type="password" id="password" name="password" 
-                       placeholder="Sua senha" required>
+            <div class="input-group">
+                <label class="input-label">
+                    <i class="fas fa-lock"></i>
+                    <span>Senha</span>
+                </label>
+                <div class="input-with-icon">
+                    <i class="fas fa-shield-alt"></i>
+                    <input type="password" 
+                           id="password" 
+                           name="password" 
+                           class="input-medieval" 
+                           placeholder="Digite sua senha" 
+                           required>
+                </div>
             </div>
             
             <div class="forgot-password">
-                <a href="#" onclick="alert('Funcionalidade em desenvolvimento'); return false;">Esqueceu a senha?</a>
+                <a href="#" onclick="alert('Funcionalidade em desenvolvimento'); return false;">
+                    Esqueceu a senha?
+                </a>
             </div>
             
-            <div class="checkbox-group">
-                <input type="checkbox" id="remember" name="remember">
-                <label for="remember">Lembrar de mim</label>
+            <div class="remember-group">
+                <label class="checkbox-medieval">
+                    <input type="checkbox" id="remember" name="remember">
+                    <span>Lembrar de mim neste dispositivo</span>
+                </label>
             </div>
             
-            <button type="submit" class="btn" id="submitBtn">
-                Entrar
+            <button type="submit" class="btn btn-primary submit-btn" id="submitBtn">
+                <i class="fas fa-sign-in-alt"></i>
+                Entrar no Reino
             </button>
         </form>
         
-        <div class="links">
-            <p>Não tem uma conta? <a href="register.html">Criar Conta</a></p>
-            <p><a href="index.php">← Voltar para teste</a></p>
+        <!-- Links -->
+        <div class="links-section">
+            <p>Primeira vez aqui? <a href="register.html">Criar Conta</a></p>
+            <p><a href="index.html"><i class="fas fa-arrow-left"></i> Voltar para página inicial</a></p>
         </div>
     </div>
     
+    <!-- Scripts -->
+    <script src="scripts/api-client.js"></script>
+    <script src="scripts/components.js"></script>
+    
     <script>
+        // LÓGICA MANTIDA DO ORIGINAL
         const form = document.getElementById('loginForm');
         const alert = document.getElementById('alert');
         const submitBtn = document.getElementById('submitBtn');
@@ -277,7 +329,7 @@
             
             // Desabilitar botão
             submitBtn.disabled = true;
-            submitBtn.innerHTML = '<span class="loading"></span> Entrando...';
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Entrando...';
             
             // Dados
             const data = {
@@ -318,24 +370,42 @@
                 } else {
                     showAlert(`❌ ${result.message}`, 'error');
                     submitBtn.disabled = false;
-                    submitBtn.textContent = 'Entrar';
+                    submitBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Entrar no Reino';
                 }
             } catch (error) {
                 showAlert('❌ Erro ao conectar com servidor', 'error');
                 submitBtn.disabled = false;
-                submitBtn.textContent = 'Entrar';
+                submitBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Entrar no Reino';
             }
         });
         
         function showAlert(message, type) {
             alert.textContent = message;
-            alert.className = 'alert alert-' + type + ' show';
+            alert.className = `alert alert-${type}`;
+            alert.style.display = 'block';
+            alert.style.animation = 'slideDown 0.3s ease';
             
             setTimeout(() => {
-                alert.classList.remove('show');
+                alert.style.animation = 'fadeOut 0.3s ease';
+                setTimeout(() => {
+                    alert.style.display = 'none';
+                }, 300);
             }, 5000);
         }
+        
+        // Adicionar efeito de partículas ao fundo
+        document.addEventListener('DOMContentLoaded', () => {
+            const particles = 20;
+            for (let i = 0; i < particles; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = `${Math.random() * 100}%`;
+                particle.style.top = `${Math.random() * 100}%`;
+                particle.style.animationDelay = `${Math.random() * 5}s`;
+                particle.style.animationDuration = `${5 + Math.random() * 5}s`;
+                document.body.appendChild(particle);
+            }
+        });
     </script>
 </body>
 </html>
-

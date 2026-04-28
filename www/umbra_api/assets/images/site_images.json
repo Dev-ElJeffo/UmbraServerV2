@@ -1,0 +1,148 @@
+{
+  "version": "2.0",
+  "lastUpdated": "2026-04-28",
+  "categories": {
+    "concepts": {
+      "name": "Arte Conceitual",
+      "description": "Galeria de arte conceitual (characters, environments, creatures, weapons)",
+      "path": "concepts/",
+      "subcategories": {
+        "characters": {
+          "name": "Personagens",
+          "description": "Classes, NPCs e personagens jogáveis",
+          "images": []
+        },
+        "environments": {
+          "name": "Ambientes",
+          "description": "Cidades, paisagens e locais",
+          "images": []
+        },
+        "creatures": {
+          "name": "Criaturas",
+          "description": "Monstros e entidades",
+          "images": []
+        },
+        "weapons": {
+          "name": "Armas",
+          "description": "Armamentos e equipamentos",
+          "images": []
+        }
+      }
+    },
+    "backgrounds": {
+      "name": "Backgrounds",
+      "description": "Imagens de fundo para páginas do site",
+      "path": "backgrounds/",
+      "specs": {
+        "size": "1920x1080 ou maior",
+        "format": "JPG otimizado",
+        "maxSize": "500KB recomendado"
+      },
+      "images": []
+    },
+    "classes": {
+      "name": "Classes",
+      "description": "Portraits das 6 classes jogáveis",
+      "path": "classes/",
+      "validClasses": ["barbarian", "darkmage", "marcial", "templar", "alchemist", "assassin"],
+      "classNames": {
+        "barbarian": "Barbarian - Filha da Ruína",
+        "darkmage": "Dark Mage - Herdeira do Véu",
+        "marcial": "Marcial - Espada Sem Sombra",
+        "templar": "Templar - Guardião da Chama",
+        "alchemist": "Alchemist - Errante Empírico",
+        "assassin": "Assassin - Eco Sem Nome"
+      },
+      "specs": {
+        "size": "800x800 (quadrado)",
+        "format": "JPG ou PNG",
+        "maxSize": "300KB"
+      },
+      "expectedImages": [
+        "barbarian",
+        "darkmage",
+        "marcial",
+        "templar",
+        "alchemist",
+        "assassin"
+      ],
+      "images": []
+    },
+    "lore": {
+      "name": "Lore & História",
+      "description": "Mapas, timeline e imagens de lore",
+      "path": "lore/",
+      "specs": {
+        "maps": "1200x800",
+        "timeline": "800x600",
+        "format": "JPG ou PNG"
+      },
+      "images": []
+    },
+    "screenshots": {
+      "name": "Screenshots",
+      "description": "Capturas de tela do jogo",
+      "path": "screenshots/",
+      "specs": {
+        "size": "1920x1080 (16:9)",
+        "format": "JPG otimizado",
+        "maxSize": "400KB"
+      },
+      "images": []
+    },
+    "logos": {
+      "name": "Logos & Branding",
+      "description": "Logos, favicons e elementos de marca",
+      "path": "logo/",
+      "specs": {
+        "logo": "512x512",
+        "logoSm": "128x128",
+        "favicon": "32x32",
+        "format": "SVG, PNG, ICO"
+      },
+      "images": []
+    },
+    "icons": {
+      "name": "Ícones",
+      "description": "Ícones de UI e interface",
+      "path": "icons/",
+      "subcategories": {
+        "classes": {
+          "name": "Classes",
+          "description": "Ícones das classes",
+          "images": []
+        },
+        "ui": {
+          "name": "Interface",
+          "description": "Ícones de UI",
+          "images": []
+        },
+        "social": {
+          "name": "Redes Sociais",
+          "description": "Ícones sociais customizados",
+          "images": []
+        }
+      },
+      "specs": {
+        "format": "SVG preferencial, PNG fallback",
+        "sizes": "24x24, 32x32, 64x64"
+      }
+    }
+  },
+  "usage": {
+    "backgrounds": {
+      "hero-bg.jpg": "Hero section da landing page",
+      "login-bg.jpg": "Background da página de login",
+      "register-bg.jpg": "Background da página de registro",
+      "dashboard-bg.jpg": "Background do dashboard"
+    },
+    "classes": {
+      "barbarian.jpg": "Seção de classes - Barbarian card",
+      "darkmage.jpg": "Seção de classes - Dark Mage card",
+      "marcial.jpg": "Seção de classes - Marcial card",
+      "templar.jpg": "Seção de classes - Templar card",
+      "alchemist.jpg": "Seção de classes - Alchemist card",
+      "assassin.jpg": "Seção de classes - Assassin card"
+    }
+  }
+}

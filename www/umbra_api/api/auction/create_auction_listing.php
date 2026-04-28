@@ -82,9 +82,17 @@ try {
     }
 
     $chk = $pdo->prepare("
-        SELECT inventory_id, player_id, is_equipped, slot_index, auction_listing_id
-        FROM player_inventory
-        WHERE inventory_id = ? FOR UPDATE
+        SELECT 
+            pi.inventory_id, 
+            pi.player_id, 
+            pi.is_equipped, 
+            pi.slot_index, 
+            pi.auction_listing_id,
+            it.tradeable,
+            it.item_name
+        FROM player_inventory pi
+        JOIN item_templates it ON pi.item_template_id = it.item_id
+        WHERE pi.inventory_id = ? FOR UPDATE
     ");
     $chk->execute([$inventory_id]);
     $row = $chk->fetch(PDO::FETCH_ASSOC);
@@ -94,6 +102,18 @@ try {
         echo json_encode(['success' => false, 'message' => 'Item não encontrado no seu inventário.']);
         exit;
     }
+    
+    // Validar se o item pode ser negociado
+    if (!$row['tradeable']) {
+        $pdo->rollBack();
+        http_response_code(400);
+        echo json_encode([
+            'success' => false, 
+            'message' => 'Este item não pode ser colocado no leilão. Itens não-negociáveis (tradeable = false) não são permitidos.'
+        ]);
+        exit;
+    }
+    
     if (playerInventoryRowHeldForAuction($row)) {
         $pdo->rollBack();
         http_response_code(400);

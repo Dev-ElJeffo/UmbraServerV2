@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste - Sistema de Refinação</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container { max-width: 1200px; margin: 0 auto; }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            border: 2px solid #4a4a6a;
+        }
+        
+        .header h1 {
+            color: #ffd700;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        
+        .section {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border: 2px solid #4a4a6a;
+        }
+        
+        .section h2 {
+            color: #ffd700;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+            margin: 5px;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+            color: #1e1e2e;
+        }
+        
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #ffaa00 0%, #ffd700 100%);
+            transform: translateY(-2px);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #00ff00 0%, #00cc00 100%);
+            color: #1e1e2e;
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%);
+            color: white;
+        }
+        
+        input, select {
+            padding: 10px;
+            border: 2px solid #4a4a6a;
+            border-radius: 5px;
+            background: #2d2d44;
+            color: #e0e0e0;
+            font-size: 1em;
+            margin: 5px;
+            width: 200px;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #ffd700;
+        }
+        
+        .message {
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        
+        .message.success {
+            background: rgba(0, 255, 0, 0.2);
+            border: 2px solid #00ff00;
+            color: #00ff00;
+        }
+        
+        .message.error {
+            background: rgba(255, 0, 0, 0.2);
+            border: 2px solid #ff4444;
+            color: #ff4444;
+        }
+        
+        .message.info {
+            background: rgba(0, 150, 255, 0.2);
+            border: 2px solid #0096ff;
+            color: #0096ff;
+        }
+        
+        .config-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        
+        .config-table th, .config-table td {
+            padding: 10px;
+            border: 1px solid #4a4a6a;
+            text-align: left;
+        }
+        
+        .config-table th {
+            background: rgba(255, 215, 0, 0.2);
+            color: #ffd700;
+        }
+        
+        .config-table tr:hover {
+            background: rgba(255, 215, 0, 0.1);
+        }
+        
+        .inventory-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .item-card {
+            background: #2d2d44;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid #4a4a6a;
+            transition: all 0.3s;
+        }
+        
+        .item-card:hover {
+            border-color: #ffd700;
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.2);
+        }
+        
+        .item-card h4 {
+            color: #ffd700;
+            margin-bottom: 8px;
+        }
+        
+        .item-card p {
+            color: #b0b0b0;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+        
+        .refinement-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-top: 8px;
+            background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+            color: #1e1e2e;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔮 Sistema de Refinação - Testes</h1>
+            <p>Interface de teste para o sistema de refinação do UmbraEternum</p>
+        </div>
+
+        <!-- Autenticação -->
+        <div class="section">
+            <h2>🔐 Autenticação</h2>
+            <input type="text" id="jwtToken" placeholder="Cole seu JWT Token aqui" style="width: 400px;" />
+            <button class="btn btn-primary" onclick="saveToken()">Salvar Token</button>
+            <div id="authStatus" class="message info" style="display:none; margin-top: 10px;">
+                Token salvo!
+            </div>
+        </div>
+
+        <!-- Configuração de Refinação -->
+        <div class="section">
+            <h2>⚙️ Configuração de Refinação</h2>
+            <button class="btn btn-primary" onclick="loadRefinementConfig()">📋 Carregar Configuração</button>
+            <div id="configContainer"></div>
+        </div>
+
+        <!-- Inventário -->
+        <div class="section">
+            <h2>🎒 Inventário</h2>
+            <button class="btn btn-primary" onclick="loadInventory()">📦 Carregar Inventário</button>
+            <div id="inventoryContainer"></div>
+        </div>
+
+        <!-- Testar Refinação -->
+        <div class="section">
+            <h2>✨ Testar Refinação</h2>
+            <div>
+                <input type="number" id="refineInventoryId" placeholder="ID do Item (inventory_id)" />
+                <input type="number" id="refineMaterialId" placeholder="ID do Material (inventory_id)" />
+                <button class="btn btn-success" onclick="testRefine()">🔨 Refinar Item</button>
+            </div>
+            <div id="refineResult"></div>
+        </div>
+
+        <!-- Mensagens -->
+        <div id="messageContainer"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost/umbra_api/api';
+        let jwtToken = localStorage.getItem('umbra_jwt_token');
+        
+        if (jwtToken) {
+            document.getElementById('jwtToken').value = jwtToken;
+            document.getElementById('authStatus').style.display = 'block';
+        }
+
+        function saveToken() {
+            const token = document.getElementById('jwtToken').value.trim();
+            if (token) {
+                localStorage.setItem('umbra_jwt_token', token);
+                jwtToken = token;
+                showMessage('Token salvo com sucesso!', 'success');
+                document.getElementById('authStatus').style.display = 'block';
+            } else {
+                showMessage('Por favor, insira um token válido', 'error');
+            }
+        }
+
+        function showMessage(text, type = 'info') {
+            const container = document.getElementById('messageContainer');
+            const message = document.createElement('div');
+            message.className = `message ${type}`;
+            message.textContent = text;
+            container.innerHTML = '';
+            container.appendChild(message);
+            setTimeout(() => {
+                message.remove();
+            }, 5000);
+        }
+
+        async function loadRefinementConfig() {
+            if (!jwtToken) {
+                showMessage('Por favor, salve seu JWT token primeiro', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/refinement/get_refinement_config.php`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${jwtToken}`
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    displayRefinementConfig(result.config);
+                    showMessage(`✅ ${result.total_levels} níveis de configuração carregados`, 'success');
+                } else {
+                    showMessage(`❌ Erro: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                showMessage(`❌ Erro ao carregar configuração: ${error.message}`, 'error');
+                console.error('Erro:', error);
+            }
+        }
+
+        function displayRefinementConfig(configs) {
+            const container = document.getElementById('configContainer');
+            
+            let html = '<table class="config-table">';
+            html += '<thead><tr><th>Nível</th><th>Chance Sucesso</th><th>Material</th><th>Qtd Material</th><th>Bônus Stats</th></tr></thead>';
+            html += '<tbody>';
+            
+            configs.forEach(config => {
+                if (config.refinement_level < 12) {
+                    html += `<tr>
+                        <td>+${config.refinement_level} → +${config.refinement_level + 1}</td>
+                        <td style="color: ${config.success_percentage >= 70 ? '#00ff00' : config.success_percentage >= 30 ? '#ffaa00' : '#ff4444'}">${config.success_percentage}%</td>
+                        <td>${config.required_item_name}</td>
+                        <td>${config.required_item_quantity}x</td>
+                        <td>+${config.bonus_percentage}%</td>
+                    </tr>`;
+                }
+            });
+            
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        async function loadInventory() {
+            if (!jwtToken) {
+                showMessage('Por favor, salve seu JWT token primeiro', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/inventory/get_inventory.php`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ token: jwtToken })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    displayInventory(result.inventory);
+                    showMessage(`✅ ${result.total_items} item(ns) carregado(s)`, 'success');
+                } else {
+                    showMessage(`❌ Erro: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                showMessage(`❌ Erro ao carregar inventário: ${error.message}`, 'error');
+                console.error('Erro:', error);
+            }
+        }
+
+        function displayInventory(inventory) {
+            const container = document.getElementById('inventoryContainer');
+            
+            if (inventory.length === 0) {
+                container.innerHTML = '<div class="message info">Nenhum item encontrado</div>';
+                return;
+            }
+            
+            let html = '<div class="inventory-grid">';
+            
+            inventory.forEach(item => {
+                html += `<div class="item-card">
+                    <h4>${item.display_name || item.item_name}</h4>
+                    <p><strong>ID:</strong> ${item.inventory_id}</p>
+                    <p><strong>Slot:</strong> ${item.slot_index}</p>
+                    <p><strong>Qtd:</strong> ${item.quantity}</p>
+                    ${item.can_be_refined ? '<p style="color: #00ff00;">✅ Pode ser refinado</p>' : ''}
+                    ${item.refinement_level > 0 ? `<span class="refinement-badge">+${item.refinement_level}</span>` : ''}
+                    ${item.item_category === 'upgrade' ? '<p style="color: #ffaa00;">🔮 Material de Refinação</p>' : ''}
+                </div>`;
+            });
+            
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        async function testRefine() {
+            if (!jwtToken) {
+                showMessage('Por favor, salve seu JWT token primeiro', 'error');
+                return;
+            }
+
+            const inventoryId = parseInt(document.getElementById('refineInventoryId').value);
+            const materialId = parseInt(document.getElementById('refineMaterialId').value);
+
+            if (!inventoryId || !materialId) {
+                showMessage('Por favor, preencha ambos os IDs', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/refinement/refine_item.php`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        token: jwtToken,
+                        inventory_id: inventoryId,
+                        material_inventory_id: materialId
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    const resultDiv = document.getElementById('refineResult');
+                    let html = `<div class="message ${result.refinement_success ? 'success' : 'error'}">
+                        <h3>${result.message}</h3>
+                        <p><strong>Nível Anterior:</strong> +${result.previous_level}</p>
+                        <p><strong>Nível Atual:</strong> +${result.new_refinement_level}</p>
+                        <p><strong>Taxa de Sucesso:</strong> ${(result.success_rate * 100).toFixed(1)}%</p>
+                        <p><strong>Roll:</strong> ${(result.random_roll * 100).toFixed(2)}%</p>
+                        <p><strong>Material Consumido:</strong> ${result.quantity_consumed}x ${result.material_used}</p>
+                    `;
+
+                    if (result.bonus_stats && Object.keys(result.bonus_stats).length > 0) {
+                        html += '<p><strong>Stats Bônus:</strong></p><ul>';
+                        for (const [stat, value] of Object.entries(result.bonus_stats)) {
+                            html += `<li>${stat}: +${value}</li>`;
+                        }
+                        html += '</ul>';
+                    }
+
+                    html += '</div>';
+                    resultDiv.innerHTML = html;
+
+                    // Recarregar inventário
+                    loadInventory();
+                } else {
+                    showMessage(`❌ Erro: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                showMessage(`❌ Erro ao refinar: ${error.message}`, 'error');
+                console.error('Erro:', error);
+            }
+        }
+    </script>
+</body>
+</html>

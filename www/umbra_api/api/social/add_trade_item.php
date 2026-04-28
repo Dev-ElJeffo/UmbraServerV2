@@ -72,7 +72,15 @@ try {
         exit;
     }
 
-    $item = $pdo->prepare("SELECT * FROM player_inventory WHERE inventory_id = ? AND player_id = ?");
+    $item = $pdo->prepare("
+        SELECT 
+            pi.*,
+            it.tradeable,
+            it.item_name
+        FROM player_inventory pi
+        JOIN item_templates it ON pi.item_template_id = it.item_id
+        WHERE pi.inventory_id = ? AND pi.player_id = ?
+    ");
     $item->execute([$inventory_id, $player_id]);
     $inv = $item->fetch(PDO::FETCH_ASSOC);
 
@@ -80,6 +88,17 @@ try {
         $pdo->rollBack();
         http_response_code(404);
         echo json_encode(['success' => false, 'message' => 'Item não encontrado no inventário']);
+        exit;
+    }
+    
+    // Validar se o item pode ser negociado
+    if (!$inv['tradeable']) {
+        $pdo->rollBack();
+        http_response_code(400);
+        echo json_encode([
+            'success' => false, 
+            'message' => 'Este item não pode ser trocado. Itens não-negociáveis (tradeable = false) não são permitidos no trade.'
+        ]);
         exit;
     }
 

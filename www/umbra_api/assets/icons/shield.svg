@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <g stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Corpo do escudo -->
+    <path d="M32 8 L48 16 L48 36 C48 44 40 56 32 56 C24 56 16 44 16 36 L16 16 Z" 
+          fill="#2d2d44" stroke="#d4af37" stroke-width="2"/>
+    
+    <!-- Brasão central -->
+    <circle cx="32" cy="32" r="8" fill="#d4af37" stroke="#ffd700"/>
+    
+    <!-- Detalhes decorativos -->
+    <path d="M24 20 L40 20" stroke="#d4af37" stroke-width="1.5"/>
+    <path d="M24 44 L40 44" stroke="#d4af37" stroke-width="1.5"/>
+    
+    <!-- Cruz central -->
+    <path d="M32 26 L32 38" stroke="#1a1a2e" stroke-width="2"/>
+    <path d="M26 32 L38 32" stroke="#1a1a2e" stroke-width="2"/>
+  </g>
+</svg>

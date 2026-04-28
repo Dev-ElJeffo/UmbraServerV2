@@ -4,6 +4,8 @@
 #include <mutex>
 #include <chrono>
 #include <functional>
+#include <deque>
+#include <cctype>
 #include "network/WebSocketServer.hpp"
 #include "zone/MovementProtocol.hpp"
 #include "zone/SpatialGrid.hpp"
@@ -24,6 +26,7 @@ struct PlayerStateNet {
   // Dados do personagem
   std::string characterName;
   std::string characterTitle;
+  std::string guildName;
 };
 
 class MovementServer {
@@ -31,9 +34,20 @@ public:
   explicit MovementServer(uint16_t port)
     : ws_(port) {}
 
+  void setChatLimits(size_t maxMessageLength, uint32_t rateLimitPerMinute) {
+    std::lock_guard<std::mutex> lock(mu_);
+    chatMaxMessageLength_ = maxMessageLength;
+    chatRateLimitPerMinute_ = rateLimitPerMinute;
+  }
+
   /** Callback chamado quando um jogador desconecta. Usado para remover do grupo no servidor. Retorna party_id se estava em grupo, 0 caso contrário. */
   void setOnPlayerDisconnectCallback(std::function<uint32_t(uint32_t playerId)> cb) {
     onPlayerDisconnect_ = std::move(cb);
+  }
+
+  /** Resolve membros do grupo de um jogador (incluindo o próprio). */
+  void setResolvePartyMembersCallback(std::function<std::vector<uint32_t>(uint32_t playerId)> cb) {
+    resolvePartyMembers_ = std::move(cb);
   }
 
   bool start() {
@@ -237,6 +251,48 @@ public:
         }
         return;
       }
+
+      // Chat local (proximidade)
+      if (msgType == MovementMsgType::ChatLocalMessage) {
+        uint32_t fromId = 0;
+        std::string message;
+        if (!decodeChatClientMessage(data, fromId, message)) {
+          std::lock_guard<std::mutex> lock(mu_);
+          sendChatErrorToClientUnlocked(cid, ChatErrorCode::InvalidPayload, "Payload de chat local invalido");
+          return;
+        }
+        std::lock_guard<std::mutex> lock(mu_);
+        handleChatMessageUnlocked(cid, msgType, fromId, message);
+        return;
+      }
+
+      // Chat global
+      if (msgType == MovementMsgType::ChatGlobalMessage) {
+        uint32_t fromId = 0;
+        std::string message;
+        if (!decodeChatClientMessage(data, fromId, message)) {
+          std::lock_guard<std::mutex> lock(mu_);
+          sendChatErrorToClientUnlocked(cid, ChatErrorCode::InvalidPayload, "Payload de chat global invalido");
+          return;
+        }
+        std::lock_guard<std::mutex> lock(mu_);
+        handleChatMessageUnlocked(cid, msgType, fromId, message);
+        return;
+      }
+
+      // Chat de grupo
+      if (msgType == MovementMsgType::ChatGroupMessage) {
+        uint32_t fromId = 0;
+        std::string message;
+        if (!decodeChatClientMessage(data, fromId, message)) {
+          std::lock_guard<std::mutex> lock(mu_);
+          sendChatErrorToClientUnlocked(cid, ChatErrorCode::InvalidPayload, "Payload de chat de grupo invalido");
+          return;
+        }
+        std::lock_guard<std::mutex> lock(mu_);
+        handleChatMessageUnlocked(cid, msgType, fromId, message);
+        return;
+      }
       
       // Party/Trade/Friend Response
       if (msgType == MovementMsgType::PartyInviteResponse || 
@@ -257,12 +313,12 @@ public:
       // Processar PlayerInfoUpdate
       if (msgType == MovementMsgType::PlayerInfoUpdate) {
         uint32_t playerId;
-        std::string name, title;
-        if (decodePlayerInfoUpdate(data, playerId, name, title)) {
+        std::string name, title, guildName;
+        if (decodePlayerInfoUpdate(data, playerId, name, title, guildName)) {
           std::lock_guard<std::mutex> lock(mu_);
           
-          Umbra::Core::Logger::getInstance().info("Received PlayerInfoUpdate from client {}: playerId={}, name={}, title={}", 
-                                                  cid, playerId, name, title);
+          Umbra::Core::Logger::getInstance().info("Received PlayerInfoUpdate from client {}: playerId={}, name={}, title={}, guild={}", 
+                                                  cid, playerId, name, title, guildName);
           
           // Mapear clientId -> playerId para handleClientDisconnect poder remover do grupo
           clientIdToPlayerId_[cid] = playerId;
@@ -278,8 +334,9 @@ public:
             // Player já existe: apenas atualizar nome/título
             players_[playerId].characterName = name;
             players_[playerId].characterTitle = title;
-            Umbra::Core::Logger::getInstance().info("✅ Updated existing PlayerStateNet for player {} (name={}, title={})", 
-                                                    playerId, name, title);
+            players_[playerId].guildName = guildName;
+            Umbra::Core::Logger::getInstance().info("✅ Updated existing PlayerStateNet for player {} (name={}, title={}, guild={})", 
+                                                    playerId, name, title, guildName);
           } else {
             // ✅ CRÍTICO: NÃO criar PlayerStateNet com posição padrão aqui!
             // Isso causa problemas porque quando o primeiro MoveUpdate chega com a posição real,
@@ -295,6 +352,7 @@ public:
             newPlayer.playerId = playerId;
             newPlayer.characterName = name;
             newPlayer.characterTitle = title;
+            newPlayer.guildName = guildName;
             // ✅ NÃO definir posição aqui - será definida no primeiro MoveUpdate
             // Usar valores que indicam "posição ainda não definida"
             newPlayer.x = 0.0f;
@@ -304,16 +362,41 @@ public:
             newPlayer.tsMs = 0;
             players_[playerId] = newPlayer;
             
-            Umbra::Core::Logger::getInstance().info("✅ Created new PlayerStateNet for player {} (name={}, title={}) - posição será definida no primeiro MoveUpdate", 
-                                                    playerId, name, title);
+            Umbra::Core::Logger::getInstance().info("✅ Created new PlayerStateNet for player {} (name={}, title={}, guild={}) - posição será definida no primeiro MoveUpdate", 
+                                                    playerId, name, title, guildName);
           }
           
           // Fazer broadcast do PlayerInfoUpdate para todos os clientes (EXCETO o próprio que enviou)
-          auto broadcastMsg = encodePlayerInfoUpdate(playerId, name, title);
+          auto broadcastMsg = encodePlayerInfoUpdate(playerId, name, title, guildName);
           ws_.broadcastBinary(broadcastMsg);
-          Umbra::Core::Logger::getInstance().info("📤 Broadcasted PlayerInfoUpdate for player {} (name={}, title={}) to all clients", 
-                                                  playerId, name, title);
+          Umbra::Core::Logger::getInstance().info("📤 Broadcasted PlayerInfoUpdate for player {} (name={}, title={}, guild={}) to all clients", 
+                                                  playerId, name, title, guildName);
           
+        }
+        return;
+      }
+
+      // Guild refresh/member notifications encaminhadas pelo cliente (após sucesso HTTP).
+      if (msgType == MovementMsgType::GuildInviteReceived) {
+        uint32_t inviteId = 0, guildId = 0, fromPlayerId = 0, toPlayerId = 0;
+        if (decodeGuildInviteReceived(data, inviteId, guildId, fromPlayerId, toPlayerId)) {
+          std::lock_guard<std::mutex> lock(mu_);
+          sendToPlayerUnlocked(toPlayerId, encodeGuildInviteReceived(inviteId, guildId, fromPlayerId, toPlayerId));
+        }
+        return;
+      }
+      if (msgType == MovementMsgType::GuildStateRefresh) {
+        uint32_t guildId = 0;
+        if (decodeGuildNotify(data, guildId)) {
+          std::lock_guard<std::mutex> lock(mu_);
+          ws_.broadcastBinary(encodeGuildNotify(MovementMsgType::GuildStateRefresh, guildId));
+        }
+        return;
+      }
+      if (msgType == MovementMsgType::GuildMemberUpdated || msgType == MovementMsgType::GuildMemberKicked) {
+        if (data.size() >= 9) {
+          std::lock_guard<std::mutex> lock(mu_);
+          ws_.broadcastBinary(data);
         }
         return;
       }
@@ -384,6 +467,150 @@ public:
   }
 
 private:
+  static bool isLikelyValidUtf8(const std::string& text) {
+    int expected = 0;
+    for (unsigned char c : text) {
+      if (expected == 0) {
+        if ((c >> 7) == 0b0) {
+          continue;
+        }
+        if ((c >> 5) == 0b110) {
+          expected = 1;
+          continue;
+        }
+        if ((c >> 4) == 0b1110) {
+          expected = 2;
+          continue;
+        }
+        if ((c >> 3) == 0b11110) {
+          expected = 3;
+          continue;
+        }
+        return false;
+      }
+      if ((c >> 6) != 0b10) {
+        return false;
+      }
+      --expected;
+    }
+    return expected == 0;
+  }
+
+  static std::string trimMessage(const std::string& value) {
+    size_t start = 0;
+    while (start < value.size() && std::isspace(static_cast<unsigned char>(value[start]))) ++start;
+    size_t end = value.size();
+    while (end > start && std::isspace(static_cast<unsigned char>(value[end - 1]))) --end;
+    return value.substr(start, end - start);
+  }
+
+  void sendChatErrorToClientUnlocked(uint32_t clientId, ChatErrorCode errorCode, const std::string& message) {
+    ws_.sendBinary(clientId, encodeChatServerError(errorCode, message));
+  }
+
+  bool checkAndConsumeChatRateLimitUnlocked(uint32_t playerId, std::chrono::steady_clock::time_point now) {
+    auto& history = chatMessageHistoryByPlayer_[playerId];
+    const auto windowStart = now - std::chrono::minutes(1);
+    while (!history.empty() && history.front() < windowStart) {
+      history.pop_front();
+    }
+    if (chatRateLimitPerMinute_ > 0 && history.size() >= chatRateLimitPerMinute_) {
+      return false;
+    }
+    history.push_back(now);
+    return true;
+  }
+
+  void handleChatMessageUnlocked(uint32_t cid, MovementMsgType msgType, uint32_t payloadFromId, const std::string& rawMessage) {
+    auto cidIt = clientIdToPlayerId_.find(cid);
+    if (cidIt == clientIdToPlayerId_.end() || cidIt->second == 0) {
+      sendChatErrorToClientUnlocked(cid, ChatErrorCode::NotAuthenticated, "Jogador nao autenticado no zone");
+      return;
+    }
+
+    uint32_t senderPlayerId = cidIt->second;
+    if (payloadFromId != 0 && payloadFromId != senderPlayerId) {
+      Umbra::Core::Logger::getInstance().warn(
+          "Chat spoof attempt ignored: client {} mapped player {} payload from {}", cid, senderPlayerId, payloadFromId);
+    }
+
+    std::string message = trimMessage(rawMessage);
+    if (message.empty()) {
+      sendChatErrorToClientUnlocked(cid, ChatErrorCode::EmptyMessage, "Mensagem vazia");
+      return;
+    }
+    if (message.size() > chatMaxMessageLength_) {
+      sendChatErrorToClientUnlocked(cid, ChatErrorCode::MessageTooLong, "Mensagem excede limite");
+      return;
+    }
+    if (!isLikelyValidUtf8(message)) {
+      sendChatErrorToClientUnlocked(cid, ChatErrorCode::InvalidPayload, "Mensagem UTF-8 invalida");
+      return;
+    }
+
+    auto now = std::chrono::steady_clock::now();
+    if (!checkAndConsumeChatRateLimitUnlocked(senderPlayerId, now)) {
+      sendChatErrorToClientUnlocked(cid, ChatErrorCode::RateLimitExceeded, "Limite de mensagens por minuto excedido");
+      return;
+    }
+
+    std::string fromName;
+    auto pit = players_.find(senderPlayerId);
+    if (pit != players_.end() && !pit->second.characterName.empty()) {
+      fromName = pit->second.characterName;
+    } else {
+      fromName = "Player_" + std::to_string(senderPlayerId);
+    }
+
+    if (msgType == MovementMsgType::ChatLocalMessage) {
+      auto packet = encodeChatReceived(MovementMsgType::ChatLocalReceived, senderPlayerId, fromName, message);
+      float x = 0.0f;
+      float y = 0.0f;
+      if (pit != players_.end()) {
+        x = pit->second.x;
+        y = pit->second.y;
+      }
+      broadcastToNearby(cid, x, y, packet);
+      Umbra::Core::Logger::getInstance().info("Local chat from {} ({}) delivered", senderPlayerId, fromName);
+      return;
+    }
+
+    if (msgType == MovementMsgType::ChatGlobalMessage) {
+      auto packet = encodeChatReceived(MovementMsgType::ChatGlobalReceived, senderPlayerId, fromName, message);
+      broadcastToAll(packet);
+      Umbra::Core::Logger::getInstance().info("Global chat from {} ({}) delivered", senderPlayerId, fromName);
+      return;
+    }
+
+    if (msgType == MovementMsgType::ChatGroupMessage) {
+      if (!resolvePartyMembers_) {
+        sendChatErrorToClientUnlocked(cid, ChatErrorCode::Unknown, "Resolucao de grupo indisponivel");
+        return;
+      }
+      std::vector<uint32_t> members;
+      try {
+        members = resolvePartyMembers_(senderPlayerId);
+      } catch (...) {
+        sendChatErrorToClientUnlocked(cid, ChatErrorCode::Unknown, "Falha ao resolver membros do grupo");
+        return;
+      }
+      if (members.size() <= 1) {
+        sendChatErrorToClientUnlocked(cid, ChatErrorCode::InvalidPayload, "Voce nao esta em um grupo");
+        return;
+      }
+      auto packet = encodeChatReceived(MovementMsgType::ChatGroupReceived, senderPlayerId, fromName, message);
+      size_t sentCount = 0;
+      for (uint32_t memberId : members) {
+        sendToPlayerUnlocked(memberId, packet);
+        ++sentCount;
+      }
+      Umbra::Core::Logger::getInstance().info("Group chat from {} ({}) delivered to {} members", senderPlayerId, fromName, sentCount);
+      return;
+    }
+
+    sendChatErrorToClientUnlocked(cid, ChatErrorCode::Unknown, "Tipo de chat desconhecido");
+  }
+
   // Versão com lock - chamada do callback de conexão (sem lock prévio)
   void sendInitialSnapshotLocked(uint32_t clientId) {
     size_t sentStateCount = 0;
@@ -393,8 +620,8 @@ private:
     // Isso garante que o novo client receba os nomes/títulos ANTES dos StateUpdate
     // que spawnam os actors
     for (const auto& [pid, st] : players_) {
-      if (!st.characterName.empty() || !st.characterTitle.empty()) {
-        auto infoMsg = encodePlayerInfoUpdate(st.playerId, st.characterName, st.characterTitle);
+      if (!st.characterName.empty() || !st.characterTitle.empty() || !st.guildName.empty()) {
+        auto infoMsg = encodePlayerInfoUpdate(st.playerId, st.characterName, st.characterTitle, st.guildName);
         if (ws_.sendBinary(clientId, infoMsg)) {
           sentInfoCount++;
         }
@@ -566,11 +793,12 @@ private:
     }
 
     // Preservar nome/título se já existir (PlayerInfoUpdate pode ter chegado antes do MoveUpdate)
-    std::string prevName, prevTitle;
+    std::string prevName, prevTitle, prevGuild;
     auto itPrev = players_.find(f.playerId);
     if (itPrev != players_.end()) {
       prevName = itPrev->second.characterName;
       prevTitle = itPrev->second.characterTitle;
+      prevGuild = itPrev->second.guildName;
     }
     players_[f.playerId] = PlayerStateNet{
       f.playerId, 
@@ -581,9 +809,10 @@ private:
       velocityZ,
       isInAir
     };
-    if (!prevName.empty() || !prevTitle.empty()) {
+    if (!prevName.empty() || !prevTitle.empty() || !prevGuild.empty()) {
       players_[f.playerId].characterName = std::move(prevName);
       players_[f.playerId].characterTitle = std::move(prevTitle);
+      players_[f.playerId].guildName = std::move(prevGuild);
     }
     
     if (isFirstPositionUpdate) {
@@ -642,6 +871,7 @@ private:
         aoiGrid_.removePlayer(cid);
         players_.erase(playerIt);
         personalShopOpenByPlayerId_.erase(playerId);
+        chatMessageHistoryByPlayer_.erase(playerId);
 
         // Remover jogador do grupo no servidor (party_members no DB) e broadcast PartyMemberLeft se estava em grupo
         uint32_t partyId = 0;
@@ -724,7 +954,9 @@ private:
   mutable std::mutex mu_;
   std::unordered_map<uint32_t, PlayerStateNet> players_;
   std::unordered_map<uint32_t, uint32_t> clientIdToPlayerId_;
+  std::unordered_map<uint32_t, std::deque<std::chrono::steady_clock::time_point>> chatMessageHistoryByPlayer_;
   std::function<uint32_t(uint32_t)> onPlayerDisconnect_;
+  std::function<std::vector<uint32_t>(uint32_t)> resolvePartyMembers_;
   SpatialGrid aoiGrid_{10000.0f};
   /** Jogadores com loja pessoal aberta: bloqueia MoveUpdate. Par = (shop_id, nome UTF-8). */
   std::unordered_map<uint32_t, std::pair<uint32_t, std::string>> personalShopOpenByPlayerId_;
@@ -732,6 +964,8 @@ private:
   float maxSpeed_ = 1200.0f;
   float maxTeleportDist_ = 3000.0f;
   uint32_t maxDelayMs_ = 300;
+  size_t chatMaxMessageLength_ = 500;
+  uint32_t chatRateLimitPerMinute_ = 30;
 };
 
 } // namespace Zone

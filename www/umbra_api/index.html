@@ -1,0 +1,1554 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UmbraEternum - MMORPG Dark Fantasy</title>
+    <meta name="description" content="Adentre as Trevas Eternas. Um MMORPG dark fantasy onde sombras forjam lendas.">
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles/dark-fantasy.css">
+    <link rel="stylesheet" href="styles/components.css">
+    <link rel="stylesheet" href="styles/animations.css">
+    <link rel="stylesheet" href="styles/gallery.css">
+    
+    <style>
+        /* Hero Section */
+        .hero {
+            min-height: 100vh;
+            background: linear-gradient(135deg, rgba(10, 10, 15, 0.9) 0%, rgba(26, 26, 46, 0.8) 100%),
+                        url('assets/images/backgrounds/hero-bg.jpg') center/cover no-repeat fixed;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .hero::before {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 200px;
+            background: linear-gradient(to top, var(--color-bg-primary), transparent);
+        }
+        
+        /* Navbar */
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: var(--z-sticky);
+            background: rgba(10, 10, 15, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--color-border-dark);
+            padding: var(--spacing-md) 0;
+            transition: all var(--transition-base);
+        }
+        
+        .navbar.scrolled {
+            padding: var(--spacing-sm) 0;
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .navbar .container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .navbar-brand {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-md);
+            font-family: var(--font-title);
+            font-size: var(--font-size-xl);
+            color: var(--color-red-bright);
+            text-shadow: 0 0 20px rgba(255, 68, 68, 0.5);
+        }
+        
+        .navbar-brand img {
+            width: 40px;
+            height: 40px;
+        }
+        
+        .navbar-menu {
+            display: flex;
+            gap: var(--spacing-xl);
+            align-items: center;
+        }
+        
+        .navbar-menu a {
+            color: var(--color-text-secondary);
+            font-weight: 500;
+            transition: all var(--transition-fast);
+            position: relative;
+            padding: var(--spacing-sm) 0;
+        }
+        
+        .navbar-menu a:hover {
+            color: var(--color-red-bright);
+        }
+        
+        .navbar-menu a::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: var(--color-red-bright);
+            transition: width var(--transition-base);
+        }
+        
+        .navbar-menu a:hover::after {
+            width: 100%;
+        }
+        
+        /* Hero Content */
+        .hero-content {
+            text-align: center;
+            max-width: 800px;
+            padding: 0 var(--spacing-lg);
+            position: relative;
+            z-index: 1;
+            animation: fadeIn 1s ease;
+        }
+        
+        .hero-logo {
+            width: 200px;
+            height: 200px;
+            margin: 0 auto var(--spacing-xl);
+            filter: drop-shadow(0 0 30px rgba(255, 68, 68, 0.6));
+            animation: float 4s ease-in-out infinite;
+        }
+        
+        .hero-title {
+            font-family: var(--font-title);
+            font-size: var(--font-size-5xl);
+            color: var(--color-red-bright);
+            text-shadow: 0 0 30px rgba(255, 68, 68, 0.8);
+            margin-bottom: var(--spacing-md);
+            letter-spacing: 0.1em;
+        }
+        
+        .hero-tagline {
+            font-family: var(--font-heading);
+            font-size: var(--font-size-2xl);
+            color: var(--color-text-secondary);
+            margin-bottom: var(--spacing-2xl);
+            font-style: italic;
+        }
+        
+        .hero-actions {
+            display: flex;
+            gap: var(--spacing-lg);
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        /* Sections */
+        .section {
+            padding: var(--spacing-3xl) 0;
+            background: var(--color-bg-primary);
+        }
+        
+        .section-dark {
+            background: var(--color-bg-secondary);
+        }
+        
+        .section-title {
+            font-family: var(--font-title);
+            font-size: var(--font-size-4xl);
+            color: var(--color-red-bright);
+            text-align: center;
+            margin-bottom: var(--spacing-xl);
+            text-shadow: 0 0 20px rgba(255, 68, 68, 0.5);
+        }
+        
+        /* Classes Grid */
+        .classes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: var(--spacing-xl);
+            margin-top: var(--spacing-2xl);
+        }
+        
+        .class-card {
+            background: var(--color-bg-card);
+            border: 2px solid var(--color-border-dark);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-xl);
+            text-align: center;
+            transition: all var(--transition-base);
+            cursor: pointer;
+        }
+        
+        .class-card:hover {
+            border-color: var(--color-red-medium);
+            transform: translateY(-8px) scale(1.02);
+            box-shadow: var(--shadow-red-strong), 0 10px 40px rgba(196, 30, 58, 0.3);
+        }
+        
+        .class-image-container img {
+            transition: transform var(--transition-slow);
+        }
+        
+        .class-card:hover .class-image-container img {
+            transform: scale(1.1);
+        }
+        
+        .class-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto var(--spacing-lg);
+            color: var(--color-red-medium);
+        }
+        
+        .class-name {
+            font-family: var(--font-heading);
+            font-size: var(--font-size-2xl);
+            color: var(--color-red-bright);
+            margin-bottom: var(--spacing-sm);
+        }
+        
+        .class-description {
+            color: var(--color-text-secondary);
+            margin-bottom: var(--spacing-md);
+        }
+        
+        /* Features */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: var(--spacing-xl);
+            margin-top: var(--spacing-2xl);
+        }
+        
+        .feature-card {
+            background: var(--color-bg-card);
+            border: 1px solid var(--color-border-dark);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-xl);
+            text-align: center;
+        }
+        
+        .feature-icon {
+            font-size: var(--font-size-5xl);
+            color: var(--color-red-bright);
+            margin-bottom: var(--spacing-lg);
+        }
+        
+        .feature-title {
+            font-family: var(--font-heading);
+            font-size: var(--font-size-xl);
+            color: var(--color-red-medium);
+            margin-bottom: var(--spacing-md);
+        }
+        
+        /* Footer */
+        .footer {
+            background: var(--color-bg-secondary);
+            border-top: 1px solid var(--color-border-dark);
+            padding: var(--spacing-2xl) 0 var(--spacing-xl);
+        }
+        
+        .footer-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: var(--spacing-xl);
+            margin-bottom: var(--spacing-xl);
+        }
+        
+        .footer-section h3 {
+            font-family: var(--font-heading);
+            color: var(--color-gold-bright);
+            margin-bottom: var(--spacing-md);
+        }
+        
+        .footer-section ul {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-sm);
+        }
+        
+        .footer-section a {
+            color: var(--color-text-secondary);
+            transition: color var(--transition-fast);
+        }
+        
+        .footer-section a:hover {
+            color: var(--color-red-bright);
+        }
+        
+        .footer-bottom {
+            text-align: center;
+            padding-top: var(--spacing-lg);
+            border-top: 1px solid var(--color-border-dark);
+            color: var(--color-text-muted);
+        }
+        
+        .social-links {
+            display: flex;
+            gap: var(--spacing-md);
+            justify-content: center;
+            margin-top: var(--spacing-lg);
+        }
+        
+        .social-links a {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--color-bg-tertiary);
+            border-radius: 50%;
+            color: var(--color-red-medium);
+            transition: all var(--transition-fast);
+        }
+        
+        .social-links a:hover {
+            background: var(--color-red-medium);
+            color: var(--color-text-dark);
+            transform: translateY(-4px);
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .navbar-menu {
+                display: none;
+            }
+            
+            .hero-title {
+                font-size: var(--font-size-3xl);
+            }
+            
+            .hero-tagline {
+                font-size: var(--font-size-lg);
+            }
+            
+            .hero-actions {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar" id="navbar">
+        <div class="container">
+            <a href="#" class="navbar-brand">
+                <img src="assets/images/logo.svg" alt="UmbraEternum">
+                <span>UMBRA</span>
+            </a>
+            <div class="navbar-menu">
+                <a href="#home">Início</a>
+                <a href="#classes">Classes</a>
+                <a href="#lore">História</a>
+                <a href="#features">Recursos</a>
+                <a href="#concepts">Concepts</a>
+                <a href="#community">Comunidade</a>
+                <a href="login.html" class="btn btn-secondary btn-sm">Login</a>
+                <a href="register.html" class="btn btn-primary btn-sm">Jogar Agora</a>
+            </div>
+        </div>
+    </nav>
+    
+    <!-- Hero Section -->
+    <section class="hero" id="home">
+        <div class="hero-content">
+            <img src="assets/images/logo.svg" alt="UmbraEternum" class="hero-logo">
+            <h1 class="hero-title">UMBRA ETERNUM</h1>
+            <p class="hero-tagline">Onde Sombras Forjam Lendas</p>
+            <div class="hero-actions">
+                <a href="register.html" class="btn btn-primary btn-lg">
+                    <i class="fas fa-play"></i>
+                    Começar Aventura
+                </a>
+                <a href="login.html" class="btn btn-secondary btn-lg">
+                    <i class="fas fa-sign-in-alt"></i>
+                    Login
+                </a>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Classes Section -->
+    <section class="section" id="classes">
+        <div class="container">
+            <h2 class="section-title">As Seis Classes de Umbra Eternum</h2>
+            <p style="text-align: center; color: var(--color-text-secondary); font-size: var(--font-size-lg); margin-bottom: var(--spacing-xs); max-width: 800px; margin-left: auto; margin-right: auto;">
+                Classes não são escolhas heroicas. São respostas ao colapso.
+            </p>
+            <p style="text-align: center; color: var(--color-red-medium); font-size: var(--font-size-base); margin-bottom: var(--spacing-3xl); font-style: italic;">
+                Você não escolhe uma classe para salvar o mundo. Você escolhe uma classe para sobreviver a ele.
+            </p>
+            
+            <div class="classes-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: var(--spacing-2xl); margin-top: var(--spacing-2xl);">
+                <!-- BARBARIAN -->
+                <div class="class-card scroll-reveal" data-class="barbarian" style="background: var(--color-bg-card); border: 2px solid var(--color-border-dark); border-radius: var(--radius-lg); overflow: hidden; cursor: pointer; transition: all var(--transition-base);">
+                    <div class="class-image-container" style="width: 100%; height: 250px; background: linear-gradient(135deg, rgba(139, 0, 0, 0.3), rgba(196, 30, 58, 0.3)); position: relative; overflow: hidden;">
+                        <img src="assets/images/classes/barbarian.jpg" alt="Barbarian" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\'display:flex;align-items:center;justify-content:center;height:100%;\'><i class=\'fas fa-axe-battle\' style=\'font-size:5rem;color:var(--color-red-medium);\'></i></div>'">
+                        <div style="position: absolute; top: var(--spacing-md); right: var(--spacing-md); padding: 6px 12px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--color-red-medium); border-radius: var(--radius-sm); color: var(--color-red-bright); font-size: var(--font-size-xs); font-weight: bold;">FEMININA</div>
+                    </div>
+                    <div style="padding: var(--spacing-xl);">
+                        <div style="display: flex; align-items: center; gap: var(--spacing-md); margin-bottom: var(--spacing-md);">
+                            <i class="fas fa-axe" style="font-size: var(--font-size-2xl); color: var(--color-red-bright);"></i>
+                            <div>
+                                <h3 style="font-family: var(--font-heading); font-size: var(--font-size-2xl); color: var(--color-red-bright); margin: 0;">BARBARIAN</h3>
+                                <p style="font-size: var(--font-size-sm); color: var(--color-red-medium); margin: 0; font-style: italic;">As Filhas da Ruína</p>
+                            </div>
+                        </div>
+                        <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md);">
+                            Mulheres moldadas pela perda absoluta. Confiam mais no ódio e resistência do próprio corpo que em aço.
+                        </p>
+                        <div style="padding: var(--spacing-sm); background: var(--color-bg-primary); border-radius: var(--radius-sm); border-left: 3px solid var(--color-red-medium); margin-bottom: var(--spacing-md);">
+                            <p style="font-family: var(--font-heading); font-style: italic; color: var(--color-red-bright); margin: 0; font-size: var(--font-size-sm);">
+                                "Se o mundo quer me quebrar, ele sangrará tentando."
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: var(--spacing-sm); flex-wrap: wrap;">
+                            <span style="padding: 4px 10px; background: rgba(196, 30, 58, 0.2); border: 1px solid var(--color-red-dark); border-radius: var(--spacing-xs); color: var(--color-red-light); font-size: var(--font-size-xs);">Combate Corpo a Corpo</span>
+                            <span style="padding: 4px 10px; background: rgba(196, 30, 58, 0.2); border: 1px solid var(--color-red-dark); border-radius: var(--spacing-xs); color: var(--color-red-light); font-size: var(--font-size-xs);">Alta Resistência</span>
+                            <span style="padding: 4px 10px; background: rgba(196, 30, 58, 0.2); border: 1px solid var(--color-red-dark); border-radius: var(--spacing-xs); color: var(--color-red-light); font-size: var(--font-size-xs);">Dano Brutal</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- DARK MAGE -->
+                <div class="class-card scroll-reveal" data-class="darkmage" style="background: var(--color-bg-card); border: 2px solid var(--color-border-dark); border-radius: var(--radius-lg); overflow: hidden; cursor: pointer; transition: all var(--transition-base);">
+                    <div class="class-image-container" style="width: 100%; height: 250px; background: linear-gradient(135deg, rgba(75, 0, 130, 0.3), rgba(139, 92, 246, 0.3)); position: relative; overflow: hidden;">
+                        <img src="assets/images/classes/darkmage.jpg" alt="Dark Mage" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\'display:flex;align-items:center;justify-content:center;height:100%;\'><i class=\'fas fa-hat-wizard\' style=\'font-size:5rem;color:var(--color-purple-vibrant);\'></i></div>'">
+                        <div style="position: absolute; top: var(--spacing-md); right: var(--spacing-md); padding: 6px 12px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--color-purple-vibrant); border-radius: var(--spacing-xs); color: var(--color-purple-vibrant); font-size: var(--font-size-xs); font-weight: bold;">FEMININA ÉLFICA</div>
+                    </div>
+                    <div style="padding: var(--spacing-xl);">
+                        <div style="display: flex; align-items: center; gap: var(--spacing-md); margin-bottom: var(--spacing-md);">
+                            <i class="fas fa-moon" style="font-size: var(--font-size-2xl); color: var(--color-purple-vibrant);"></i>
+                            <div>
+                                <h3 style="font-family: var(--font-heading); font-size: var(--font-size-2xl); color: var(--color-red-bright); margin: 0;">DARK MAGE</h3>
+                                <p style="font-size: var(--font-size-sm); color: var(--color-purple-vibrant); margin: 0; font-style: italic;">As Herdeiras do Véu</p>
+                            </div>
+                        </div>
+                        <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md);">
+                            Descendentes élficas que aceitaram a corrupção como linguagem. Negociam com o que restou entre os mundos.
+                        </p>
+                        <div style="padding: var(--spacing-sm); background: var(--color-bg-primary); border-radius: var(--radius-sm); border-left: 3px solid var(--color-purple-vibrant); margin-bottom: var(--spacing-md);">
+                            <p style="font-family: var(--font-heading); font-style: italic; color: var(--color-purple-vibrant); margin: 0; font-size: var(--font-size-sm);">
+                                "A luz morreu. A sombra respondeu."
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: var(--spacing-sm); flex-wrap: wrap;">
+                            <span style="padding: 4px 10px; background: rgba(139, 92, 246, 0.2); border: 1px solid var(--color-purple-dark); border-radius: var(--spacing-xs); color: var(--color-purple-vibrant); font-size: var(--font-size-xs);">Controle Arcano</span>
+                            <span style="padding: 4px 10px; background: rgba(139, 92, 246, 0.2); border: 1px solid var(--color-purple-dark); border-radius: var(--spacing-xs); color: var(--color-purple-vibrant); font-size: var(--font-size-xs);">Neblina Vermelha</span>
+                            <span style="padding: 4px 10px; background: rgba(139, 92, 246, 0.2); border: 1px solid var(--color-purple-dark); border-radius: var(--spacing-xs); color: var(--color-purple-vibrant); font-size: var(--font-size-xs);">Magia Sombria</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MARCIAL -->
+                <div class="class-card scroll-reveal" data-class="marcial" style="background: var(--color-bg-card); border: 2px solid var(--color-border-dark); border-radius: var(--radius-lg); overflow: hidden; cursor: pointer; transition: all var(--transition-base);">
+                    <div class="class-image-container" style="width: 100%; height: 250px; background: linear-gradient(135deg, rgba(64, 64, 64, 0.3), rgba(128, 128, 128, 0.3)); position: relative; overflow: hidden;">
+                        <img src="assets/images/classes/marcial.jpg" alt="Marcial" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\'display:flex;align-items:center;justify-content:center;height:100%;\'><i class=\'fas fa-sword\' style=\'font-size:5rem;color:var(--color-text-secondary);\'></i></div>'">
+                        <div style="position: absolute; top: var(--spacing-md); right: var(--spacing-md); padding: 6px 12px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--color-border-light); border-radius: var(--spacing-xs); color: var(--color-text-secondary); font-size: var(--font-size-xs); font-weight: bold;">MASCULINA</div>
+                    </div>
+                    <div style="padding: var(--spacing-xl);">
+                        <div style="display: flex; align-items: center; gap: var(--spacing-md); margin-bottom: var(--spacing-md);">
+                            <i class="fas fa-swords" style="font-size: var(--font-size-2xl); color: var(--color-red-bright);"></i>
+                            <div>
+                                <h3 style="font-family: var(--font-heading); font-size: var(--font-size-2xl); color: var(--color-red-bright); margin: 0;">MARCIAL</h3>
+                                <p style="font-size: var(--font-size-sm); color: var(--color-red-medium); margin: 0; font-style: italic;">Os Forjados Pela Guerra</p>
+                            </div>
+                        </div>
+                        <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md);">
+                            Homens treinados não para vencer, mas para não morrer. O ápice do combate humano sem magia direta.
+                        </p>
+                        <div style="padding: var(--spacing-sm); background: var(--color-bg-primary); border-radius: var(--radius-sm); border-left: 3px solid var(--color-red-medium); margin-bottom: var(--spacing-md);">
+                            <p style="font-family: var(--font-heading); font-style: italic; color: var(--color-red-bright); margin: 0; font-size: var(--font-size-sm);">
+                                "A lâmina não precisa de fé. Precisa de precisão."
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: var(--spacing-sm); flex-wrap: wrap;">
+                            <span style="padding: 4px 10px; background: rgba(196, 30, 58, 0.2); border: 1px solid var(--color-red-dark); border-radius: var(--spacing-xs); color: var(--color-red-light); font-size: var(--font-size-xs);">Versatilidade</span>
+                            <span style="padding: 4px 10px; background: rgba(196, 30, 58, 0.2); border: 1px solid var(--color-red-dark); border-radius: var(--spacing-xs); color: var(--color-red-light); font-size: var(--font-size-xs);">Disciplina</span>
+                            <span style="padding: 4px 10px; background: rgba(196, 30, 58, 0.2); border: 1px solid var(--color-red-dark); border-radius: var(--spacing-xs); color: var(--color-red-light); font-size: var(--spacing-xs);">Técnica</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TEMPLAR -->
+                <div class="class-card scroll-reveal" data-class="templar" style="background: var(--color-bg-card); border: 2px solid var(--color-border-dark); border-radius: var(--radius-lg); overflow: hidden; cursor: pointer; transition: all var(--transition-base);">
+                    <div class="class-image-container" style="width: 100%; height: 250px; background: linear-gradient(135deg, rgba(212, 175, 55, 0.2), rgba(255, 215, 0, 0.2)); position: relative; overflow: hidden;">
+                        <img src="assets/images/classes/templar.jpg" alt="Templar" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\'display:flex;align-items:center;justify-content:center;height:100%;\'><i class=\'fas fa-shield-alt\' style=\'font-size:5rem;color:var(--color-gold-bright);\'></i></div>'">
+                        <div style="position: absolute; top: var(--spacing-md); right: var(--spacing-md); padding: 6px 12px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--color-gold-medium); border-radius: var(--spacing-xs); color: var(--color-gold-bright); font-size: var(--font-size-xs); font-weight: bold;">FEMININA</div>
+                    </div>
+                    <div style="padding: var(--spacing-xl);">
+                        <div style="display: flex; align-items: center; gap: var(--spacing-md); margin-bottom: var(--spacing-md);">
+                            <i class="fas fa-shield-cross" style="font-size: var(--font-size-2xl); color: var(--color-gold-bright);"></i>
+                            <div>
+                                <h3 style="font-family: var(--font-heading); font-size: var(--font-size-2xl); color: var(--color-red-bright); margin: 0;">TEMPLAR</h3>
+                                <p style="font-size: var(--font-size-sm); color: var(--color-gold-medium); margin: 0; font-style: italic;">As Juradas das Cinzas</p>
+                            </div>
+                        </div>
+                        <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md);">
+                            Lutam por juramentos feitos antes da queda. Armaduras com símbolos apagados, bênçãos de ecos antigos.
+                        </p>
+                        <div style="padding: var(--spacing-sm); background: var(--color-bg-primary); border-radius: var(--radius-sm); border-left: 3px solid var(--color-gold-medium); margin-bottom: var(--spacing-md);">
+                            <p style="font-family: var(--font-heading); font-style: italic; color: var(--color-gold-bright); margin: 0; font-size: var(--font-size-sm);">
+                                "Mesmo se os deuses morreram, o juramento permanece."
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: var(--spacing-sm); flex-wrap: wrap;">
+                            <span style="padding: 4px 10px; background: rgba(212, 175, 55, 0.2); border: 1px solid var(--color-gold-dark); border-radius: var(--spacing-xs); color: var(--color-gold-bright); font-size: var(--font-size-xs);">Defesa</span>
+                            <span style="padding: 4px 10px; background: rgba(212, 175, 55, 0.2); border: 1px solid var(--color-gold-dark); border-radius: var(--spacing-xs); color: var(--color-gold-bright); font-size: var(--font-size-xs);">Suporte</span>
+                            <span style="padding: 4px 10px; background: rgba(212, 175, 55, 0.2); border: 1px solid var(--color-gold-dark); border-radius: var(--spacing-xs); color: var(--color-gold-bright); font-size: var(--font-size-xs);">Anti-Corrupção</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ALCHEMIST -->
+                <div class="class-card scroll-reveal" data-class="alchemist" style="background: var(--color-bg-card); border: 2px solid var(--color-border-dark); border-radius: var(--radius-lg); overflow: hidden; cursor: pointer; transition: all var(--transition-base);">
+                    <div class="class-image-container" style="width: 100%; height: 250px; background: linear-gradient(135deg, rgba(34, 139, 34, 0.3), rgba(50, 205, 50, 0.3)); position: relative; overflow: hidden;">
+                        <img src="assets/images/classes/alchemist.jpg" alt="Alchemist" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\'display:flex;align-items:center;justify-content:center;height:100%;\'><i class=\'fas fa-flask\' style=\'font-size:5rem;color:var(--color-green-medium);\'></i></div>'">
+                        <div style="position: absolute; top: var(--spacing-md); right: var(--spacing-md); padding: 6px 12px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--color-green-medium); border-radius: var(--spacing-xs); color: var(--color-green-medium); font-size: var(--font-size-xs); font-weight: bold;">MASCULINA SUPORTE</div>
+                    </div>
+                    <div style="padding: var(--spacing-xl);">
+                        <div style="display: flex; align-items: center; gap: var(--spacing-md); margin-bottom: var(--spacing-md);">
+                            <i class="fas fa-vial" style="font-size: var(--font-size-2xl); color: var(--color-green-medium);"></i>
+                            <div>
+                                <h3 style="font-family: var(--font-heading); font-size: var(--font-size-2xl); color: var(--color-red-bright); margin: 0;">ALCHEMIST</h3>
+                                <p style="font-size: var(--font-size-sm); color: var(--color-green-medium); margin: 0; font-style: italic;">Os Profanadores da Sobrevivência</p>
+                            </div>
+                        </div>
+                        <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md);">
+                            Usam Rubicina e reagentes corrompidos. Nada é puro, nada é seguro. Mas funciona.
+                        </p>
+                        <div style="padding: var(--spacing-sm); background: var(--color-bg-primary); border-radius: var(--radius-sm); border-left: 3px solid var(--color-green-medium); margin-bottom: var(--spacing-md);">
+                            <p style="font-family: var(--font-heading); font-style: italic; color: var(--color-green-medium); margin: 0; font-size: var(--font-size-sm);">
+                                "Viver mais um dia já é vitória suficiente."
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: var(--spacing-sm); flex-wrap: wrap;">
+                            <span style="padding: 4px 10px; background: rgba(34, 139, 34, 0.2); border: 1px solid var(--color-green-dark); border-radius: var(--spacing-xs); color: var(--color-green-medium); font-size: var(--font-size-xs);">Buffs</span>
+                            <span style="padding: 4px 10px; background: rgba(34, 139, 34, 0.2); border: 1px solid var(--color-green-dark); border-radius: var(--spacing-xs); color: var(--color-green-medium); font-size: var(--font-size-xs);">Curas Instáveis</span>
+                            <span style="padding: 4px 10px; background: rgba(34, 139, 34, 0.2); border: 1px solid var(--color-green-dark); border-radius: var(--spacing-xs); color: var(--color-green-medium); font-size: var(--font-size-xs);">Alquimia</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ASSASSIN -->
+                <div class="class-card scroll-reveal" data-class="assassin" style="background: var(--color-bg-card); border: 2px solid var(--color-border-dark); border-radius: var(--radius-lg); overflow: hidden; cursor: pointer; transition: all var(--transition-base);">
+                    <div class="class-image-container" style="width: 100%; height: 250px; background: linear-gradient(135deg, rgba(25, 25, 25, 0.5), rgba(50, 50, 50, 0.5)); position: relative; overflow: hidden;">
+                        <img src="assets/images/classes/assassin.jpg" alt="Assassin" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\'display:flex;align-items:center;justify-content:center;height:100%;\'><i class=\'fas fa-dagger\' style=\'font-size:5rem;color:var(--color-text-muted);\'></i></div>'">
+                        <div style="position: absolute; top: var(--spacing-md); right: var(--spacing-md); padding: 6px 12px; background: rgba(0, 0, 0, 0.9); border: 1px solid var(--color-border-light); border-radius: var(--spacing-xs); color: var(--color-text-muted); font-size: var(--font-size-xs); font-weight: bold;">MASCULINA</div>
+                    </div>
+                    <div style="padding: var(--spacing-xl);">
+                        <div style="display: flex; align-items: center; gap: var(--spacing-md); margin-bottom: var(--spacing-md);">
+                            <i class="fas fa-user-ninja" style="font-size: var(--font-size-2xl); color: var(--color-red-bright);"></i>
+                            <div>
+                                <h3 style="font-family: var(--font-heading); font-size: var(--font-size-2xl); color: var(--color-red-bright); margin: 0;">ASSASSIN</h3>
+                                <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin: 0; font-style: italic;">Os Silenciosos do Fim</p>
+                            </div>
+                        </div>
+                        <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md);">
+                            Conhecem a Neblina Vermelha intimamente. Sabem onde ela cega, onde esconde, onde mata.
+                        </p>
+                        <div style="padding: var(--spacing-sm); background: var(--color-bg-primary); border-radius: var(--radius-sm); border-left: 3px solid var(--color-border-light); margin-bottom: var(--spacing-md);">
+                            <p style="font-family: var(--font-heading); font-style: italic; color: var(--color-text-muted); margin: 0; font-size: var(--font-size-sm);">
+                                "O mundo grita demais. Eu prefiro o silêncio."
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: var(--spacing-sm); flex-wrap: wrap;">
+                            <span style="padding: 4px 10px; background: rgba(64, 64, 64, 0.3); border: 1px solid var(--color-border-dark); border-radius: var(--spacing-xs); color: var(--color-text-muted); font-size: var(--font-size-xs);">Furtividade</span>
+                            <span style="padding: 4px 10px; background: rgba(64, 64, 64, 0.3); border: 1px solid var(--color-border-dark); border-radius: var(--spacing-xs); color: var(--color-text-muted); font-size: var(--font-size-xs);">Espionagem</span>
+                            <span style="padding: 4px 10px; background: rgba(64, 64, 64, 0.3); border: 1px solid var(--color-border-dark); border-radius: var(--spacing-xs); color: var(--color-text-muted); font-size: var(--font-size-xs);">Assassinato</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Features Section -->
+    <section class="section section-dark" id="features">
+        <div class="container">
+            <h2 class="section-title">Recursos do Jogo</h2>
+            <div class="features-grid">
+                <div class="feature-card scroll-reveal">
+                    <div class="feature-icon"><i class="fas fa-swords"></i></div>
+                    <h3 class="feature-title">Combate Tático</h3>
+                    <p class="text-muted">Sistema de combate profundo com combos, esquivas e contra-ataques</p>
+                </div>
+                <div class="feature-card scroll-reveal">
+                    <div class="feature-icon"><i class="fas fa-users"></i></div>
+                    <h3 class="feature-title">Guilds & PvP</h3>
+                    <p class="text-muted">Forme guildas, conquiste territórios e domine o ranking</p>
+                </div>
+                <div class="feature-card scroll-reveal">
+                    <div class="feature-icon"><i class="fas fa-flask"></i></div>
+                    <h3 class="feature-title">Crafting Avançado</h3>
+                    <p class="text-muted">Forje armas lendárias e refine equipamentos</p>
+                </div>
+                <div class="feature-card scroll-reveal">
+                    <div class="feature-icon"><i class="fas fa-map"></i></div>
+                    <h3 class="feature-title">Mundo Vasto</h3>
+                    <p class="text-muted">Explore masmorras, ruínas antigas e territórios sombrios</p>
+                </div>
+                <div class="feature-card scroll-reveal">
+                    <div class="feature-icon"><i class="fas fa-scroll"></i></div>
+                    <h3 class="feature-title">Sistema de Skills</h3>
+                    <p class="text-muted">Dezenas de habilidades únicas para cada classe</p>
+                </div>
+                <div class="feature-card scroll-reveal">
+                    <div class="feature-icon"><i class="fas fa-gavel"></i></div>
+                    <h3 class="feature-title">Leilão & Trade</h3>
+                    <p class="text-muted">Economia dinâmica com leilões e trocas entre jogadores</p>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Lore Section -->
+    <section class="section section-dark" id="lore">
+        <div class="container">
+            <h2 class="section-title">O Mundo de Umbra Eternum</h2>
+            <p style="text-align: center; color: var(--color-text-secondary); font-size: var(--font-size-lg); margin-bottom: var(--spacing-3xl); max-width: 800px; margin-left: auto; margin-right: auto;">
+                Descubra a história sombria de Arraxis, um mundo que morreu... mas cujo cadáver continua se movendo.
+            </p>
+            
+            <!-- O Silêncio Carmesim -->
+            <div style="background: linear-gradient(135deg, rgba(196, 30, 58, 0.15), rgba(139, 0, 0, 0.15)); border: 2px solid var(--color-red-dark); border-radius: var(--radius-xl); padding: var(--spacing-3xl); margin-bottom: var(--spacing-3xl); position: relative; overflow: hidden;">
+                <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, transparent, var(--color-red-bright), transparent);"></div>
+                <h3 style="font-family: var(--font-title); font-size: var(--font-size-3xl); color: var(--color-red-bright); text-align: center; margin-bottom: var(--spacing-lg); text-shadow: 0 0 30px rgba(255, 68, 68, 0.8);">
+                    O Silêncio Carmesim
+                </h3>
+                <p style="font-family: var(--font-heading); font-size: var(--font-size-xl); color: var(--color-text-primary); text-align: center; font-style: italic; line-height: 1.8; margin-bottom: var(--spacing-xl);">
+                    "Nenhum mundo nasce duas vezes… mas alguns morrem mais do que deveriam."
+                </p>
+                <p style="color: var(--color-text-secondary); line-height: 1.8; text-align: center; max-width: 900px; margin: 0 auto;">
+                    Arraxis, outrora um mundo de ouro e luz, sucumbiu quando o céu se rasgou e os Portais vomitaram o impossível. 
+                    A <span style="color: var(--color-red-bright); font-weight: bold;">Neblina Vermelha</span> nasceu desse colapso — 
+                    não como fumaça ou magia, mas como o suspiro final do mundo, misturado com o que quer que saísse dos Portais.
+                    Ela enfraquece humanos, enlouquece animais, e alimenta os monstros como se fossem seus legítimos herdeiros.
+                </p>
+            </div>
+            
+            <!-- As Três Cidades -->
+            <h3 style="font-family: var(--font-heading); font-size: var(--font-size-3xl); color: var(--color-red-bright); text-align: center; margin-bottom: var(--spacing-xl);">
+                As Três Cidades
+            </h3>
+            <p style="text-align: center; color: var(--color-text-secondary); font-size: var(--font-size-lg); margin-bottom: var(--spacing-2xl); font-style: italic;">
+                Das cinzas, do sangue e do lodo surgiram três bastiões humanos. Não por heroísmo… mas por medo.
+            </p>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--spacing-2xl); margin-bottom: var(--spacing-3xl);">
+                <!-- Velkaris -->
+                <div class="feature-card scroll-reveal" style="background: var(--color-bg-card); border: 2px solid var(--color-border-dark); transition: all var(--transition-base); cursor: pointer;" onmouseover="this.style.borderColor='var(--color-red-medium)'; this.style.transform='translateY(-8px)'" onmouseout="this.style.borderColor='var(--color-border-dark)'; this.style.transform='translateY(0)'">
+                    <div style="width: 80px; height: 80px; margin: 0 auto var(--spacing-lg); border-radius: 50%; background: linear-gradient(135deg, rgba(196, 30, 58, 0.2), rgba(139, 0, 0, 0.2)); display: flex; align-items: center; justify-content: center;">
+                        <i class="fas fa-industry" style="font-size: var(--font-size-3xl); color: var(--color-red-bright);"></i>
+                    </div>
+                    <h4 style="font-family: var(--font-heading); font-size: var(--font-size-2xl); color: var(--color-red-bright); margin-bottom: var(--spacing-sm);">
+                        Velkaris
+                    </h4>
+                    <p style="font-size: var(--font-size-sm); color: var(--color-red-medium); font-style: italic; margin-bottom: var(--spacing-md);">
+                        A Cidade da Forja Bruta
+                    </p>
+                    <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md);">
+                        Forjada sob montanhas que gemem calor do subsolo. Seus habitantes transformam ferro, dor e Rubicina em armas. 
+                        O metal grita, os homens obedecem.
+                    </p>
+                    <div style="padding: var(--spacing-md); background: var(--color-bg-primary); border-radius: var(--radius-sm); border-left: 3px solid var(--color-red-medium);">
+                        <p style="font-family: var(--font-heading); font-style: italic; color: var(--color-red-bright); margin: 0; font-size: var(--font-size-sm);">
+                            "Ordem não é escolha. É consequência."
+                        </p>
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: var(--font-size-xs); margin-top: var(--spacing-md);">
+                        Controlada pela Aliança Novarra
+                    </p>
+                </div>
+                
+                <!-- Grimholt -->
+                <div class="feature-card scroll-reveal" style="background: var(--color-bg-card); border: 2px solid var(--color-border-dark); transition: all var(--transition-base); cursor: pointer;" onmouseover="this.style.borderColor='var(--color-red-medium)'; this.style.transform='translateY(-8px)'" onmouseout="this.style.borderColor='var(--color-border-dark)'; this.style.transform='translateY(0)'">
+                    <div style="width: 80px; height: 80px; margin: 0 auto var(--spacing-lg); border-radius: 50%; background: linear-gradient(135deg, rgba(196, 30, 58, 0.2), rgba(139, 0, 0, 0.2)); display: flex; align-items: center; justify-content: center;">
+                        <i class="fas fa-skull" style="font-size: var(--font-size-3xl); color: var(--color-red-bright);"></i>
+                    </div>
+                    <h4 style="font-family: var(--font-heading); font-size: var(--font-size-2xl); color: var(--color-red-bright); margin-bottom: var(--spacing-sm);">
+                        Grimholt
+                    </h4>
+                    <p style="font-size: var(--font-size-sm); color: var(--color-red-medium); font-style: italic; margin-bottom: var(--spacing-md);">
+                        A Cidade dos Ossos Antigos
+                    </p>
+                    <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md);">
+                        Erguida no maior cemitério da antiga Arraxis. Ali, onde os mortos nunca descansaram, homens aprenderam a comandá-los.
+                        A morte serve aos vivos.
+                    </p>
+                    <div style="padding: var(--spacing-md); background: var(--color-bg-primary); border-radius: var(--radius-sm); border-left: 3px solid var(--color-red-medium);">
+                        <p style="font-family: var(--font-heading); font-style: italic; color: var(--color-red-bright); margin: 0; font-size: var(--font-size-sm);">
+                            "Nada em Grimholt é desperdiçado. Nem você será."
+                        </p>
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: var(--font-size-xs); margin-top: var(--spacing-md);">
+                        Regida por Ossomantes e o Conselho Tumular
+                    </p>
+                </div>
+                
+                <!-- Eremos -->
+                <div class="feature-card scroll-reveal" style="background: var(--color-bg-card); border: 2px solid var(--color-border-dark); transition: all var(--transition-base); cursor: pointer;" onmouseover="this.style.borderColor='var(--color-red-medium)'; this.style.transform='translateY(-8px)'" onmouseout="this.style.borderColor='var(--color-border-dark)'; this.style.transform='translateY(0)'">
+                    <div style="width: 80px; height: 80px; margin: 0 auto var(--spacing-lg); border-radius: 50%; background: linear-gradient(135deg, rgba(196, 30, 58, 0.2), rgba(139, 0, 0, 0.2)); display: flex; align-items: center; justify-content: center;">
+                        <i class="fas fa-cloud" style="font-size: var(--font-size-3xl); color: var(--color-red-bright);"></i>
+                    </div>
+                    <h4 style="font-family: var(--font-heading); font-size: var(--font-size-2xl); color: var(--color-red-bright); margin-bottom: var(--spacing-sm);">
+                        Eremos
+                    </h4>
+                    <p style="font-size: var(--font-size-sm); color: var(--color-red-medium); font-style: italic; margin-bottom: var(--spacing-md);">
+                        A Cidade da Névoa Silenciosa
+                    </p>
+                    <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md);">
+                        Envolta pela mais densa concentração de Névoa Vermelha. É lá que a magia se contorce... e sussurra. 
+                        Onde a realidade falha primeiro.
+                    </p>
+                    <div style="padding: var(--spacing-md); background: var(--color-bg-primary); border-radius: var(--radius-sm); border-left: 3px solid var(--color-red-medium);">
+                        <p style="font-family: var(--font-heading); font-style: italic; color: var(--color-red-bright); margin: 0; font-size: var(--font-size-sm);">
+                            "O poder não pertence aos fracos. Nem aos justos."
+                        </p>
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: var(--font-size-xs); margin-top: var(--spacing-md);">
+                        Dominada pelos Conclaves de Eldros
+                    </p>
+                </div>
+            </div>
+            
+            <!-- As Facções -->
+            <h3 style="font-family: var(--font-heading); font-size: var(--font-size-3xl); color: var(--color-red-bright); text-align: center; margin-bottom: var(--spacing-xl); margin-top: var(--spacing-3xl);">
+                As Facções Humanas
+            </h3>
+            <p style="text-align: center; color: var(--color-text-secondary); font-size: var(--font-size-lg); margin-bottom: var(--spacing-2xl); font-style: italic;">
+                As monstruosidades tentam devorar o mundo. Mas os homens têm pressa em se devorar primeiro.
+            </p>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: var(--spacing-2xl); margin-bottom: var(--spacing-3xl);">
+                <!-- Aliança Novarra -->
+                <div style="background: var(--color-bg-card); border: 2px solid var(--color-border-dark); border-radius: var(--radius-lg); padding: var(--spacing-2xl); position: relative;">
+                    <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, transparent, var(--color-red-bright), transparent);"></div>
+                    <i class="fas fa-shield-alt" style="font-size: var(--font-size-4xl); color: var(--color-red-bright); display: block; text-align: center; margin-bottom: var(--spacing-lg);"></i>
+                    <h4 style="font-family: var(--font-heading); font-size: var(--font-size-2xl); color: var(--color-red-bright); text-align: center; margin-bottom: var(--spacing-md);">
+                        Aliança Novarra
+                    </h4>
+                    <p style="text-align: center; color: var(--color-text-secondary); margin-bottom: var(--spacing-lg); font-style: italic;">
+                        A lâmina afiada não discute com ninguém.
+                    </p>
+                    <p style="color: var(--color-text-secondary); line-height: 1.7; margin-bottom: var(--spacing-md);">
+                        Militaristas. Frias como muralhas. Dedicadas à supremacia tecnológica e ao massacre calculado.
+                        Para Novarra, justiça é apenas a vitória escrita com sangue alheio.
+                    </p>
+                    <div style="background: var(--color-bg-primary); padding: var(--spacing-md); border-radius: var(--radius-sm); margin-bottom: var(--spacing-md);">
+                        <p style="color: var(--color-red-medium); font-weight: bold; margin-bottom: var(--spacing-xs);">Credos:</p>
+                        <ul style="color: var(--color-text-secondary); margin: 0; padding-left: var(--spacing-lg);">
+                            <li>Ordem total</li>
+                            <li>Domínio pela força</li>
+                            <li>Sacrifício da liberdade em nome do controle</li>
+                        </ul>
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: var(--font-size-sm); text-align: center;">
+                        Se vencem, dizem que foi mérito. Se perdem, dizem que o sacrifício não foi suficiente.
+                    </p>
+                </div>
+                
+                <!-- Conclaves de Eldros -->
+                <div style="background: var(--color-bg-card); border: 2px solid var(--color-border-dark); border-radius: var(--radius-lg); padding: var(--spacing-2xl); position: relative;">
+                    <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, transparent, var(--color-red-bright), transparent);"></div>
+                    <i class="fas fa-book-dead" style="font-size: var(--font-size-4xl); color: var(--color-red-bright); display: block; text-align: center; margin-bottom: var(--spacing-lg);"></i>
+                    <h4 style="font-family: var(--font-heading); font-size: var(--font-size-2xl); color: var(--color-red-bright); text-align: center; margin-bottom: var(--spacing-md);">
+                        Conclaves de Eldros
+                    </h4>
+                    <p style="text-align: center; color: var(--color-text-secondary); margin-bottom: var(--spacing-lg); font-style: italic;">
+                        O poder não pertence aos fracos. Nem aos justos.
+                    </p>
+                    <p style="color: var(--color-text-secondary); line-height: 1.7; margin-bottom: var(--spacing-md);">
+                        Fragmentados, mas perigosos, Eldros reúne magos, mercadores e ambiciosos sem moral.
+                        Eles estudam a Neblina Vermelha como quem bebe veneno para conhecer seus limites.
+                    </p>
+                    <div style="background: var(--color-bg-primary); padding: var(--spacing-md); border-radius: var(--radius-sm); margin-bottom: var(--spacing-md);">
+                        <p style="color: var(--color-red-medium); font-weight: bold; margin-bottom: var(--spacing-xs);">Para Eldros:</p>
+                        <ul style="color: var(--color-text-secondary); margin: 0; padding-left: var(--spacing-lg);">
+                            <li>A magia é uma moeda</li>
+                            <li>O conhecimento é uma arma</li>
+                            <li>A fraqueza é uma doença</li>
+                        </ul>
+                    </div>
+                    <p style="color: var(--color-text-muted); font-size: var(--font-size-sm); text-align: center;">
+                        E eles não têm medo de se destruir para se tornarem algo maior.
+                    </p>
+                </div>
+            </div>
+            
+            <!-- Fortedras -->
+            <div style="background: linear-gradient(135deg, rgba(0, 0, 0, 0.8), rgba(139, 0, 0, 0.3)); border: 3px solid var(--color-red-medium); border-radius: var(--radius-xl); padding: var(--spacing-3xl); margin-top: var(--spacing-3xl); position: relative; overflow: hidden; box-shadow: 0 0 50px rgba(196, 30, 58, 0.5);">
+                <div style="position: absolute; top: 0; left: 0; right: 0; height: 5px; background: linear-gradient(90deg, var(--color-red-dark), var(--color-red-bright), var(--color-red-dark));"></div>
+                <i class="fas fa-chess-rook" style="font-size: var(--font-size-5xl); color: var(--color-red-bright); display: block; text-align: center; margin-bottom: var(--spacing-lg); filter: drop-shadow(0 0 30px rgba(255, 68, 68, 0.8));"></i>
+                <h3 style="font-family: var(--font-title); font-size: var(--font-size-4xl); color: var(--color-red-bright); text-align: center; margin-bottom: var(--spacing-md); text-shadow: 0 0 40px rgba(255, 68, 68, 1);">
+                    FORTEDRAS
+                </h3>
+                <p style="font-family: var(--font-heading); font-size: var(--font-size-xl); color: var(--color-red-light); text-align: center; margin-bottom: var(--spacing-lg); font-style: italic;">
+                    O Trono das Cinzas
+                </p>
+                <p style="font-size: var(--font-size-2xl); color: var(--color-text-primary); text-align: center; font-weight: bold; margin-bottom: var(--spacing-xl); line-height: 1.6;">
+                    Quem reina aqui, reina sobre ruínas.
+                </p>
+                <p style="color: var(--color-text-secondary); line-height: 1.8; text-align: center; max-width: 800px; margin: 0 auto var(--spacing-xl);">
+                    Fortedras foi erguido antes da queda. Hoje, é mais velho que a esperança. Uma fortaleza que respira magia antiga,
+                    protegida por muralhas que já provaram sangue demais.
+                </p>
+                <div style="background: rgba(0, 0, 0, 0.5); padding: var(--spacing-xl); border-radius: var(--radius-lg); border: 1px solid var(--color-red-dark);">
+                    <h4 style="color: var(--color-red-bright); text-align: center; margin-bottom: var(--spacing-lg);">Por que todos o desejam?</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--spacing-lg);">
+                        <div style="text-align: center;">
+                            <i class="fas fa-swords" style="font-size: var(--font-size-2xl); color: var(--color-red-medium); margin-bottom: var(--spacing-sm);"></i>
+                            <p style="color: var(--color-red-medium); font-weight: bold; margin-bottom: var(--spacing-xs);">Controle Militar</p>
+                            <p style="color: var(--color-text-muted); font-size: var(--font-size-sm);">Armas antigas que cortam criaturas e dimensões</p>
+                        </div>
+                        <div style="text-align: center;">
+                            <i class="fas fa-coins" style="font-size: var(--font-size-2xl); color: var(--color-red-medium); margin-bottom: var(--spacing-sm);"></i>
+                            <p style="color: var(--color-red-medium); font-weight: bold; margin-bottom: var(--spacing-xs);">Domínio Econômico</p>
+                            <p style="color: var(--color-text-muted); font-size: var(--font-size-sm);">Cobra impostos das três cidades por um ciclo inteiro</p>
+                        </div>
+                        <div style="text-align: center;">
+                            <i class="fas fa-cog" style="font-size: var(--font-size-2xl); color: var(--color-red-medium); margin-bottom: var(--spacing-sm);"></i>
+                            <p style="color: var(--color-red-medium); font-weight: bold; margin-bottom: var(--spacing-xs);">Tecnologia Perdida</p>
+                            <p style="color: var(--color-text-muted); font-size: var(--font-size-sm);">Oficinas rúnicas e arquivos com segredos proibidos</p>
+                        </div>
+                    </div>
+                </div>
+                <p style="font-family: var(--font-heading); font-size: var(--font-size-xl); color: var(--color-red-bright); text-align: center; font-style: italic; margin-top: var(--spacing-xl); margin-bottom: 0;">
+                    Quem controla as três cidades por 40 dias governa Fortedras.<br>
+                    Mas o Trono não é recompensa — é uma maldição de poder.
+                </p>
+            </div>
+            
+            <!-- Timeline das Eras -->
+            <h3 style="font-family: var(--font-heading); font-size: var(--font-size-3xl); color: var(--color-red-bright); text-align: center; margin: var(--spacing-3xl) 0 var(--spacing-xl);">
+                As Eras Após a Queda
+            </h3>
+            <p style="text-align: center; color: var(--color-text-secondary); font-size: var(--font-size-lg); margin-bottom: var(--spacing-3xl);">
+                Três períodos marcaram a lenta e dolorosa agonia do mundo
+            </p>
+            
+            <div style="position: relative; max-width: 900px; margin: 0 auto;">
+                <!-- Timeline Vertical -->
+                <div style="position: absolute; left: 50%; width: 4px; height: 100%; background: linear-gradient(to bottom, var(--color-red-dark), var(--color-red-bright), var(--color-red-dark)); transform: translateX(-50%);"></div>
+                
+                <!-- Era 1: Chamas Rotas -->
+                <div class="scroll-reveal" style="position: relative; margin-bottom: var(--spacing-3xl); display: grid; grid-template-columns: 1fr 40px 1fr; align-items: center;">
+                    <div style="text-align: right; padding-right: var(--spacing-xl);">
+                        <div style="background: var(--color-bg-card); border: 2px solid var(--color-red-dark); border-radius: var(--radius-lg); padding: var(--spacing-xl); transition: all var(--transition-base); box-shadow: var(--shadow-lg);">
+                            <h4 style="font-family: var(--font-heading); font-size: var(--font-size-2xl); color: var(--color-red-bright); margin-bottom: var(--spacing-sm);">
+                                Era das Chamas Rotas
+                            </h4>
+                            <p style="color: var(--color-red-medium); font-weight: bold; margin-bottom: var(--spacing-md);">Ano 0 — 60</p>
+                            <p style="color: var(--color-text-secondary); line-height: 1.6;">
+                                Sobrevivência pura. Reinos se quebram. Humanos viram presas. A Neblina se espalha como lepra viva.
+                                A Era onde tudo começou a morrer.
+                            </p>
+                        </div>
+                    </div>
+                    <div style="display: flex; justify-content: center;">
+                        <div style="width: 40px; height: 40px; background: var(--color-red-bright); border-radius: 50%; border: 4px solid var(--color-bg-secondary); display: flex; align-items: center; justify-content: center; z-index: 2; box-shadow: 0 0 20px rgba(255, 68, 68, 0.8);">
+                            <i class="fas fa-fire" style="color: var(--color-text-dark);"></i>
+                        </div>
+                    </div>
+                    <div></div>
+                </div>
+                
+                <!-- Era 2: Reinos Cinzentos -->
+                <div class="scroll-reveal" style="position: relative; margin-bottom: var(--spacing-3xl); display: grid; grid-template-columns: 1fr 40px 1fr; align-items: center;">
+                    <div></div>
+                    <div style="display: flex; justify-content: center;">
+                        <div style="width: 40px; height: 40px; background: var(--color-red-medium); border-radius: 50%; border: 4px solid var(--color-bg-secondary); display: flex; align-items: center; justify-content: center; z-index: 2; box-shadow: 0 0 20px rgba(196, 30, 58, 0.8);">
+                            <i class="fas fa-city" style="color: var(--color-text-dark);"></i>
+                        </div>
+                    </div>
+                    <div style="text-align: left; padding-left: var(--spacing-xl);">
+                        <div style="background: var(--color-bg-card); border: 2px solid var(--color-red-dark); border-radius: var(--radius-lg); padding: var(--spacing-xl); transition: all var(--transition-base); box-shadow: var(--shadow-lg);">
+                            <h4 style="font-family: var(--font-heading); font-size: var(--font-size-2xl); color: var(--color-red-bright); margin-bottom: var(--spacing-sm);">
+                                Era dos Reinos Cinzentos
+                            </h4>
+                            <p style="color: var(--color-red-medium); font-weight: bold; margin-bottom: var(--spacing-md);">Ano 61 — 200</p>
+                            <p style="color: var(--color-text-secondary); line-height: 1.6;">
+                                As cidades se consolidam. Novarra ergue muralhas de ferro. Grimholt se alimenta dos mortos. Eremos pactua com o inimaginável.
+                                A Era da reconstrução sombria.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Era 3: Guerra Escarlate -->
+                <div class="scroll-reveal" style="position: relative; display: grid; grid-template-columns: 1fr 40px 1fr; align-items: center;">
+                    <div style="text-align: right; padding-right: var(--spacing-xl);">
+                        <div style="background: linear-gradient(135deg, rgba(196, 30, 58, 0.2), rgba(0, 0, 0, 0.5)); border: 2px solid var(--color-red-bright); border-radius: var(--radius-lg); padding: var(--spacing-xl); transition: all var(--transition-base); box-shadow: 0 0 30px rgba(255, 68, 68, 0.5);">
+                            <h4 style="font-family: var(--font-heading); font-size: var(--font-size-2xl); color: var(--color-red-bright); margin-bottom: var(--spacing-sm);">
+                                Era da Guerra Escarlate
+                            </h4>
+                            <p style="color: var(--color-red-bright); font-weight: bold; margin-bottom: var(--spacing-md);">Ano 201 — Presente</p>
+                            <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md);">
+                                A guerra deixa de ser falha humana. Torna-se tradição. Quem conquista as três cidades reivindica o Trono das Cinzas em Fortedras.
+                            </p>
+                            <p style="color: var(--color-red-bright); font-style: italic; font-weight: bold;">
+                                A Era que nunca termina.
+                            </p>
+                        </div>
+                    </div>
+                    <div style="display: flex; justify-content: center;">
+                        <div style="width: 40px; height: 40px; background: var(--color-red-bright); border-radius: 50%; border: 4px solid var(--color-bg-secondary); display: flex; align-items: center; justify-content: center; z-index: 2; box-shadow: 0 0 30px rgba(255, 68, 68, 1); animation: pulse 2s ease-in-out infinite;">
+                            <i class="fas fa-crown" style="color: var(--color-text-dark);"></i>
+                        </div>
+                    </div>
+                    <div></div>
+                </div>
+            </div>
+            
+            <!-- NPCs Importantes -->
+            <h3 style="font-family: var(--font-heading); font-size: var(--font-size-3xl); color: var(--color-red-bright); text-align: center; margin: var(--spacing-3xl) 0 var(--spacing-xl);">
+                Personagens Notáveis
+            </h3>
+            <p style="text-align: center; color: var(--color-text-secondary); font-size: var(--font-size-lg); margin-bottom: var(--spacing-3xl); font-style: italic;">
+                "Umbra não é construída apenas por cidades e muralhas. É construída por aqueles que sobreviveram."
+            </p>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--spacing-xl); margin-bottom: var(--spacing-3xl);">
+                <!-- Velkaris NPCs -->
+                <div class="feature-card scroll-reveal" style="background: var(--color-bg-card); border: 2px solid var(--color-border-dark); padding: var(--spacing-xl);">
+                    <div style="text-align: center; margin-bottom: var(--spacing-lg);">
+                        <i class="fas fa-hammer" style="font-size: var(--font-size-3xl); color: var(--color-red-bright);"></i>
+                        <h4 style="font-family: var(--font-heading); font-size: var(--font-size-xl); color: var(--color-red-bright); margin: var(--spacing-md) 0 var(--spacing-xs) 0;">
+                            Drakon Helvar
+                        </h4>
+                        <p style="color: var(--color-red-medium); font-size: var(--font-size-sm); font-style: italic;">Velkaris - Mestre Ferreiro</p>
+                    </div>
+                    <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md); font-size: var(--font-size-sm);">
+                        Rude, direto, respeita apenas força e dedicação. Forjou armas para o Exército Carmesim antes de desertar.
+                    </p>
+                    <div style="background: var(--color-bg-primary); padding: var(--spacing-sm); border-radius: var(--radius-sm); border-left: 2px solid var(--color-red-medium);">
+                        <p style="color: var(--color-red-light); font-size: var(--font-size-xs); font-style: italic; margin: 0;">
+                            "Armas fracas criam guerreiros mortos."
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="feature-card scroll-reveal" style="background: var(--color-bg-card); border: 2px solid var(--color-border-dark); padding: var(--spacing-xl);">
+                    <div style="text-align: center; margin-bottom: var(--spacing-lg);">
+                        <i class="fas fa-fist-raised" style="font-size: var(--font-size-3xl); color: var(--color-red-bright);"></i>
+                        <h4 style="font-family: var(--font-heading); font-size: var(--font-size-xl); color: var(--color-red-bright); margin: var(--spacing-md) 0 var(--spacing-xs) 0;">
+                            Selia Ravenspear
+                        </h4>
+                        <p style="color: var(--color-red-medium); font-size: var(--font-size-sm); font-style: italic;">Velkaris - Instrutora de Combate</p>
+                    </div>
+                    <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md); font-size: var(--font-size-sm);">
+                        Veterana da Guerra do Silêncio Carmesim, única sobrevivente de sua tropa. Disciplinada, estratégica, pouco emocional.
+                    </p>
+                    <div style="background: var(--color-bg-primary); padding: var(--spacing-sm); border-radius: var(--radius-sm); border-left: 2px solid var(--color-red-medium);">
+                        <p style="color: var(--color-red-light); font-size: var(--font-size-xs); font-style: italic; margin: 0;">
+                            "Lutar é sobreviver, hesitar é morrer."
+                        </p>
+                    </div>
+                </div>
+                
+                <!-- Grimholt NPCs -->
+                <div class="feature-card scroll-reveal" style="background: var(--color-bg-card); border: 2px solid var(--color-border-dark); padding: var(--spacing-xl);">
+                    <div style="text-align: center; margin-bottom: var(--spacing-lg);">
+                        <i class="fas fa-crown" style="font-size: var(--font-size-3xl); color: var(--color-red-bright);"></i>
+                        <h4 style="font-family: var(--font-heading); font-size: var(--font-size-xl); color: var(--color-red-bright); margin: var(--spacing-md) 0 var(--spacing-xs) 0;">
+                            Lady Selindra Von'Mahr
+                        </h4>
+                        <p style="color: var(--color-red-medium); font-size: var(--font-size-sm); font-style: italic;">Grimholt - Arquinecromante</p>
+                    </div>
+                    <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md); font-size: var(--font-size-sm);">
+                        Bela e terrível, movimentos suaves e olhos mortos. Dizem que perdeu o próprio coração décadas atrás — literalmente.
+                    </p>
+                    <div style="background: var(--color-bg-primary); padding: var(--spacing-sm); border-radius: var(--radius-sm); border-left: 2px solid var(--color-red-medium);">
+                        <p style="color: var(--color-red-light); font-size: var(--font-size-xs); font-style: italic; margin: 0;">
+                            Não respira mais...
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="feature-card scroll-reveal" style="background: var(--color-bg-card); border: 2px solid var(--color-border-dark); padding: var(--spacing-xl);">
+                    <div style="text-align: center; margin-bottom: var(--spacing-lg);">
+                        <i class="fas fa-monument" style="font-size: var(--font-size-3xl); color: var(--color-red-bright);"></i>
+                        <h4 style="font-family: var(--font-heading); font-size: var(--font-size-xl); color: var(--color-red-bright); margin: var(--spacing-md) 0 var(--spacing-xs) 0;">
+                            Lord Aldrik Hesker
+                        </h4>
+                        <p style="color: var(--color-red-medium); font-size: var(--font-size-sm); font-style: italic;">Grimholt - Governante</p>
+                    </div>
+                    <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md); font-size: var(--font-size-sm);">
+                        Mantém Grimholt unida sob diplomacia e aço após dezenas de tentativas de invasão. Firme, político, patriota.
+                    </p>
+                    <div style="background: var(--color-bg-primary); padding: var(--spacing-sm); border-radius: var(--radius-sm); border-left: 2px solid var(--color-red-medium);">
+                        <p style="color: var(--color-red-light); font-size: var(--font-size-xs); font-style: italic; margin: 0;">
+                            "Umbra não precisa de heróis... precisa de resultados."
+                        </p>
+                    </div>
+                </div>
+                
+                <!-- Eremos NPCs -->
+                <div class="feature-card scroll-reveal" style="background: var(--color-bg-card); border: 2px solid var(--color-border-dark); padding: var(--spacing-xl);">
+                    <div style="text-align: center; margin-bottom: var(--spacing-lg);">
+                        <i class="fas fa-eye" style="font-size: var(--font-size-3xl); color: var(--color-red-bright);"></i>
+                        <h4 style="font-family: var(--font-heading); font-size: var(--font-size-xl); color: var(--color-red-bright); margin: var(--spacing-md) 0 var(--spacing-xs) 0;">
+                            Arcanista Luvian Vhorr
+                        </h4>
+                        <p style="color: var(--color-red-medium); font-size: var(--font-size-sm); font-style: italic;">Eremos - Treinador de Magia</p>
+                    </div>
+                    <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md); font-size: var(--font-size-sm);">
+                        Suas pupilas às vezes viram para dentro. Já morreu quatro vezes. Ele lembra de todas.
+                    </p>
+                    <div style="background: var(--color-bg-primary); padding: var(--spacing-sm); border-radius: var(--radius-sm); border-left: 2px solid var(--color-red-medium);">
+                        <p style="color: var(--color-red-light); font-size: var(--font-size-xs); font-style: italic; margin: 0;">
+                            "A Neblina está falando... você ouve?"
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="feature-card scroll-reveal" style="background: var(--color-bg-card); border: 2px solid var(--color-border-dark); padding: var(--spacing-xl);">
+                    <div style="text-align: center; margin-bottom: var(--spacing-lg);">
+                        <i class="fas fa-flask" style="font-size: var(--font-size-3xl); color: var(--color-red-bright);"></i>
+                        <h4 style="font-family: var(--font-heading); font-size: var(--font-size-xl); color: var(--color-red-bright); margin: var(--spacing-md) 0 var(--spacing-xs) 0;">
+                            Ezren Kahl
+                        </h4>
+                        <p style="color: var(--color-red-medium); font-size: var(--font-size-sm); font-style: italic;">Eremos - Necromante-Chefe</p>
+                    </div>
+                    <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md); font-size: var(--font-size-sm);">
+                        Frio, filosófico, curioso. Acredita que a morte é apenas um estado de inconsciência, não um fim.
+                    </p>
+                    <div style="background: var(--color-bg-primary); padding: var(--spacing-sm); border-radius: var(--radius-sm); border-left: 2px solid var(--color-red-medium);">
+                        <p style="color: var(--color-red-light); font-size: var(--font-size-xs); font-style: italic; margin: 0;">
+                            "Todos vamos servir à eternidade... cedo ou tarde."
+                        </p>
+                    </div>
+                </div>
+                
+                <!-- Fortedras NPCs -->
+                <div class="feature-card scroll-reveal" style="background: linear-gradient(135deg, rgba(196, 30, 58, 0.2), rgba(0, 0, 0, 0.5)); border: 2px solid var(--color-red-bright); padding: var(--spacing-xl); position: relative;">
+                    <div style="position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--color-red-bright);"></div>
+                    <div style="text-align: center; margin-bottom: var(--spacing-lg);">
+                        <i class="fas fa-chess-king" style="font-size: var(--font-size-3xl); color: var(--color-red-bright);"></i>
+                        <h4 style="font-family: var(--font-heading); font-size: var(--font-size-xl); color: var(--color-red-bright); margin: var(--spacing-md) 0 var(--spacing-xs) 0;">
+                            Senescal Vereon
+                        </h4>
+                        <p style="color: var(--color-red-bright); font-size: var(--font-size-sm); font-style: italic;">Fortedras - Guardião Neutro</p>
+                    </div>
+                    <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md); font-size: var(--font-size-sm);">
+                        Está no castelo desde antes da Guerra Carmesim. Ninguém sabe sua verdadeira origem. Ritualista, formal, inabalável.
+                    </p>
+                    <div style="background: rgba(0, 0, 0, 0.5); padding: var(--spacing-sm); border-radius: var(--radius-sm); border-left: 2px solid var(--color-red-bright);">
+                        <p style="color: var(--color-red-bright); font-size: var(--font-size-xs); font-style: italic; margin: 0; font-weight: bold;">
+                            "Umbra escolhe seus senhores. Eu apenas observo."
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="feature-card scroll-reveal" style="background: linear-gradient(135deg, rgba(196, 30, 58, 0.2), rgba(0, 0, 0, 0.5)); border: 2px solid var(--color-red-bright); padding: var(--spacing-xl); position: relative;">
+                    <div style="position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--color-red-bright);"></div>
+                    <div style="text-align: center; margin-bottom: var(--spacing-lg);">
+                        <i class="fas fa-scroll" style="font-size: var(--font-size-3xl); color: var(--color-red-bright);"></i>
+                        <h4 style="font-family: var(--font-heading); font-size: var(--font-size-xl); color: var(--color-red-bright); margin: var(--spacing-md) 0 var(--spacing-xs) 0;">
+                            Magister Oriel
+                        </h4>
+                        <p style="color: var(--color-red-bright); font-size: var(--font-size-sm); font-style: italic;">Fortedras - Administrador</p>
+                    </div>
+                    <p style="color: var(--color-text-secondary); line-height: 1.6; margin-bottom: var(--spacing-md); font-size: var(--font-size-sm);">
+                        Responsável por calcular impostos e punir traições. Metódico, justo, inflexível.
+                    </p>
+                    <div style="background: rgba(0, 0, 0, 0.5); padding: var(--spacing-sm); border-radius: var(--radius-sm); border-left: 2px solid var(--color-red-bright);">
+                        <p style="color: var(--color-red-bright); font-size: var(--font-size-xs); font-style: italic; margin: 0; font-weight: bold;">
+                            "A vitória precisa ser mantida, não apenas conquistada."
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Community Section -->
+    <section class="section" id="community">
+        <div class="container">
+            <h2 class="section-title">Junte-se à Comunidade</h2>
+            <p style="text-align: center; color: var(--color-text-secondary); font-size: var(--font-size-lg); margin-bottom: var(--spacing-2xl);">
+                Conecte-se com outros jogadores e fique por dentro das novidades
+            </p>
+            <div class="social-links">
+                <a href="#" data-tooltip="Discord"><i class="fab fa-discord fa-2x"></i></a>
+                <a href="#" data-tooltip="Twitter"><i class="fab fa-twitter fa-2x"></i></a>
+                <a href="#" data-tooltip="Facebook"><i class="fab fa-facebook fa-2x"></i></a>
+                <a href="#" data-tooltip="YouTube"><i class="fab fa-youtube fa-2x"></i></a>
+                <a href="#" data-tooltip="Twitch"><i class="fab fa-twitch fa-2x"></i></a>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Concepts Gallery Section -->
+    <section class="section section-dark concepts-section" id="concepts">
+        <div class="container">
+            <div class="concepts-header">
+                <h2 class="section-title">Arte Conceitual</h2>
+                <p class="section-subtitle">
+                    O mundo de Umbra Eternum através dos olhos dos artistas. Explore personagens, ambientes, criaturas e armas que habitam este universo sombrio.
+                </p>
+            </div>
+            
+            <div class="concepts-filters" id="conceptsFilters">
+                <div class="loading-spinner">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+            
+            <div class="concepts-grid" id="conceptsGrid">
+                <div class="loading-spinner">
+                    <div class="spinner"></div>
+                    <p style="margin-top: var(--spacing-lg); color: var(--color-text-secondary);">Carregando galeria...</p>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h3>UmbraEternum</h3>
+                    <p class="text-muted">
+                        Um MMORPG dark fantasy onde cada decisão molda seu destino nas trevas eternas.
+                    </p>
+                </div>
+                <div class="footer-section">
+                    <h3>Links Rápidos</h3>
+                    <ul>
+                        <li><a href="register.html">Criar Conta</a></li>
+                        <li><a href="login.html">Login</a></li>
+                        <li><a href="dashboard.html">Dashboard</a></li>
+                        <li><a href="#classes">Classes</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h3>Suporte</h3>
+                    <ul>
+                        <li><a href="#">Central de Ajuda</a></li>
+                        <li><a href="#">Termos de Uso</a></li>
+                        <li><a href="#">Política de Privacidade</a></li>
+                        <li><a href="#">Contato</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2026 UmbraEternum. Todos os direitos reservados.</p>
+            </div>
+        </div>
+    </footer>
+    
+    <script src="scripts/api-client.js"></script>
+    <script src="scripts/components.js"></script>
+    <script src="scripts/particles.js"></script>
+    <script src="scripts/gallery.js"></script>
+    
+    <script>
+        // Navbar scroll effect
+        window.addEventListener('scroll', () => {
+            const navbar = document.getElementById('navbar');
+            if (window.scrollY > 50) {
+                navbar.classList.add('scrolled');
+            } else {
+                navbar.classList.remove('scrolled');
+            }
+        });
+        
+        // Carregar classes da API
+        async function loadClasses() {
+            try {
+                const response = await fetch('api/character/get_classes.php');
+                const data = await response.json();
+                
+                if (data.success && data.classes) {
+                    displayClasses(data.classes);
+                }
+            } catch (error) {
+                console.error('Erro ao carregar classes:', error);
+                document.getElementById('classesGrid').innerHTML = '<p class="text-center text-muted">Erro ao carregar classes</p>';
+            }
+        }
+        
+        function displayClasses(classes) {
+            const grid = document.getElementById('classesGrid');
+            grid.innerHTML = '';
+            
+            const icons = {
+                1: 'warrior.svg',
+                2: 'mage.svg',
+                3: 'rogue.svg',
+                4: 'cleric.svg'
+            };
+            
+            // Se não houver classes, mostrar mensagem
+            if (!classes || classes.length === 0) {
+                grid.innerHTML = '<p style="text-align: center; color: var(--color-text-muted); grid-column: 1/-1;">Nenhuma classe disponível no momento</p>';
+                return;
+            }
+            
+            classes.forEach((cls, index) => {
+                const card = document.createElement('div');
+                card.className = 'class-card scroll-reveal';
+                card.style.animationDelay = `${index * 0.1}s`;
+                
+                card.innerHTML = `
+                    <img src="assets/icons/classes/${icons[cls.class_id] || 'warrior.svg'}" 
+                         alt="${cls.class_name}" 
+                         class="class-icon"
+                         onerror="this.src='assets/icons/warrior.svg'">
+                    <h3 class="class-name">${cls.class_name}</h3>
+                    <p class="class-description">${cls.class_description || 'Classe poderosa com habilidades únicas'}</p>
+                    <div style="display: flex; justify-content: space-around; margin-top: var(--spacing-md); font-size: var(--font-size-sm); color: var(--color-text-secondary);">
+                        <span title="Força"><i class="fas fa-fist-raised" style="color: var(--color-red-bright);"></i> ${cls.base_stats?.strength || 10}</span>
+                        <span title="Inteligência"><i class="fas fa-brain" style="color: var(--color-purple-vibrant);"></i> ${cls.base_stats?.intelligence || 10}</span>
+                        <span title="Vida"><i class="fas fa-heart" style="color: var(--color-green-medium);"></i> ${cls.base_resources?.health || 100}</span>
+                    </div>
+                `;
+                
+                // Adicionar evento de click
+                card.onclick = () => {
+                    showClassDetails(cls);
+                };
+                
+                grid.appendChild(card);
+            });
+            
+            ScrollReveal.init();
+        }
+        
+        function showClassDetails(cls) {
+            // Mapeamento de lore das classes conforme PDFs
+            const classLore = {
+                'Warrior': {
+                    subtitle: 'Forjados Pela Guerra',
+                    philosophy: '"A lâmina não precisa de fé. Precisa de precisão."',
+                    origin: 'Nascidos nas trincheiras da Era das Chamas Rotas. Homens treinados não para vencer, mas para não morrer.',
+                    role: 'Combatente versátil, pilar dos exércitos de Novarra, líder natural em batalhas prolongadas.',
+                    traits: 'Disciplina, técnica, adaptação constante. O ápice do combate humano sem magia direta.'
+                },
+                'Barbarian': {
+                    subtitle: 'As Filhas da Ruína',
+                    philosophy: '"Se o mundo quer me quebrar, ele sangrará tentando."',
+                    origin: 'Tribos das terras abertas de Arraxis, primeiras a serem engolidas pela Neblina Vermelha. As sobreviventes aprenderam a viver dentro da ruína.',
+                    role: 'Primeira linha de combate, símbolo de sobrevivência brutal, temidas até pelas facções humanas.',
+                    traits: 'Mulheres moldadas pela perda absoluta. Confiam mais no ódio e resistência do próprio corpo que em aço.'
+                },
+                'Dark Mage': {
+                    subtitle: 'As Herdeiras do Véu',
+                    philosophy: '"A luz morreu. A sombra respondeu."',
+                    origin: 'Descendentes élficas das florestas que caíram primeiro. Aceitaram a corrupção como linguagem, não como maldição.',
+                    role: 'Controle arcano destrutivo, manipulação da Neblina Vermelha, pontes vivas entre dimensões.',
+                    traits: 'Não conjuram magia tradicional — negociam com o que restou entre os mundos.'
+                },
+                'Mage': {
+                    subtitle: 'As Herdeiras do Véu',
+                    philosophy: '"A luz morreu. A sombra respondeu."',
+                    origin: 'Descendentes élficas das florestas que caíram primeiro. Aceitaram a corrupção como linguagem, não como maldição.',
+                    role: 'Controle arcano destrutivo, manipulação da Neblina Vermelha, pontes vivas entre dimensões.',
+                    traits: 'Não conjuram magia tradicional — negociam com o que restou entre os mundos.'
+                },
+                'Templar': {
+                    subtitle: 'As Juradas das Cinzas',
+                    philosophy: '"Mesmo se os deuses morreram, o juramento permanece."',
+                    origin: 'Lutam por juramentos feitos antes da queda. Acreditam que, enquanto alguém mantiver um voto, o mundo ainda não acabou.',
+                    role: 'Defesa e suporte espiritual, resistência contra corrupção, contra-medida direta à magia da Neblina.',
+                    traits: 'Armaduras com símbolos apagados. Bênçãos não vêm de divindades claras, mas de ecos antigos de fé e sacrifício.'
+                },
+                'Cleric': {
+                    subtitle: 'As Juradas das Cinzas',
+                    philosophy: '"Mesmo se os deuses morreram, o juramento permanece."',
+                    origin: 'Lutam por juramentos feitos antes da queda. Acreditam que, enquanto alguém mantiver um voto, o mundo ainda não acabou.',
+                    role: 'Defesa e suporte espiritual, resistência contra corrupção, contra-medida direta à magia da Neblina.',
+                    traits: 'Armaduras com símbolos apagados. Bênçãos não vêm de divindades claras, mas de ecos antigos de fé e sacrifício.'
+                },
+                'Alchemist': {
+                    subtitle: 'Os Profanadores da Sobrevivência',
+                    philosophy: '"Viver mais um dia já é vitória suficiente."',
+                    origin: 'Surgiram da necessidade extrema: curar sem sacerdotes, fortalecer sem bênçãos, sobreviver sem esperança.',
+                    role: 'Suporte com buffs temporários, fortalecimento físico e mental, curas instáveis e emergenciais.',
+                    traits: 'Usam Rubicina, restos de criaturas e reagentes corrompidos. Nada é puro. Nada é seguro. Mas funciona.'
+                },
+                'Assassin': {
+                    subtitle: 'Os Silenciosos do Fim',
+                    philosophy: '"O mundo grita demais. Eu prefiro o silêncio."',
+                    origin: 'Nasceram nas vielas de Eremos, becos de Grimholt e rotas de guerra de Velkaris. Não servem ideologias — servem contratos.',
+                    role: 'Eliminação de alvos estratégicos, espionagem e sabotagem, guerra psicológica.',
+                    traits: 'Conhecem a Neblina Vermelha intimamente. Sabem onde ela cega, onde esconde, onde mata.'
+                },
+                'Rogue': {
+                    subtitle: 'Os Silenciosos do Fim',
+                    philosophy: '"O mundo grita demais. Eu prefiro o silêncio."',
+                    origin: 'Nasceram nas vielas de Eremos, becos de Grimholt e rotas de guerra de Velkaris. Não servem ideologias — servem contratos.',
+                    role: 'Eliminação de alvos estratégicos, espionagem e sabotagem, guerra psicológica.',
+                    traits: 'Conhecem a Neblina Vermelha intimamente. Sabem onde ela cega, onde esconde, onde mata.'
+                },
+                'Marcial': {
+                    subtitle: 'Forjados Pela Guerra',
+                    philosophy: '"A lâmina não precisa de fé. Precisa de precisão."',
+                    origin: 'Nascidos nas trincheiras da Era das Chamas Rotas. Homens treinados não para vencer, mas para não morrer.',
+                    role: 'Combatente versátil, pilar dos exércitos de Novarra, líder natural em batalhas prolongadas.',
+                    traits: 'Disciplina, técnica, adaptação constante. O ápice do combate humano sem magia direta.'
+                }
+            };
+            
+            const lore = classLore[cls.class_name] || {
+                subtitle: 'Guerreiro de Umbra Eternum',
+                philosophy: '"Sobreviver é a única vitória."',
+                origin: 'Nascido das cinzas de Arraxis.',
+                role: 'Combatente versátil.',
+                traits: 'Adaptável e resiliente.'
+            };
+            
+            const modalContent = `
+                <div style="text-align: center;">
+                    <img src="assets/icons/classes/${getClassIcon(cls.class_id)}" 
+                         style="width: 120px; height: 120px; margin: 0 auto var(--spacing-lg); filter: drop-shadow(0 0 20px rgba(255, 68, 68, 0.5));"
+                         onerror="this.src='assets/icons/warrior.svg'">
+                    <h3 style="font-family: var(--font-title); font-size: var(--font-size-3xl); color: var(--color-red-bright); margin-bottom: var(--spacing-xs); text-shadow: 0 0 20px rgba(255, 68, 68, 0.5);">
+                        ${cls.class_name}
+                    </h3>
+                    <p style="font-family: var(--font-heading); font-size: var(--font-size-lg); color: var(--color-red-medium); margin-bottom: var(--spacing-md); font-style: italic;">
+                        ${lore.subtitle}
+                    </p>
+                    <div style="background: linear-gradient(135deg, rgba(196, 30, 58, 0.1), rgba(139, 0, 0, 0.1)); padding: var(--spacing-lg); border-radius: var(--radius-md); border-left: 4px solid var(--color-red-medium); margin-bottom: var(--spacing-lg); text-align: left;">
+                        <p style="font-family: var(--font-heading); font-size: var(--font-size-xl); color: var(--color-red-bright); font-style: italic; margin: 0;">
+                            ${lore.philosophy}
+                        </p>
+                    </div>
+                    
+                    <div style="background: var(--color-bg-primary); padding: var(--spacing-lg); border-radius: var(--radius-md); margin-bottom: var(--spacing-lg); text-align: left;">
+                        <h4 style="color: var(--color-red-medium); margin-bottom: var(--spacing-sm); display: flex; align-items: center; gap: var(--spacing-sm);">
+                            <i class="fas fa-scroll"></i> Origem
+                        </h4>
+                        <p style="color: var(--color-text-secondary); line-height: 1.6; margin: 0;">
+                            ${lore.origin}
+                        </p>
+                    </div>
+                    
+                    <div style="background: var(--color-bg-primary); padding: var(--spacing-lg); border-radius: var(--radius-md); margin-bottom: var(--spacing-lg); text-align: left;">
+                        <h4 style="color: var(--color-red-medium); margin-bottom: var(--spacing-sm); display: flex; align-items: center; gap: var(--spacing-sm);">
+                            <i class="fas fa-shield-alt"></i> Papel no Mundo
+                        </h4>
+                        <p style="color: var(--color-text-secondary); line-height: 1.6; margin: 0;">
+                            ${lore.role}
+                        </p>
+                    </div>
+                    
+                    <div style="background: var(--color-bg-primary); padding: var(--spacing-lg); border-radius: var(--radius-md); margin-bottom: var(--spacing-lg); text-align: left;">
+                        <h4 style="color: var(--color-red-medium); margin-bottom: var(--spacing-sm); display: flex; align-items: center; gap: var(--spacing-sm);">
+                            <i class="fas fa-feather-alt"></i> Características
+                        </h4>
+                        <p style="color: var(--color-text-secondary); line-height: 1.6; margin: 0;">
+                            ${lore.traits}
+                        </p>
+                    </div>
+                    
+                    <div style="background: var(--color-bg-primary); padding: var(--spacing-lg); border-radius: var(--radius-md);">
+                        <h4 style="color: var(--color-red-medium); margin-bottom: var(--spacing-md);">Atributos Base</h4>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--spacing-md); text-align: left;">
+                            <div><i class="fas fa-fist-raised" style="color: var(--color-red-bright);"></i> Força: ${cls.base_stats?.strength || 10}</div>
+                            <div><i class="fas fa-running" style="color: var(--color-red-bright);"></i> Destreza: ${cls.base_stats?.dexterity || 10}</div>
+                            <div><i class="fas fa-brain" style="color: var(--color-purple-vibrant);"></i> Inteligência: ${cls.base_stats?.intelligence || 10}</div>
+                            <div><i class="fas fa-heartbeat" style="color: var(--color-green-medium);"></i> Vitalidade: ${cls.base_stats?.vitality || 10}</div>
+                            <div><i class="fas fa-dice" style="color: var(--color-gold-bright);"></i> Sorte: ${cls.base_stats?.luck || 10}</div>
+                        </div>
+                        <h4 style="color: var(--color-red-medium); margin: var(--spacing-lg) 0 var(--spacing-md) 0;">Recursos</h4>
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacing-md);">
+                            <div><i class="fas fa-heart" style="color: var(--color-red-bright);"></i> HP: ${cls.base_resources?.health || 100}</div>
+                            <div><i class="fas fa-fire" style="color: var(--color-purple-vibrant);"></i> Mana: ${cls.base_resources?.mana || 50}</div>
+                            <div><i class="fas fa-bolt" style="color: var(--color-green-medium);"></i> Stamina: ${cls.base_resources?.stamina || 100}</div>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" style="margin-top: var(--spacing-xl);" onclick="window.location.href='register.html'">
+                        <i class="fas fa-user-plus"></i> Criar Personagem desta Classe
+                    </button>
+                </div>
+            `;
+            
+            const modal = new Modal({
+                title: `${cls.class_name} — ${lore.subtitle}`,
+                content: modalContent,
+                closeOnBackdrop: true
+            });
+            
+            modal.open();
+        }
+        
+        function getClassIcon(classId) {
+            const icons = {
+                1: 'warrior.svg',
+                2: 'mage.svg',
+                3: 'rogue.svg',
+                4: 'cleric.svg'
+            };
+            return icons[classId] || 'warrior.svg';
+        }
+        
+        // Inicializar
+        document.addEventListener('DOMContentLoaded', () => {
+            // Adicionar evento de click aos cards de classes
+            document.querySelectorAll('.class-card').forEach(card => {
+                card.addEventListener('click', function() {
+                    const classKey = this.dataset.class;
+                    const classesData = {
+                        barbarian: {
+                            name: "BARBARIAN",
+                            subtitle: "As Filhas da Ruína",
+                            philosophy: '"Se o mundo quer me quebrar, ele sangrará tentando."',
+                            gender: "Feminina",
+                            origin: "Antes do Silêncio Carmesim, as tribos bárbaras eram vistas como povos primitivos das terras abertas de Arraxis. Após a queda, essas terras foram as primeiras a serem engolidas pela Neblina Vermelha. As poucas sobreviventes não fugiram. Elas aprenderam a viver dentro da ruína.",
+                            description: "As Barbarians são mulheres moldadas pela perda absoluta: famílias dizimadas, terras mortas, deuses silenciosos. Elas não usam armaduras pesadas porque confiam mais no ódio e na resistência do próprio corpo do que em aço. A Neblina Vermelha não as fortaleceu magicamente — ela endureceu seus ossos, nervos e instintos.",
+                            role: ["Primeira linha de combate", "Símbolo de sobrevivência brutal", "Temidas até pelas facções humanas"],
+                            factionView: ["Novarra as considera armas instáveis", "Eldros as estuda como fenômeno de resistência humana"]
+                        },
+                        darkmage: {
+                            name: "DARK MAGE",
+                            subtitle: "As Herdeiras do Véu",
+                            philosophy: '"A luz morreu. A sombra respondeu."',
+                            gender: "Feminina Élfica",
+                            origin: "As florestas élficas foram as primeiras a cair. Sensíveis à magia natural, os elfos sentiram a ruptura dimensional antes de qualquer outro povo. Muitos enlouqueceram. Outros desapareceram nos Portais.",
+                            description: "As Dark Mages élficas são descendentes das poucas que aceitaram a corrupção como linguagem, não como maldição. Elas não conjuram magia tradicional. Elas negociam com o que restou entre os mundos. A Neblina Vermelha responde a elas não por submissão, mas por reconhecimento.",
+                            role: ["Controle arcano destrutivo", "Manipulação da Neblina Vermelha", "Pontes vivas entre dimensões"],
+                            factionView: ["Fortemente ligadas aos Conclaves de Eldros", "Caçadas secretamente por ordens templárias"]
+                        },
+                        marcial: {
+                            name: "MARCIAL",
+                            subtitle: "Os Forjados Pela Guerra",
+                            philosophy: '"A lâmina não precisa de fé. Precisa de precisão."',
+                            gender: "Masculina",
+                            origin: "Quando o mundo caiu, não houve tempo para códigos de honra ou linhagens nobres. Os Marcials nasceram nas trincheiras da Era das Chamas Rotas. Homens treinados não para vencer, mas para não morrer.",
+                            description: "Eles representam o ápice do combate humano sem magia direta: disciplina, técnica, adaptação constante. Cada Marcial é resultado de dezenas de batalhas, sobrevivendo onde outros caíram.",
+                            role: ["Combatente versátil", "Pilar dos exércitos de Novarra", "Líderes naturais em batalhas prolongadas"],
+                            factionView: ["Espinha dorsal da Aliança Novarra", "Usados como mercenários por Eldros quando necessário"]
+                        },
+                        templar: {
+                            name: "TEMPLAR",
+                            subtitle: "As Juradas das Cinzas",
+                            philosophy: '"Mesmo se os deuses morreram, o juramento permanece."',
+                            gender: "Feminina",
+                            origin: "Quando os Portais surgiram, muitos deuses simplesmente silenciaram. As Templars não lutam por deuses vivos — lutam por juramentos feitos antes da queda.",
+                            description: "Elas acreditam que, enquanto alguém mantiver um voto, o mundo ainda não acabou completamente. Suas armaduras carregam símbolos apagados, e suas bênçãos não vêm de divindades claras, mas de ecos antigos de fé, dever e sacrifício.",
+                            role: ["Defesa e suporte espiritual", "Resistência contra corrupção", "Contra-medida direta à magia da Neblina"],
+                            factionView: ["Toleradas por Novarra", "Desprezadas e temidas por Eldros"]
+                        },
+                        alchemist: {
+                            name: "ALCHEMIST",
+                            subtitle: "Os Profanadores da Sobrevivência",
+                            philosophy: '"Viver mais um dia já é vitória suficiente."',
+                            gender: "Masculina - Suporte",
+                            origin: "Quando magia falha e aço quebra, a alquimia improvisa. Os Alchemists surgiram da necessidade extrema: curar sem sacerdotes, fortalecer sem bênçãos, sobreviver sem esperança.",
+                            description: "Eles usam Rubicina, restos de criaturas, reagentes corrompidos e fórmulas incompletas. Nada é puro. Nada é seguro. Mas funciona.",
+                            role: ["Buffs temporários", "Fortalecimento físico e mental", "Curas instáveis e emergenciais", "Efeitos colaterais frequentes"],
+                            factionView: ["Essenciais para ambos os lados", "Nunca totalmente confiáveis"]
+                        },
+                        assassin: {
+                            name: "ASSASSIN",
+                            subtitle: "Os Silenciosos do Fim",
+                            philosophy: '"O mundo grita demais. Eu prefiro o silêncio."',
+                            gender: "Masculina",
+                            origin: "No mundo pós-queda, fazer barulho é morrer. Os Assassins nasceram nas vielas de Eremos, nos becos de Grimholt e nas rotas de guerra de Velkaris. Eles não servem ideologias — servem contratos, vingança ou sobrevivência.",
+                            description: "Eles conhecem a Neblina Vermelha intimamente. Sabem onde ela cega, onde ela esconde, onde ela mata.",
+                            role: ["Eliminação de alvos estratégicos", "Espionagem e sabotagem", "Guerra psicológica"],
+                            factionView: ["Usados por todas", "Confiados por nenhuma"]
+                        }
+                    };
+                    
+                    const classInfo = classesData[classKey];
+                    if (classInfo) {
+                        const modalContent = `
+                            <div style="max-width: 800px; margin: 0 auto;">
+                                <div style="text-align: center; margin-bottom: var(--spacing-xl);">
+                                    <h3 style="font-family: var(--font-title); font-size: var(--font-size-3xl); color: var(--color-red-bright); margin-bottom: var(--spacing-xs); text-shadow: 0 0 20px rgba(255, 68, 68, 0.5);">
+                                        ${classInfo.name}
+                                    </h3>
+                                    <p style="font-family: var(--font-heading); font-size: var(--font-size-xl); color: var(--color-red-medium); margin-bottom: var(--spacing-sm); font-style: italic;">
+                                        ${classInfo.subtitle}
+                                    </p>
+                                    <span style="padding: 6px 14px; background: rgba(196, 30, 58, 0.2); border: 1px solid var(--color-red-medium); border-radius: var(--radius-sm); color: var(--color-red-bright); font-size: var(--font-size-sm); font-weight: bold;">
+                                        ${classInfo.gender}
+                                    </span>
+                                </div>
+                                
+                                <div style="background: linear-gradient(135deg, rgba(196, 30, 58, 0.15), rgba(139, 0, 0, 0.15)); padding: var(--spacing-xl); border-radius: var(--radius-lg); border-left: 4px solid var(--color-red-bright); margin-bottom: var(--spacing-xl);">
+                                    <p style="font-family: var(--font-heading); font-size: var(--font-size-2xl); color: var(--color-red-bright); font-style: italic; margin: 0; text-align: center;">
+                                        ${classInfo.philosophy}
+                                    </p>
+                                </div>
+                                
+                                <div style="background: var(--color-bg-primary); padding: var(--spacing-xl); border-radius: var(--radius-lg); margin-bottom: var(--spacing-lg); border: 1px solid var(--color-border-dark);">
+                                    <h4 style="color: var(--color-red-medium); margin-bottom: var(--spacing-md); display: flex; align-items: center; gap: var(--spacing-sm); font-size: var(--font-size-xl);">
+                                        <i class="fas fa-scroll"></i> Origem
+                                    </h4>
+                                    <p style="color: var(--color-text-secondary); line-height: 1.8; margin-bottom: var(--spacing-md);">
+                                        ${classInfo.origin}
+                                    </p>
+                                    <p style="color: var(--color-text-primary); line-height: 1.8; margin: 0;">
+                                        ${classInfo.description}
+                                    </p>
+                                </div>
+                                
+                                <div style="background: var(--color-bg-primary); padding: var(--spacing-xl); border-radius: var(--radius-lg); margin-bottom: var(--spacing-lg); border: 1px solid var(--color-border-dark);">
+                                    <h4 style="color: var(--color-red-medium); margin-bottom: var(--spacing-md); display: flex; align-items: center; gap: var(--spacing-sm); font-size: var(--font-size-xl);">
+                                        <i class="fas fa-shield-alt"></i> Papel no Mundo
+                                    </h4>
+                                    <ul style="color: var(--color-text-secondary); line-height: 2; margin: 0; padding-left: var(--spacing-xl);">
+                                        ${classInfo.role.map(r => `<li>${r}</li>`).join('')}
+                                    </ul>
+                                </div>
+                                
+                                <div style="background: var(--color-bg-primary); padding: var(--spacing-xl); border-radius: var(--radius-lg); border: 1px solid var(--color-border-dark);">
+                                    <h4 style="color: var(--color-red-medium); margin-bottom: var(--spacing-md); display: flex; align-items: center; gap: var(--spacing-sm); font-size: var(--font-size-xl);">
+                                        <i class="fas fa-users"></i> Como o Mundo as Vê
+                                    </h4>
+                                    <ul style="color: var(--color-text-secondary); line-height: 2; margin: 0; padding-left: var(--spacing-xl);">
+                                        ${classInfo.factionView.map(v => `<li>${v}</li>`).join('')}
+                                    </ul>
+                                </div>
+                                
+                                <div style="text-align: center; margin-top: var(--spacing-2xl);">
+                                    <a href="register.html" class="btn btn-primary btn-lg">
+                                        <i class="fas fa-user-plus"></i> Criar Personagem ${classInfo.name}
+                                    </a>
+                                </div>
+                            </div>
+                        `;
+                        
+                        const modal = new Modal({
+                            title: `${classInfo.name} — ${classInfo.subtitle}`,
+                            content: modalContent,
+                            closeOnBackdrop: true
+                        });
+                        
+                        modal.open();
+                    }
+                });
+            });
+            
+            // Smooth scroll
+            document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+                anchor.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    const target = document.querySelector(this.getAttribute('href'));
+                    if (target) {
+                        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                });
+            });
+            
+            // Inicializar ScrollReveal se disponível
+            if (typeof ScrollReveal !== 'undefined') {
+                ScrollReveal.init();
+            }
+        });
+    </script>
+</body>
+</html>

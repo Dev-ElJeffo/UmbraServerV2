@@ -69,6 +69,7 @@
 | Documento | Descrição | Dificuldade | Tempo |
 |-----------|-----------|-------------|-------|
 | [`GUIA_UI_WIDGETS_UE5.md`](GUIA_UI_WIDGETS_UE5.md) | Criar Login/Register/Dashboard | ⭐⭐⭐⭐ Avançado | 90 min |
+| [`GUIA_IMPLEMENTACAO_WBP_CHAT_LOCAL_GLOBAL_UE561.md`](GUIA_IMPLEMENTACAO_WBP_CHAT_LOCAL_GLOBAL_UE561.md) | Chat Local/Global (WBP + C++) | ⭐⭐⭐ Intermediário | 45 min |
 | [`FIX_BLUEPRINT_WIDGETS.md`](FIX_BLUEPRINT_WIDGETS.md) | Resolver erros de Blueprints | ⭐⭐ Fácil | 10 min |
 | [`PLANO_IMPLEMENTACAO_UE5.md`](PLANO_IMPLEMENTACAO_UE5.md) | Plano completo 5 fases | ⭐⭐⭐ Intermediário | 60 min |
 
