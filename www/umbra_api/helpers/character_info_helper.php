@@ -122,6 +122,8 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
                         pi.quantity,
                         pi.durability,
                         pi.custom_properties,
+                        pi.refinement_level,
+                        pi.refinement_bonus_stats,
                         it.item_name,
                         it.item_description,
                         it.item_type,
@@ -200,6 +202,8 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
     foreach ($equipped_items as $item) {
         $equipment_slot = $item['equipment_slot'];
         $stats = [];
+        $refinement_level = (int)($item['refinement_level'] ?? 0);
+        $refinement_bonus_stats = [];
         if (!empty($item['stats_json']) && trim($item['stats_json']) !== '' && trim($item['stats_json']) !== 'null') {
             $decoded_stats = json_decode($item['stats_json'], true);
             if (json_last_error() === JSON_ERROR_NONE && is_array($decoded_stats)) {
@@ -217,6 +221,25 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
             $stats = [];
         }
 
+        if (!empty($item['refinement_bonus_stats']) && trim((string)$item['refinement_bonus_stats']) !== '' && trim((string)$item['refinement_bonus_stats']) !== 'null') {
+            $decoded_bonus = json_decode($item['refinement_bonus_stats'], true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded_bonus)) {
+                $refinement_bonus_stats = $decoded_bonus;
+            }
+        }
+
+        // Aplicar bônus de refinação sobre os stats do item equipado
+        // As chaves esperadas seguem o contrato de refine_item.php (attack, accuracy, critical, etc.).
+        if (!empty($refinement_bonus_stats)) {
+            foreach ($refinement_bonus_stats as $bonus_key => $bonus_value) {
+                $bonus_int = (int)$bonus_value;
+                if (!isset($stats[$bonus_key])) {
+                    $stats[$bonus_key] = 0;
+                }
+                $stats[$bonus_key] += $bonus_int;
+            }
+        }
+
         $equipped_by_slot[$equipment_slot] = [
             'inventory_id' => (int)$item['inventory_id'],
             'item_template_id' => (int)$item['item_template_id'],
@@ -231,6 +254,8 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
             'rarity' => $item['rarity'],
             'value' => (int)$item['value'],
             'weight' => (float)$item['weight'],
+            'refinement_level' => $refinement_level,
+            'refinement_bonus_stats' => $refinement_bonus_stats,
             'stats' => $stats
         ];
 
