@@ -5,6 +5,7 @@
 #include <mutex>
 #include <vector>
 #include <optional>
+#include <utility>
 #include <queue>
 #include <condition_variable>
 #include <functional>
@@ -51,6 +52,9 @@ class MySQLConnector : public IDatabaseConnector {
   bool executePrepared(uint32_t statementId, 
                        const std::vector<std::string>& params);
 
+  /** Prepared INSERT/UPDATE/DELETE; second value is mysql_stmt_insert_id from the same connection (0 if none). */
+  std::pair<bool, uint64_t> executePreparedInsertWithLastId(
+      const std::string& query, const std::vector<std::string>& params);
   bool executePreparedInsert(const std::string& query,
                              const std::vector<std::string>& params);
   std::vector<std::vector<std::string>> executePreparedQuery(
@@ -59,6 +63,7 @@ class MySQLConnector : public IDatabaseConnector {
       const std::string& query, const std::vector<std::string>& params);
 
   std::string escapeString(const std::string& input);
+  /** Primary connection only; unreliable after pooled prepared INSERT — use executePreparedInsertWithLastId. */
   uint64_t getLastInsertId();
   std::vector<std::vector<std::string>> executeQuery(const std::string& query);
 
@@ -72,7 +77,6 @@ class MySQLConnector : public IDatabaseConnector {
   struct PooledConnection {
     void* mysql = nullptr;
     bool inUse = false;
-    uint64_t lastInsertId = 0;
   };
 
   std::vector<PooledConnection> pool_;

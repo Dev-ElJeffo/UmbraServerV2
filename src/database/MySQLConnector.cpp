@@ -337,7 +337,8 @@ bool MySQLConnector::executePrepared(uint32_t statementId, const std::vector<std
   return false;
 }
 
-bool MySQLConnector::executePreparedInsert(const std::string& query, const std::vector<std::string>& params) {
+std::pair<bool, uint64_t> MySQLConnector::executePreparedInsertWithLastId(
+    const std::string& query, const std::vector<std::string>& params) {
   size_t idx = acquireConnection(5000);
   void* conn = nullptr;
   bool usedPool = false;
@@ -349,7 +350,7 @@ bool MySQLConnector::executePreparedInsert(const std::string& query, const std::
     std::lock_guard<std::mutex> lock(mutex_);
     if (!connected_ || !connection_) {
       logError("Cannot execute prepared insert: not connected");
-      return false;
+      return {false, 0};
     }
     conn = connection_;
   }
@@ -359,10 +360,11 @@ bool MySQLConnector::executePreparedInsert(const std::string& query, const std::
   if (!stmt) {
     logError("mysql_stmt_init failed");
     if (usedPool) releaseConnection(idx);
-    return false;
+    return {false, 0};
   }
 
   bool ok = false;
+  uint64_t lastInsertId = 0;
   if (mysql_stmt_prepare(stmt, query.c_str(), static_cast<unsigned long>(query.length())) != 0) {
     logError("Prepare failed: " + std::string(mysql_stmt_error(stmt)));
   } else {
@@ -388,20 +390,25 @@ bool MySQLConnector::executePreparedInsert(const std::string& query, const std::
         logError("Execute failed: " + std::string(mysql_stmt_error(stmt)));
       } else {
         ok = true;
-        if (usedPool) pool_[idx].lastInsertId = mysql_stmt_insert_id(stmt);
+        lastInsertId = static_cast<uint64_t>(mysql_stmt_insert_id(stmt));
       }
     } else {
       if (mysql_stmt_execute(stmt) != 0) {
         logError("Execute (no params) failed: " + std::string(mysql_stmt_error(stmt)));
       } else {
         ok = true;
+        lastInsertId = static_cast<uint64_t>(mysql_stmt_insert_id(stmt));
       }
     }
   }
 
   mysql_stmt_close(stmt);
   if (usedPool) releaseConnection(idx);
-  return ok;
+  return {ok, ok ? lastInsertId : 0};
+}
+
+bool MySQLConnector::executePreparedInsert(const std::string& query, const std::vector<std::string>& params) {
+  return executePreparedInsertWithLastId(query, params).first;
 }
 
 std::vector<std::vector<std::string>> MySQLConnector::executePreparedQuery(
