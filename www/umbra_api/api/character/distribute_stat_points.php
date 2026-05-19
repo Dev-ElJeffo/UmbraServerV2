@@ -9,6 +9,7 @@
  * Body (JSON):
  * {
  *   "token": "jwt_token",
+ *   "player_id": 1,
  *   "strength_points": 5,
  *   "dexterity_points": 3,
  *   "intelligence_points": 2,
@@ -45,10 +46,24 @@ if (!$validation['valid']) {
     exit;
 }
 
-$player_id = $validation['payload']['player_id'] ?? null;
+// Prioridade: player_id no body (como get_character_info.php); fallback no token JWT
+$player_id = null;
+if (isset($data['player_id']) && is_numeric($data['player_id'])) {
+    $player_id = intval($data['player_id']);
+} else {
+    $player_id = $validation['payload']['player_id'] ?? null;
+}
+
 if (!$player_id) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Player ID não encontrado no token']);
+    echo json_encode(['success' => false, 'message' => 'Player ID não encontrado. Envie player_id no body JSON ou no token JWT']);
+    exit;
+}
+
+$account_id = $validation['payload']['account_id'] ?? null;
+if (!$account_id) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'Account ID não encontrado no token']);
     exit;
 }
 
@@ -71,7 +86,23 @@ $total_points_to_distribute = $strength_points + $dexterity_points + $intelligen
                               $vitality_points + $luck_points;
 
 try {
-    $pdo = getDatabaseConnection();
+    $pdo = getConnection();
+
+    // Verificar se o personagem pertence à conta autenticada
+    $check_stmt = $pdo->prepare("SELECT id, account_id FROM players WHERE id = :player_id");
+    $check_stmt->execute(['player_id' => $player_id]);
+    $player_row = $check_stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$player_row) {
+        http_response_code(404);
+        echo json_encode(['success' => false, 'message' => 'Personagem não encontrado']);
+        exit;
+    }
+    if (intval($player_row['account_id']) !== intval($account_id)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Acesso negado: Este personagem não pertence à sua conta']);
+        exit;
+    }
     
     // Obter pontos atuais do player
     $stmt = $pdo->prepare("
@@ -152,12 +183,23 @@ try {
         'vitality_points' => $new_vitality,
         'luck_points' => $new_luck
     ]);
+
+    $rows_affected = $stmt->rowCount();
+    if ($rows_affected === 0) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'message' => 'UPDATE nao afetou nenhuma linha em player_stat_points para player_id=' . $player_id
+        ]);
+        exit;
+    }
     
     http_response_code(200);
     echo json_encode([
         'success' => true,
         'message' => 'Pontos distribuídos com sucesso',
         'remaining_points' => $new_unspent,
+        'rows_affected' => $rows_affected,
         'stats' => [
             'strength_points' => $new_strength,
             'dexterity_points' => $new_dexterity,
