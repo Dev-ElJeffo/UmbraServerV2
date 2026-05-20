@@ -3,8 +3,8 @@
  * Umbra Eternum - API de Skills
  * Endpoint: set_skillbar.php
  * Método: POST
- * 
- * Permite ao jogador configurar um slot da barra de skills.
+ *
+ * Permite ao jogador configurar um slot da barra de skills (skill OU consumível).
  */
 
 header('Content-Type: application/json; charset=utf-8');
@@ -28,42 +28,86 @@ require_once __DIR__ . '/../../helpers/jwt_helper.php';
 
 try {
     $data = json_decode(file_get_contents('php://input'), true);
-    
-    // Validar JWT
+
     $jwtResult = validateJWTRequest($data, $_SERVER);
     if (!$jwtResult['valid']) {
         http_response_code(401);
         echo json_encode(['success' => false, 'message' => $jwtResult['error']]);
         exit;
     }
-    
-    $playerId = $jwtResult['payload']['player_id'] ?? null;
+
+    $playerId = null;
+    if (isset($data['player_id']) && is_numeric($data['player_id'])) {
+        $playerId = (int)$data['player_id'];
+    } else {
+        $playerId = $jwtResult['payload']['player_id'] ?? null;
+    }
+
     $slotIndex = $data['slot_index'] ?? null;
     $keybind = $data['keybind'] ?? null;
 
-    // Limpar slot: omitir skill_id, null, 0 ou string vazia (VaRest/JSON envia 0 como inteiro)
     $rawSkillId = $data['skill_id'] ?? null;
-    if ($rawSkillId === null || $rawSkillId === '' || (int) $rawSkillId <= 0) {
+    if ($rawSkillId === null || $rawSkillId === '' || (int)$rawSkillId <= 0) {
         $skillId = null;
     } else {
-        $skillId = (int) $rawSkillId;
+        $skillId = (int)$rawSkillId;
     }
-    
+
+    $rawItemTemplateId = $data['item_template_id'] ?? null;
+    if ($rawItemTemplateId === null || $rawItemTemplateId === '' || (int)$rawItemTemplateId <= 0) {
+        $itemTemplateId = null;
+    } else {
+        $itemTemplateId = (int)$rawItemTemplateId;
+    }
+
     if (!$playerId) {
         http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'player_id não encontrado no token']);
+        echo json_encode(['success' => false, 'message' => 'player_id não encontrado']);
         exit;
     }
-    
+
     if ($slotIndex === null || $slotIndex < 0 || $slotIndex >= 20) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'slot_index inválido (0-19)']);
         exit;
     }
-    
+
+    $keybindOnly = !empty($data['keybind_only']);
+
+    if ($keybindOnly) {
+        $pdo = getConnection();
+        $keybindValue = ($keybind === null || $keybind === '') ? null : (string)$keybind;
+
+        $stmt = $pdo->prepare('
+            INSERT INTO player_skillbar (player_id, slot_index, keybind)
+            VALUES (:player_id, :slot_index, :keybind)
+            ON DUPLICATE KEY UPDATE keybind = VALUES(keybind), updated_at = NOW()
+        ');
+        $stmt->execute([
+            ':player_id' => $playerId,
+            ':slot_index' => $slotIndex,
+            ':keybind' => $keybindValue
+        ]);
+
+        echo json_encode([
+            'success' => true,
+            'message' => "Atalho do slot {$slotIndex} atualizado",
+            'data' => [
+                'slot_index' => (int)$slotIndex,
+                'keybind' => $keybindValue
+            ]
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if ($skillId !== null && $itemTemplateId !== null) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Informe apenas skill_id ou item_template_id, não ambos']);
+        exit;
+    }
+
     $pdo = getConnection();
-    
-    // Se está atribuindo uma skill (ID > 0), verificar se o jogador aprendeu
+
     if ($skillId !== null && $skillId > 0) {
         $stmt = $pdo->prepare("
             SELECT ps.skill_id, s.skill_name
@@ -73,20 +117,44 @@ try {
         ");
         $stmt->execute([':player_id' => $playerId, ':skill_id' => $skillId]);
         $playerSkill = $stmt->fetch(PDO::FETCH_ASSOC);
-        
+
         if (!$playerSkill) {
             http_response_code(403);
             echo json_encode(['success' => false, 'message' => 'Você não aprendeu esta skill']);
             exit;
         }
+        $itemTemplateId = null;
+    } elseif ($itemTemplateId !== null && $itemTemplateId > 0) {
+        $stmt = $pdo->prepare("
+            SELECT item_id, item_name, item_type
+            FROM item_templates
+            WHERE item_id = :item_id
+        ");
+        $stmt->execute([':item_id' => $itemTemplateId]);
+        $template = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$template) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'Item template não encontrado']);
+            exit;
+        }
+        if ($template['item_type'] !== 'consumable') {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Apenas consumíveis podem ser colocados na skillbar']);
+            exit;
+        }
+        $skillId = null;
+    } else {
+        $skillId = null;
+        $itemTemplateId = null;
     }
-    
-    // Atualizar ou inserir slot
+
     $stmt = $pdo->prepare("
-        INSERT INTO player_skillbar (player_id, slot_index, skill_id, keybind)
-        VALUES (:player_id, :slot_index, :skill_id, :keybind)
+        INSERT INTO player_skillbar (player_id, slot_index, skill_id, item_template_id, keybind)
+        VALUES (:player_id, :slot_index, :skill_id, :item_template_id, :keybind)
         ON DUPLICATE KEY UPDATE
             skill_id = VALUES(skill_id),
+            item_template_id = VALUES(item_template_id),
             keybind = VALUES(keybind),
             updated_at = NOW()
     ");
@@ -94,21 +162,29 @@ try {
         ':player_id' => $playerId,
         ':slot_index' => $slotIndex,
         ':skill_id' => $skillId,
+        ':item_template_id' => $itemTemplateId,
         ':keybind' => $keybind
     ]);
-    
-    $message = $skillId ? "Skill atribuída ao slot {$slotIndex}" : "Slot {$slotIndex} limpo";
-    
+
+    if ($skillId) {
+        $message = "Skill atribuída ao slot {$slotIndex}";
+    } elseif ($itemTemplateId) {
+        $message = "Consumível atribuído ao slot {$slotIndex}";
+    } else {
+        $message = "Slot {$slotIndex} limpo";
+    }
+
     echo json_encode([
         'success' => true,
         'message' => $message,
         'data' => [
             'slot_index' => (int)$slotIndex,
             'skill_id' => $skillId ? (int)$skillId : null,
+            'item_template_id' => $itemTemplateId ? (int)$itemTemplateId : null,
             'keybind' => $keybind
         ]
     ], JSON_UNESCAPED_UNICODE);
-    
+
 } catch (PDOException $e) {
     error_log("Erro em set_skillbar: " . $e->getMessage());
     http_response_code(500);

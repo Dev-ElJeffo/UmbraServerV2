@@ -51,6 +51,7 @@ try {
         SELECT 
             sb.slot_index,
             sb.skill_id,
+            sb.item_template_id,
             sb.keybind,
             s.skill_key,
             s.skill_name,
@@ -62,12 +63,17 @@ try {
             s.resource_cost,
             s.cooldown_ms,
             s.cast_time_ms,
-            ps.current_rank
+            ps.current_rank,
+            it.item_name as consumable_name,
+            it.icon_path as consumable_icon_path,
+            it.item_subtype as consumable_subtype,
+            it.max_stack_size as consumable_max_stack
         FROM player_skillbar sb
         LEFT JOIN skills s ON sb.skill_id = s.skill_id
         LEFT JOIN skill_types st ON s.type_id = st.type_id
         LEFT JOIN skill_elements el ON s.element_id = el.element_id
         LEFT JOIN player_skills ps ON s.skill_id = ps.skill_id AND ps.player_id = sb.player_id
+        LEFT JOIN item_templates it ON sb.item_template_id = it.item_id
         WHERE sb.player_id = :player_id
         ORDER BY sb.slot_index ASC
     ");
@@ -91,8 +97,10 @@ try {
             $slots[] = [
                 'slot_index' => $i,
                 'skill_id' => null,
+                'item_template_id' => null,
                 'keybind' => null,
-                'skill' => null
+                'skill' => null,
+                'item' => null
             ];
         }
     } else {
@@ -116,12 +124,25 @@ try {
                     'current_rank' => (int)($row['current_rank'] ?? 1)
                 ];
             }
+
+            $itemData = null;
+            if (!empty($row['item_template_id'])) {
+                $itemData = [
+                    'item_template_id' => (int)$row['item_template_id'],
+                    'item_name' => $row['consumable_name'],
+                    'icon_path' => $row['consumable_icon_path'],
+                    'item_subtype' => $row['consumable_subtype'],
+                    'max_stack_size' => (int)($row['consumable_max_stack'] ?? 99)
+                ];
+            }
             
             $slots[] = [
                 'slot_index' => (int)$row['slot_index'],
                 'skill_id' => $row['skill_id'] ? (int)$row['skill_id'] : null,
+                'item_template_id' => !empty($row['item_template_id']) ? (int)$row['item_template_id'] : null,
                 'keybind' => $row['keybind'],
-                'skill' => $skillData
+                'skill' => $skillData,
+                'item' => $itemData
             ];
         }
         
@@ -132,8 +153,10 @@ try {
                 $slots[] = [
                     'slot_index' => $i,
                     'skill_id' => null,
+                    'item_template_id' => null,
                     'keybind' => null,
-                    'skill' => null
+                    'skill' => null,
+                    'item' => null
                 ];
             }
         }
