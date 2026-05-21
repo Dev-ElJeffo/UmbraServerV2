@@ -1,5 +1,7 @@
 # Guia: Uso de consumíveis e skillbar (UE 5.6.1)
 
+Poções de buff (`buff_potion`): ver [GUIA_BUFF_POTIONS.md](GUIA_BUFF_POTIONS.md).
+
 ## Visão geral
 
 - **Clique direito** em consumível no inventário → `UseInventoryItem` → `POST /api/inventory/use_item.php`

@@ -61,10 +61,18 @@ No **BP_GameInstance** (ou Default do `UUmbraGameInstance`):
 
 Coluna: `player_skillbar.keybind` VARCHAR(20)
 
-| Formato | Exemplo |
-|---------|---------|
-| Uma tecla | `A`, `One`, `F1` |
-| Duas teclas | `A+S`, `LeftShift+One` (ordenadas alfabeticamente no encode) |
+| Formato | Exemplo (gravado no DB) | Exibido no `Keybind_Text` |
+|---------|-------------------------|---------------------------|
+| Uma tecla | `A`, `Three`, `F1` | `A`, `3`, `F1` |
+| Duas teclas | `LeftShift+Three` (ordenadas no encode) | `Shift+3` |
+
+O cliente grava o **FName** da tecla (`Three`, `LeftShift`, etc.) para o match de input funcionar. A exibição amigável é feita em C++ por `FormatKeybindForDisplay` (não altera o valor no banco).
+
+### Exclusividade (uma tecla por jogador)
+
+- Cada keybind é **única** entre os 20 slots: não é possível manter a mesma tecla em dois slots ao mesmo tempo.
+- **Auto-transfer (padrão MMO):** ao atribuir uma tecla já usada no slot N, o slot anterior é **limpo automaticamente** e a tecla passa a valer só no slot novo.
+- Implementação: `SaveSkillbarKeybind` no cliente limpa outros slots antes do POST; `set_skillbar.php` (`keybind_only`) faz `UPDATE` nos demais slots com a mesma `keybind` como defesa no servidor.
 
 Gravação só do atalho (sem alterar skill/item):
 
@@ -78,6 +86,22 @@ POST /api/skills/set_skillbar.php
   "keybind_only": true
 }
 ```
+
+### Tabela de display amigável (`FormatKeybindForDisplay`)
+
+| FName no DB | Texto no slot |
+|-------------|---------------|
+| `LeftShift`, `RightShift` | `Shift` |
+| `LeftControl`, `RightControl` | `Ctrl` |
+| `LeftAlt`, `RightAlt` | `Alt` |
+| `LeftCommand`, `RightCommand` | `Cmd` |
+| `Zero` … `Nine` | `0` … `9` |
+| `NumPadZero` … `NumPadNine` | `Num0` … `Num9` |
+| `SpaceBar` | `Space` |
+| `Add`, `Subtract`, `Multiply`, `Divide`, `Decimal` | `Num+`, `Num-`, `Num*`, `Num/`, `Num.` |
+| Demais teclas (`A`, `F1`, `Up`, …) | Igual ao nome gravado |
+
+Combos: cada parte após `+` é traduzida separadamente (ex.: `LeftShift+Three` → `Shift+3`).
 
 ---
 
@@ -112,9 +136,11 @@ Usado pelo cliente para o preenchimento radial do cooldown.
 1. Poção na barra → `Quantity_Text` mostra total (ex.: 18).
 2. Arrastar poção para fora da barra → slot vazio após soltar; relog confirma.
 3. Clicar engrenagem → pressionar `A` depois `S` → `Keybind_Text` mostra `A+S`; relog mantém.
-4. Pressionar `A+S` no jogo → mesmo efeito que RMB (cura + cooldown).
-5. Após usar → overlay radial ~5s na barra e no inventário.
-6. Com foco no chat, teclas não disparam atalhos da barra.
+4. Atribuir tecla `3` no slot 5 e depois no slot 8 → slot 5 perde o atalho; slot 8 mostra `3`; pressionar `3` dispara só o slot 8.
+5. Tecla numérica: gravado `Three` no DB, exibido `3` no canto do slot.
+6. Pressionar `A+S` no jogo → mesmo efeito que RMB (cura + cooldown).
+7. Após usar → overlay radial ~5s na barra e no inventário.
+8. Com foco no chat, teclas não disparam atalhos da barra.
 
 ---
 

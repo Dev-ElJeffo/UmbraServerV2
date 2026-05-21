@@ -287,6 +287,29 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
         if (isset($stats['double_attack_rate'])) $total_stats['double_attack_rate'] += (int)$stats['double_attack_rate'];
     }
 
+    // Buffs temporários de poções (player_item_buffs)
+    $now_ms_buff = (int)round(microtime(true) * 1000);
+    $buffs_stmt = $pdo->prepare("
+        SELECT buff_key, bonus_value
+        FROM player_item_buffs
+        WHERE player_id = :player_id AND expires_at_ms > :now_ms
+    ");
+    $buffs_stmt->execute(['player_id' => $player_id, 'now_ms' => $now_ms_buff]);
+    while ($buff_row = $buffs_stmt->fetch(PDO::FETCH_ASSOC)) {
+        $buff_key = (string)($buff_row['buff_key'] ?? '');
+        if (strlen($buff_key) < 6 || substr($buff_key, -5) !== '_buff') {
+            continue;
+        }
+        $stat_base = substr($buff_key, 0, -5);
+        $bonus = (int)($buff_row['bonus_value'] ?? 0);
+        if ($bonus <= 0) {
+            continue;
+        }
+        if (isset($total_stats[$stat_base])) {
+            $total_stats[$stat_base] += $bonus;
+        }
+    }
+
     $strength_phys_atk_bonus = floor($total_stats['strength'] / 5) * 2;
     $strength_crit_atk_bonus = floor($total_stats['strength'] / 10);
     $strength_double_atk_bonus = floor($total_stats['strength'] / 10);

@@ -180,6 +180,34 @@ try {
     $health_restore = (int)($stats['health_restore'] ?? 0);
     $mana_restore = (int)($stats['mana_restore'] ?? 0);
 
+    $buff_key = null;
+    $buff_bonus_value = 0;
+    $buff_duration_sec = 0;
+    $buff_duration_ms = 0;
+    $buff_expires_at_ms = 0;
+    $resolved_item_template_id = (int)$inv['item_template_id'];
+
+    if ($item_subtype === 'buff_potion') {
+        $buff_duration_sec = (int)($stats['duration'] ?? 0);
+        foreach ($stats as $stat_key => $stat_val) {
+            if (is_string($stat_key) && substr($stat_key, -5) === '_buff' && is_numeric($stat_val)) {
+                $buff_key = $stat_key;
+                $buff_bonus_value = (int)$stat_val;
+                break;
+            }
+        }
+        if (!$buff_key || $buff_duration_sec <= 0) {
+            http_response_code(400);
+            echo json_encode([
+                'success' => false,
+                'message' => 'stats_json inválido para buff_potion (requer duration e chave *_buff)'
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $buff_duration_ms = $buff_duration_sec * 1000;
+        $buff_expires_at_ms = $now_ms + $buff_duration_ms;
+    }
+
     $char_preview = get_character_info_data($pdo, $player_id, ['create_stat_points_if_missing' => true]);
     $max_health = (int)($char_preview['stats']['health']['max_total'] ?? 999999);
     $max_mana = (int)($char_preview['stats']['mana']['max_total'] ?? 999999);
@@ -202,6 +230,38 @@ try {
         $pdo->prepare('UPDATE players SET mana = LEAST(mana + :amt, :max_m) WHERE id = :player_id')
             ->execute(['amt' => $mana_restore, 'max_m' => $max_mana, 'player_id' => $player_id]);
         $stats_applied['mana_restore'] = $mana_restore;
+    }
+
+    if ($item_subtype === 'buff_potion' && $buff_key) {
+        $pdo->prepare("
+            INSERT INTO player_item_buffs
+                (player_id, buff_key, item_template_id, item_subtype, bonus_value, duration_ms, started_at_ms, expires_at_ms)
+            VALUES
+                (:player_id, :buff_key, :item_template_id, :item_subtype, :bonus_value, :duration_ms, :started_at_ms, :expires_at_ms)
+            ON DUPLICATE KEY UPDATE
+                bonus_value = VALUES(bonus_value),
+                duration_ms = VALUES(duration_ms),
+                started_at_ms = VALUES(started_at_ms),
+                expires_at_ms = VALUES(expires_at_ms),
+                item_template_id = VALUES(item_template_id),
+                item_subtype = VALUES(item_subtype)
+        ")->execute([
+            'player_id' => $player_id,
+            'buff_key' => $buff_key,
+            'item_template_id' => $resolved_item_template_id,
+            'item_subtype' => $item_subtype,
+            'bonus_value' => $buff_bonus_value,
+            'duration_ms' => $buff_duration_ms,
+            'started_at_ms' => $now_ms,
+            'expires_at_ms' => $buff_expires_at_ms
+        ]);
+        $stats_applied['buff'] = [
+            'key' => $buff_key,
+            'value' => $buff_bonus_value,
+            'expires_at_ms' => $buff_expires_at_ms,
+            'duration_ms' => $buff_duration_ms,
+            'item_template_id' => $resolved_item_template_id
+        ];
     }
 
     $resolved_inventory_id = (int)$inv['inventory_id'];
@@ -236,8 +296,7 @@ try {
     $mana_current = (int)($char_info['stats']['mana']['current'] ?? $pl['mana']);
     $mana_max = (int)($char_info['stats']['mana']['max_total'] ?? $mana_current);
 
-    http_response_code(200);
-    echo json_encode([
+    $response_payload = [
         'success' => true,
         'message' => 'Item usado com sucesso',
         'inventory_id' => $resolved_inventory_id,
@@ -250,7 +309,14 @@ try {
         'max_health' => $health_max,
         'mana' => $mana_current,
         'max_mana' => $mana_max
-    ], JSON_UNESCAPED_UNICODE);
+    ];
+
+    if (!empty($stats_applied['buff'])) {
+        $response_payload['buff'] = $stats_applied['buff'];
+    }
+
+    http_response_code(200);
+    echo json_encode($response_payload, JSON_UNESCAPED_UNICODE);
 
 } catch (PDOException $e) {
     if (isset($pdo) && $pdo->inTransaction()) {

@@ -78,6 +78,21 @@ try {
         $pdo = getConnection();
         $keybindValue = ($keybind === null || $keybind === '') ? null : (string)$keybind;
 
+        if (!empty($keybindValue)) {
+            $stmtClear = $pdo->prepare('
+                UPDATE player_skillbar
+                SET keybind = \'\', updated_at = NOW()
+                WHERE player_id = :player_id
+                  AND slot_index != :slot_index
+                  AND keybind = :keybind
+            ');
+            $stmtClear->execute([
+                ':player_id' => $playerId,
+                ':slot_index' => $slotIndex,
+                ':keybind' => $keybindValue,
+            ]);
+        }
+
         $stmt = $pdo->prepare('
             INSERT INTO player_skillbar (player_id, slot_index, keybind)
             VALUES (:player_id, :slot_index, :keybind)
