@@ -240,7 +240,100 @@ Bindings no `WBP_BuffTooltip` (todos `BindWidgetOptional`):
 
 ---
 
-## 5. Teste de aceite
+## 5. Buff bar em target e party
+
+### 5.1 `WBP_SelectedPlayerInfo` (alvo selecionado)
+
+1. **Reparent** → `UmbraSelectedPlayerInfoWidget`.
+2. Confirme bindings: `Text_PlayerName`, `Text_Level`, `Text_HP`, `Text_MP`, `Progress_HP`, `Progress_MP` (opcional: `Image_ClassIcon`).
+3. Adicione **`BuffBar_HBox`** (`HorizontalBox`) abaixo das barras de HP/MP (ou ao lado do cabeçalho).
+4. **Class Defaults** → **Target | Buffs**:
+   - `Buff Icon Widget Class` = `WBP_BuffIcon`
+   - `Buff Tooltip Widget Class` = `WBP_BuffTooltip`
+5. **Event Graph: vazio.** O C++ centraliza em `UUmbraPlayerSelectionComponent`:
+   - Cria o widget ao selecionar (`OnPlayerSelected`)
+   - Centraliza no topo (`SetAlignmentInViewport(0.5, 0)` + `Y=50`)
+   - Atualiza em `OnSelectedPlayerInfoUpdated`
+   - Remove em `OnPlayerDeselected`
+6. No **BP do PlayerController** (ou onde está `UmbraPlayerSelectionComponent`): **Target Widget Class** = `WBP_SelectedPlayerInfo`.
+7. No **`WBP_PlayerHUD`**: **remova** nós que criam/posicionam `WBP_SelectedPlayerInfo` (evita duplicata).
+
+### 5.2 `WBP_PartyMemberSlot` (painel de grupo)
+
+1. **Reparent** → `UmbraPartyMemberSlotWidget` (já existente).
+2. Adicione **`BuffBar_HBox`** (`HorizontalBox`) na hierarquia do slot (abaixo de HP/MP).
+3. No **`WBP_PartyPanel`** (pai `UmbraPartyWidget`) → **Class Defaults** → **Party | Buffs**:
+   - `Buff Icon Widget Class` = `WBP_BuffIcon`
+   - `Buff Tooltip Widget Class` = `WBP_BuffTooltip`
+
+Snapshot HTTP: `get_public_info.php` e `get_party_state.php` retornam `active_buffs[]` por jogador ao abrir/refresh.
+
+---
+
+## 6. Sync WebSocket (opcodes 84/85/86/87/88)
+
+| Opcode | Direção | Uso |
+|--------|---------|-----|
+| **84** `BuffAppliedNotify` | Cliente → Zone | Após `use_item.php` com `buff` (poção consumida) |
+| **85** `RemoteBuffUpdate` | Zone → clientes | Party + jogadores próximos (AOI); atualiza buff bar sem HTTP |
+| **86** `PlayerVitalsNotify` | Cliente → Zone | HP/MP do **próprio** jogador mudaram (poção, equip, custo de skill) |
+| **87** `PlayerVitalsUpdate` | Zone → clientes | Party + AOI; atualiza barras HP/MP em target e party sem HTTP |
+| **88** `ForeignVitalsNotify` | Cliente → Zone | HP/MP de **alvo** após `apply_vitals.php` (dano/cura inter-jogador) |
+
+Payload binário (little-endian):
+
+```
+[type:1][player_id:4][action:1][buff_key_len:2][buff_key utf8]
+[bonus_value:4][expires_at_ms:8][duration_ms:4][item_template_id:4]
+[item_name_len:2][item_name][icon_path_len:2][icon_path]
+```
+
+- `action`: `0` = aplicado/refresh, `1` = removido/expirado
+- Cliente ignora updates do `ActivePlayerID` (já tratado localmente)
+
+**Servidor:** `MovementProtocol.hpp` + handler em `MovementServer.hpp`  
+**Cliente:** `SendBuffAppliedNotifyViaWebSocket`, `HandleRemoteBuffUpdateMessage` em `UmbraGameInstance.cpp`
+
+Payload vitals (21 bytes, little-endian):
+
+```
+[type:1][player_id:4][current_hp:i32][max_hp:i32][current_mp:i32][max_mp:i32]
+```
+
+- Cliente envia **86** via `ApplyLocalVitalsAndBroadcast()` (poção, equip, custo de skill).
+- Cliente recebe **87** e atualiza `RemotePlayersCache`, widget de alvo selecionado e slots do party.
+- Se `PlayerId == ActivePlayerID` no **87** (alvo recebeu dano/cura), aplica localmente com `bSkipBroadcast=true` (evita loop 86).
+
+### 6.1 Dano e cura em tempo real (`apply_vitals.php` + opcode 88)
+
+Fluxo autoritativo (DB → WS):
+
+1. Cliente A chama `ApplyVitalsToTarget(TargetID, DeltaHP, DeltaMP, Reason)` (Blueprint/C++).
+2. HTTP `POST /api/combat/apply_vitals.php` — persiste HP/MP no MySQL com `get_character_info_data()` para `max_health`/`max_mana` corretos.
+3. Resposta retorna `new_health`, `max_health`, `new_mana`, `max_mana` do alvo.
+4. Cliente A envia **88** `ForeignVitalsNotify` com `playerId = target`.
+5. Zone rebroadcasta **87** para party do alvo + AOI do alvo (inclui o próprio alvo).
+6. Todos os clientes atualizam party widget e `WBP_SelectedPlayerInfo`.
+
+Exemplo `curl` (substituir token e IDs):
+
+```bash
+curl -X POST http://localhost/umbra_api/api/combat/apply_vitals.php \
+  -H "Content-Type: application/json" \
+  -d '{"token":"JWT","player_id":1,"target_player_id":2,"delta_health":-100,"delta_mana":0,"reason":"DAMAGE"}'
+```
+
+**Skills com custo de mana:** `use_skill.php` agora desconta `mana`/`health`/`stamina` no DB e retorna `new_health`, `new_mana`, `max_health`, `max_mana`; o cliente chama `ApplyLocalVitalsAndBroadcast(SKILL_COST)` e envia **86**.
+
+**Party HP/MP:** `get_party_state.php` usa `get_character_info_data()` por membro (mesma lógica que `get_public_info.php`: equipamentos, buffs de poção, bônus de atributos).
+
+**Slot próprio no party:** o Zone **não** envia opcode **87** de volta para quem disparou o **86**. O cliente atualiza o próprio slot via `SyncActivePlayerPartyMember()` (chamado em `ApplyLocalVitalsAndBroadcast`, `OnLoadActiveBuffsComplete` e buffs WS **85** no `ActivePlayerID`).
+
+**Re-seleção de alvo:** `SelectPlayer` chama `InspectPlayer` mesmo com cache hit. `HandlePlayerInspectedInternal` faz merge `MergeActiveBuffArrays(API, cache)` para não apagar buffs que já estavam no cache via WS **85**. `get_public_info.php` inclui sempre `active_buffs[]` (helper opcional, como em `get_party_state.php`).
+
+---
+
+## 7. Teste de aceite
 
 1. Rodar SQL de schema + seed.
 2. Dar ao personagem um Elixir de Força (id 10).
@@ -250,25 +343,49 @@ Bindings no `WBP_BuffTooltip` (todos `BindWidgetOptional`):
 6. Arrastar poção para skillbar → **RMB** ou hotkey → mesmo efeito.
 7. Usar de novo antes de expirar → duração **reinicia** (refresh), valor não acumula.
 8. Após 5 min → ícone some; stats voltam ao normal.
+9. Selecionar outro jogador → painel **centralizado no topo** com `BuffBar_HBox` preenchida.
+10. Painel de party → cada membro mostra ícones de buff ativos.
+11. Cliente A usa poção → clientes B (party ou próximos) veem o buff em A via WS **85** (sem esperar HTTP).
+12. Cliente A usa poção de cura → **próprio** slot no party atualiza HP/MP; B vê HP/MP de A via WS **87** no painel de party/alvo.
+13. Desselecionar alvo, esperar, re-selecionar → `BuffBar_HBox` do alvo mantém ícones (merge API + cache; log `MergeActiveBuffs`).
+14. Cliente A usa poção de buff → ícone aparece no **próprio** slot do party (sem HTTP refresh).
+15. Painel de party: `max_health` / `max_mana` batem com inspeção do mesmo personagem (equip + buffs).
+16. Cliente A usa skill com custo de mana → A vê mana no próprio slot do party; B (party) vê mana de A via WS **87**.
+17. Cliente A chama `ApplyVitalsToTarget(B, -100, 0, "DAMAGE")` → B vê HP próprio cair; A e C (party) veem HP de B no painel/alvo via **87**.
+18. Cliente A cura B (`+200, 0, "HEAL"`) → mesmo fluxo do teste 17.
+19. Log Zone: `PlayerVitalsUpdate from player ...` e `ForeignVitalsUpdate target=...`.
 
 ---
 
-## 6. Arquivos novos/alterados
+## 8. Arquivos novos/alterados
 
 **Novos**
 
 - `UmbraServer/scripts_main/add_buff_potion_system.sql`
 - `UmbraServer/scripts_main/insert_buff_potions.sql`
 - `www/umbra_api/api/inventory/get_active_buffs.php`
+- `www/umbra_api/helpers/active_buffs_helper.php`
 - `UmbraEternumUE/.../UI/UmbraBuffIconWidget.h/.cpp`
 - `UmbraEternumUE/.../UI/UmbraBuffTooltipWidget.h/.cpp`
+- `UmbraEternumUE/.../UI/UmbraSelectedPlayerInfoWidget.h/.cpp`
 - `UmbraServer/docs_main/GUIA_BUFF_POTIONS.md`
 
 **Alterados**
 
+- `www/umbra_api/api/combat/apply_vitals.php`
 - `www/umbra_api/api/inventory/use_item.php`
+- `www/umbra_api/api/skills/use_skill.php`
+- `www/umbra_api/api/character/get_public_info.php`
+- `www/umbra_api/api/social/get_party_state.php`
 - `www/umbra_api/helpers/character_info_helper.php`
-- `UmbraEternumUE/.../Data/UmbraSkillDataStructures.h`
+- `UmbraEternumUE/.../Data/UmbraDataStructures.h`
+- `UmbraEternumUE/.../Data/UmbraSkillDataStructures.h` (via structs em `UmbraDataStructures.h`)
 - `UmbraEternumUE/.../Core/UmbraGameInstance.h/.cpp`
+- `UmbraEternumUE/.../Components/UmbraPlayerSelectionComponent.h/.cpp`
 - `UmbraEternumUE/.../UI/UmbraSkillBarWidget.h/.cpp`
-- `UmbraEternumUE/.../UI/UmbraBuffIconWidget.h/.cpp` (tooltip em C++, sem eventos BP)
+- `UmbraEternumUE/.../UI/UmbraPartyWidget.h/.cpp`
+- `UmbraEternumUE/.../UI/UmbraPartyMemberSlotWidget.h/.cpp`
+- `UmbraEternumUE/.../UI/UmbraBuffIconWidget.h/.cpp`
+- `UmbraEternumUE/.../Network/NetMovementClient.cpp`
+- `src/zone/MovementProtocol.hpp`
+- `src/zone/MovementServer.hpp`

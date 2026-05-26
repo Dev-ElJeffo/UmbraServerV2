@@ -68,7 +68,40 @@ enum class MovementMsgType : uint8_t {
   GuildInviteReceived = 80,            // Servidor -> Cliente: [msgType][inviteId:4][guildId:4][fromPlayerId:4]
   GuildStateRefresh = 81,              // Servidor -> Cliente: [msgType][guildId:4]
   GuildMemberUpdated = 82,             // Servidor -> Cliente: [msgType][guildId:4][playerId:4]
-  GuildMemberKicked = 83               // Servidor -> Cliente: [msgType][guildId:4][playerId:4]
+  GuildMemberKicked = 83,              // Servidor -> Cliente: [msgType][guildId:4][playerId:4]
+  BuffAppliedNotify = 84,              // Cliente -> Servidor: payload RemoteBuffUpdate
+  RemoteBuffUpdate = 85,               // Servidor -> Clientes: mesmo payload
+  PlayerVitalsNotify = 86,             // Cliente -> Servidor: HP/MP do próprio jogador
+  PlayerVitalsUpdate = 87,             // Servidor -> Clientes: HP/MP de outro jogador
+  ForeignVitalsNotify = 88,            // Cliente -> Servidor: HP/MP de alvo (após apply_vitals.php)
+  PlayerDeathNotify = 89,              // Servidor -> Cliente: [type][playerId:4][killerId:4][reason:1]
+  RespawnRequest = 90,                 // Cliente -> Servidor: [type][playerId:4][zoneId:4][spawnKeyLen:1][spawnKey]
+  PlayerRespawnedNotify = 91,          // Servidor -> Cliente: [type][playerId:4][x:f][y:f][z:f][yaw:f][hp:i32][maxHp:i32][mp:i32][maxMp:i32]
+  CombatEventNotify = 92,              // Servidor -> Cliente: [type][targetId:4][sourceId:4][delta:i32][reason:1][isCrit:1]
+  DotTickNotify = 93                   // Servidor -> Cliente: [type][targetId:4][dotId:8][delta:i32][dotType:1]
+};
+
+/** reason em vitals/combate: 0=unknown, 1=DAMAGE, 2=HEAL, 3=SKILL, 4=ENV, 5=DOT */
+enum class CombatReason : uint8_t {
+  Unknown = 0,
+  Damage = 1,
+  Heal = 2,
+  Skill = 3,
+  Env = 4,
+  Dot = 5
+};
+
+/** action: 0 = applied/refresh, 1 = removed/expired */
+struct RemoteBuffPayload {
+  uint32_t playerId = 0;
+  uint8_t action = 0;
+  std::string buffKey;
+  int32_t bonusValue = 0;
+  int64_t expiresAtMs = 0;
+  uint32_t durationMs = 0;
+  uint32_t itemTemplateId = 0;
+  std::string itemName;
+  std::string iconPath;
 };
 
 enum class ChatChannel : uint8_t {
@@ -1147,6 +1180,414 @@ inline bool decodePersonalShopListingsChanged(const std::vector<uint8_t>& data, 
   listingId = static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) |
               (static_cast<uint32_t>(data[off + 2]) << 16) | (static_cast<uint32_t>(data[off + 3]) << 24);
   return true;
+}
+
+// Remote buff: [msgType][playerId:4][action:1][buffKeyLen:2 LE][buffKey][bonusValue:4 LE][expiresAtMs:8 LE]
+// [durationMs:4 LE][itemTemplateId:4 LE][itemNameLen:2 LE][itemName][iconPathLen:2 LE][iconPath]
+inline void appendStringField(std::vector<uint8_t>& out, const std::string& s, size_t maxBytes = 128) {
+  size_t nb = s.size();
+  if (nb > maxBytes) nb = maxBytes;
+  const uint16_t len = static_cast<uint16_t>(nb);
+  out.push_back(static_cast<uint8_t>(len & 0xFF));
+  out.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
+  for (uint16_t i = 0; i < len; ++i) {
+    out.push_back(static_cast<uint8_t>(s[i]));
+  }
+}
+
+inline bool readStringField(const std::vector<uint8_t>& data, size_t& off, std::string& out, size_t maxBytes = 128) {
+  if (off + 2 > data.size()) return false;
+  const uint16_t len = static_cast<uint16_t>(data[off]) | (static_cast<uint16_t>(data[off + 1]) << 8);
+  off += 2;
+  if (len > maxBytes || off + len > data.size()) return false;
+  out.assign(reinterpret_cast<const char*>(&data[off]), len);
+  off += len;
+  return true;
+}
+
+inline std::vector<uint8_t> encodeRemoteBuffUpdate(MovementMsgType msgType, const RemoteBuffPayload& p) {
+  std::vector<uint8_t> out;
+  out.reserve(64);
+  out.push_back(static_cast<uint8_t>(msgType));
+  auto write32 = [&out](uint32_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  auto write64 = [&out](int64_t v) {
+    for (int i = 0; i < 8; ++i) {
+      out.push_back(static_cast<uint8_t>((v >> (i * 8)) & 0xFF));
+    }
+  };
+  write32(p.playerId);
+  out.push_back(p.action);
+  appendStringField(out, p.buffKey, 64);
+  write32(static_cast<uint32_t>(p.bonusValue));
+  write64(p.expiresAtMs);
+  write32(p.durationMs);
+  write32(p.itemTemplateId);
+  appendStringField(out, p.itemName, 64);
+  appendStringField(out, p.iconPath, 128);
+  return out;
+}
+
+inline bool decodeRemoteBuffUpdate(const std::vector<uint8_t>& data, RemoteBuffPayload& p) {
+  if (data.size() < 1 + 4 + 1 + 2 + 4 + 8 + 4 + 4 + 2 + 2) return false;
+  size_t off = 1;
+  auto read32 = [&data](size_t& o) -> uint32_t {
+    uint32_t v = static_cast<uint32_t>(data[o]) | (static_cast<uint32_t>(data[o + 1]) << 8) |
+                 (static_cast<uint32_t>(data[o + 2]) << 16) | (static_cast<uint32_t>(data[o + 3]) << 24);
+    o += 4;
+    return v;
+  };
+  auto read64 = [&data](size_t& o) -> int64_t {
+    int64_t v = 0;
+    for (int i = 0; i < 8; ++i) {
+      v |= static_cast<int64_t>(data[o + i]) << (i * 8);
+    }
+    o += 8;
+    return v;
+  };
+  p.playerId = read32(off);
+  if (off >= data.size()) return false;
+  p.action = data[off++];
+  if (!readStringField(data, off, p.buffKey, 64)) return false;
+  p.bonusValue = static_cast<int32_t>(read32(off));
+  p.expiresAtMs = read64(off);
+  p.durationMs = read32(off);
+  p.itemTemplateId = read32(off);
+  if (!readStringField(data, off, p.itemName, 64)) return false;
+  if (!readStringField(data, off, p.iconPath, 128)) return false;
+  return true;
+}
+
+inline bool decodeBuffAppliedNotify(const std::vector<uint8_t>& data, RemoteBuffPayload& p) {
+  if (data.empty() || static_cast<MovementMsgType>(data[0]) != MovementMsgType::BuffAppliedNotify) return false;
+  return decodeRemoteBuffUpdate(data, p);
+}
+
+/** HP/MP em tempo real para party/AOI */
+struct PlayerVitalsPayload {
+  uint32_t playerId = 0;
+  int32_t currentHealth = 0;
+  int32_t maxHealth = 0;
+  int32_t currentMana = 0;
+  int32_t maxMana = 0;
+  uint32_t sourcePlayerId = 0;
+  uint8_t reason = 0;
+};
+
+struct PlayerDeathPayload {
+  uint32_t playerId = 0;
+  uint32_t killerId = 0;
+  uint8_t reason = 0;
+};
+
+struct PlayerRespawnPayload {
+  uint32_t playerId = 0;
+  float x = 0.0f;
+  float y = 0.0f;
+  float z = 0.0f;
+  float yaw = 0.0f;
+  int32_t currentHealth = 0;
+  int32_t maxHealth = 0;
+  int32_t currentMana = 0;
+  int32_t maxMana = 0;
+};
+
+struct CombatEventPayload {
+  uint32_t targetId = 0;
+  uint32_t sourceId = 0;
+  int32_t delta = 0;
+  uint8_t reason = 0;
+  uint8_t isCrit = 0;
+};
+
+struct DotTickPayload {
+  uint32_t targetId = 0;
+  uint64_t dotId = 0;
+  int32_t delta = 0;
+  uint8_t dotType = 0;
+};
+
+inline std::vector<uint8_t> encodePlayerVitalsUpdate(MovementMsgType msgType, const PlayerVitalsPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(26);
+  data.push_back(static_cast<uint8_t>(msgType));
+  auto writeI32 = [&data](int32_t v) {
+    const uint32_t u = static_cast<uint32_t>(v);
+    data.push_back(static_cast<uint8_t>(u & 0xFF));
+    data.push_back(static_cast<uint8_t>((u >> 8) & 0xFF));
+    data.push_back(static_cast<uint8_t>((u >> 16) & 0xFF));
+    data.push_back(static_cast<uint8_t>((u >> 24) & 0xFF));
+  };
+  auto writeU32 = [&data](uint32_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  writeU32(p.playerId);
+  writeI32(p.currentHealth);
+  writeI32(p.maxHealth);
+  writeI32(p.currentMana);
+  writeI32(p.maxMana);
+  writeU32(p.sourcePlayerId);
+  data.push_back(p.reason);
+  return data;
+}
+
+inline bool decodePlayerVitalsPayload(const std::vector<uint8_t>& data, PlayerVitalsPayload& p) {
+  if (data.size() < 21) return false;
+  p.sourcePlayerId = 0;
+  p.reason = 0;
+  size_t off = 1;
+  auto readU32 = [&data, &off]() -> uint32_t {
+    uint32_t v = static_cast<uint32_t>(data[off])
+      | (static_cast<uint32_t>(data[off + 1]) << 8)
+      | (static_cast<uint32_t>(data[off + 2]) << 16)
+      | (static_cast<uint32_t>(data[off + 3]) << 24);
+    off += 4;
+    return v;
+  };
+  p.playerId = readU32();
+  p.currentHealth = static_cast<int32_t>(readU32());
+  p.maxHealth = static_cast<int32_t>(readU32());
+  p.currentMana = static_cast<int32_t>(readU32());
+  p.maxMana = static_cast<int32_t>(readU32());
+  if (data.size() >= off + 5) {
+    p.sourcePlayerId = readU32();
+    p.reason = data[off];
+    ++off;
+  }
+  return true;
+}
+
+inline std::vector<uint8_t> encodePlayerDeathNotify(const PlayerDeathPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(10);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::PlayerDeathNotify));
+  auto writeU32 = [&data](uint32_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  writeU32(p.playerId);
+  writeU32(p.killerId);
+  data.push_back(p.reason);
+  return data;
+}
+
+inline bool decodePlayerDeathNotify(const std::vector<uint8_t>& data, PlayerDeathPayload& p) {
+  if (data.size() < 10) return false;
+  if (static_cast<MovementMsgType>(data[0]) != MovementMsgType::PlayerDeathNotify) return false;
+  size_t off = 1;
+  auto readU32 = [&data, &off]() -> uint32_t {
+    uint32_t v = static_cast<uint32_t>(data[off])
+      | (static_cast<uint32_t>(data[off + 1]) << 8)
+      | (static_cast<uint32_t>(data[off + 2]) << 16)
+      | (static_cast<uint32_t>(data[off + 3]) << 24);
+    off += 4;
+    return v;
+  };
+  p.playerId = readU32();
+  p.killerId = readU32();
+  p.reason = data[off];
+  return true;
+}
+
+inline std::vector<uint8_t> encodeRespawnRequest(uint32_t playerId, uint32_t zoneId, const std::string& spawnKey) {
+  std::vector<uint8_t> data;
+  data.reserve(10 + spawnKey.size());
+  data.push_back(static_cast<uint8_t>(MovementMsgType::RespawnRequest));
+  auto writeU32 = [&data](uint32_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  writeU32(playerId);
+  writeU32(zoneId);
+  const uint8_t keyLen = static_cast<uint8_t>(std::min<size_t>(spawnKey.size(), 64));
+  data.push_back(keyLen);
+  data.insert(data.end(), spawnKey.begin(), spawnKey.begin() + keyLen);
+  return data;
+}
+
+inline bool decodeRespawnRequest(const std::vector<uint8_t>& data, uint32_t& playerId, uint32_t& zoneId, std::string& spawnKey) {
+  if (data.size() < 10) return false;
+  if (static_cast<MovementMsgType>(data[0]) != MovementMsgType::RespawnRequest) return false;
+  size_t off = 1;
+  auto readU32 = [&data, &off]() -> uint32_t {
+    uint32_t v = static_cast<uint32_t>(data[off])
+      | (static_cast<uint32_t>(data[off + 1]) << 8)
+      | (static_cast<uint32_t>(data[off + 2]) << 16)
+      | (static_cast<uint32_t>(data[off + 3]) << 24);
+    off += 4;
+    return v;
+  };
+  playerId = readU32();
+  zoneId = readU32();
+  const uint8_t keyLen = data[off++];
+  if (data.size() < off + keyLen) return false;
+  spawnKey.assign(reinterpret_cast<const char*>(data.data() + off), keyLen);
+  return true;
+}
+
+inline std::vector<uint8_t> encodePlayerRespawnedNotify(const PlayerRespawnPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(38);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::PlayerRespawnedNotify));
+  auto writeU32 = [&data](uint32_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  auto writeI32 = [&writeU32](int32_t v) { writeU32(static_cast<uint32_t>(v)); };
+  auto writeF32 = [&writeU32](float v) {
+    uint32_t bits = 0;
+    std::memcpy(&bits, &v, sizeof(float));
+    writeU32(bits);
+  };
+  writeU32(p.playerId);
+  writeF32(p.x);
+  writeF32(p.y);
+  writeF32(p.z);
+  writeF32(p.yaw);
+  writeI32(p.currentHealth);
+  writeI32(p.maxHealth);
+  writeI32(p.currentMana);
+  writeI32(p.maxMana);
+  return data;
+}
+
+inline bool decodePlayerRespawnedNotify(const std::vector<uint8_t>& data, PlayerRespawnPayload& p) {
+  if (data.size() < 38) return false;
+  if (static_cast<MovementMsgType>(data[0]) != MovementMsgType::PlayerRespawnedNotify) return false;
+  size_t off = 1;
+  auto readU32 = [&data, &off]() -> uint32_t {
+    uint32_t v = static_cast<uint32_t>(data[off])
+      | (static_cast<uint32_t>(data[off + 1]) << 8)
+      | (static_cast<uint32_t>(data[off + 2]) << 16)
+      | (static_cast<uint32_t>(data[off + 3]) << 24);
+    off += 4;
+    return v;
+  };
+  auto readF32 = [&readU32]() -> float {
+    uint32_t bits = readU32();
+    float v = 0.0f;
+    std::memcpy(&v, &bits, sizeof(float));
+    return v;
+  };
+  p.playerId = readU32();
+  p.x = readF32();
+  p.y = readF32();
+  p.z = readF32();
+  p.yaw = readF32();
+  p.currentHealth = static_cast<int32_t>(readU32());
+  p.maxHealth = static_cast<int32_t>(readU32());
+  p.currentMana = static_cast<int32_t>(readU32());
+  p.maxMana = static_cast<int32_t>(readU32());
+  return true;
+}
+
+inline std::vector<uint8_t> encodeCombatEventNotify(const CombatEventPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(16);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::CombatEventNotify));
+  auto writeU32 = [&data](uint32_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  auto writeI32 = [&writeU32](int32_t v) { writeU32(static_cast<uint32_t>(v)); };
+  writeU32(p.targetId);
+  writeU32(p.sourceId);
+  writeI32(p.delta);
+  data.push_back(p.reason);
+  data.push_back(p.isCrit);
+  return data;
+}
+
+inline bool decodeCombatEventNotify(const std::vector<uint8_t>& data, CombatEventPayload& p) {
+  if (data.size() < 16) return false;
+  if (static_cast<MovementMsgType>(data[0]) != MovementMsgType::CombatEventNotify) return false;
+  size_t off = 1;
+  auto readU32 = [&data, &off]() -> uint32_t {
+    uint32_t v = static_cast<uint32_t>(data[off])
+      | (static_cast<uint32_t>(data[off + 1]) << 8)
+      | (static_cast<uint32_t>(data[off + 2]) << 16)
+      | (static_cast<uint32_t>(data[off + 3]) << 24);
+    off += 4;
+    return v;
+  };
+  p.targetId = readU32();
+  p.sourceId = readU32();
+  p.delta = static_cast<int32_t>(readU32());
+  p.reason = data[off++];
+  p.isCrit = data[off];
+  return true;
+}
+
+inline std::vector<uint8_t> encodeDotTickNotify(const DotTickPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(19);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::DotTickNotify));
+  auto writeU32 = [&data](uint32_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  auto writeU64 = [&data](uint64_t v) {
+    for (int i = 0; i < 8; ++i) {
+      data.push_back(static_cast<uint8_t>((v >> (8 * i)) & 0xFF));
+    }
+  };
+  auto writeI32 = [&writeU32](int32_t v) { writeU32(static_cast<uint32_t>(v)); };
+  writeU32(p.targetId);
+  writeU64(p.dotId);
+  writeI32(p.delta);
+  data.push_back(p.dotType);
+  return data;
+}
+
+inline bool decodeDotTickNotify(const std::vector<uint8_t>& data, DotTickPayload& p) {
+  if (data.size() < 19) return false;
+  if (static_cast<MovementMsgType>(data[0]) != MovementMsgType::DotTickNotify) return false;
+  size_t off = 1;
+  auto readU32 = [&data, &off]() -> uint32_t {
+    uint32_t v = static_cast<uint32_t>(data[off])
+      | (static_cast<uint32_t>(data[off + 1]) << 8)
+      | (static_cast<uint32_t>(data[off + 2]) << 16)
+      | (static_cast<uint32_t>(data[off + 3]) << 24);
+    off += 4;
+    return v;
+  };
+  p.targetId = readU32();
+  uint64_t dotId = 0;
+  for (int i = 0; i < 8; ++i) {
+    dotId |= static_cast<uint64_t>(data[off + i]) << (8 * i);
+  }
+  off += 8;
+  p.dotId = dotId;
+  p.delta = static_cast<int32_t>(readU32());
+  p.dotType = data[off];
+  return true;
+}
+
+inline bool decodePlayerVitalsNotify(const std::vector<uint8_t>& data, PlayerVitalsPayload& p) {
+  if (data.empty() || static_cast<MovementMsgType>(data[0]) != MovementMsgType::PlayerVitalsNotify) return false;
+  return decodePlayerVitalsPayload(data, p);
+}
+
+inline bool decodeForeignVitalsNotify(const std::vector<uint8_t>& data, PlayerVitalsPayload& p) {
+  if (data.empty() || static_cast<MovementMsgType>(data[0]) != MovementMsgType::ForeignVitalsNotify) return false;
+  return decodePlayerVitalsPayload(data, p);
 }
 
 } // namespace Zone

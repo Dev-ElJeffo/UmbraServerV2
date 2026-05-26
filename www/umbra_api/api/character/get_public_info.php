@@ -22,6 +22,11 @@ require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
 require_once __DIR__ . '/../../helpers/character_info_helper.php';
 
+$active_buffs_helper_path = __DIR__ . '/../../helpers/active_buffs_helper.php';
+if (is_file($active_buffs_helper_path)) {
+    require_once $active_buffs_helper_path;
+}
+
 // Ler dados do body JSON (POST) ou headers (GET)
 $data = [];
 $json = file_get_contents('php://input');
@@ -68,6 +73,16 @@ try {
         http_response_code(404);
         echo json_encode(['success' => false, 'message' => 'Jogador não encontrado']);
         exit;
+    }
+
+    $character['active_buffs'] = [];
+    try {
+        if (function_exists('fetch_active_buffs_for_player')) {
+            $character['active_buffs'] = fetch_active_buffs_for_player($pdo, $target_player_id);
+        }
+    } catch (\Throwable $e) {
+        error_log("[get_public_info] active_buffs falhou player_id={$target_player_id}: " . $e->getMessage());
+        $character['active_buffs'] = [];
     }
 
     http_response_code(200);

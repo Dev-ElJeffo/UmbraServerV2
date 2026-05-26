@@ -1,6 +1,7 @@
 #pragma once
 
 #include <unordered_map>
+#include <unordered_set>
 #include <mutex>
 #include <chrono>
 #include <functional>
@@ -23,6 +24,7 @@ struct PlayerStateNet {
   float speed = 0.0f;
   float velocityZ = 0.0f;
   bool isInAir = false;
+  bool isDead = false;
   // Dados do personagem
   std::string characterName;
   std::string characterTitle;
@@ -48,6 +50,28 @@ public:
   /** Resolve membros do grupo de um jogador (incluindo o próprio). */
   void setResolvePartyMembersCallback(std::function<std::vector<uint32_t>(uint32_t playerId)> cb) {
     resolvePartyMembers_ = std::move(cb);
+  }
+
+  void setRespawnHandler(std::function<bool(uint32_t, uint32_t, const std::string&, PlayerRespawnPayload&)> cb) {
+    respawnHandler_ = std::move(cb);
+  }
+
+  void setZoneId(uint32_t zoneId) { zoneId_ = zoneId; }
+
+  void broadcastVitalsAndCombat(uint32_t targetPlayerId, const PlayerVitalsPayload& vitals,
+                              uint32_t sourcePlayerId, int32_t delta, bool triggerDeath) {
+    std::lock_guard<std::mutex> lock(mu_);
+    handleVitalsBroadcastUnlocked(targetPlayerId, vitals, sourcePlayerId, delta, triggerDeath);
+  }
+
+  void broadcastDotTick(uint32_t targetPlayerId, const DotTickPayload& dot) {
+    std::lock_guard<std::mutex> lock(mu_);
+    auto dotPkt = encodeDotTickNotify(dot);
+    std::unordered_set<uint32_t> recipients;
+    collectVitalsRecipientsUnlocked(targetPlayerId, recipients);
+    for (uint32_t rid : recipients) {
+      sendToPlayerUnlocked(rid, dotPkt);
+    }
   }
 
   bool start() {
@@ -186,6 +210,169 @@ public:
           std::lock_guard<std::mutex> lock(mu_);
           auto msg = encodePartyMemberJoined(partyId);
           ws_.broadcastBinary(msg);
+        }
+        return;
+      }
+
+      // Buff applied (poção) — rebroadcast para party + jogadores próximos (AOI)
+      if (msgType == MovementMsgType::BuffAppliedNotify) {
+        RemoteBuffPayload payload;
+        if (decodeBuffAppliedNotify(data, payload)) {
+          uint32_t senderPlayerId = payload.playerId;
+          auto cidIt = clientIdToPlayerId_.find(cid);
+          if (cidIt != clientIdToPlayerId_.end() && cidIt->second > 0) {
+            senderPlayerId = cidIt->second;
+            payload.playerId = senderPlayerId;
+          }
+          std::lock_guard<std::mutex> lock(mu_);
+          auto outMsg = encodeRemoteBuffUpdate(MovementMsgType::RemoteBuffUpdate, payload);
+
+          std::unordered_set<uint32_t> targetPlayerIds;
+          if (resolvePartyMembers_) {
+            for (uint32_t memberId : resolvePartyMembers_(senderPlayerId)) {
+              if (memberId != senderPlayerId) {
+                targetPlayerIds.insert(memberId);
+              }
+            }
+          }
+
+          float sx = 0.0f, sy = 0.0f;
+          auto playerIt = players_.find(senderPlayerId);
+          if (playerIt != players_.end()) {
+            sx = playerIt->second.x;
+            sy = playerIt->second.y;
+          }
+          auto nearbyClientIds = aoiGrid_.getNearbyPlayers(cid);
+          for (uint32_t nearbyCid : nearbyClientIds) {
+            auto pidIt = clientIdToPlayerId_.find(nearbyCid);
+            if (pidIt != clientIdToPlayerId_.end() && pidIt->second != senderPlayerId) {
+              targetPlayerIds.insert(pidIt->second);
+            }
+          }
+
+          for (uint32_t targetId : targetPlayerIds) {
+            sendToPlayerUnlocked(targetId, outMsg);
+          }
+          Umbra::Core::Logger::getInstance().info(
+              "RemoteBuffUpdate from player {} -> {} recipients (party+AOI)",
+              senderPlayerId, targetPlayerIds.size());
+        }
+        return;
+      }
+
+      // HP/MP atualizados (poção, equip, etc.) — rebroadcast para party + AOI
+      if (msgType == MovementMsgType::PlayerVitalsNotify) {
+        PlayerVitalsPayload payload;
+        if (decodePlayerVitalsNotify(data, payload)) {
+          uint32_t senderPlayerId = payload.playerId;
+          auto cidIt = clientIdToPlayerId_.find(cid);
+          if (cidIt != clientIdToPlayerId_.end() && cidIt->second > 0) {
+            senderPlayerId = cidIt->second;
+            payload.playerId = senderPlayerId;
+          }
+          std::lock_guard<std::mutex> lock(mu_);
+          auto outMsg = encodePlayerVitalsUpdate(MovementMsgType::PlayerVitalsUpdate, payload);
+
+          std::unordered_set<uint32_t> targetPlayerIds;
+          if (resolvePartyMembers_) {
+            for (uint32_t memberId : resolvePartyMembers_(senderPlayerId)) {
+              if (memberId != senderPlayerId) {
+                targetPlayerIds.insert(memberId);
+              }
+            }
+          }
+
+          float sx = 0.0f, sy = 0.0f;
+          auto playerIt = players_.find(senderPlayerId);
+          if (playerIt != players_.end()) {
+            sx = playerIt->second.x;
+            sy = playerIt->second.y;
+          }
+          auto nearbyClientIds = aoiGrid_.getNearbyPlayers(cid);
+          for (uint32_t nearbyCid : nearbyClientIds) {
+            auto pidIt = clientIdToPlayerId_.find(nearbyCid);
+            if (pidIt != clientIdToPlayerId_.end() && pidIt->second != senderPlayerId) {
+              targetPlayerIds.insert(pidIt->second);
+            }
+          }
+
+          for (uint32_t targetId : targetPlayerIds) {
+            sendToPlayerUnlocked(targetId, outMsg);
+          }
+          Umbra::Core::Logger::getInstance().info(
+              "PlayerVitalsUpdate from player {} -> {} recipients (party+AOI)",
+              senderPlayerId, targetPlayerIds.size());
+        }
+        return;
+      }
+
+      // HP/MP de alvo (dano/cura via apply_vitals.php) — rebroadcast party+AOI do TARGET
+      if (msgType == MovementMsgType::ForeignVitalsNotify) {
+        PlayerVitalsPayload payload;
+        if (decodeForeignVitalsNotify(data, payload)) {
+          const uint32_t targetPlayerId = payload.playerId;
+          std::lock_guard<std::mutex> lock(mu_);
+          auto cidIt = clientIdToPlayerId_.find(cid);
+          uint32_t sourcePlayerId = payload.sourcePlayerId;
+          if (sourcePlayerId == 0 && cidIt != clientIdToPlayerId_.end()) {
+            sourcePlayerId = cidIt->second;
+          }
+          int32_t delta = 0;
+          auto prevIt = lastKnownHealth_.find(targetPlayerId);
+          if (prevIt != lastKnownHealth_.end()) {
+            delta = payload.currentHealth - prevIt->second;
+          }
+          lastKnownHealth_[targetPlayerId] = payload.currentHealth;
+          const bool triggerDeath = (payload.currentHealth <= 0);
+          handleVitalsBroadcastUnlocked(targetPlayerId, payload, sourcePlayerId, delta, triggerDeath);
+        }
+        return;
+      }
+
+      // Respawn request (cliente morto solicita respawn)
+      if (msgType == MovementMsgType::RespawnRequest) {
+        uint32_t playerId = 0;
+        uint32_t zoneId = zoneId_;
+        std::string spawnKey;
+        if (decodeRespawnRequest(data, playerId, zoneId, spawnKey)) {
+          std::lock_guard<std::mutex> lock(mu_);
+          auto cidIt = clientIdToPlayerId_.find(cid);
+          if (cidIt != clientIdToPlayerId_.end() && cidIt->second > 0) {
+            playerId = cidIt->second;
+          }
+          if (!respawnHandler_) {
+            Umbra::Core::Logger::getInstance().warn("RespawnRequest: handler não configurado");
+            return;
+          }
+          const auto now = std::chrono::steady_clock::now();
+          auto cdIt = respawnCooldownUntil_.find(playerId);
+          if (cdIt != respawnCooldownUntil_.end() && now < cdIt->second) {
+            Umbra::Core::Logger::getInstance().warn("RespawnRequest: cooldown player {}", playerId);
+            return;
+          }
+          PlayerRespawnPayload respawnPayload;
+          if (!respawnHandler_(playerId, zoneId, spawnKey, respawnPayload)) {
+            Umbra::Core::Logger::getInstance().warn("RespawnRequest: falhou player {}", playerId);
+            return;
+          }
+          respawnCooldownUntil_[playerId] = now + std::chrono::seconds(5);
+          auto it = players_.find(playerId);
+          if (it != players_.end()) {
+            it->second.isDead = false;
+            it->second.x = respawnPayload.x;
+            it->second.y = respawnPayload.y;
+            it->second.z = respawnPayload.z;
+            it->second.yaw = respawnPayload.yaw;
+          }
+          lastKnownHealth_[playerId] = respawnPayload.currentHealth;
+          auto respawnPkt = encodePlayerRespawnedNotify(respawnPayload);
+          std::unordered_set<uint32_t> recipients;
+          collectVitalsRecipientsUnlocked(playerId, recipients);
+          for (uint32_t rid : recipients) {
+            sendToPlayerUnlocked(rid, respawnPkt);
+          }
+          Umbra::Core::Logger::getInstance().info("Player {} respawned at ({:.0f},{:.0f},{:.0f})",
+                                                  playerId, respawnPayload.x, respawnPayload.y, respawnPayload.z);
         }
         return;
       }
@@ -673,7 +860,13 @@ private:
       Umbra::Core::Logger::getInstance().debug("MoveUpdate rejected: player {} has personal shop open", f.playerId);
       return;
     }
-    
+
+    auto deadIt = players_.find(f.playerId);
+    if (deadIt != players_.end() && deadIt->second.isDead) {
+      Umbra::Core::Logger::getInstance().debug("MoveUpdate rejected: player {} is dead", f.playerId);
+      return;
+    }
+
     bool isNewPlayer = (players_.find(f.playerId) == players_.end());
     
     // ✅ CRÍTICO: Se for um novo player OU se o player existir mas tiver posição inválida (0,0,0),
@@ -794,20 +987,23 @@ private:
 
     // Preservar nome/título se já existir (PlayerInfoUpdate pode ter chegado antes do MoveUpdate)
     std::string prevName, prevTitle, prevGuild;
+    bool prevDead = false;
     auto itPrev = players_.find(f.playerId);
     if (itPrev != players_.end()) {
       prevName = itPrev->second.characterName;
       prevTitle = itPrev->second.characterTitle;
       prevGuild = itPrev->second.guildName;
+      prevDead = itPrev->second.isDead;
     }
     players_[f.playerId] = PlayerStateNet{
-      f.playerId, 
-      f.x, f.y, f.z, 
-      f.yaw, 
+      f.playerId,
+      f.x, f.y, f.z,
+      f.yaw,
       finalTimestamp,
       speed,        // Dados de animação
       velocityZ,
-      isInAir
+      isInAir,
+      prevDead
     };
     if (!prevName.empty() || !prevTitle.empty() || !prevGuild.empty()) {
       players_[f.playerId].characterName = std::move(prevName);
@@ -950,6 +1146,76 @@ private:
     ws_.broadcastBinary(data);
   }
 
+  void collectVitalsRecipientsUnlocked(uint32_t targetPlayerId,
+                                         std::unordered_set<uint32_t>& recipients) {
+    if (resolvePartyMembers_) {
+      for (uint32_t memberId : resolvePartyMembers_(targetPlayerId)) {
+        recipients.insert(memberId);
+      }
+    }
+    recipients.insert(targetPlayerId);
+
+    uint32_t targetClientId = 0;
+    for (const auto& [mappedCid, mappedPid] : clientIdToPlayerId_) {
+      if (mappedPid == targetPlayerId) {
+        targetClientId = mappedCid;
+        break;
+      }
+    }
+    if (targetClientId > 0) {
+      auto nearbyClientIds = aoiGrid_.getNearbyPlayers(targetClientId);
+      for (uint32_t nearbyCid : nearbyClientIds) {
+        auto pidIt = clientIdToPlayerId_.find(nearbyCid);
+        if (pidIt != clientIdToPlayerId_.end()) {
+          recipients.insert(pidIt->second);
+        }
+      }
+    }
+  }
+
+  void handleVitalsBroadcastUnlocked(uint32_t targetPlayerId, const PlayerVitalsPayload& payload,
+                                     uint32_t sourcePlayerId, int32_t delta, bool triggerDeath) {
+    auto outMsg = encodePlayerVitalsUpdate(MovementMsgType::PlayerVitalsUpdate, payload);
+    std::unordered_set<uint32_t> recipients;
+    collectVitalsRecipientsUnlocked(targetPlayerId, recipients);
+    for (uint32_t rid : recipients) {
+      sendToPlayerUnlocked(rid, outMsg);
+    }
+
+    if (delta != 0) {
+      CombatEventPayload combat;
+      combat.targetId = targetPlayerId;
+      combat.sourceId = sourcePlayerId;
+      combat.delta = delta;
+      combat.reason = payload.reason;
+      combat.isCrit = 0;
+      auto combatPkt = encodeCombatEventNotify(combat);
+      for (uint32_t rid : recipients) {
+        sendToPlayerUnlocked(rid, combatPkt);
+      }
+    }
+
+    if (triggerDeath) {
+      auto pit = players_.find(targetPlayerId);
+      if (pit != players_.end() && !pit->second.isDead) {
+        pit->second.isDead = true;
+        PlayerDeathPayload death;
+        death.playerId = targetPlayerId;
+        death.killerId = sourcePlayerId;
+        death.reason = payload.reason;
+        auto deathPkt = encodePlayerDeathNotify(death);
+        for (uint32_t rid : recipients) {
+          sendToPlayerUnlocked(rid, deathPkt);
+        }
+        Umbra::Core::Logger::getInstance().info("Player {} died (killer={})", targetPlayerId, sourcePlayerId);
+      }
+    }
+
+    Umbra::Core::Logger::getInstance().info(
+        "VitalsUpdate target={} delta={} -> {} recipients",
+        targetPlayerId, delta, recipients.size());
+  }
+
   Umbra::Network::WebSocketServer ws_;
   mutable std::mutex mu_;
   std::unordered_map<uint32_t, PlayerStateNet> players_;
@@ -957,6 +1223,10 @@ private:
   std::unordered_map<uint32_t, std::deque<std::chrono::steady_clock::time_point>> chatMessageHistoryByPlayer_;
   std::function<uint32_t(uint32_t)> onPlayerDisconnect_;
   std::function<std::vector<uint32_t>(uint32_t)> resolvePartyMembers_;
+  std::function<bool(uint32_t, uint32_t, const std::string&, PlayerRespawnPayload&)> respawnHandler_;
+  std::unordered_map<uint32_t, int32_t> lastKnownHealth_;
+  std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> respawnCooldownUntil_;
+  uint32_t zoneId_ = 1;
   SpatialGrid aoiGrid_{10000.0f};
   /** Jogadores com loja pessoal aberta: bloqueia MoveUpdate. Par = (shop_id, nome UTF-8). */
   std::unordered_map<uint32_t, std::pair<uint32_t, std::string>> personalShopOpenByPlayerId_;

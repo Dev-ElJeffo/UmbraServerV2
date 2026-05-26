@@ -101,6 +101,8 @@ bool ZoneServer::start() {
                                    maxMessageLength, rateLimitPerMinute);
 
   if (config_.dbConnector && config_.dbConnector->isConnected()) {
+    combatService_ = std::make_unique<ZoneCombatService>(config_.dbConnector, config_.zoneId);
+    movementServer_->setZoneId(config_.zoneId);
     movementServer_->setOnPlayerDisconnectCallback(
       [db = config_.dbConnector.get()](uint32_t playerId) {
         removePlayerFromSessions(db, playerId);  // lista de amigos: marcar offline
@@ -109,6 +111,15 @@ bool ZoneServer::start() {
     movementServer_->setResolvePartyMembersCallback(
       [db = config_.dbConnector.get()](uint32_t playerId) {
         return resolvePartyMembers(db, playerId);
+      });
+    movementServer_->setRespawnHandler(
+      [this](uint32_t playerId, uint32_t zoneId, const std::string& spawnKey,
+             PlayerRespawnPayload& outPayload) -> bool {
+        if (!combatService_) return false;
+        auto result = combatService_->processRespawn(playerId, zoneId, spawnKey);
+        if (!result.success) return false;
+        outPayload = result.payload;
+        return true;
       });
   }
   Core::Logger::getInstance().info("ZoneServer '{}' (ID: {}) started on port {}", 
@@ -138,6 +149,14 @@ void ZoneServer::update(float deltaTime) {
   if (snapshotAccumulator_ >= 0.1f) {
     if (movementServer_) movementServer_->broadcastSnapshot();
     snapshotAccumulator_ = 0.0f;
+  }
+
+  dotTickAccumulator_ += deltaTime;
+  if (dotTickAccumulator_ >= 0.25f) {
+    if (combatService_ && movementServer_) {
+      combatService_->tickActiveDots(movementServer_.get());
+    }
+    dotTickAccumulator_ = 0.0f;
   }
 
   // Auto-save desabilitado: as posicoes sao salvas pelo PHP (update_position.php)
