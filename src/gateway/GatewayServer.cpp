@@ -534,6 +534,41 @@ void GatewayServer::cleanupExpiredSessions() {
   }
 }
 
+std::string GatewayServer::getAdminClientsJson() {
+  nlohmann::json root;
+  root["connected_clients"] = networkServer_ ? networkServer_->getClientCount() : 0;
+  root["sessions"] = nlohmann::json::array();
+  {
+    std::lock_guard<std::mutex> lock(sessionsMutex_);
+    root["session_count"] = clientSessions_.size();
+    for (const auto& [token, info] : clientSessions_) {
+      nlohmann::json s;
+      s["account_id"] = info.accountId;
+      s["player_id"] = info.playerId;
+      s["username"] = info.username;
+      s["token_prefix"] = token.substr(0, std::min<size_t>(8, token.size()));
+      root["sessions"].push_back(s);
+    }
+  }
+  return root.dump();
+}
+
+bool GatewayServer::kickClient(uint32_t clientId) {
+  if (!networkServer_) return false;
+  networkServer_->disconnectClient(clientId);
+  return true;
+}
+
+std::string GatewayServer::getAuthStatsJson() const {
+  if (config_.useConnectionPool && authPool_) {
+    return authPool_->getStats();
+  }
+  if (authClient_) {
+    return authClient_->getStats();
+  }
+  return "{}";
+}
+
 }  // namespace Gateway
 }  // namespace Umbra
 

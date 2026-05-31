@@ -51,6 +51,10 @@ ChannelManager& ChatServer::getChannelManager() {
   return *channelManager_;
 }
 
+const ChatServer::Config& ChatServer::getConfig() const {
+  return config_;
+}
+
 }  // namespace Chat
 }  // namespace Umbra
 

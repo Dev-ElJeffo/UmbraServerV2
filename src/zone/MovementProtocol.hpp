@@ -1276,6 +1276,8 @@ struct PlayerVitalsPayload {
   int32_t maxMana = 0;
   uint32_t sourcePlayerId = 0;
   uint8_t reason = 0;
+  /** Opcional em ForeignVitalsNotify (88): delta de HP aplicado pelo PHP (ex.: -10). */
+  int32_t deltaAppliedHealth = 0;
 };
 
 struct PlayerDeathPayload {
@@ -1587,7 +1589,17 @@ inline bool decodePlayerVitalsNotify(const std::vector<uint8_t>& data, PlayerVit
 
 inline bool decodeForeignVitalsNotify(const std::vector<uint8_t>& data, PlayerVitalsPayload& p) {
   if (data.empty() || static_cast<MovementMsgType>(data[0]) != MovementMsgType::ForeignVitalsNotify) return false;
-  return decodePlayerVitalsPayload(data, p);
+  if (!decodePlayerVitalsPayload(data, p)) return false;
+  p.deltaAppliedHealth = 0;
+  // Layout 88: [type][playerId:4][hp:4][maxHp:4][mp:4][maxMp:4][sourceId:4][reason:1][deltaApplied:4]
+  if (data.size() >= 30) {
+    p.deltaAppliedHealth = static_cast<int32_t>(
+      static_cast<uint32_t>(data[26])
+      | (static_cast<uint32_t>(data[27]) << 8)
+      | (static_cast<uint32_t>(data[28]) << 16)
+      | (static_cast<uint32_t>(data[29]) << 24));
+  }
+  return true;
 }
 
 } // namespace Zone

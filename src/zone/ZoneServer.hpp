@@ -32,6 +32,9 @@ class ZoneServer {
   
   PlayerManager& getPlayerManager();
   EntitySystem& getEntitySystem();
+  MovementServer* getMovementServer();
+  const Config& getConfig() const;
+  void forceSavePositions();
 
  private:
   Config config_;

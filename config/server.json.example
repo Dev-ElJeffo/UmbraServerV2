@@ -1,0 +1,32 @@
+{
+  "version": "1.3.0",
+  "environment": "development",
+  "database": {
+    "host": "localhost",
+    "port": 3306,
+    "name": "umbra_eternum",
+    "user": "root",
+    "password": "CHANGE_ME",
+    "max_connections": 500,
+    "connection_timeout": 10,
+    "auto_reconnect": true,
+    "pool_size": 5
+  },
+  "auth": { "port": 8080, "jwt_secret": "CHANGE_ME", "session_duration": 60 },
+  "world": { "port": 8081, "tick_rate": 20 },
+  "zone": { "base_port": 8082, "max_players_per_zone": 1000, "tick_rate": 60 },
+  "chat": { "port": 8083 },
+  "gateway": { "port": 9000 },
+  "logging": { "level": "DEBUG", "file": "logs/umbra_server.log" },
+  "admin": {
+    "enabled": true,
+    "shared_secret": "CHANGE_ME_HEX_64",
+    "bind_host": "127.0.0.1",
+    "auth_port": 9100,
+    "world_port": 9101,
+    "zone_base_port": 9102,
+    "chat_port": 9103,
+    "gateway_port": 9104,
+    "rate_limit_per_minute": 120
+  }
+}

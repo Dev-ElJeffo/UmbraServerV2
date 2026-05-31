@@ -1,0 +1,12 @@
+{
+  "project_root": "D:/UmbraServerV2",
+  "build_dir": "build/bin/Release",
+  "config_path": "config/server.json",
+  "admin_secret": "umbra_dev_admin_secret_change_in_production",
+  "php_api_base": "http://localhost/umbra_api/api",
+  "log_dir": "logs",
+  "zone_instances": [0, 1],
+  "poll_interval_ms": 1000,
+  "players_poll_ms": 2000,
+  "auto_restart_on_crash": false
+}

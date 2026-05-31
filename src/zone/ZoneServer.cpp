@@ -197,6 +197,18 @@ EntitySystem& ZoneServer::getEntitySystem() {
   return *entitySystem_;
 }
 
+MovementServer* ZoneServer::getMovementServer() {
+  return movementServer_.get();
+}
+
+const ZoneServer::Config& ZoneServer::getConfig() const {
+  return config_;
+}
+
+void ZoneServer::forceSavePositions() {
+  autoSavePlayerPositions();
+}
+
 }  // namespace Zone
 }  // namespace Umbra
 

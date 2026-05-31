@@ -47,3 +47,11 @@ coverage/
 .DS_Store
 Thumbs.db
 
+# UmbraManager WPF (artefatos de build)
+tools/UmbraManagerWpf/**/obj/
+tools/UmbraManagerWpf/**/bin/
+
+# dist/UmbraManager — binários gerados pelo publish (configs são versionados)
+dist/**/*.exe
+dist/**/*.pdb
+

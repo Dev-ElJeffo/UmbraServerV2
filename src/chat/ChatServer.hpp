@@ -26,6 +26,7 @@ class ChatServer {
                    const std::string& message);
   
   ChannelManager& getChannelManager();
+  const Config& getConfig() const;
 
  private:
   Config config_;

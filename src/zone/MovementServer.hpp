@@ -322,6 +322,9 @@ public:
           if (prevIt != lastKnownHealth_.end()) {
             delta = payload.currentHealth - prevIt->second;
           }
+          if (delta == 0 && payload.deltaAppliedHealth != 0) {
+            delta = payload.deltaAppliedHealth;
+          }
           lastKnownHealth_[targetPlayerId] = payload.currentHealth;
           const bool triggerDeath = (payload.currentHealth <= 0);
           handleVitalsBroadcastUnlocked(targetPlayerId, payload, sourcePlayerId, delta, triggerDeath);
@@ -649,6 +652,48 @@ public:
     return players_.size();
   }
 
+  bool kickPlayer(uint32_t playerId) {
+    std::lock_guard<std::mutex> lock(mu_);
+    uint32_t cid = 0;
+    for (const auto& [c, p] : clientIdToPlayerId_) {
+      if (p == playerId) {
+        cid = c;
+        break;
+      }
+    }
+    if (cid == 0) return false;
+    ws_.disconnect(cid);
+    return true;
+  }
+
+  bool teleportPlayer(uint32_t playerId, float x, float y, float z) {
+    std::lock_guard<std::mutex> lock(mu_);
+    auto it = players_.find(playerId);
+    if (it == players_.end()) return false;
+    it->second.x = x;
+    it->second.y = y;
+    it->second.z = z;
+    uint32_t cid = 0;
+    for (const auto& [c, p] : clientIdToPlayerId_) {
+      if (p == playerId) {
+        cid = c;
+        break;
+      }
+    }
+    if (cid > 0) {
+      aoiGrid_.updatePlayer(cid, x, y);
+    }
+    return true;
+  }
+
+  bool broadcastAdminMessage(const std::string& message) {
+    std::lock_guard<std::mutex> lock(mu_);
+    auto packet = encodeChatReceived(
+        MovementMsgType::ChatGlobalReceived, 0, "GM", message);
+    ws_.broadcastBinary(packet);
+    return true;
+  }
+
   void setLimits(float maxSpeed, float maxTeleportDist, uint32_t maxDelayMs) {
     maxSpeed_ = maxSpeed; maxTeleportDist_ = maxTeleportDist; maxDelayMs_ = maxDelayMs;
   }
@@ -751,13 +796,7 @@ private:
 
     if (msgType == MovementMsgType::ChatLocalMessage) {
       auto packet = encodeChatReceived(MovementMsgType::ChatLocalReceived, senderPlayerId, fromName, message);
-      float x = 0.0f;
-      float y = 0.0f;
-      if (pit != players_.end()) {
-        x = pit->second.x;
-        y = pit->second.y;
-      }
-      broadcastToNearby(cid, x, y, packet);
+      broadcastToNearby(cid, packet);
       Umbra::Core::Logger::getInstance().info("Local chat from {} ({}) delivered", senderPlayerId, fromName);
       return;
     }
@@ -1052,7 +1091,7 @@ private:
     }
     
     if (!isFirstPositionUpdate) {
-      broadcastToNearby(cid, f.x, f.y, broadcastBytes);
+      broadcastToNearby(cid, broadcastBytes);
     }
   }
 
@@ -1132,8 +1171,7 @@ private:
   }
 
   /** Broadcast para jogadores próximos (AOI) em vez de todos. Usa SpatialGrid. */
-  void broadcastToNearby(uint32_t sourceClientId, float x, float y,
-                         const std::vector<uint8_t>& data) {
+  void broadcastToNearby(uint32_t sourceClientId, const std::vector<uint8_t>& data) {
     auto nearby = aoiGrid_.getNearbyPlayers(sourceClientId);
     for (uint32_t nearbyClientId : nearby) {
       ws_.sendBinary(nearbyClientId, data);

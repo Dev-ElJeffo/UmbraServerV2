@@ -109,6 +109,7 @@ class AuthServer {
    * @return JSON com estatísticas
    */
   std::string getStats() const;
+  size_t getActiveSessionCount() const;
 
  private:
   Config config_;

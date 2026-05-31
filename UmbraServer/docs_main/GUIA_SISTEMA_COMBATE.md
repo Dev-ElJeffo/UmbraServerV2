@@ -166,15 +166,25 @@ WHERE spawn_key = 'cidade_inicial' AND zone_id = 1;
 | `Source Skill Id` | `0` | Mantenha `0` para dano ambiental (ENV) |
 | `Area Key` | `lava_01` | Identificador livre para debug |
 
-### 6.2 Visual opcional (Blueprint Child)
+### 6.2 Visual da área (componente `Visual` no C++)
 
-Para adicionar mesh, partículas e som:
+O actor `AUmbraDamageArea` já inclui um **`UStaticMeshComponent` chamado `Visual`** (sem colisão, visível em runtime). O `UBoxComponent` `Area` serve **só para overlap** — material nele não aparece no jogo.
 
-1. **Content Browser** → **Add → Blueprint Class** → **Parent Class** = `UmbraDamageArea`.
-2. Nome: `BP_DamageArea_Lava` (ou similar).
-3. **Add Component → Static Mesh** (plano com material de lava).
-4. **Add Component → Niagara** (efeito de fogo/poison).
-5. **Add Component → Audio** (loop ambiente).
+**No `BP_DamageArea_Lava` (ou child de `UmbraDamageArea`):**
+
+1. Abra o Blueprint → Hierarchy → selecione **`Visual`**.
+2. **Static Mesh** = `Engine/BasicShapes/Cube` (ou `Plane` para chão).
+3. **Materials → Element 0** = seu material de lava (ex.: `M_Lava_01`).
+4. Ajuste **Scale** do `Visual` para casar com **Box Extent** do `Area`:
+   - Ex.: se `Area` tem Box Extent `(200, 200, 100)`, use Scale `(4, 4, 2)` no Cube (cube base = 100 u).
+5. Confirme: **Hidden In Game** = desmarcado, **Visibility** = Visible.
+
+**Opcional (efeitos extras):**
+
+1. **Add Component → Niagara** (fogo/poison).
+2. **Add Component → Audio** (loop ambiente).
+
+> Se você tinha um StaticMesh adicionado manualmente no BP, pode removê-lo e usar só o `Visual` do C++ — evita conflito de nomes e garante configuração correta.
 
 ### 6.3 Como funciona em runtime
 
@@ -643,6 +653,66 @@ Content-Type: application/json
 - **Causa provável:** `WBP_DamageNumber` não foi atribuído ao componente.
 - **Solução:** abra `BP_ThirdPersonCharacter` → componente `CombatFloatingText` → Details → `Damage Widget Class` = `WBP_DamageNumber`.
 - **Verifique** no Skeleton: existe a socket `head`? Se não, crie ou edite o cpp.
+
+### Cliente B não vê floating text sobre o cliente A
+
+- **Causa (corrigida no C++):** o `BP_RemotePlayer` não tinha PlayerID confiável — `GetOwnerPlayerId()` retornava `0` ou o ID do jogador local, e o componente ignorava o evento (`TargetId != OwnerId`).
+- **Fix principal:** cada `AUmbraEternumUECharacter` expõe `UmbraNetworkPlayerId`. O pawn local recebe o ID no `BeginPlay`; pawns remotos recebem em `RegisterRemotePlayerActor`. `GetOwnerPlayerId()` consulta esse campo antes dos fallbacks (`RemotePlayerActorsMap`, `NetMovementClient`).
+- **Fix secundário (primeiro tick):** o Zone server calculava `delta=0` quando não havia histórico de HP. O opcode **88** agora inclui `delta_applied_health` (4 bytes) vindo do PHP; o servidor usa esse valor para emitir opcode **92** mesmo no primeiro tick.
+- **Verificação no Output Log (cliente B — observador):**
+  - `BeginPlay owner=BP_RemotePlayer_C_0 ... resolvedOwnerId=<ID de A>` — **nunca 0** após o registro.
+  - `CombatEvent WS (92): target=<ID de A> src=... delta=-10 reason=4`
+  - `[CombatFloatingText] OnCombatEvent target=<ID de A> ... ownerId=<ID de A> ownerActor=BP_RemotePlayer_C_0`
+  - `[CombatFloatingText] Spawn Delta=-10 ...`
+- **Se o opcode 92 não chega:** os dois clientes precisam estar na mesma célula AOI (~100 m). Veja a seção abaixo sobre `zone_server.log`.
+- **Combat Log:** por design, só registra eventos onde **você** é alvo ou origem — dano de A em si mesmo não aparece no Combat Log de B (mas o floating text sim).
+
+### Como ler `zone_server.log` (floating text multi-cliente)
+
+**Arquivo:** `logs/zone_server.log` (criado ao iniciar o zone server).
+
+**Executar o zone separado** (não está no `umbra_server` monolítico):
+
+```text
+build/bin/zone_server.exe 0
+```
+
+**Strings para buscar (grep / Ctrl+F):**
+
+| Padrão | Significado |
+|--------|-------------|
+| `VitalsUpdate target=` | Broadcast após opcode **88** (`ForeignVitalsNotify`) |
+| `delta=0` | Opcode **92** **não** é enviado nesse tick (sem histórico e sem `delta_applied` no 88) |
+| `delta=-10` | Opcode **92** deve ser enviado aos observadores |
+| `-> 0 recipients` | Ninguém na AOI/party recebeu (jogadores longe ou não registrados no grid) |
+| `-> 1 recipients` ou mais | Broadcast OK para pelo menos um outro jogador |
+| `PlayerVitalsUpdate from player` | Caminho opcode **86** (vitals próprios) — diferente do **88** |
+
+**Exemplo saudável** (ElJeffo id=1 toma dano na lava; MaguWill id=23 perto):
+
+```text
+VitalsUpdate target=1 delta=-10 -> 1 recipients
+```
+
+**Exemplo problemático** (primeiro tick sem `delta_applied` no 88 — corrigido no cliente):
+
+```text
+VitalsUpdate target=1 delta=0 -> 1 recipients
+```
+
+**Interpretação dos logs UE (PIE com 2 clientes):**
+
+| Janela | Ao ElJeffo tomar dano | Esperado |
+|--------|----------------------|----------|
+| ElJeffo (vítima) | local | `OnCombatEvent local` + `Spawn` no `BP_ThirdPersonCharacter` |
+| MaguWill (observador) | remoto | `CombatEvent WS (92): target=1` + `resolvedOwnerId=1` no `BP_RemotePlayer` + `Spawn Delta=-10` |
+
+Filtro sugerido no Output Log: `CombatFloatingText` OR `CombatEvent WS` OR `ForeignVitalsNotify`.
+
+### Material da área de dano não aparece no jogo
+
+- **Causa:** material aplicado no `UBoxComponent` `Area` — shapes de colisão são invisíveis em runtime.
+- **Solução:** use o componente **`Visual`** (StaticMesh) do `AUmbraDamageArea` → set Static Mesh + Material (seção 6.2).
 
 ### Aba Combat não mostra linhas
 
