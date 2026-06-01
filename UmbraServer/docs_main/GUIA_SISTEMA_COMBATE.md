@@ -76,6 +76,8 @@ flowchart TB
 | 91 | `PlayerRespawnedNotify` | S→C | 38 B | `playerId, x, y, z, yaw, hp, maxHp, mp, maxMp` |
 | 92 | `CombatEventNotify` | S→C | 16 B | `targetId, sourceId, delta, reason, isCrit` |
 | 93 | `DotTickNotify` | S→C | 19 B | `targetId, dotId, delta, dotType` |
+| 94 | `ConsumableEffectNotify` | C→S | 23+N B | `targetId, sourceId, healthRestore, manaRestore, buffValue, buffKeyLen, buffKey` |
+| 95 | `ConsumableEffectUpdate` | S→C | 23+N B | mesmo payload que 94 (broadcast AOI + party) |
 
 **Tabela de `reason`:** `0`=unknown, `1`=DAMAGE, `2`=HEAL, `3`=SKILL, `4`=ENV, `5`=DOT
 
@@ -188,10 +190,14 @@ O actor `AUmbraDamageArea` já inclui um **`UStaticMeshComponent` chamado `Visua
 
 ### 6.3 Como funciona em runtime
 
-- Quando o **personagem local** entra na área: começa um `FTimerHandle` que chama `ApplyVitalsToSelf(-DamagePerTick, 0, "ENV")`.
-- Cada tick → `apply_vitals.php` → broadcast WebSocket 87/92 → todos próximos veem HP cair.
+- Quando o **personagem local** entra na área: começa um `FTimerHandle` que chama `ApplyVitalsToSelf(-DamagePerTick, 0, reason)`.
+- **`DamagePerTick > 0`:** dano ambiental → `reason = "ENV"`, `delta_health` negativo.
+- **`DamagePerTick < 0`:** cura (HoT) → `reason = "HEAL"`, `delta_health` positivo (ex.: `-20` envia `+20` HP).
+- **`DamagePerTick == 0`:** sem efeito (timer pode rodar, mas não chama `apply_vitals.php`).
+- Cada tick → `apply_vitals.php` → broadcast WebSocket 87/92 → todos próximos veem HP mudar.
 - Ao sair: timer para automaticamente.
 - **Importante:** só o cliente do personagem que está dentro envia o request (evita duplicação).
+- Personagem **morto** (`is_dead`) não recebe ticks — respawn continua via opcode 90.
 
 ### 6.4 Variações de exemplo
 
@@ -199,7 +205,7 @@ O actor `AUmbraDamageArea` já inclui um **`UStaticMeshComponent` chamado `Visua
 |----------|--------|----------|----------|-----|
 | Lava forte | 50 | 0,5 | 0 | Castigo |
 | Poção venenosa | 5 | 1,0 | 0 | Pântano |
-| Aura de cura (HoT) | -20 | 1,0 | 0 | Use `Damage = -20` para curar |
+| Aura de cura (HoT) | -20 | 1,0 | 0 | Valor negativo cura; Combat Log mostra `(HEAL)` e floating text verde |
 
 ---
 
@@ -644,9 +650,30 @@ Content-Type: application/json
    - Cliente B vê linha na aba Combat.
    - Cliente A vê linha: `Você causou 30 em jogador B`.
 
+### 12.6 Teste 5 — Multiplayer (poção / consumível)
+
+1. PIE com 2 clientes (A e B) próximos (~100 m) ou em party.
+2. Cliente A usa poção de HP, MP ou Elixir de Força.
+3. **Esperado no cliente B:**
+   - Floating text sobre a cabeça do personagem remoto de A (verde HP, azul MP, dourado `STR +20`).
+   - Poção mista: até 3 linhas empilhadas com ~150 ms de intervalo.
+4. Afaste B (>100 m) e repita — B **não** deve ver floating text (filtro AOI).
+5. Log do zone server: `ConsumableEffectUpdate from player X -> N recipients`.
+
 ---
 
 ## 13. Troubleshooting
+
+### Consumível ou dano de outro jogador não mostra floating text
+
+- **Causa 1 (corrigida no cliente):** opcode **95** (`ConsumableEffectUpdate`) não estava na lista `bIsSocialMessage` do `NetMovementClient.cpp` — a mensagem nunca chegava ao `ProcessSocialWebSocketMessage`. Recompile o módulo UE.
+- **Causa 2:** Zone server desatualizado — recompile `zone_server` após adicionar opcodes 94/95 em `MovementProtocol.hpp`.
+- **Causa 3:** `resolvedOwnerId=0` no `BP_RemotePlayer` — ver seção abaixo sobre registro de actor.
+- **Verificação no Output Log (observador):**
+  - `ConsumableEffect WS (95): target=<id do outro> ...` — mensagem chegou
+  - `[CombatFloatingText] OnCombatEvent target=<id> ... ownerId=<mesmo id>` — componente aceitou
+  - `[CombatFloatingText] Spawn kind=...` — widget criado
+- **Log do zone server:** `ConsumableEffectUpdate from player X -> N recipients` com N ≥ 1.
 
 ### Nenhum floating text aparece
 

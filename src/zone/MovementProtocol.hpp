@@ -78,7 +78,9 @@ enum class MovementMsgType : uint8_t {
   RespawnRequest = 90,                 // Cliente -> Servidor: [type][playerId:4][zoneId:4][spawnKeyLen:1][spawnKey]
   PlayerRespawnedNotify = 91,          // Servidor -> Cliente: [type][playerId:4][x:f][y:f][z:f][yaw:f][hp:i32][maxHp:i32][mp:i32][maxMp:i32]
   CombatEventNotify = 92,              // Servidor -> Cliente: [type][targetId:4][sourceId:4][delta:i32][reason:1][isCrit:1]
-  DotTickNotify = 93                   // Servidor -> Cliente: [type][targetId:4][dotId:8][delta:i32][dotType:1]
+  DotTickNotify = 93,                  // Servidor -> Cliente: [type][targetId:4][dotId:8][delta:i32][dotType:1]
+  ConsumableEffectNotify = 94,         // Cliente -> Servidor: efeito de poção (HP/MP/buff) para broadcast AOI
+  ConsumableEffectUpdate = 95          // Servidor -> Clientes: mesmo payload que 94
 };
 
 /** reason em vitals/combate: 0=unknown, 1=DAMAGE, 2=HEAL, 3=SKILL, 4=ENV, 5=DOT */
@@ -1313,6 +1315,16 @@ struct DotTickPayload {
   uint8_t dotType = 0;
 };
 
+/** Efeito visual de consumível (poção HP/MP/buff) para floating text multiplayer */
+struct ConsumableEffectPayload {
+  uint32_t targetPlayerId = 0;
+  uint32_t sourcePlayerId = 0;
+  int32_t healthRestore = 0;
+  int32_t manaRestore = 0;
+  int32_t buffValue = 0;
+  std::string buffKey;
+};
+
 inline std::vector<uint8_t> encodePlayerVitalsUpdate(MovementMsgType msgType, const PlayerVitalsPayload& p) {
   std::vector<uint8_t> data;
   data.reserve(26);
@@ -1580,6 +1592,51 @@ inline bool decodeDotTickNotify(const std::vector<uint8_t>& data, DotTickPayload
   p.delta = static_cast<int32_t>(readU32());
   p.dotType = data[off];
   return true;
+}
+
+inline std::vector<uint8_t> encodeConsumableEffectUpdate(MovementMsgType msgType, const ConsumableEffectPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(86);
+  data.push_back(static_cast<uint8_t>(msgType));
+  auto writeU32 = [&data](uint32_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  auto writeI32 = [&writeU32](int32_t v) { writeU32(static_cast<uint32_t>(v)); };
+  writeU32(p.targetPlayerId);
+  writeU32(p.sourcePlayerId);
+  writeI32(p.healthRestore);
+  writeI32(p.manaRestore);
+  writeI32(p.buffValue);
+  appendStringField(data, p.buffKey, 64);
+  return data;
+}
+
+inline bool decodeConsumableEffectPayload(const std::vector<uint8_t>& data, ConsumableEffectPayload& p) {
+  if (data.size() < 1 + 4 + 4 + 4 + 4 + 4 + 2) return false;
+  size_t off = 1;
+  auto readU32 = [&data, &off]() -> uint32_t {
+    uint32_t v = static_cast<uint32_t>(data[off])
+      | (static_cast<uint32_t>(data[off + 1]) << 8)
+      | (static_cast<uint32_t>(data[off + 2]) << 16)
+      | (static_cast<uint32_t>(data[off + 3]) << 24);
+    off += 4;
+    return v;
+  };
+  p.targetPlayerId = readU32();
+  p.sourcePlayerId = readU32();
+  p.healthRestore = static_cast<int32_t>(readU32());
+  p.manaRestore = static_cast<int32_t>(readU32());
+  p.buffValue = static_cast<int32_t>(readU32());
+  if (!readStringField(data, off, p.buffKey, 64)) return false;
+  return true;
+}
+
+inline bool decodeConsumableEffectNotify(const std::vector<uint8_t>& data, ConsumableEffectPayload& p) {
+  if (data.empty() || static_cast<MovementMsgType>(data[0]) != MovementMsgType::ConsumableEffectNotify) return false;
+  return decodeConsumableEffectPayload(data, p);
 }
 
 inline bool decodePlayerVitalsNotify(const std::vector<uint8_t>& data, PlayerVitalsPayload& p) {

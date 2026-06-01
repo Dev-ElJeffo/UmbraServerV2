@@ -260,6 +260,49 @@ public:
         return;
       }
 
+      // Efeito de consumível (poção HP/MP/buff) — rebroadcast floating text para party + AOI
+      if (msgType == MovementMsgType::ConsumableEffectNotify) {
+        ConsumableEffectPayload payload;
+        if (decodeConsumableEffectNotify(data, payload)) {
+          uint32_t senderPlayerId = payload.sourcePlayerId;
+          auto cidIt = clientIdToPlayerId_.find(cid);
+          if (cidIt != clientIdToPlayerId_.end() && cidIt->second > 0) {
+            senderPlayerId = cidIt->second;
+            payload.sourcePlayerId = senderPlayerId;
+          }
+          if (payload.targetPlayerId == 0) {
+            payload.targetPlayerId = senderPlayerId;
+          }
+          std::lock_guard<std::mutex> lock(mu_);
+          auto outMsg = encodeConsumableEffectUpdate(MovementMsgType::ConsumableEffectUpdate, payload);
+
+          std::unordered_set<uint32_t> targetPlayerIds;
+          if (resolvePartyMembers_) {
+            for (uint32_t memberId : resolvePartyMembers_(senderPlayerId)) {
+              if (memberId != senderPlayerId) {
+                targetPlayerIds.insert(memberId);
+              }
+            }
+          }
+
+          auto nearbyClientIds = aoiGrid_.getNearbyPlayers(cid);
+          for (uint32_t nearbyCid : nearbyClientIds) {
+            auto pidIt = clientIdToPlayerId_.find(nearbyCid);
+            if (pidIt != clientIdToPlayerId_.end() && pidIt->second != senderPlayerId) {
+              targetPlayerIds.insert(pidIt->second);
+            }
+          }
+
+          for (uint32_t targetId : targetPlayerIds) {
+            sendToPlayerUnlocked(targetId, outMsg);
+          }
+          Umbra::Core::Logger::getInstance().info(
+              "ConsumableEffectUpdate from player {} -> {} recipients (party+AOI)",
+              senderPlayerId, targetPlayerIds.size());
+        }
+        return;
+      }
+
       // HP/MP atualizados (poção, equip, etc.) — rebroadcast para party + AOI
       if (msgType == MovementMsgType::PlayerVitalsNotify) {
         PlayerVitalsPayload payload;

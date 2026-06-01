@@ -132,7 +132,29 @@ Bindings no `WBP_BuffIcon`:
 | `Duration_Text` | TextBlock (mm:ss) |
 | `Duration_Fill` | Image (`MI_CooldownRadial`, parâmetro `Progress`) |
 
-Em C++: `NativeOnMouseEnter/Move/Leave` cria, reposiciona e remove `WBP_BuffTooltip` conforme o mouse. `FormatBuffBonusText`: ex. `+20 Strength` a partir de `strength_buff`.
+Em C++: `NativeOnMouseEnter/Move/Leave` cria, reposiciona e remove `WBP_BuffTooltip` conforme o mouse. `FormatBuffBonusText`: ex. `+20 STR` a partir de `strength_buff` (via `FUmbraBuffLabelHelper`).
+
+### Floating text ao usar consumível
+
+Após sucesso de `use_item.php`, `UUmbraGameInstance::OnUseItemRequestComplete` dispara `OnConsumableEffectApplied` com os valores de `stats_applied`. O componente `UUmbraCombatFloatingTextComponent` (no personagem local) spawna widgets `WBP_DamageNumber` empilhados sobre a cabeça:
+
+| Efeito | Cor | Formato | Ordem |
+|--------|-----|---------|-------|
+| `health_restore` | Verde | `+50` | 1º |
+| `mana_restore` | Azul | `+30` | 2º |
+| Buff (`*_buff`) | Dourado | `STR +20` | 3º |
+
+- Widgets separados com **150 ms** de intervalo entre cada um.
+- Offset vertical de **35 px** por linha (empilha para cima).
+- Siglas de buff mapeadas em `FUmbraBuffLabelHelper` (STR, DEX, INT, VIT, LUCK, Phys. Atk, Mag. Atk, Crit, Double, Mov, etc.).
+
+**Multiplayer (opcode 94/95):**
+
+1. Cliente A usa poção → `OnUseItemRequestComplete` dispara floating text local + envia opcode **94** (`ConsumableEffectNotify`) ao Zone.
+2. Zone rebroadcasta opcode **95** (`ConsumableEffectUpdate`) para party + AOI (exceto o sender).
+3. Cliente B recebe 95 → `OnConsumableEffectApplied` com `targetId=A` → `UUmbraCombatFloatingTextComponent` do `BP_RemotePlayer_A` spawna os mesmos números sobre a cabeça de A.
+
+Log esperado no zone server: `ConsumableEffectUpdate from player X -> N recipients (party+AOI)`.
 
 ### `UUmbraBuffTooltipWidget`
 
