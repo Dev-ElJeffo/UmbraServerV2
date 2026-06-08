@@ -53,8 +53,40 @@ if ($target_player_id <= 0) {
     exit;
 }
 
+$account_id = $validation['payload']['account_id'] ?? null;
+if (!$account_id) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'Account ID não encontrado no token']);
+    exit;
+}
+
 try {
     $pdo = getConnection();
+
+    $owns_target = false;
+    $owns_source = false;
+
+    $target_owner = $pdo->prepare('SELECT id FROM players WHERE id = :pid AND account_id = :aid LIMIT 1');
+    $target_owner->execute(['pid' => $target_player_id, 'aid' => (int)$account_id]);
+    $owns_target = (bool)$target_owner->fetch();
+
+    if ($source_player_id > 0) {
+        $source_owner = $pdo->prepare('SELECT id FROM players WHERE id = :pid AND account_id = :aid LIMIT 1');
+        $source_owner->execute(['pid' => $source_player_id, 'aid' => (int)$account_id]);
+        $owns_source = (bool)$source_owner->fetch();
+    }
+
+    if (!$owns_target && !$owns_source) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Acesso negado: alvo ou origem deve pertencer à sua conta']);
+        exit;
+    }
+
+    if (!$owns_source && $source_player_id <= 0) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Acesso negado: informe source_player_id da sua conta para remover efeitos em outros jogadores']);
+        exit;
+    }
 
     $sql = 'DELETE FROM active_dots WHERE target_player_id = :target_id';
     $params = ['target_id' => $target_player_id];
