@@ -29,25 +29,25 @@ bool ZoneCombatService::applyVitalsInDb(uint32_t sourcePlayerId, uint32_t target
   if (!db_ || !db_->isConnected()) return false;
 
   const std::string tid = std::to_string(targetPlayerId);
-  auto healthOpt = db_->executePreparedScalar("SELECT health FROM players WHERE id = ? LIMIT 1", {tid});
-  auto manaOpt = db_->executePreparedScalar("SELECT mana FROM players WHERE id = ? LIMIT 1", {tid});
-  if (!healthOpt || !manaOpt) return false;
+  auto rows = db_->executePreparedQuery(
+      "SELECT health, mana, max_health, max_mana FROM players WHERE id = ? LIMIT 1", {tid});
+  if (rows.empty() || rows[0].size() < 4) return false;
 
-  int32_t curHealth = std::stoi(*healthOpt);
-  int32_t curMana = std::stoi(*manaOpt);
-  outMaxHealth = std::max(1, curHealth);
-  outMaxMana = std::max(1, curMana);
+  int32_t curHealth = 0;
+  int32_t curMana = 0;
+  int32_t maxHealthCol = 0;
+  int32_t maxManaCol = 0;
+  try {
+    curHealth = std::stoi(rows[0][0]);
+    curMana = std::stoi(rows[0][1]);
+    maxHealthCol = std::stoi(rows[0][2]);
+    maxManaCol = std::stoi(rows[0][3]);
+  } catch (...) {
+    return false;
+  }
 
-  auto maxHOpt = db_->executePreparedScalar(
-      "SELECT COALESCE(MAX(health), 100) FROM players WHERE id = ?", {tid});
-  auto maxMOpt = db_->executePreparedScalar(
-      "SELECT COALESCE(MAX(mana), 50) FROM players WHERE id = ?", {tid});
-  if (maxHOpt && !maxHOpt->empty()) {
-    try { outMaxHealth = std::max(1, std::stoi(*maxHOpt)); } catch (...) {}
-  }
-  if (maxMOpt && !maxMOpt->empty()) {
-    try { outMaxMana = std::max(1, std::stoi(*maxMOpt)); } catch (...) {}
-  }
+  outMaxHealth = std::max(1, maxHealthCol > 0 ? maxHealthCol : 100);
+  outMaxMana = std::max(1, maxManaCol > 0 ? maxManaCol : 50);
 
   outNewHealth = std::max(0, std::min(outMaxHealth, curHealth + deltaHealth));
   outNewMana = std::max(0, std::min(outMaxMana, curMana + deltaMana));
@@ -109,10 +109,18 @@ RespawnResult ZoneCombatService::processRespawn(uint32_t playerId, uint32_t zone
     } catch (...) {}
   }
 
-  auto maxHOpt = db_->executePreparedScalar("SELECT health FROM players WHERE id = ?", {pid});
-  auto maxMOpt = db_->executePreparedScalar("SELECT mana FROM players WHERE id = ?", {pid});
-  int32_t maxHealth = maxHOpt ? std::max(1, std::stoi(*maxHOpt)) : 100;
-  int32_t maxMana = maxMOpt ? std::max(1, std::stoi(*maxMOpt)) : 50;
+  auto maxRows = db_->executePreparedQuery(
+      "SELECT max_health, max_mana FROM players WHERE id = ? LIMIT 1", {pid});
+  int32_t maxHealth = 100;
+  int32_t maxMana = 50;
+  if (!maxRows.empty() && maxRows[0].size() >= 2) {
+    try {
+      const int32_t mh = std::stoi(maxRows[0][0]);
+      const int32_t mm = std::stoi(maxRows[0][1]);
+      if (mh > 0) maxHealth = mh;
+      if (mm > 0) maxMana = mm;
+    } catch (...) {}
+  }
 
   db_->executePreparedInsert(
       "UPDATE players SET health = ?, mana = ?, is_dead = 0, pos_x = ?, pos_y = ?, pos_z = ?, current_zone = ? WHERE id = ?",

@@ -46,7 +46,7 @@ public partial class LoginDialog : Window
     try
     {
       var php = new PhpAdminClient();
-      php.Configure(AppConfig.Instance.PhpApiBase, user);
+      php.Configure(AppConfig.Instance.PhpApiBase, user, AppConfig.Instance.AdminSecret);
       var (ok, err, data) = await php.VerifyAdminAsync();
       data?.Dispose();
 

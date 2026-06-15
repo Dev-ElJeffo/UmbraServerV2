@@ -13,18 +13,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     if (!empty($data->admin_username)) {
         try {
-            $database = new Database();
-            $db = $database->connect();
-            
-            // Verificar se é admin
-            $adminCheck = verifyAdmin($db, $data->admin_username);
-            
-            if (!$adminCheck['success']) {
-                http_response_code(403);
-                echo json_encode($adminCheck);
+            $auth = authenticateAdminObjectRequest($data, $_SERVER);
+            if (empty($auth['success'])) {
+                http_response_code($auth['http_code'] ?? 403);
+                echo json_encode($auth);
                 exit();
             }
-            
+            $adminCheck = $auth;
+
+            $database = new Database();
+            $db = $database->connect();
             // Informações do MySQL
             $query = "SELECT VERSION() as mysql_version";
             $stmt = $db->query($query);

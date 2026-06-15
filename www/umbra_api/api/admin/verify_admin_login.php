@@ -19,19 +19,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $response = ['success' => false, 'message' => 'admin_username é obrigatório'];
     } else {
         try {
-            $database = new Database();
-            $db = $database->connect();
-            $adminCheck = verifyAdmin($db, $data->admin_username);
-
-            if (!$adminCheck['success']) {
-                http_response_code(403);
-                echo json_encode($adminCheck);
+            $auth = authenticateAdminObjectRequest($data, $_SERVER);
+            if (empty($auth['success'])) {
+                http_response_code($auth['http_code'] ?? 403);
+                echo json_encode($auth);
                 exit();
             }
 
             $response = [
                 'success' => true,
-                'admin' => $adminCheck['admin'],
+                'admin' => $auth['admin'],
             ];
         } catch (Exception $e) {
             $response = ['success' => false, 'message' => 'Erro: ' . $e->getMessage()];

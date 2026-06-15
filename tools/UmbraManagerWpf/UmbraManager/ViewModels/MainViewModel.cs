@@ -161,7 +161,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         Audit = new AuditLogService();
         Scheduler = new SchedulerService();
         Php = new PhpAdminClient();
-        Php.Configure(AppConfig.Instance.PhpApiBase, AppConfig.Instance.AdminUsername);
+        Php.Configure(AppConfig.Instance.PhpApiBase, AppConfig.Instance.AdminUsername, AppConfig.Instance.AdminSecret);
 
         foreach (var def in Definitions)
         {

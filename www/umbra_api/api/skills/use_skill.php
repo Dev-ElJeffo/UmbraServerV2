@@ -222,6 +222,24 @@ try {
     // Gerar request_id único para rastrear no servidor C++
     $requestId = uniqid('skill_', true);
 
+    $newHealth = (int)$playerStats['health'];
+    $newMana = (int)$playerStats['mana'];
+    $maxHealthResp = (int)$playerStats['max_health'];
+    $maxManaResp = (int)$playerStats['max_mana'];
+
+    if ($resourceCost > 0) {
+        switch ($playerSkill['resource_type']) {
+            case 'HEALTH':
+                $newHealth = max(0, $newHealth - $resourceCost);
+                break;
+            case 'MANA':
+                $newMana = max(0, $newMana - $resourceCost);
+                break;
+            case 'STAMINA':
+                break;
+        }
+    }
+
     $responseData = [
             'request_id' => $requestId,
             'skill_id' => (int)$skillId,
