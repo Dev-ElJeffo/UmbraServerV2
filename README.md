@@ -8,6 +8,8 @@
 
 Arquitetura de micro-servidores C++17 para MMORPG com integracao Unreal Engine 5, autenticacao JWT, protocolo de movimento binario, Area of Interest (AOI) e escalonamento dinamico de zones.
 
+**Branch ativo:** `backup/local-sync-no-heavy-20260407` (submodulo `UmbraEternumUE` no mesmo branch). Neste branch o **Combat V2 com dano real server-side** esta integrado ao `zone_server` via `CombatCoreEngine`, `CharacterStateLoader` e `CombatCalculator` (commits `a6dfa36`, `4ec5bc3` e anteriores).
+
 ---
 
 ## Arquitetura
@@ -42,6 +44,17 @@ Arquitetura de micro-servidores C++17 para MMORPG com integracao Unreal Engine 5
           | JWT auth       |  |   Prepared Statements      |
           | Prepared SQL   |  |   Batch transactions       |
           +----------------+  +---------------------------+
+```
+
+### Fluxo de combate (Combat V2)
+
+```mermaid
+flowchart LR
+  UE[Cliente UE] -->|"96 SkillCast / 98 BasicAttack"| Zone[zone_server CombatCoreEngine]
+  Zone -->|"87 vitals / 92 combat / 93 dot"| UE
+  Zone -->|"103 NpcCombat / 100-102 NPC"| UE
+  Zone --> MySQL[(players npc_instances active_dots combat_log)]
+  PHP[umbra_api combat] --> MySQL
 ```
 
 ---
@@ -83,6 +96,16 @@ mysql -u root -p < scripts_main/setup_database.sql
 ```
 
 Scripts adicionais em `www/umbra_api/scripts/` (classes, factions, skills, inventory, social, etc.).
+
+Scripts de combate V2 (executar apos setup base):
+
+```bat
+mysql -u root -p umbra_eternum < www\umbra_api\scripts\create_skill_system.sql
+mysql -u root -p umbra_eternum < www\umbra_api\scripts\combat_v2.sql
+mysql -u root -p umbra_eternum < www\umbra_api\scripts\add_basic_attack_skills.sql
+```
+
+Tabelas relevantes ao combate V2: `basic_attacks`, `active_dots`, `npc_templates`, `npc_instances`, `combat_log`, colunas `effects_json` / `cast_anim_path` em `skills`.
 
 ### Executar
 
@@ -153,7 +176,19 @@ UmbraServerV2/
 |-- scripts/                    # Scripts utilitarios (start, backup)
 |-- scripts_main/               # Setup e manutencao (SQL, PowerShell)
 |-- docs/                       # Documentacao tecnica
+|-- docs_main/                  # GUIA_COMBATE_V2_DANO_REAL.md e demais guias
+|-- UmbraServer/docs_main/      # GUIA_COMBAT_V2_*, GUIA_SISTEMA_COMBATE.md
 +-- CMakeLists.txt              # Build system
+```
+
+Complemento da arvore acima (modulos adicionados neste branch, sem substituir entradas existentes):
+
+```
+|   |-- zone/                   # + CombatCoreEngine, CharacterStateLoader,
+|   |                           #   NpcManager, ZoneCombatService, MovementProtocol
+|   |-- services/               # + SkillService, CombatCalculator.hpp
+|   |                           #   (CombatService legado permanece listado)
+|   |-- admin/                  # ServiceAdminRegister — spawn/reload NPC via admin
 ```
 
 ---
@@ -168,6 +203,8 @@ UmbraServerV2/
 | `zone_server` | 8082+ | Standalone: movimento, AOI, entidades, auto-save |
 | `gateway_server` | 9000 | Standalone: proxy TCP, rate limiting, load balancing |
 | `chat_server` | 8083 | Standalone: canais de chat, messaging |
+
+Complemento `zone_server` (Combat V2 neste branch): `CombatCoreEngine`, movimento WS, NPC runtime, DOT player (`active_dots`), regen passiva HP/MP, broadcast vitals opcode 87.
 
 ---
 
@@ -207,6 +244,57 @@ Zone-aware routing: `selectServerForZone()` retorna instancia com menor carga. H
 
 ---
 
+## Combat V2 — Dano real (server-authoritative)
+
+Principios:
+
+- Cliente envia intencao (opcodes 96/98); o `zone_server` calcula dano, mana, miss e persiste
+- HP/MP **current** em `players.health` / `players.mana`; max **total** calculado (classe + nivel + equip + buffs)
+- Formulas em `CombatCalculator.hpp`; stats completos via `CharacterStateLoader` (espelha `character_info_helper.php`)
+- NPC: HP em `npc_instances` + `NpcManager`; DOT de NPC in-memory (`NpcDotInstance`)
+
+| Componente | Arquivo | Funcao |
+|---|---|---|
+| CombatCoreEngine | `src/zone/CombatCoreEngine.*` | processBasicAttack, processSkillCast, mana sync, regen, DOT/HOT, miss |
+| CharacterStateLoader | `src/zone/CharacterStateLoader.*` | Stats completos, cache 1s |
+| CombatCalculator | `src/services/CombatCalculator.hpp` | Dano, crit, hit/miss, cura, DOT tick |
+| SkillService | `src/services/SkillService.*` | Skills, cooldown, parse `effects_json` |
+| NpcManager | `src/zone/NpcManager.*` | Instancias NPC, applyDamage, respawn |
+| ZoneCombatService | `src/zone/ZoneCombatService.*` | Tick `active_dots`, respawn jogador |
+| MovementServer | `src/zone/MovementServer.hpp` | Roteamento WS, broadcastVitalsAndCombat |
+
+Fluxos resumidos:
+
+1. **Ataque basico 98** → cooldown → 99 → hit roll → dano → 103/102 (NPC) ou 87+92 (player)
+2. **Skill 96** → validate → deduct mana + **87** → 97 → dano/cura → DOT/HOT via `effects_json`
+3. **Regen:** a cada 2s, +2% HP / +3% MP do max total (broadcast 87 so se mudou)
+4. **Miss:** `clamp(80 + acc - dodge, 5, 95)` — PvE e PvP — opcode 92/103 `reason=6`
+5. **DOT player:** INSERT `active_dots` → tick 0.25s → 87+92+93
+6. **DOT NPC:** `NpcDotInstance` in-memory → tick frame → 103+102
+
+Constantes ajustaveis:
+
+| Constante | Arquivo | Valor |
+|---|---|---|
+| Regen interval | CombatCoreEngine.cpp | 2.0 s |
+| Regen HP/MP | idem | 2% / 3% do max total |
+| Hit base / min / max | CombatCalculator.hpp | 80% / 5% / 95% |
+| Crit max | idem | 80% |
+| PvP damage reduction | idem | 0.7 (30% menos) |
+| State cache TTL | CharacterStateLoader.hpp | 1000 ms |
+| DOT tick player | ZoneCombatService | 0.25 s |
+
+Como alterar balanceamento:
+
+- **Skills:** tabela `skills` + `effects_json`; rank em `player_skills`
+- **Ataque basico:** tabela `basic_attacks`
+- **Formulas globais:** `CombatCalculator.hpp` + recompilar `zone_server`
+- **Stats / max HP:** **ambos** `character_info_helper.php` e `CharacterStateLoader.cpp`
+
+Documentacao completa → [`docs_main/GUIA_COMBATE_V2_DANO_REAL.md`](docs_main/GUIA_COMBATE_V2_DANO_REAL.md)
+
+---
+
 ## API PHP - 78 Endpoints
 
 | Modulo | Endpoints | Descricao |
@@ -219,8 +307,12 @@ Zone-aware routing: `selectServerForZone()` retorna instancia com menor carga. H
 | Social | 18 endpoints | Friends, party, trade, block, report |
 | Gold | 3 endpoints | Deposit/withdraw/get |
 | Admin | 7 endpoints | Ban/unban, items, accounts, server status |
+| **Combat** | `apply_vitals.php`, `respawn.php`, `dot_apply.php`, `dot_remove.php`, `get_spawn_points.php`, `log_damage.php` | Vitals, respawn, DOT manual, spawn points, log admin |
+| **NPC** | `spawn_npc.php`, `get_npc_templates.php`, `update_npc_template.php` | Spawn/admin de NPCs para zone |
 
 Todos os endpoints usam JWT para autenticacao e prepared statements para SQL.
+
+Contagem total permanece em **78** endpoints documentados acima; modulos adicionais **combat** e **npc** estao em `www/umbra_api/api/combat/` e `www/umbra_api/api/npc/`.
 
 ---
 
@@ -234,6 +326,30 @@ Validacoes server-side:
 - Speed check (rejeita velocidade acima de `maxSpeed_`)
 - Teleport detection (distancia acima de `maxTeleportDist_`)
 - Timestamp regression handling
+
+---
+
+## Protocolo WebSocket — Combate (opcodes 86–103)
+
+| Opcode | Nome | Dir | Uso |
+|--------|------|-----|-----|
+| 86–88 | Vitals legado | S↔C | Self/foreign vitals (V1) |
+| 87 | PlayerVitalsUpdate | S→C | HP/MP current + **max total** |
+| 89–90 | Death/Respawn | S→C | Morte e respawn |
+| 92 | CombatEventNotify | S→C | Dano/cura/miss player (`reason=6` = MISS) |
+| 93 | DotTickNotify | S→C | Tick DOT/HOT player |
+| 94–95 | Consumable | S→C | Efeito de poção |
+| 96 | SkillCastNotify | C→S | Intencao de skill |
+| 97 | SkillCastBroadcast | S→C | Animacao/VFX do cast |
+| 98 | BasicAttackNotify | C→S | Intencao de ataque basico |
+| 99 | BasicAttackBroadcast | S→C | Animacao do ataque |
+| 100–103 | NPC | S→C | Spawn/despawn/state/combat event |
+
+Payloads chave (resumo binario):
+
+- **98:** `[98][playerId:4][targetType:1][targetId:4]`
+- **96:** `[96][playerId:4][skillId:4][targetType:1][targetId:4][x,y,z:f32]`
+- **87:** `[87][playerId:4][hp:i32][maxHp:i32][mp:i32][maxMp:i32][sourceId:4][reason:1]`
 
 ---
 
@@ -347,6 +463,20 @@ cd UmbraEternumUE\tests
 curl -X POST http://localhost/umbra_api/api/login.php -H "Content-Type: application/json" -d "{\"username\":\"testuser\",\"password\":\"Test1234!\"}"
 ```
 
+**Checklist E2E Combat V2:**
+
+- Cast repetido: mana desce (opcode 87), skill bloqueia sem mana
+- Regen parado: HP/MP sobem ate max total (com equip)
+- Accuracy baixa: MISS no dummy (opcode 103)
+- Skill DOT: ticks 103/102 (NPC) ou 93 (player)
+- Dois clients: remote actors sem duplicar `NetMovementClient` no Level BP
+
+Build explicito do zone server:
+
+```bat
+cmake --build build --config Release --target zone_server
+```
+
 ---
 
 ## Fluxo de jogo
@@ -358,6 +488,8 @@ curl -X POST http://localhost/umbra_api/api/login.php -H "Content-Type: applicat
 4. Connect   -> TCP Gateway:9000 -> token validation -> mundo
 5. Zone      -> WebSocket Zone:8082 -> movement (25B/34B frames)
 6. Play      -> AOI broadcast -> auto-save 30s -> gameplay
+7. Combat     -> LMB/skillbar -> WS 98/96 -> zone calcula dano -> 87/92/103 -> floating text
+8. NPC        -> admin spawn_npc.php -> zone reload -> opcode 100 -> dummy na cena
 ```
 
 ---
@@ -385,6 +517,14 @@ curl -X POST http://localhost/umbra_api/api/login.php -H "Content-Type: applicat
 - [x] Zone Orchestrator (spawn/despawn dinamico)
 - [x] LoadBalancer zone-aware com heartbeat
 - [x] Admin API (ban, items, accounts, server status)
+- [x] Combat V2 — dano real (`CombatCalculator` + `CharacterStateLoader` em 96/98)
+- [x] Mana sync em tempo real (opcode 87 apos cast)
+- [x] Regeneracao passiva HP/MP no zone (`tickRegen`)
+- [x] Miss PvE/PvP com floating text (`reason=6`)
+- [x] DOT/HOT por skills (`effects_json` → `active_dots` player / in-memory NPC)
+- [x] NPC runtime (`NpcManager`, opcodes 100–103)
+- [x] `broadcastPlayerVitals` com max HP/MP total (fix HUD)
+- [x] Documentacao [`GUIA_COMBATE_V2_DANO_REAL.md`](docs_main/GUIA_COMBATE_V2_DANO_REAL.md)
 
 ### Em desenvolvimento
 
@@ -393,6 +533,8 @@ curl -X POST http://localhost/umbra_api/api/login.php -H "Content-Type: applicat
 - [ ] Quest system
 - [ ] Guild system
 - [ ] Async I/O (epoll/IOCP) para 10k+ conexoes
+
+> **Nota:** o item legado "Sistema de combate (calculos de dano, PvE/PvP)" permanece em **Em desenvolvimento** porque ainda faltam buffs de stat, range check server-side, IA de mobs e PvP zones — ver secao 12 do [`GUIA_COMBATE_V2_DANO_REAL.md`](docs_main/GUIA_COMBATE_V2_DANO_REAL.md).
 
 ---
 
@@ -406,6 +548,19 @@ curl -X POST http://localhost/umbra_api/api/login.php -H "Content-Type: applicat
 
 ---
 
+## Documentacao relacionada
+
+| Documento | Conteudo |
+|---|---|
+| [`docs_main/GUIA_COMBATE_V2_DANO_REAL.md`](docs_main/GUIA_COMBATE_V2_DANO_REAL.md) | Referencia completa dano real |
+| [`UmbraServer/docs_main/GUIA_COMBAT_V2_DANO_BASIC_ATTACK_NPC.md`](UmbraServer/docs_main/GUIA_COMBAT_V2_DANO_BASIC_ATTACK_NPC.md) | LMB, BP, spawn NPC |
+| [`UmbraServer/docs_main/GUIA_SISTEMA_COMBATE.md`](UmbraServer/docs_main/GUIA_SISTEMA_COMBATE.md) | Morte, respawn, DoT V1, floating text |
+| [`AGENTS.md`](AGENTS.md) | Regras para agentes + contexto combate |
+
+---
+
 **Versao**: 1.4.0
 **Ultima Atualizacao**: Fevereiro 2026
+**Branch documentado:** backup/local-sync-no-heavy-20260407
+**Combat V2 documentado em:** Junho 2026
 **Licenca**: Proprietary - UmbraEternum Team

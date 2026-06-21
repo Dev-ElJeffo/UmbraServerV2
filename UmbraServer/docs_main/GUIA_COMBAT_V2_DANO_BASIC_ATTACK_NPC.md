@@ -2,6 +2,8 @@
 
 
 
+> **Dano real (CombatCalculator, mana sync, regen, miss, DOT/HOT):** ver o guia autoritativo [`../../docs_main/GUIA_COMBATE_V2_DANO_REAL.md`](../../docs_main/GUIA_COMBATE_V2_DANO_REAL.md).
+>
 > Complementa [`GUIA_SISTEMA_COMBATE.md`](GUIA_SISTEMA_COMBATE.md) (V1, opcodes 86–95).  
 
 > **Princípio:** cliente envia intenção; Zone Server C++ calcula e faz broadcast; PHP persiste/admin.
@@ -306,7 +308,7 @@ O `zone_id` do spawn **deve coincidir** com o argumento do executável.
 
 
 
-**Fase atual:** dano placeholder (`-50` skill, `-powerCoef/2` basic). Próximo passo: cabear `CombatCalculator` completo.
+**Implementado:** dano real via `CombatCalculator` + `CharacterStateLoader` em `CombatCoreEngine` (opcodes 96/98). Detalhes, fórmulas e configuração: [`GUIA_COMBATE_V2_DANO_REAL.md`](../../docs_main/GUIA_COMBATE_V2_DANO_REAL.md).
 
 
 
@@ -520,7 +522,7 @@ GameInstance->SetFollowTargetNpcId(NpcInstanceId);  // tipo 2
 
 | Clique não seleciona NPC | Usar **clique direito** (mesmo fluxo de seleção de player) |
 
-| Dano sempre -50 / ~-40 | Placeholder intencional até cabear `CombatCalculator` |
+| Dano estranho / sempre igual | Verificar stats em `CharacterStateLoader` e equip `is_equipped` — ver [`GUIA_COMBATE_V2_DANO_REAL.md`](../../docs_main/GUIA_COMBATE_V2_DANO_REAL.md) §10 |
 
 | 0 skills no zone | Colunas `skills` desalinhadas — ver `SkillService.cpp` |
 
@@ -618,7 +620,7 @@ Guias relacionados:
 
 
 
-**Dois caminhos paralelos:** LMB → opcode **98** (`basic_attacks`); skillbar com **Ataque Básico** (91–96) → opcode **96**. Dano unificado virá na fase 14 (`CombatCalculator`).
+**Dois caminhos paralelos:** LMB → opcode **98** (`basic_attacks`); skillbar com **Ataque Básico** (91–96) → opcode **96**. Ambos usam `CombatCalculator` no zone server — ver [`GUIA_COMBATE_V2_DANO_REAL.md`](../../docs_main/GUIA_COMBATE_V2_DANO_REAL.md) §3.
 
 
 

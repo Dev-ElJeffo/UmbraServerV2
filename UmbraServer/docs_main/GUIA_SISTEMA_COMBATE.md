@@ -1,5 +1,7 @@
 # Guia Passo a Passo — Sistema de Combate, Morte e Respawn
 
+> **Dano real Combat V2 (CombatCalculator, mana sync, regen, miss, DOT/HOT):** [`../../docs_main/GUIA_COMBATE_V2_DANO_REAL.md`](../../docs_main/GUIA_COMBATE_V2_DANO_REAL.md).
+>
 > Implementação completa: dano, cura, DoT/HoT, morte ao chegar em 0 HP e respawn em ponto definido por actor reutilizável.
 > **Pré-requisito:** scripts SQL executados, servidor C++ e cliente UE 5.6.1 recompilados.
 
@@ -794,8 +796,10 @@ UPDATE spawn_points SET is_default = 1 WHERE spawn_key = 'cidade_inicial' AND zo
 
 ## Próximas fases (não cobertas aqui)
 
-- **Cálculo de dano por atributos** (Strength, Defense, resistências, crit) — `CombatCalculator.hpp` já tem o esqueleto pronto.
+- ~~**Cálculo de dano por atributos**~~ — **implementado** no zone server (`CombatCalculator` + `CharacterStateLoader`). Ver [`../../docs_main/GUIA_COMBATE_V2_DANO_REAL.md`](../../docs_main/GUIA_COMBATE_V2_DANO_REAL.md).
+- **DOT/HOT automático por skill** — parcialmente implementado (player via `active_dots`, NPC in-memory). Detalhes no guia de dano real §3.6.
 - **IA de mobs/NPCs** que atacam o jogador.
 - **PvP com zonas seguras** (cidades).
-- **Combat log persistente** na tabela `combat_log`.
+- ~~**Combat log persistente**~~ — `writeCombatLog` no zone grava em `combat_log` para alvos player; endpoint admin `log_damage.php` para batch.
 - **Resurrect por outro jogador** (skill de cura full).
+- **Buffs de stat** (`BUFF_STAT` em `effects_json`) — parseados, aplicação no cast ainda pendente.

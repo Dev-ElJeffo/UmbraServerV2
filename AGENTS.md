@@ -17,6 +17,7 @@
 - Servidor C++: consultar arquivos relevantes em `src/` antes de propor mudança (`src/auth/AuthServer.hpp`, `src/network/SocketServer.hpp`, `src/zone/MovementProtocol.hpp`, `src/core/Logger.hpp`).
 - Cliente UE: consultar `UmbraEternumUE/Source/UmbraEternumUE/Core/UmbraGameInstance.cpp`; para TCP, também `.../Network/UmbraTCPClient.cpp`.
 - Movimento: frames binários little-endian 25B/34B conforme `src/zone/MovementProtocol.hpp`.
+- **Combate V2 (dano real):** guia autoritativo em `docs_main/GUIA_COMBATE_V2_DANO_REAL.md` — `CombatCoreEngine`, `CharacterStateLoader`, `CombatCalculator`, opcodes 87/92/93/96–103, mana sync, regen, miss, DOT/HOT. Complementos: `UmbraServer/docs_main/GUIA_COMBAT_V2_DANO_BASIC_ATTACK_NPC.md` (BP/NPC/LMB), `UmbraServer/docs_main/GUIA_SISTEMA_COMBATE.md` (V1, 86–95).
 
 ### 2.1) Unreal Engine — versão do projeto (**5.6.1**)
 - O cliente **UmbraEternumUE** é desenvolvido e testado em **Unreal Engine 5.6.1**. Ao sugerir APIs UMG/Slate, `UWidgetTree::ConstructWidget`, módulos ou depreciações, usar como referência a documentação da **5.6.x**.
