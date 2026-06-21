@@ -6,6 +6,7 @@ add_library(umbra_zone STATIC
   ZoneOrchestrator.cpp
   NpcManager.cpp
   CombatCoreEngine.cpp
+  CharacterStateLoader.cpp
   MovementServer.hpp
   MovementProtocol.hpp
   SpatialGrid.hpp
@@ -13,6 +14,7 @@ add_library(umbra_zone STATIC
   ZoneCombatService.hpp
   NpcManager.hpp
   CombatCoreEngine.hpp
+  CharacterStateLoader.hpp
 )
 
 target_link_libraries(umbra_zone

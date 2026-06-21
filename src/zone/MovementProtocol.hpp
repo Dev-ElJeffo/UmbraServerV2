@@ -98,7 +98,8 @@ enum class CombatReason : uint8_t {
   Heal = 2,
   Skill = 3,
   Env = 4,
-  Dot = 5
+  Dot = 5,
+  Miss = 6
 };
 
 enum class CombatTargetType : uint8_t {

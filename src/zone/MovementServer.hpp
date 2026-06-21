@@ -68,9 +68,10 @@ public:
   }
 
   void broadcastVitalsAndCombat(uint32_t targetPlayerId, const PlayerVitalsPayload& vitals,
-                              uint32_t sourcePlayerId, int32_t delta, bool triggerDeath) {
+                              uint32_t sourcePlayerId, int32_t delta, bool triggerDeath,
+                              bool isCrit = false) {
     std::lock_guard<std::mutex> lock(mu_);
-    handleVitalsBroadcastUnlocked(targetPlayerId, vitals, sourcePlayerId, delta, triggerDeath);
+    handleVitalsBroadcastUnlocked(targetPlayerId, vitals, sourcePlayerId, delta, triggerDeath, isCrit);
   }
 
   void broadcastDotTick(uint32_t targetPlayerId, const DotTickPayload& dot) {
@@ -1314,7 +1315,8 @@ private:
   }
 
   void handleVitalsBroadcastUnlocked(uint32_t targetPlayerId, const PlayerVitalsPayload& payload,
-                                     uint32_t sourcePlayerId, int32_t delta, bool triggerDeath) {
+                                     uint32_t sourcePlayerId, int32_t delta, bool triggerDeath,
+                                     bool isCrit = false) {
     auto outMsg = encodePlayerVitalsUpdate(MovementMsgType::PlayerVitalsUpdate, payload);
     std::unordered_set<uint32_t> recipients;
     collectVitalsRecipientsUnlocked(targetPlayerId, recipients);
@@ -1328,7 +1330,7 @@ private:
       combat.sourceId = sourcePlayerId;
       combat.delta = delta;
       combat.reason = payload.reason;
-      combat.isCrit = 0;
+      combat.isCrit = isCrit ? 1 : 0;
       auto combatPkt = encodeCombatEventNotify(combat);
       for (uint32_t rid : recipients) {
         sendToPlayerUnlocked(rid, combatPkt);
