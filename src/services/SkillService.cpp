@@ -13,6 +13,31 @@ ResourceType parseResourceType(const std::string& value) {
   return ResourceType::MANA;
 }
 
+EffectType parseEffectType(const std::string& value) {
+  if (value == "DOT") return EffectType::DOT;
+  if (value == "HOT") return EffectType::HOT;
+  if (value == "HEAL") return EffectType::HEAL;
+  if (value == "SHIELD") return EffectType::SHIELD;
+  if (value == "BUFF_STAT") return EffectType::BUFF_STAT;
+  if (value == "DEBUFF_STAT") return EffectType::DEBUFF_STAT;
+  if (value == "STUN") return EffectType::STUN;
+  if (value == "SILENCE") return EffectType::SILENCE;
+  if (value == "SLOW") return EffectType::SLOW;
+  if (value == "ROOT") return EffectType::ROOT;
+  return EffectType::DAMAGE;
+}
+
+int32_t jsonIntField(const nlohmann::json& j, const char* key, int32_t fallback = 0) {
+  auto it = j.find(key);
+  if (it == j.end() || it->is_null()) return fallback;
+  try {
+    if (it->is_number()) return static_cast<int32_t>(it->get<double>());
+    if (it->is_string()) return std::stoi(it->get<std::string>());
+  } catch (...) {
+  }
+  return fallback;
+}
+
 }  // namespace
 
 bool SkillService::loadSkillsFromDatabase() {
@@ -26,12 +51,12 @@ bool SkillService::loadSkillsFromDatabase() {
   auto rows = db_->executePreparedQuery(
       "SELECT skill_id, skill_key, skill_name, class_id, skill_order, required_level, skill_cost, max_rank, "
       "type_id, target_id, element_id, scaling_stat_id, power_coef, resource_type, resource_cost, "
-      "cooldown_ms, cast_time_ms, range_max, can_crit "
+      "cooldown_ms, cast_time_ms, range_max, can_crit, COALESCE(effects_json,'') "
       "FROM skills WHERE is_enabled = 1",
       {});
 
   for (const auto& row : rows) {
-    if (row.size() < 19) continue;
+    if (row.size() < 20) continue;
     SkillData skill;
     try {
       skill.skillId = static_cast<uint32_t>(std::stoul(row[0]));
@@ -53,6 +78,7 @@ bool SkillService::loadSkillsFromDatabase() {
       skill.castTimeMs = static_cast<uint32_t>(std::stoul(row[16]));
       skill.rangeMax = static_cast<uint16_t>(std::stoul(row[17]));
       skill.canCrit = (std::stoi(row[18]) != 0);
+      skill.effects = parseEffectsFromJson(row[19]);
     } catch (...) {
       continue;
     }
@@ -70,6 +96,45 @@ bool SkillService::loadSkillsFromDatabase() {
 
 bool SkillService::reloadSkills() {
   return loadSkillsFromDatabase();
+}
+
+SkillEffect SkillService::parseEffectFromJson(const nlohmann::json& json) {
+  SkillEffect effect;
+  if (!json.is_object()) return effect;
+
+  std::string typeStr;
+  if (json.contains("type") && json["type"].is_string()) {
+    typeStr = json["type"].get<std::string>();
+  } else if (json.contains("effect_type") && json["effect_type"].is_string()) {
+    typeStr = json["effect_type"].get<std::string>();
+  }
+  effect.effectType = parseEffectType(typeStr);
+
+  if (json.contains("target_stat") && json["target_stat"].is_string()) {
+    effect.targetStat = json["target_stat"].get<std::string>();
+  }
+  effect.valueFlat = jsonIntField(json, "value_flat", jsonIntField(json, "value", 0));
+  effect.valuePercent = static_cast<int16_t>(jsonIntField(json, "value_percent", 0));
+  effect.durationMs = static_cast<uint32_t>(std::max(0, jsonIntField(json, "duration_ms", 0)));
+  effect.tickIntervalMs = static_cast<uint32_t>(std::max(0, jsonIntField(json, "tick_interval_ms", 1000)));
+  effect.chancePercent = static_cast<uint8_t>(std::clamp(jsonIntField(json, "chance_percent", 100), 0, 100));
+  return effect;
+}
+
+std::vector<SkillEffect> SkillService::parseEffectsFromJson(const std::string& jsonStr) {
+  std::vector<SkillEffect> effects;
+  if (jsonStr.empty() || jsonStr == "null") return effects;
+
+  nlohmann::json parsed = nlohmann::json::parse(jsonStr, nullptr, false);
+  if (parsed.is_discarded() || !parsed.is_array()) return effects;
+
+  uint8_t order = 1;
+  for (const auto& item : parsed) {
+    SkillEffect effect = parseEffectFromJson(item);
+    effect.effectOrder = order++;
+    effects.push_back(std::move(effect));
+  }
+  return effects;
 }
 
 SkillService::ValidationResult SkillService::validateSkillUse(

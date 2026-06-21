@@ -10,11 +10,23 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 
 namespace Umbra {
 namespace Zone {
 
 class MovementServer;
+
+/** DOT/HOT ativo sobre uma instancia de NPC (in-memory; NPC nao usa active_dots). */
+struct NpcDotInstance {
+  uint32_t npcInstanceId = 0;
+  uint32_t sourcePlayerId = 0;
+  uint32_t skillId = 0;
+  int32_t tickValue = 0;   // negativo = dano, positivo = cura
+  uint32_t intervalMs = 1000;
+  uint8_t ticksRemaining = 0;
+  std::chrono::steady_clock::time_point nextTickAt{};
+};
 
 class CombatCoreEngine {
 public:
@@ -25,6 +37,8 @@ public:
                     MovementServer* movementServer);
 
   void tick(float deltaSeconds);
+  /** Regeneracao passiva de HP/MP dos jogadores online (tick lento). */
+  void tickRegen(float deltaSeconds);
   void sendNpcSnapshotToClient(uint32_t clientId);
 
   /** Hot spawn: carrega instância do DB e broadcast opcode 100 a todos os clientes. */
@@ -47,6 +61,17 @@ private:
   bool applyPlayerDamage(uint32_t sourcePlayerId, uint32_t targetPlayerId, int32_t delta, uint8_t reason,
                          bool isCrit = false);
   void deductPlayerMana(uint32_t playerId, int32_t cost);
+  /** Le vitals atuais do DB e envia opcode 87 (sem floating text) ao jogador e AOI. */
+  void broadcastPlayerVitals(uint32_t playerId);
+
+  /** Aplica os efeitos DOT/HOT de uma skill no alvo (player via active_dots, NPC in-memory). */
+  void applySkillEffects(uint32_t sourcePlayerId, uint8_t targetType, uint32_t targetId,
+                         const Combat::SkillData& skill, const Combat::CharacterState& attacker,
+                         bool haveAttacker);
+  void insertPlayerDot(uint32_t sourcePlayerId, uint32_t targetPlayerId, uint32_t skillId,
+                       const char* dotType, int32_t tickValue, uint32_t tickIntervalMs,
+                       uint32_t ticksTotal);
+  void tickNpcDots();
   void writeCombatLog(uint32_t sourcePlayerId, uint32_t targetPlayerId, uint32_t skillId,
                       const char* actionType, int32_t value, bool isCrit, int32_t overkill);
   /** Resolve o defensor a partir do alvo. Retorna false se inválido/morto. */
@@ -73,6 +98,10 @@ private:
   std::mutex basicCdMu_;
   std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> basicAttackReadyAt_;
   float respawnTickAccum_ = 0.f;
+  float regenTickAccum_ = 0.f;
+
+  std::mutex npcDotsMu_;
+  std::vector<NpcDotInstance> npcDots_;
 };
 
 }  // namespace Zone

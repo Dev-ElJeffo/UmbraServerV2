@@ -2,10 +2,19 @@
 #include "zone/MovementServer.hpp"
 #include "SkillTypes.hpp"
 #include "core/Logger.hpp"
+#include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 namespace Umbra {
 namespace Zone {
+
+namespace {
+// Regeneracao passiva: intervalo do tick e fracao do maximo regenerada por tick.
+constexpr float kRegenIntervalSeconds = 2.0f;
+constexpr float kRegenHealthFraction = 0.02f;  // ~2% do max HP por tick
+constexpr float kRegenManaFraction = 0.03f;    // ~3% do max MP por tick
+}  // namespace
 
 bool CombatCoreEngine::initialize(uint32_t zoneId,
                                   std::shared_ptr<Database::MySQLConnector> db,
@@ -65,6 +74,202 @@ void CombatCoreEngine::tick(float deltaSeconds) {
       }
     }
     respawnTickAccum_ = 0.f;
+  }
+
+  // DOT/HOT de NPC (in-memory) sao processados todo frame por steady_clock.
+  tickNpcDots();
+}
+
+void CombatCoreEngine::tickRegen(float deltaSeconds) {
+  regenTickAccum_ += deltaSeconds;
+  if (regenTickAccum_ < kRegenIntervalSeconds) return;
+  regenTickAccum_ = 0.f;
+
+  if (!db_ || !db_->isConnected() || !movementServer_) return;
+
+  const auto players = movementServer_->getPlayerStates();
+  for (const auto& [playerId, state] : players) {
+    if (state.isDead) continue;
+
+    const std::string pid = std::to_string(playerId);
+    auto healthOpt = db_->executePreparedScalar("SELECT health FROM players WHERE id = ? LIMIT 1", {pid});
+    auto manaOpt = db_->executePreparedScalar("SELECT mana FROM players WHERE id = ? LIMIT 1", {pid});
+    if (!healthOpt || !manaOpt) continue;
+
+    int32_t curHealth = 0, curMana = 0;
+    try {
+      curHealth = std::stoi(*healthOpt);
+      curMana = std::stoi(*manaOpt);
+    } catch (...) {
+      continue;
+    }
+
+    // Max TOTAL (base + nivel + itens/buffs) para clamp coerente com o HUD.
+    int32_t maxHealth = 100, maxMana = 50;
+    Combat::CharacterState st;
+    if (stateLoader_ && stateLoader_->loadPlayerState(playerId, st)) {
+      maxHealth = std::max(1, st.buffedStats.maxHealth);
+      maxMana = std::max(1, st.buffedStats.maxMana);
+    } else {
+      auto maxHOpt = db_->executePreparedScalar(
+          "SELECT COALESCE(max_health, 100) FROM players WHERE id = ? LIMIT 1", {pid});
+      auto maxMOpt = db_->executePreparedScalar(
+          "SELECT COALESCE(max_mana, 50) FROM players WHERE id = ? LIMIT 1", {pid});
+      try {
+        if (maxHOpt) maxHealth = std::max(1, std::stoi(*maxHOpt));
+        if (maxMOpt) maxMana = std::max(1, std::stoi(*maxMOpt));
+      } catch (...) {
+      }
+    }
+
+    // Mortos (health<=0) nao regeneram; respawn cuida disso.
+    if (curHealth <= 0) continue;
+
+    const int32_t healthRegen = std::max(1, static_cast<int32_t>(maxHealth * kRegenHealthFraction));
+    const int32_t manaRegen = std::max(1, static_cast<int32_t>(maxMana * kRegenManaFraction));
+    const int32_t newHealth = std::min(maxHealth, curHealth + healthRegen);
+    const int32_t newMana = std::min(maxMana, curMana + manaRegen);
+
+    if (newHealth == curHealth && newMana == curMana) continue;  // nada mudou
+
+    db_->executePreparedInsert("UPDATE players SET health = ?, mana = ? WHERE id = ?",
+                               {std::to_string(newHealth), std::to_string(newMana), pid});
+    if (stateLoader_) stateLoader_->invalidate(playerId);
+    broadcastPlayerVitals(playerId);
+  }
+}
+
+void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t targetType,
+                                         uint32_t targetId, const Combat::SkillData& skill,
+                                         const Combat::CharacterState& attacker, bool haveAttacker) {
+  if (skill.effects.empty() || targetId == 0) return;
+
+  const bool targetIsNpc = (targetType == static_cast<uint8_t>(CombatTargetType::Npc));
+  const bool targetIsPlayer = (targetType == static_cast<uint8_t>(CombatTargetType::Player));
+  if (!targetIsNpc && !targetIsPlayer) return;
+
+  for (const auto& eff : skill.effects) {
+    const bool isDot = (eff.effectType == Combat::EffectType::DOT);
+    const bool isHot = (eff.effectType == Combat::EffectType::HOT);
+    if (!isDot && !isHot) continue;  // demais efeitos (buff/stun/...) ficam para depois
+
+    // Chance de aplicar.
+    if (eff.chancePercent < 100) {
+      const int32_t roll = std::rand() % 100;
+      if (roll >= eff.chancePercent) continue;
+    }
+
+    // Valor de cada tick: flat tem prioridade; senao percentual do atk relevante.
+    int32_t tickValue = eff.valueFlat;
+    if (tickValue <= 0 && eff.valuePercent > 0) {
+      int32_t base = 0;
+      if (haveAttacker) {
+        base = (skill.element == Combat::Element::PHYSICAL) ? attacker.buffedStats.physicalAttack
+                                                            : attacker.buffedStats.magicAttack;
+      }
+      if (base <= 0) base = std::max<uint16_t>(1, skill.powerCoef);
+      tickValue = std::max(1, base * eff.valuePercent / 100);
+    }
+    if (tickValue <= 0) tickValue = 1;
+
+    const uint32_t interval = std::max<uint32_t>(200, eff.tickIntervalMs);
+    uint32_t ticksTotal = (eff.durationMs > 0) ? (eff.durationMs / interval) : 1;
+    if (ticksTotal == 0) ticksTotal = 1;
+    ticksTotal = std::min<uint32_t>(255, ticksTotal);
+
+    if (targetIsPlayer) {
+      // HOT cura (positivo); DOT dano. active_dots usa tick_value positivo + dot_type.
+      const char* dotType = isHot ? "HEAL" : "DAMAGE";
+      insertPlayerDot(sourcePlayerId, targetId, skill.skillId, dotType, tickValue, interval, ticksTotal);
+    } else {  // NPC -> in-memory
+      NpcDotInstance inst;
+      inst.npcInstanceId = targetId;
+      inst.sourcePlayerId = sourcePlayerId;
+      inst.skillId = skill.skillId;
+      inst.tickValue = isHot ? tickValue : -tickValue;
+      inst.intervalMs = interval;
+      inst.ticksRemaining = static_cast<uint8_t>(ticksTotal);
+      inst.nextTickAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(interval);
+      {
+        std::lock_guard<std::mutex> lock(npcDotsMu_);
+        npcDots_.push_back(inst);
+      }
+      Core::Logger::getInstance().info(
+          "[CombatCoreEngine] DOT/HOT NPC aplicado: npc={} src={} skill={} tick={} ticks={} interval={}ms",
+          targetId, sourcePlayerId, skill.skillId, inst.tickValue, ticksTotal, interval);
+    }
+  }
+}
+
+void CombatCoreEngine::insertPlayerDot(uint32_t sourcePlayerId, uint32_t targetPlayerId,
+                                       uint32_t skillId, const char* dotType, int32_t tickValue,
+                                       uint32_t tickIntervalMs, uint32_t ticksTotal) {
+  if (!db_ || !db_->isConnected()) return;
+
+  const uint32_t intervalSec = std::max<uint32_t>(1, (tickIntervalMs + 999) / 1000);
+  const uint32_t totalDurationSec = intervalSec * ticksTotal;
+
+  db_->executePreparedInsert(
+      "INSERT INTO active_dots ("
+      "target_player_id, source_player_id, skill_id, dot_type, tick_value, tick_interval_ms, "
+      "ticks_remaining, next_tick_at, expires_at) VALUES ("
+      "?, ?, ?, ?, ?, ?, ?, "
+      "DATE_ADD(NOW(3), INTERVAL ? MILLISECOND), "
+      "DATE_ADD(NOW(3), INTERVAL ? SECOND))",
+      {std::to_string(targetPlayerId), std::to_string(sourcePlayerId), std::to_string(skillId),
+       dotType, std::to_string(tickValue), std::to_string(tickIntervalMs),
+       std::to_string(std::min<uint32_t>(255, ticksTotal)), std::to_string(tickIntervalMs),
+       std::to_string(totalDurationSec)});
+
+  Core::Logger::getInstance().info(
+      "[CombatCoreEngine] DOT/HOT player aplicado: target={} src={} skill={} type={} tick={} ticks={}",
+      targetPlayerId, sourcePlayerId, skillId, dotType, tickValue, ticksTotal);
+}
+
+void CombatCoreEngine::tickNpcDots() {
+  if (!npcManager_ || !movementServer_) return;
+
+  std::vector<NpcDotInstance> due;
+  const auto now = std::chrono::steady_clock::now();
+  {
+    std::lock_guard<std::mutex> lock(npcDotsMu_);
+    if (npcDots_.empty()) return;
+    for (auto& inst : npcDots_) {
+      while (inst.ticksRemaining > 0 && inst.nextTickAt <= now) {
+        due.push_back(inst);
+        inst.ticksRemaining--;
+        inst.nextTickAt += std::chrono::milliseconds(inst.intervalMs);
+      }
+    }
+    // Remove esgotados.
+    npcDots_.erase(std::remove_if(npcDots_.begin(), npcDots_.end(),
+                                  [](const NpcDotInstance& i) { return i.ticksRemaining == 0; }),
+                   npcDots_.end());
+  }
+
+  for (const auto& inst : due) {
+    bool dummyCrit = false;
+    bool npcDied = false;
+    const int32_t applied = npcManager_->applyDamage(inst.npcInstanceId, inst.tickValue, dummyCrit, &npcDied);
+    if (applied != 0 || npcDied) {
+      NpcCombatEventPayload evt;
+      evt.npcId = inst.npcInstanceId;
+      evt.sourcePlayerId = inst.sourcePlayerId;
+      evt.delta = applied;
+      evt.reason = static_cast<uint8_t>(CombatReason::Dot);
+      evt.isCrit = 0;
+      broadcastNpcCombatEvent(evt);
+      handleNpcDamageResult(inst.npcInstanceId, applied, npcDied);
+    }
+    if (npcDied) {
+      // Remove DOTs restantes deste NPC.
+      std::lock_guard<std::mutex> lock(npcDotsMu_);
+      npcDots_.erase(std::remove_if(npcDots_.begin(), npcDots_.end(),
+                                    [&](const NpcDotInstance& i) {
+                                      return i.npcInstanceId == inst.npcInstanceId;
+                                    }),
+                     npcDots_.end());
+    }
   }
 }
 
@@ -174,6 +379,57 @@ void CombatCoreEngine::deductPlayerMana(uint32_t playerId, int32_t cost) {
       "UPDATE players SET mana = GREATEST(0, mana - ?) WHERE id = ?",
       {std::to_string(cost), std::to_string(playerId)});
   if (stateLoader_) stateLoader_->invalidate(playerId);
+  // Sincroniza a mana real no cliente (opcode 87), inclusive quando o alvo e NPC.
+  broadcastPlayerVitals(playerId);
+}
+
+void CombatCoreEngine::broadcastPlayerVitals(uint32_t playerId) {
+  if (!db_ || !movementServer_ || playerId == 0) return;
+
+  const std::string pid = std::to_string(playerId);
+  // Current sempre fresco do DB (regen/cast acabaram de gravar).
+  auto healthOpt = db_->executePreparedScalar("SELECT health FROM players WHERE id = ? LIMIT 1", {pid});
+  auto manaOpt = db_->executePreparedScalar("SELECT mana FROM players WHERE id = ? LIMIT 1", {pid});
+  if (!healthOpt || !manaOpt) return;
+
+  int32_t curHealth = 0, curMana = 0;
+  try {
+    curHealth = std::stoi(*healthOpt);
+    curMana = std::stoi(*manaOpt);
+  } catch (...) {
+    return;
+  }
+
+  // Max TOTAL (base + nivel + itens/buffs), igual ao character_info que o HUD usa.
+  int32_t maxHealth = 100, maxMana = 50;
+  Combat::CharacterState st;
+  if (stateLoader_ && stateLoader_->loadPlayerState(playerId, st)) {
+    maxHealth = std::max(1, st.buffedStats.maxHealth);
+    maxMana = std::max(1, st.buffedStats.maxMana);
+  } else {
+    auto maxHOpt = db_->executePreparedScalar(
+        "SELECT COALESCE(max_health, 100) FROM players WHERE id = ? LIMIT 1", {pid});
+    auto maxMOpt = db_->executePreparedScalar(
+        "SELECT COALESCE(max_mana, 50) FROM players WHERE id = ? LIMIT 1", {pid});
+    try {
+      if (maxHOpt) maxHealth = std::max(1, std::stoi(*maxHOpt));
+      if (maxMOpt) maxMana = std::max(1, std::stoi(*maxMOpt));
+    } catch (...) {
+    }
+  }
+
+  PlayerVitalsPayload vitals;
+  vitals.playerId = playerId;
+  vitals.currentHealth = std::clamp(curHealth, 0, maxHealth);
+  vitals.maxHealth = maxHealth;
+  vitals.currentMana = std::clamp(curMana, 0, maxMana);
+  vitals.maxMana = maxMana;
+  vitals.sourcePlayerId = playerId;
+  vitals.reason = static_cast<uint8_t>(CombatReason::Unknown);
+
+  // delta=0 -> handleVitalsBroadcastUnlocked envia apenas o opcode 87 (sem CombatEvent).
+  movementServer_->broadcastVitalsAndCombat(playerId, vitals, playerId, /*delta*/ 0,
+                                            /*triggerDeath*/ false);
 }
 
 void CombatCoreEngine::writeCombatLog(uint32_t sourcePlayerId, uint32_t targetPlayerId,
@@ -379,8 +635,9 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
     }
     if (haveSource) {
       const bool isPvP = defenderIsPlayer;
-      // Hit/miss apenas em PvP (ver nota no ataque básico).
-      if (isPvP) {
+      // Hit/miss para qualquer alvo (player ou NPC). NPC tem dodge=0, entao a
+      // frequencia de miss depende da accuracy do atacante.
+      {
         const int32_t hitChance =
             Combat::CombatCalculator::getInstance().calculateHitChance(sourceState, defender);
         if (!Combat::CombatCalculator::getInstance().rollHit(hitChance)) {
@@ -424,6 +681,9 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
                      isHeal ? "HEAL" : "DAMAGE", std::abs(delta), isCrit, overkill);
     }
   }
+
+  // DOT/HOT e demais efeitos persistentes da skill (effects_json).
+  applySkillEffects(sourcePlayerId, payload.targetType, payload.targetId, *skill, sourceState, haveSource);
 
   Core::Logger::getInstance().info(
       "[CombatCoreEngine] SkillCast player={} skill={} rank={} targetType={} target={} delta={} crit={}",
@@ -482,9 +742,9 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
     return;
   }
 
-  // Hit/miss apenas em PvP (alvo jogador). PvE é determinístico para não gerar
-  // "misses" silenciosos em alvos de treino.
-  if (haveAttacker && defenderIsPlayer) {
+  // Hit/miss para qualquer alvo (player ou NPC). NPC tem dodge=0, entao a
+  // frequencia de miss depende da accuracy do atacante.
+  if (haveAttacker) {
     const int32_t hitChance =
         Combat::CombatCalculator::getInstance().calculateHitChance(attacker, defender);
     if (!Combat::CombatCalculator::getInstance().rollHit(hitChance)) {

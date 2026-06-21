@@ -170,6 +170,7 @@ void ZoneServer::update(float deltaTime) {
 
   if (combatCoreEngine_) {
     combatCoreEngine_->tick(deltaTime);
+    combatCoreEngine_->tickRegen(deltaTime);
   }
 
   // Auto-save desabilitado: as posicoes sao salvas pelo PHP (update_position.php)
