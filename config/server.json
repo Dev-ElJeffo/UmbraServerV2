@@ -44,7 +44,7 @@
   },
   
   "chat": {
-    "port": 8083,
+    "port": 8084,
     "max_message_length": 500,
     "rate_limit_per_minute": 30
   },

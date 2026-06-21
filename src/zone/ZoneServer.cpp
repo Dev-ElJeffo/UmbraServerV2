@@ -1,4 +1,5 @@
 #include "ZoneServer.hpp"
+#include "zone/CombatCoreEngine.hpp"
 #include "core/Logger.hpp"
 #include "core/ConfigManager.hpp"
 #include "database/MySQLConnector.hpp"
@@ -121,6 +122,14 @@ bool ZoneServer::start() {
         outPayload = result.payload;
         return true;
       });
+
+    combatCoreEngine_ = std::make_unique<CombatCoreEngine>();
+    if (combatCoreEngine_->initialize(config_.zoneId, config_.dbConnector, movementServer_.get())) {
+      movementServer_->setCombatCoreEngine(combatCoreEngine_.get());
+    } else {
+      combatCoreEngine_.reset();
+      Core::Logger::getInstance().warn("CombatCoreEngine failed to initialize");
+    }
   }
   Core::Logger::getInstance().info("ZoneServer '{}' (ID: {}) started on port {}", 
                                    config_.zoneName, config_.zoneId, config_.port);
@@ -157,6 +166,10 @@ void ZoneServer::update(float deltaTime) {
       combatService_->tickActiveDots(movementServer_.get());
     }
     dotTickAccumulator_ = 0.0f;
+  }
+
+  if (combatCoreEngine_) {
+    combatCoreEngine_->tick(deltaTime);
   }
 
   // Auto-save desabilitado: as posicoes sao salvas pelo PHP (update_position.php)
@@ -199,6 +212,10 @@ EntitySystem& ZoneServer::getEntitySystem() {
 
 MovementServer* ZoneServer::getMovementServer() {
   return movementServer_.get();
+}
+
+CombatCoreEngine* ZoneServer::getCombatCoreEngine() {
+  return combatCoreEngine_.get();
 }
 
 const ZoneServer::Config& ZoneServer::getConfig() const {

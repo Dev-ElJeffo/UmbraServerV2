@@ -27,7 +27,8 @@ public sealed class AdminChannelHub : IDisposable
     {
       _defs[def.Id] = def;
       var client = GetOrCreateClient(def.Id);
-      var ok = await TryConnectAsync(client, def, ct);
+      var timeout = def.IsZone ? 5000 : 2000;
+      var ok = await TryConnectAsync(client, def, timeout, ct);
       if (!ok)
       {
         _retryCount[def.Id] = 1;
@@ -36,19 +37,26 @@ public sealed class AdminChannelHub : IDisposable
     }
   }
 
-  public async Task ReconnectMissingAsync(CancellationToken ct = default)
+  public async Task ReconnectMissingAsync(Func<string, bool>? isProcessRunning = null, CancellationToken ct = default)
   {
     var now = DateTime.UtcNow;
     foreach (var (id, def) in _defs)
     {
+      if (isProcessRunning != null && !isProcessRunning(id))
+      {
+        if (_clients.TryGetValue(id, out var stale))
+          stale.Disconnect();
+        continue;
+      }
+
       if (!_clients.TryGetValue(id, out var client) || !client.IsAuthenticated)
       {
-        // Backoff exponencial: 3s, 6s, 12s, 24s, máx 30s
         if (_nextRetry.TryGetValue(id, out var nextAt) && now < nextAt) continue;
         if (client?.IsConnecting == true) continue;
 
         var c = GetOrCreateClient(id);
-        var ok = await TryConnectAsync(c, def, ct);
+        var timeout = def.IsZone ? 5000 : 2000;
+        var ok = await TryConnectAsync(c, def, timeout, ct);
 
         if (ok)
         {
@@ -67,11 +75,29 @@ public sealed class AdminChannelHub : IDisposable
       }
       else
       {
-        // Conexão saudável: zera contador
         _retryCount[id] = 0;
         _nextRetry.Remove(id);
       }
     }
+  }
+
+  /// <summary>Reconexão imediata (após Start/Restart), sem backoff.</summary>
+  public async Task<bool> ForceReconnectAsync(string serviceId, int handshakeTimeoutMs = 5000, CancellationToken ct = default)
+  {
+    if (!_defs.TryGetValue(serviceId, out var def)) return false;
+
+    _retryCount.Remove(serviceId);
+    _nextRetry.Remove(serviceId);
+
+    var client = GetOrCreateClient(serviceId);
+    client.Disconnect();
+    var ok = await TryConnectAsync(client, def, handshakeTimeoutMs, ct);
+    if (ok)
+    {
+      _retryCount.Remove(serviceId);
+      _nextRetry.Remove(serviceId);
+    }
+    return ok;
   }
 
   private AdminClient GetOrCreateClient(string serviceId)
@@ -86,12 +112,12 @@ public sealed class AdminChannelHub : IDisposable
     return client;
   }
 
-  private async Task<bool> TryConnectAsync(AdminClient client, ServiceDefinition def, CancellationToken ct)
+  private async Task<bool> TryConnectAsync(AdminClient client, ServiceDefinition def, int handshakeTimeoutMs, CancellationToken ct)
   {
     if (client.IsAuthenticated) return true;
     try
     {
-      return await client.ConnectAsync("127.0.0.1", def.AdminPort, 2000, ct);
+      return await client.ConnectAsync("127.0.0.1", def.AdminPort, handshakeTimeoutMs, ct);
     }
     catch (Exception ex)
     {
@@ -110,6 +136,14 @@ public sealed class AdminChannelHub : IDisposable
   {
     if (_clients.TryGetValue(serviceId, out var client) && client.IsAuthenticated)
       await client.SendCommandAsync(cmd, args, ct);
+  }
+
+  public async Task<(bool Ok, JsonElement? Response)> SendCommandAndWaitAsync(
+      string serviceId, string cmd, JsonObject? args = null, int timeoutMs = 4000, CancellationToken ct = default)
+  {
+    if (!_clients.TryGetValue(serviceId, out var client) || !client.IsAuthenticated)
+      return (false, null);
+    return await client.SendCommandAndWaitAsync(cmd, args, timeoutMs, ct);
   }
 
   public async Task BroadcastCommandAsync(string cmd, JsonObject? args = null, CancellationToken ct = default)

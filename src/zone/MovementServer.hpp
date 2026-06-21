@@ -10,6 +10,7 @@
 #include "network/WebSocketServer.hpp"
 #include "zone/MovementProtocol.hpp"
 #include "zone/SpatialGrid.hpp"
+#include "zone/CombatCoreEngine.hpp"
 #include "core/Logger.hpp"
 
 namespace Umbra {
@@ -58,6 +59,14 @@ public:
 
   void setZoneId(uint32_t zoneId) { zoneId_ = zoneId; }
 
+  void setCombatCoreEngine(CombatCoreEngine* engine) { combatCoreEngine_ = engine; }
+
+  /** Envia pacote binário a um client WS (snapshot NPC, etc.). */
+  void sendBinaryToClient(uint32_t clientId, const std::vector<uint8_t>& data) {
+    std::lock_guard<std::mutex> lock(mu_);
+    ws_.sendBinary(clientId, data);
+  }
+
   void broadcastVitalsAndCombat(uint32_t targetPlayerId, const PlayerVitalsPayload& vitals,
                               uint32_t sourcePlayerId, int32_t delta, bool triggerDeath) {
     std::lock_guard<std::mutex> lock(mu_);
@@ -74,14 +83,24 @@ public:
     }
   }
 
+  /** Broadcast binário para todos os clientes conectados (Combat V2, etc.). */
+  void broadcastToAll(const std::vector<uint8_t>& data) {
+    std::lock_guard<std::mutex> lock(mu_);
+    ws_.broadcastBinary(data);
+  }
+
   bool start() {
     ws_.setConnectionCallback([this](uint32_t cid, bool connected){
       if (connected) {
         Umbra::Core::Logger::getInstance().info("WS client {} connected", cid);
-        // Enviar snapshot inicial para o novo cliente
-        // NOTA: sendInitialSnapshotLocked precisa de lock porque é chamado do callback sem lock
-        std::lock_guard<std::mutex> lock(mu_);
-        sendInitialSnapshotLocked(cid);
+        // Snapshot de players/shops com lock; NPC snapshot fora (sendBinaryToClient adquire mu_)
+        {
+          std::lock_guard<std::mutex> lock(mu_);
+          sendInitialSnapshotLocked(cid);
+        }
+        if (combatCoreEngine_) {
+          combatCoreEngine_->sendNpcSnapshotToClient(cid);
+        }
       } else {
         Umbra::Core::Logger::getInstance().info("WS client {} disconnected", cid);
         // Remover player associado a este client quando desconectar
@@ -345,6 +364,49 @@ public:
           Umbra::Core::Logger::getInstance().info(
               "PlayerVitalsUpdate from player {} -> {} recipients (party+AOI)",
               senderPlayerId, targetPlayerIds.size());
+        }
+        return;
+      }
+
+      // Combat V2: skill cast (96)
+      if (msgType == MovementMsgType::SkillCastNotify) {
+        SkillCastPayload payload;
+        if (decodeSkillCastNotify(data, payload)) {
+          // Resolver sourcePlayerId sob lock curto e LIBERAR mu_ antes de chamar
+          // o CombatCoreEngine (mesmo motivo do BasicAttackNotify: evita deadlock
+          // recursivo de mu_ quando o engine chama broadcastToAll/broadcastVitalsAndCombat).
+          {
+            std::lock_guard<std::mutex> lock(mu_);
+            auto cidIt = clientIdToPlayerId_.find(cid);
+            if (cidIt != clientIdToPlayerId_.end() && cidIt->second > 0) {
+              payload.sourcePlayerId = cidIt->second;
+            }
+          }
+          if (combatCoreEngine_) {
+            combatCoreEngine_->processSkillCast(payload.sourcePlayerId, payload);
+          }
+        }
+        return;
+      }
+
+      // Combat V2: basic attack (98)
+      if (msgType == MovementMsgType::BasicAttackNotify) {
+        BasicAttackPayload payload;
+        if (decodeBasicAttackNotify(data, payload)) {
+          // Resolver sourcePlayerId sob lock curto e LIBERAR mu_ antes de chamar
+          // o CombatCoreEngine: ele chama de volta metodos publicos (broadcastToAll,
+          // broadcastVitalsAndCombat) que travam mu_ -> manter o lock aqui causa
+          // deadlock recursivo (EDEADLK) e derruba a conexao do cliente.
+          {
+            std::lock_guard<std::mutex> lock(mu_);
+            auto cidIt = clientIdToPlayerId_.find(cid);
+            if (cidIt != clientIdToPlayerId_.end() && cidIt->second > 0) {
+              payload.sourcePlayerId = cidIt->second;
+            }
+          }
+          if (combatCoreEngine_) {
+            combatCoreEngine_->processBasicAttack(payload.sourcePlayerId, payload);
+          }
         }
         return;
       }
@@ -846,7 +908,9 @@ private:
 
     if (msgType == MovementMsgType::ChatGlobalMessage) {
       auto packet = encodeChatReceived(MovementMsgType::ChatGlobalReceived, senderPlayerId, fromName, message);
-      broadcastToAll(packet);
+      // Esta funcao ja roda sob mu_ (chamada de handleChatMessageUnlocked com lock).
+      // Usar ws_.broadcastBinary direto: broadcastToAll re-trava mu_ -> deadlock recursivo.
+      ws_.broadcastBinary(packet);
       Umbra::Core::Logger::getInstance().info("Global chat from {} ({}) delivered", senderPlayerId, fromName);
       return;
     }
@@ -1222,11 +1286,6 @@ private:
     ws_.sendBinary(sourceClientId, data);
   }
 
-  /** Broadcast para TODOS (mensagens sociais, disconnect, etc.). */
-  void broadcastToAll(const std::vector<uint8_t>& data) {
-    ws_.broadcastBinary(data);
-  }
-
   void collectVitalsRecipientsUnlocked(uint32_t targetPlayerId,
                                          std::unordered_set<uint32_t>& recipients) {
     if (resolvePartyMembers_) {
@@ -1317,6 +1376,7 @@ private:
   uint32_t maxDelayMs_ = 300;
   size_t chatMaxMessageLength_ = 500;
   uint32_t chatRateLimitPerMinute_ = 30;
+  CombatCoreEngine* combatCoreEngine_ = nullptr;
 };
 
 } // namespace Zone

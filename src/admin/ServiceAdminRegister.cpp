@@ -3,6 +3,7 @@
 #include "gateway/GatewayServer.hpp"
 #include "zone/ZoneServer.hpp"
 #include "zone/MovementServer.hpp"
+#include "zone/CombatCoreEngine.hpp"
 #include "world/WorldServer.hpp"
 #include "world/TimeManager.hpp"
 #include "world/EventManager.hpp"
@@ -118,6 +119,68 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
     server.forceSavePositions();
     nlohmann::json d;
     d["saved"] = true;
+    return d;
+  });
+
+  registry.registerCommand("spawn_npc_instance", [&server](const nlohmann::json& args) {
+    nlohmann::json d;
+    const uint32_t instanceId = args.value("npc_instance_id", 0u);
+    d["npc_instance_id"] = instanceId;
+    auto* engine = server.getCombatCoreEngine();
+    if (!engine) {
+      d["spawned"] = false;
+      d["message"] = "CombatCoreEngine não inicializado (MySQL?)";
+      return d;
+    }
+    const bool ok = engine->spawnNpcInstance(instanceId);
+    d["spawned"] = ok;
+    d["clients_notified"] = ok;
+    d["server_zone_id"] = server.getConfig().zoneId;
+    if (!ok) {
+      d["message"] = "Instância não encontrada nesta zone (is_dead=1, zone_id diferente, ou MySQL sem linha). "
+                     "server_zone_id=" + std::to_string(server.getConfig().zoneId);
+    }
+    return d;
+  });
+
+  registry.registerCommand("reload_npc_instances", [&server](const nlohmann::json&) {
+    nlohmann::json d;
+    auto* engine = server.getCombatCoreEngine();
+    if (!engine) {
+      d["loaded"] = 0;
+      d["message"] = "CombatCoreEngine não inicializado";
+      return d;
+    }
+    const size_t loaded = engine->reloadMissingInstancesFromDatabase();
+    d["loaded"] = loaded;
+    d["clients_notified"] = loaded > 0;
+    return d;
+  });
+
+  registry.registerCommand("list_npcs", [&server](const nlohmann::json&) {
+    nlohmann::json d;
+    d["npcs"] = nlohmann::json::array();
+    auto* engine = server.getCombatCoreEngine();
+    if (!engine || !engine->getNpcManager()) {
+      d["count"] = 0;
+      return d;
+    }
+    for (const auto& inst : engine->getNpcManager()->getAllInstances()) {
+      if (inst.isDead) continue;
+      nlohmann::json n;
+      n["npc_instance_id"] = inst.npcInstanceId;
+      n["npc_template_id"] = inst.templateId;
+      n["npc_name"] = inst.npcName;
+      n["zone_id"] = inst.zoneId;
+      n["x"] = inst.x;
+      n["y"] = inst.y;
+      n["z"] = inst.z;
+      n["yaw"] = inst.yaw;
+      n["current_health"] = inst.currentHealth;
+      n["max_health"] = inst.maxHealth;
+      d["npcs"].push_back(n);
+    }
+    d["count"] = d["npcs"].size();
     return d;
   });
 }

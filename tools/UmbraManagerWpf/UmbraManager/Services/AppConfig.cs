@@ -41,14 +41,43 @@ public sealed class AppConfig
         candidates.Add("config/manager.json");
         candidates.Add(@"D:\UmbraServerV2\config\manager.json");
 
+        var existing = new List<string>();
         foreach (var c in candidates)
         {
             string full;
             try { full = Path.GetFullPath(c); }
             catch { continue; }
-            if (!File.Exists(full)) continue;
-            ManagerConfigPath = full;
-            var root = JsonDocument.Parse(File.ReadAllText(full)).RootElement;
+            if (File.Exists(full) && !existing.Contains(full, StringComparer.OrdinalIgnoreCase))
+                existing.Add(full);
+        }
+
+        // Preferir manager.json cujo project_root/build_dir contém zone_server.exe
+        var valid = new List<string>();
+        foreach (var full in existing)
+        {
+            try
+            {
+                var doc = JsonDocument.Parse(File.ReadAllText(full)).RootElement;
+                var pr = doc.GetProperty("project_root").GetString() ?? "";
+                var bd = doc.GetProperty("build_dir").GetString() ?? "build/bin/Release";
+                var zoneExe = Path.GetFullPath(Path.Combine(pr, bd.Replace('/', Path.DirectorySeparatorChar), "zone_server.exe"));
+                if (File.Exists(zoneExe))
+                    valid.Add(full);
+            }
+            catch { /* tenta próximo */ }
+        }
+
+        // Evitar config empacotado stale em dist/ quando existe config do repo
+        var bundledConfigDir = Path.GetFullPath(Path.Combine(appDir, "config"));
+        string? best = valid
+            .OrderBy(f => string.Equals(Path.GetDirectoryName(f), bundledConfigDir, StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+            .FirstOrDefault();
+        best ??= existing.FirstOrDefault();
+
+        if (best != null)
+        {
+            ManagerConfigPath = best;
+            var root = JsonDocument.Parse(File.ReadAllText(best)).RootElement;
             ProjectRoot = root.GetProperty("project_root").GetString() ?? ProjectRoot;
             BuildDir = root.GetProperty("build_dir").GetString() ?? BuildDir;
             ConfigPath = root.GetProperty("config_path").GetString() ?? ConfigPath;

@@ -53,6 +53,41 @@ public sealed class PhpAdminClient
         return await PostAsync("/admin/create_item.php", dict, ct);
     }
 
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListNpcTemplatesAsync(CancellationToken ct = default) =>
+        await PostAsync("/admin/list_npc_templates.php", new { admin_username = _adminUsername }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> CreateNpcTemplateAsync(object template, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(template).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/create_npc_template.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpdateNpcTemplateAsync(object template, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(template).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/update_npc_template.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> SpawnNpcAsync(object spawn, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(spawn).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/spawn_npc.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListNpcInstancesAsync(int? zoneId = null, CancellationToken ct = default)
+    {
+        var body = new Dictionary<string, object?> { ["admin_username"] = _adminUsername };
+        if (zoneId.HasValue && zoneId.Value > 0)
+            body["zone_id"] = zoneId.Value;
+        return await PostAsync("/admin/list_npc_instances.php", body, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> DeleteNpcInstanceAsync(long instanceId, CancellationToken ct = default) =>
+        await PostAsync("/admin/delete_npc_instance.php", new { admin_username = _adminUsername, npc_instance_id = instanceId }, ct);
+
     private async Task<(bool Ok, string Error, JsonDocument? Data)> PostAsync(string path, object body, CancellationToken ct)
     {
         var url = _baseUrl + path;

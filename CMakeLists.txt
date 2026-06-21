@@ -117,7 +117,7 @@ target_link_libraries(gateway_server
 )
 
 # Copiar config/server.json para o diretório de saída (servidor precisa no CWD)
-foreach(TGT umbra_server auth_server world_server zone_server gateway_server)
+foreach(TGT umbra_server auth_server world_server zone_server gateway_server chat_server)
   add_custom_command(TARGET ${TGT} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${TGT}>/config"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/config/server.json" "$<TARGET_FILE_DIR:${TGT}>/config/"

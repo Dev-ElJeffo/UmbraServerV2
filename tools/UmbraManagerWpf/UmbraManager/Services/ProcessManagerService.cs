@@ -43,6 +43,17 @@ public sealed class ProcessManagerService
   {
     foreach (var def in defs)
     {
+      // Remove entrada de processo gerenciado que já terminou
+      if (_processes.TryGetValue(def.Id, out var staleEntry))
+      {
+        if (staleEntry.Process is { HasExited: true })
+          _processes.TryRemove(def.Id, out _);
+        else if (staleEntry.Process is { HasExited: false })
+          continue;
+        else if (staleEntry.ExternalPid > 0 && IsPidAlive(staleEntry.ExternalPid))
+          continue;
+      }
+
       // Cooldown: ignora detecção por alguns segundos após Stop manual,
       // para evitar redetectar o mesmo PID enquanto ele está terminando.
       if (_recentlyStopped.TryGetValue(def.Id, out var stoppedAt)
@@ -57,28 +68,34 @@ public sealed class ProcessManagerService
       catch { continue; }
 
       Process? match = null;
+      var liveMatches = new List<Process>();
       foreach (var p in matches)
       {
         try
         {
           if (p.HasExited) continue;
+          liveMatches.Add(p);
           if (string.IsNullOrEmpty(def.Arguments))
           {
             match = p;
             break;
           }
           var cmd = TryGetCommandLine(p.Id);
-          if (cmd == null) continue;
-          // Match estrito: argumento como token isolado (espaço antes ou final).
-          // Evita falso positivo quando def.Arguments é "0" e a linha contém " 10".
-          var arg = def.Arguments.Trim();
-          if (cmd.EndsWith(" " + arg) || cmd.Contains(" " + arg + " "))
+          if (MatchesDefinition(def, cmd))
           {
             match = p;
             break;
           }
         }
         catch { /* access denied: ignora */ }
+      }
+
+      // WMI indisponível: único zone_server = zone 0
+      if (match == null && def.IsZone && def.Arguments.Trim() == "0" && liveMatches.Count == 1)
+      {
+        var cmd = TryGetCommandLine(liveMatches[0].Id);
+        if (cmd == null || MatchesZoneProcess(cmd, 0, def.Executable))
+          match = liveMatches[0];
       }
 
       if (match == null)
@@ -120,6 +137,24 @@ public sealed class ProcessManagerService
       return false;
     }
 
+    if (def.IsZone)
+    {
+      var existing = FindMatchingProcess(def);
+      if (existing != null)
+      {
+        // Adota processo externo já rodando (ex.: zone_server.exe manual) em vez de falhar
+        _processes[def.Id] = new ProcessEntry
+        {
+          Definition = def,
+          Process = null,
+          ExternalPid = existing.Id,
+          AutoRestart = AppConfig.Instance.AutoRestartOnCrash
+        };
+        ServiceStateChanged?.Invoke(def.Id, true);
+        return true;
+      }
+    }
+
     var exePath = Path.Combine(_workingDirectory, def.Executable);
     if (!File.Exists(exePath))
     {
@@ -127,14 +162,16 @@ public sealed class ProcessManagerService
       return false;
     }
 
+    // Sem redirect de stdout/stderr: evita deadlock com logs DEBUG no console.
+    // Saída dos servidores vem via LogTailer (logs/*.log no CWD do exe).
     var psi = new ProcessStartInfo
     {
       FileName = exePath,
       Arguments = def.Arguments,
       WorkingDirectory = _workingDirectory,
       UseShellExecute = false,
-      RedirectStandardOutput = true,
-      RedirectStandardError = true,
+      RedirectStandardOutput = false,
+      RedirectStandardError = false,
       CreateNoWindow = true
     };
 
@@ -146,15 +183,18 @@ public sealed class ProcessManagerService
       AutoRestart = AppConfig.Instance.AutoRestartOnCrash
     };
 
-    proc.OutputDataReceived += (_, e) => { if (e.Data != null) ServiceOutput?.Invoke(def.Id, e.Data); };
-    proc.ErrorDataReceived += (_, e) => { if (e.Data != null) ServiceOutput?.Invoke(def.Id, e.Data); };
     proc.Exited += (_, _) => OnProcessExited(def.Id, proc.ExitCode);
 
     try
     {
       proc.Start();
-      proc.BeginOutputReadLine();
-      proc.BeginErrorReadLine();
+      Thread.Sleep(400);
+      if (proc.HasExited)
+      {
+        error = $"Processo encerrou ao iniciar (exit {proc.ExitCode}). " +
+                $"Verifique {Path.Combine(_workingDirectory, "logs", def.LogFile)}";
+        return false;
+      }
       _processes[def.Id] = entry;
       ServiceStateChanged?.Invoke(def.Id, true);
       return true;
@@ -241,15 +281,82 @@ public sealed class ProcessManagerService
         if (!string.IsNullOrEmpty(def.Arguments))
         {
           var cmd = TryGetCommandLine(p.Id);
-          if (cmd == null) continue;
-          var arg = def.Arguments.Trim();
-          if (!(cmd.EndsWith(" " + arg) || cmd.Contains(" " + arg + " "))) continue;
+          if (!MatchesDefinition(def, cmd)) continue;
         }
         p.Kill(entireProcessTree: true);
         p.WaitForExit(graceMs);
       }
       catch { /* ignore */ }
     }
+  }
+
+  private static Process? FindMatchingProcess(ServiceDefinition def)
+  {
+    var processName = Path.GetFileNameWithoutExtension(def.Executable);
+    Process[] matches;
+    try { matches = Process.GetProcessesByName(processName); }
+    catch { return null; }
+
+    var live = new List<Process>();
+    foreach (var p in matches)
+    {
+      try { if (!p.HasExited) live.Add(p); }
+      catch { /* ignore */ }
+    }
+
+    // WMI indisponível: único zone_server vivo = zone 0
+    if (def.IsZone && def.Arguments.Trim() == "0" && live.Count == 1)
+    {
+      var cmd = TryGetCommandLine(live[0].Id);
+      if (cmd == null || MatchesZoneProcess(cmd, 0, def.Executable))
+        return live[0];
+    }
+
+    foreach (var p in live)
+    {
+      try
+      {
+        if (string.IsNullOrEmpty(def.Arguments)) return p;
+        var cmd = TryGetCommandLine(p.Id);
+        if (MatchesDefinition(def, cmd)) return p;
+      }
+      catch { /* ignore */ }
+    }
+    return null;
+  }
+
+  /// <summary>
+  /// zone_server sem argumento = zone 0 (main_zone.cpp). zone 0 também aceita " 0" explícito.
+  /// </summary>
+  private static bool MatchesDefinition(ServiceDefinition def, string? cmd)
+  {
+    if (cmd == null) return false;
+    if (def.IsZone && int.TryParse(def.Arguments.Trim(), out var zoneId))
+      return MatchesZoneProcess(cmd, zoneId, def.Executable);
+
+    var arg = def.Arguments.Trim();
+    return cmd.EndsWith(" " + arg, StringComparison.Ordinal) ||
+           cmd.Contains(" " + arg + " ", StringComparison.Ordinal);
+  }
+
+  private static bool MatchesZoneProcess(string cmd, int zoneId, string executable)
+  {
+    if (zoneId == 0)
+    {
+      if (cmd.EndsWith(" 0", StringComparison.Ordinal) ||
+          cmd.Contains(" 0 ", StringComparison.Ordinal))
+        return true;
+
+      var exeName = Path.GetFileName(executable);
+      var trimmed = cmd.TrimEnd();
+      if (trimmed.EndsWith(exeName, StringComparison.OrdinalIgnoreCase)) return true;
+      if (trimmed.EndsWith("\"" + exeName + "\"", StringComparison.OrdinalIgnoreCase)) return true;
+      return false;
+    }
+
+    var arg = zoneId.ToString();
+    return cmd.EndsWith(" " + arg, StringComparison.Ordinal) ||
+           cmd.Contains(" " + arg + " ", StringComparison.Ordinal);
   }
 
   public void RestartService(ServiceDefinition def)
@@ -281,7 +388,7 @@ public sealed class ProcessManagerService
     ServiceStateChanged?.Invoke(serviceId, false);
     ServiceCrashed?.Invoke(serviceId, exitCode);
 
-    if (!_processes.TryGetValue(serviceId, out var entry)) return;
+    if (!_processes.TryRemove(serviceId, out var entry)) return;
     if (entry.AutoRestart && exitCode != 0)
     {
       Task.Delay(2000).ContinueWith(t => { StartService(entry.Definition, out _); });

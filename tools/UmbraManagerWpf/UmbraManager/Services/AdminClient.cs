@@ -170,6 +170,35 @@ public sealed class AdminClient : IDisposable
     }
   }
 
+  /// <summary>Envia comando admin e aguarda a resposta JSON (mesmo cmd) ou timeout.</summary>
+  public async Task<(bool Ok, JsonElement? Response)> SendCommandAndWaitAsync(
+      string cmd, JsonObject? args = null, int timeoutMs = 4000, CancellationToken ct = default)
+  {
+    if (!_authenticated || _stream == null)
+      return (false, null);
+
+    var tcs = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+    void Handler(string responseCmd, JsonElement json)
+    {
+      if (string.Equals(responseCmd, cmd, StringComparison.OrdinalIgnoreCase))
+        tcs.TrySetResult(json);
+    }
+    ResponseReceived += Handler;
+    try
+    {
+      await SendCommandAsync(cmd, args, ct);
+      using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+      timeoutCts.CancelAfter(timeoutMs);
+      var completed = await Task.WhenAny(tcs.Task, Task.Delay(timeoutMs, timeoutCts.Token));
+      if (completed != tcs.Task) return (false, null);
+      return (true, await tcs.Task);
+    }
+    finally
+    {
+      ResponseReceived -= Handler;
+    }
+  }
+
   private async Task PerformHandshakeAsync()
   {
     var nonce = Guid.NewGuid().ToString("N");

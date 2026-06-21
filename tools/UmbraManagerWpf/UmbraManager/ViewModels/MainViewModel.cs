@@ -32,12 +32,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<DashboardCard> DashboardCards { get; } = new();
     public ObservableCollection<AccountRow> Accounts { get; } = new();
     public ObservableCollection<ItemRow> Items { get; } = new();
+    public ObservableCollection<NpcTemplateRow> NpcTemplates { get; } = new();
+    public ObservableCollection<NpcInstanceRow> NpcInstances { get; } = new();
     public ObservableCollection<LogTabViewModel> LogTabs { get; } = new();
 
     public static readonly string[] GmKnownCommands =
     [
         "ping", "stats", "players", "kick_player", "teleport", "broadcast",
-        "reload_config", "shutdown", "set_log_level", "zone_info", "force_save_positions"
+        "reload_config", "shutdown", "set_log_level", "zone_info", "force_save_positions",
+        "spawn_npc_instance", "reload_npc_instances", "list_npcs"
     ];
 
     [ObservableProperty] private string _statusText = "Pronto";
@@ -72,6 +75,37 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _banReason = "Violação de regras";
     [ObservableProperty] private int _editingItemId; // 0 = modo "novo", >0 = editando
 
+    [ObservableProperty] private int _editingNpcTemplateId;
+    [ObservableProperty] private string _newNpcName = "";
+    [ObservableProperty] private int _newNpcLevel = 1;
+    [ObservableProperty] private int _newNpcMaxHealth = 5000;
+    [ObservableProperty] private int _newNpcMaxMana = 1000;
+    [ObservableProperty] private int _newNpcStrength = 20;
+    [ObservableProperty] private int _newNpcDexterity = 20;
+    [ObservableProperty] private int _newNpcVitality = 20;
+    [ObservableProperty] private int _newNpcIntelligence = 20;
+    [ObservableProperty] private int _newNpcLuck = 20;
+    [ObservableProperty] private int _newNpcPhysicalAttack = 120;
+    [ObservableProperty] private int _newNpcMagicAttack = 120;
+    [ObservableProperty] private int _newNpcPhysicalDefense = 80;
+    [ObservableProperty] private int _newNpcMagicDefense = 80;
+    [ObservableProperty] private int _newNpcAccuracy = 100;
+    [ObservableProperty] private int _newNpcDodge = 20;
+    [ObservableProperty] private int _newNpcCritical = 5;
+    [ObservableProperty] private int _newNpcCriticalResistance = 5;
+    [ObservableProperty] private int _newNpcDoubleAttackRate = 5;
+    [ObservableProperty] private int _newNpcDoubleAttackResistance = 5;
+    [ObservableProperty] private string _newNpcSkeletalMeshPath = "";
+    [ObservableProperty] private string _newNpcAnimBlueprintPath = "";
+    [ObservableProperty] private int _spawnZoneId = 0;
+    [ObservableProperty] private float _spawnPosX = 1000;
+    [ObservableProperty] private float _spawnPosY = 0;
+    [ObservableProperty] private float _spawnPosZ = 200;
+    [ObservableProperty] private float _spawnYaw = 0;
+    [ObservableProperty] private NpcTemplateRow? _selectedNpcTemplate;
+    [ObservableProperty] private NpcInstanceRow? _selectedNpcInstance;
+    [ObservableProperty] private int _instanceZoneFilter;
+
     public string ItemFormTitle => EditingItemId > 0 ? $"Editar item #{EditingItemId}" : "Novo item";
     public string ItemFormSubtitle => EditingItemId > 0
         ? "Os campos abaixo refletem o item selecionado. Concluir gravará um novo registro pois o backend cria por nome."
@@ -83,6 +117,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ItemFormTitle));
         OnPropertyChanged(nameof(ItemFormSubtitle));
         OnPropertyChanged(nameof(ItemSaveButtonText));
+    }
+
+    public string NpcFormTitle => EditingNpcTemplateId > 0 ? $"Editar NPC template #{EditingNpcTemplateId}" : "Novo template NPC";
+    public string NpcSaveButtonText => EditingNpcTemplateId > 0 ? "Salvar template" : "Criar template";
+
+    partial void OnEditingNpcTemplateIdChanged(int value)
+    {
+        OnPropertyChanged(nameof(NpcFormTitle));
+        OnPropertyChanged(nameof(NpcSaveButtonText));
+    }
+
+    partial void OnSelectedNpcTemplateChanged(NpcTemplateRow? value)
+    {
+        if (value != null)
+            LoadNpcTemplateFromRow(value);
     }
 
     public IReadOnlyList<string> ItemTypes { get; } = new[] { "weapon", "armor", "consumable", "material", "quest", "misc" };
@@ -169,13 +218,22 @@ public partial class MainViewModel : ObservableObject, IDisposable
             LogLines[def.Id] = new ObservableCollection<string>();
             LogTabs.Add(new LogTabViewModel { ServiceId = def.Id, DisplayName = def.DisplayName });
             DashboardCards.Add(new DashboardCard { ServiceId = def.Id, DisplayName = def.DisplayName });
-            var logPath = Path.Combine(AppConfig.Instance.AbsolutePath(AppConfig.Instance.LogDir), def.LogFile);
-            LogTailer.WatchLog(def.Id, logPath);
-            foreach (var line in LogTailer.ReadExisting(def.Id, 200).Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            var logCandidates = new[]
             {
-                LogLines[def.Id].Add(line);
-                LogTabs.Last().Lines.Add(line);
+                Path.Combine(AppConfig.Instance.BuildDirectory, "logs", def.LogFile),
+                Path.Combine(AppConfig.Instance.AbsolutePath(AppConfig.Instance.LogDir), def.LogFile),
+            };
+            var logPath = logCandidates.FirstOrDefault(File.Exists) ?? logCandidates[0];
+            LogTailer.WatchLog(def.Id, logPath);
+            try
+            {
+                foreach (var line in LogTailer.ReadExisting(def.Id, 200).Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    LogLines[def.Id].Add(line);
+                    LogTabs.Last().Lines.Add(line);
+                }
             }
+            catch { /* log pode estar locked no boot */ }
         }
 
         if (Definitions.Count > 0) SelectedGmService = Definitions[0].Id;
@@ -197,7 +255,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         // Inicializa lista de subtipos com base no tipo padrão
         OnNewItemTypeChanged(NewItemType);
-        ProcessManager.ServiceOutput += (id, line) => Application.Current.Dispatcher.Invoke(() => AppendLog(id, line));
+        ProcessManager.ServiceStateChanged += (_, _) => Application.Current.Dispatcher.Invoke(RefreshServerRows);
+        ProcessManager.ServiceCrashed += (id, code) => Application.Current.Dispatcher.Invoke(() =>
+        {
+            StatusText = $"{id} encerrou inesperadamente (exit {code})";
+            RefreshServerRows();
+        });
         LogTailer.LineAppended += (id, line) => Application.Current.Dispatcher.Invoke(() => AppendLog(id, line));
         Scheduler.TaskExecuted += (id, desc, ok, result) => Application.Current.Dispatcher.Invoke(() =>
         {
@@ -229,6 +292,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _playersTimer.Start();
         await RefreshAccountsAsync();
         await RefreshItemsAsync();
+        await RefreshNpcTemplatesAsync();
+        await RefreshNpcInstancesAsync();
     }
 
     private void OnAdminResponse(string serviceId, string cmd, JsonElement json)
@@ -333,6 +398,50 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private static string TryGetStringProp(JsonElement obj, string prop) =>
         obj.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
 
+    private static float TryGetFloatProp(JsonElement obj, string prop)
+    {
+        if (!obj.TryGetProperty(prop, out var v)) return 0;
+        return v.ValueKind switch
+        {
+            JsonValueKind.Number => (float)v.GetDouble(),
+            JsonValueKind.String => float.TryParse(v.GetString(), out var f) ? f : 0,
+            _ => 0
+        };
+    }
+
+    private int ResolveNpcTemplateIdForSpawn() =>
+        SelectedNpcTemplate?.Id ?? EditingNpcTemplateId;
+
+    private static int ParseZoneIdFromService(string zoneService)
+    {
+        if (string.IsNullOrWhiteSpace(zoneService)) return -1;
+        var m = System.Text.RegularExpressions.Regex.Match(zoneService, @"(\d+)\s*$");
+        return m.Success && int.TryParse(m.Groups[1].Value, out var z) ? z : -1;
+    }
+
+    /// <summary>Zone efetiva: player online &gt; zone admin conectada &gt; campo SpawnZoneId.</summary>
+    private int ResolveEffectiveSpawnZoneId()
+    {
+        foreach (var player in Players)
+        {
+            var z = ParseZoneIdFromService(player.ZoneService);
+            if (z >= 0) return z;
+        }
+
+        foreach (var def in Definitions.Where(d => d.IsZone))
+        {
+            if (AdminHub.GetClient(def.Id)?.IsAuthenticated != true) continue;
+            if (int.TryParse(def.Arguments, out var z)) return z;
+        }
+
+        return SpawnZoneId;
+    }
+
+    private IReadOnlyList<string> GetAuthenticatedZoneServices() =>
+        Definitions.Where(d => d.IsZone && AdminHub.GetClient(d.Id)?.IsAuthenticated == true)
+            .Select(d => d.Id)
+            .ToList();
+
     private readonly Dictionary<string, List<PlayerInfo>> _playersByZone = new();
 
     private void RefreshPlayersFromZone(string serviceId, JsonElement data)
@@ -364,9 +473,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private async Task PollStatsAsync()
     {
-        await AdminHub.ReconnectMissingAsync();
+        ProcessManager.RefreshExternalProcesses(Definitions);
+        await AdminHub.ReconnectMissingAsync(ProcessManager.IsRunning);
         foreach (var def in Definitions)
         {
+            if (!ProcessManager.IsRunning(def.Id)) continue;
             await AdminHub.SendCommandAsync(def.Id, "stats");
             if (def.IsZone) await AdminHub.SendCommandAsync(def.Id, "zone_info");
         }
@@ -385,7 +496,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private async Task PollPlayersAsync()
     {
-        foreach (var def in Definitions.Where(d => d.IsZone))
+        foreach (var def in Definitions.Where(d => d.IsZone && ProcessManager.IsRunning(d.Id)))
             await AdminHub.SendCommandAsync(def.Id, "players");
 
         // Atualiza Zones in-place: 1 entry por zona em Definitions, sem duplicar
@@ -436,11 +547,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
             if (running) onlineCount++;
             if (authenticated) adminCount++;
 
-            var adminState = authenticated ? "OK"
+            var adminState = !running ? "off"
+                : authenticated ? "OK"
                 : !string.IsNullOrEmpty(client?.LastError) ? client.LastError!
                 : "off";
             row.AdminState = adminState;
-            row.Stats = GetServiceStat(row.Definition.Id);
+            row.Stats = running ? GetServiceStat(row.Definition.Id) : "-";
+            if (!running)
+                _serviceStats.Remove(row.Definition.Id);
 
             var card = DashboardCards.FirstOrDefault(c => c.ServiceId == row.Definition.Id);
             if (card != null)
@@ -510,7 +624,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    [RelayCommand] private void StartService(ServerRow? row)
+    [RelayCommand] private async Task StartService(ServerRow? row)
     {
         if (row == null) return;
         var r = MessageBox.Show(
@@ -525,6 +639,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
         Audit.Log(AppConfig.Instance.AdminUsername, "start", row.Definition.Id);
+        ProcessManager.RefreshExternalProcesses(Definitions);
+        await Task.Delay(row.Definition.IsZone ? 800 : 500);
+        var timeout = row.Definition.IsZone ? 5000 : 3000;
+        await AdminHub.ForceReconnectAsync(row.Definition.Id, timeout);
         RefreshServerRows();
         StatusText = $"{row.Definition.DisplayName} iniciado.";
     }
@@ -539,6 +657,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         // Desconecta admin client antes para evitar status fantasma "Online"
         AdminHub.GetClient(row.Definition.Id)?.Disconnect();
+        _serviceStats.Remove(row.Definition.Id);
         ProcessManager.StopServiceByDefinition(row.Definition);
         Audit.Log(AppConfig.Instance.AdminUsername, "stop", row.Definition.Id);
         RefreshServerRows();
@@ -547,7 +666,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         StatusText = $"{row.Definition.DisplayName} parado.";
     }
 
-    [RelayCommand] private void RestartService(ServerRow? row)
+    [RelayCommand] private async Task RestartService(ServerRow? row)
     {
         if (row == null) return;
         var r = MessageBox.Show(
@@ -556,9 +675,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (r != MessageBoxResult.Yes) return;
 
         AdminHub.GetClient(row.Definition.Id)?.Disconnect();
+        _serviceStats.Remove(row.Definition.Id);
         ProcessManager.RestartService(row.Definition);
         RefreshServerRows();
         StatusText = $"{row.Definition.DisplayName} reiniciando...";
+        await Task.Delay(1500);
+        var timeout = row.Definition.IsZone ? 5000 : 3000;
+        await AdminHub.ForceReconnectAsync(row.Definition.Id, timeout);
+        RefreshServerRows();
     }
 
     [RelayCommand] private void StartAll()
@@ -828,6 +952,443 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (!ok) { MessageBox.Show(err, "Erro"); return; }
         Audit.Log(AppConfig.Instance.AdminUsername, "delete_item", item.Id.ToString());
         await RefreshItemsAsync();
+    }
+
+    [RelayCommand] private async Task RefreshNpcTemplatesAsync()
+    {
+        var (ok, err, data) = await Php.ListNpcTemplatesAsync();
+        if (!ok) { MessageBox.Show(err, "Erro ao listar NPCs"); return; }
+        NpcTemplates.Clear();
+        if (data!.RootElement.TryGetProperty("templates", out var arr))
+        {
+            foreach (var t in arr.EnumerateArray())
+            {
+                int id = TryGetIntProp(t, "npc_template_id");
+                if (id == 0) id = TryGetIntProp(t, "id");
+                NpcTemplates.Add(new NpcTemplateRow
+                {
+                    Id = id,
+                    Name = TryGetStringProp(t, "npc_name"),
+                    Level = TryGetIntProp(t, "level"),
+                    MaxHealth = TryGetIntProp(t, "max_health"),
+                    MaxMana = TryGetIntProp(t, "max_mana"),
+                    Strength = TryGetIntProp(t, "strength"),
+                    Dexterity = TryGetIntProp(t, "dexterity"),
+                    Vitality = TryGetIntProp(t, "vitality"),
+                    Intelligence = TryGetIntProp(t, "intelligence"),
+                    Luck = TryGetIntProp(t, "luck"),
+                    PhysicalAttack = TryGetIntProp(t, "physical_attack"),
+                    MagicAttack = TryGetIntProp(t, "magic_attack"),
+                    PhysicalDefense = TryGetIntProp(t, "physical_defense"),
+                    MagicDefense = TryGetIntProp(t, "magic_defense"),
+                    Accuracy = TryGetIntProp(t, "accuracy"),
+                    Dodge = TryGetIntProp(t, "dodge"),
+                    Critical = TryGetIntProp(t, "critical"),
+                    CriticalResistance = TryGetIntProp(t, "critical_resistance"),
+                    DoubleAttackRate = TryGetIntProp(t, "double_attack_rate"),
+                    DoubleAttackResistance = TryGetIntProp(t, "double_attack_resistance"),
+                    SkeletalMeshPath = TryGetStringProp(t, "skeletal_mesh_path"),
+                    AnimBlueprintPath = TryGetStringProp(t, "anim_blueprint_path"),
+                    IsEditable = TryGetBoolProp(t, "is_editable"),
+                });
+            }
+        }
+        data.Dispose();
+        StatusText = $"{NpcTemplates.Count} template(s) NPC carregado(s).";
+    }
+
+    [RelayCommand] private async Task RefreshNpcInstancesAsync()
+    {
+        int? zoneFilter = InstanceZoneFilter > 0 ? InstanceZoneFilter : null;
+        var (ok, err, data) = await Php.ListNpcInstancesAsync(zoneFilter);
+        if (!ok)
+        {
+            StatusText = $"Erro ao listar instâncias NPC: {err}";
+            MessageBox.Show(err, "Erro ao listar instâncias NPC");
+            return;
+        }
+
+        NpcInstances.Clear();
+        if (data!.RootElement.TryGetProperty("instances", out var arr))
+        {
+            foreach (var row in arr.EnumerateArray())
+            {
+                long id = TryGetIntProp(row, "npc_instance_id");
+                NpcInstances.Add(new NpcInstanceRow
+                {
+                    InstanceId = id,
+                    TemplateId = TryGetIntProp(row, "npc_template_id"),
+                    TemplateName = TryGetStringProp(row, "npc_name"),
+                    ZoneId = TryGetIntProp(row, "zone_id"),
+                    PosX = TryGetFloatProp(row, "pos_x"),
+                    PosY = TryGetFloatProp(row, "pos_y"),
+                    PosZ = TryGetFloatProp(row, "pos_z"),
+                    Yaw = TryGetFloatProp(row, "yaw"),
+                    CurrentHealth = TryGetIntProp(row, "current_health"),
+                    CurrentMana = TryGetIntProp(row, "current_mana"),
+                    IsDead = TryGetBoolProp(row, "is_dead"),
+                    CreatedAt = TryGetStringProp(row, "created_at"),
+                });
+            }
+        }
+        data.Dispose();
+        StatusText = $"{NpcInstances.Count} instância(s) NPC no banco.";
+    }
+
+    [RelayCommand] private void CopySpawnFromPlayer()
+    {
+        var zoneKey = $"zone_{SpawnZoneId}";
+        PlayerInfo? player = Players.FirstOrDefault(p =>
+            p.ZoneService.Equals(zoneKey, StringComparison.OrdinalIgnoreCase) ||
+            p.ZoneService.EndsWith($"_{SpawnZoneId}", StringComparison.OrdinalIgnoreCase));
+
+        player ??= Players.FirstOrDefault();
+
+        if (player == null)
+        {
+            MessageBox.Show("Nenhum jogador online para copiar posição.", "Spawn NPC");
+            return;
+        }
+
+        var playerZone = ParseZoneIdFromService(player.ZoneService);
+        if (playerZone >= 0)
+            SpawnZoneId = playerZone;
+
+        SpawnPosX = player.X;
+        SpawnPosY = player.Y;
+        SpawnPosZ = player.Z;
+        StatusText = $"Coords spawn = player {player.Name} zone {player.ZoneService} ({player.X:F1}, {player.Y:F1}, {player.Z:F1})";
+    }
+
+    [RelayCommand] private void FillSpawnFromInstance(NpcInstanceRow? row)
+    {
+        if (row == null) return;
+        SpawnZoneId = row.ZoneId;
+        SpawnPosX = row.PosX;
+        SpawnPosY = row.PosY;
+        SpawnPosZ = row.PosZ;
+        SpawnYaw = row.Yaw;
+        StatusText = $"Spawn preenchido da instância #{row.InstanceId}";
+    }
+
+    [RelayCommand] private async Task DeleteNpcInstanceAsync(NpcInstanceRow? row)
+    {
+        if (row == null) return;
+        if (MessageBox.Show($"Excluir instância NPC #{row.InstanceId} ({row.TemplateLabel})?", "Confirmar",
+                MessageBoxButton.YesNo) != MessageBoxResult.Yes)
+            return;
+
+        var (ok, err, _) = await Php.DeleteNpcInstanceAsync(row.InstanceId);
+        if (!ok)
+        {
+            StatusText = $"Erro ao excluir instância: {err}";
+            MessageBox.Show(err, "Erro ao excluir instância");
+            return;
+        }
+
+        Audit.Log(AppConfig.Instance.AdminUsername, "delete_npc_instance", row.InstanceId.ToString());
+        StatusText = $"Instância NPC #{row.InstanceId} removida.";
+        await RefreshNpcInstancesAsync();
+    }
+
+    private Dictionary<string, object?> BuildNpcTemplatePayload()
+    {
+        return new Dictionary<string, object?>
+        {
+            ["npc_name"] = NewNpcName,
+            ["level"] = NewNpcLevel,
+            ["max_health"] = NewNpcMaxHealth,
+            ["max_mana"] = NewNpcMaxMana,
+            ["strength"] = NewNpcStrength,
+            ["dexterity"] = NewNpcDexterity,
+            ["vitality"] = NewNpcVitality,
+            ["intelligence"] = NewNpcIntelligence,
+            ["luck"] = NewNpcLuck,
+            ["physical_attack"] = NewNpcPhysicalAttack,
+            ["magic_attack"] = NewNpcMagicAttack,
+            ["physical_defense"] = NewNpcPhysicalDefense,
+            ["magic_defense"] = NewNpcMagicDefense,
+            ["accuracy"] = NewNpcAccuracy,
+            ["dodge"] = NewNpcDodge,
+            ["critical"] = NewNpcCritical,
+            ["critical_resistance"] = NewNpcCriticalResistance,
+            ["double_attack_rate"] = NewNpcDoubleAttackRate,
+            ["double_attack_resistance"] = NewNpcDoubleAttackResistance,
+            ["skeletal_mesh_path"] = NewNpcSkeletalMeshPath,
+            ["anim_blueprint_path"] = NewNpcAnimBlueprintPath,
+            ["is_editable"] = 1,
+        };
+    }
+
+    [RelayCommand] private async Task SaveNpcTemplateAsync()
+    {
+        if (string.IsNullOrWhiteSpace(NewNpcName))
+        {
+            MessageBox.Show("Informe o nome do template NPC.", "Validação");
+            return;
+        }
+
+        var payload = BuildNpcTemplatePayload();
+        bool ok;
+        string err;
+        if (EditingNpcTemplateId > 0)
+        {
+            payload["npc_template_id"] = EditingNpcTemplateId;
+            (ok, err, _) = await Php.UpdateNpcTemplateAsync(payload);
+            if (!ok) { MessageBox.Show(err, "Erro ao salvar template"); return; }
+            Audit.Log(AppConfig.Instance.AdminUsername, "update_npc_template", EditingNpcTemplateId.ToString());
+            StatusText = $"Template NPC '{NewNpcName}' atualizado.";
+        }
+        else
+        {
+            (ok, err, _) = await Php.CreateNpcTemplateAsync(payload);
+            if (!ok) { MessageBox.Show(err, "Erro ao criar template"); return; }
+            Audit.Log(AppConfig.Instance.AdminUsername, "create_npc_template", NewNpcName);
+            StatusText = $"Template NPC '{NewNpcName}' criado.";
+            NewNpcTemplate();
+        }
+        await RefreshNpcTemplatesAsync();
+    }
+
+    [RelayCommand] private void EditNpcTemplate(NpcTemplateRow? row)
+    {
+        if (row == null) return;
+        SelectedNpcTemplate = row;
+    }
+
+    private void LoadNpcTemplateFromRow(NpcTemplateRow row)
+    {
+        EditingNpcTemplateId = row.Id;
+        NewNpcName = row.Name;
+        NewNpcLevel = row.Level <= 0 ? 1 : row.Level;
+        NewNpcMaxHealth = row.MaxHealth <= 0 ? 5000 : row.MaxHealth;
+        NewNpcMaxMana = row.MaxMana;
+        NewNpcStrength = row.Strength;
+        NewNpcDexterity = row.Dexterity;
+        NewNpcVitality = row.Vitality;
+        NewNpcIntelligence = row.Intelligence;
+        NewNpcLuck = row.Luck;
+        NewNpcPhysicalAttack = row.PhysicalAttack;
+        NewNpcMagicAttack = row.MagicAttack;
+        NewNpcPhysicalDefense = row.PhysicalDefense;
+        NewNpcMagicDefense = row.MagicDefense;
+        NewNpcAccuracy = row.Accuracy;
+        NewNpcDodge = row.Dodge;
+        NewNpcCritical = row.Critical;
+        NewNpcCriticalResistance = row.CriticalResistance;
+        NewNpcDoubleAttackRate = row.DoubleAttackRate;
+        NewNpcDoubleAttackResistance = row.DoubleAttackResistance;
+        NewNpcSkeletalMeshPath = row.SkeletalMeshPath ?? "";
+        NewNpcAnimBlueprintPath = row.AnimBlueprintPath ?? "";
+    }
+
+    [RelayCommand] private void NewNpcTemplate()
+    {
+        EditingNpcTemplateId = 0;
+        NewNpcName = "";
+        NewNpcLevel = 1;
+        NewNpcMaxHealth = 5000;
+        NewNpcMaxMana = 1000;
+        NewNpcStrength = 20;
+        NewNpcDexterity = 20;
+        NewNpcVitality = 20;
+        NewNpcIntelligence = 20;
+        NewNpcLuck = 20;
+        NewNpcPhysicalAttack = 120;
+        NewNpcMagicAttack = 120;
+        NewNpcPhysicalDefense = 80;
+        NewNpcMagicDefense = 80;
+        NewNpcAccuracy = 100;
+        NewNpcDodge = 20;
+        NewNpcCritical = 5;
+        NewNpcCriticalResistance = 5;
+        NewNpcDoubleAttackRate = 5;
+        NewNpcDoubleAttackResistance = 5;
+        NewNpcSkeletalMeshPath = "";
+        NewNpcAnimBlueprintPath = "";
+    }
+
+    [RelayCommand] private async Task SpawnNpcAsync()
+    {
+        var templateId = ResolveNpcTemplateIdForSpawn();
+        if (templateId <= 0)
+        {
+            StatusText = "Spawn NPC: selecione um template na lista (coluna ID) antes de spawnar.";
+            MessageBox.Show("Selecione um template na lista ou clique em Editar antes de spawnar.", "Validação");
+            return;
+        }
+
+        StatusText = $"Spawnando NPC template #{templateId} na zone {SpawnZoneId}...";
+
+        var effectiveZone = ResolveEffectiveSpawnZoneId();
+        if (effectiveZone != SpawnZoneId)
+        {
+            SpawnZoneId = effectiveZone;
+            StatusText = $"Zone ajustada para {effectiveZone} (player/zone online). Spawnando template #{templateId}...";
+        }
+
+        var zoneServiceId = $"zone_{effectiveZone}";
+        var onlineZones = GetAuthenticatedZoneServices();
+        if (onlineZones.Count == 0)
+        {
+            MessageBox.Show(
+                "Nenhum zone_server com admin conectado.\n\n" +
+                "Inicie zone_0 ou zone_1 na aba Servers e faça login no UmbraManager.",
+                "Zone offline",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        if (!onlineZones.Contains(zoneServiceId, StringComparer.OrdinalIgnoreCase))
+        {
+            var onlineList = string.Join(", ", onlineZones);
+            if (MessageBox.Show(
+                    $"O admin de {zoneServiceId} não está conectado.\n" +
+                    $"Zones online: {onlineList}\n\n" +
+                    $"Continuar gravando no MySQL com zone_id={effectiveZone} mesmo assim?",
+                    "Zone admin ausente",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                return;
+        }
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["npc_template_id"] = templateId,
+            ["zone_id"] = effectiveZone,
+            ["pos_x"] = SpawnPosX,
+            ["pos_y"] = SpawnPosY,
+            ["pos_z"] = SpawnPosZ,
+            ["yaw"] = SpawnYaw,
+        };
+
+        var (ok, err, data) = await Php.SpawnNpcAsync(payload);
+        if (!ok)
+        {
+            StatusText = $"Spawn NPC falhou: {err}";
+            MessageBox.Show(err, "Erro ao spawnar NPC");
+            return;
+        }
+
+        int instanceId = 0;
+        if (data != null && data.RootElement.TryGetProperty("npc_instance_id", out var idEl))
+            instanceId = idEl.GetInt32();
+        data?.Dispose();
+
+        if (instanceId <= 0)
+        {
+            StatusText = "Spawn retornou sucesso mas sem npc_instance_id.";
+            MessageBox.Show("A API não retornou npc_instance_id. Verifique logs PHP/MySQL.", "Spawn NPC");
+            return;
+        }
+
+        Audit.Log(AppConfig.Instance.AdminUsername, "spawn_npc", $"{templateId} zone={effectiveZone} instance={instanceId}");
+        await RefreshNpcInstancesAsync();
+
+        var zoneArgs = new JsonObject { ["npc_instance_id"] = instanceId };
+        var (zoneOk, zoneResp) = await AdminHub.SendCommandAndWaitAsync(zoneServiceId, "spawn_npc_instance", zoneArgs, 6000);
+
+        if (TryParseSpawnZoneResponse(zoneResp, out var spawned, out var spawnMsg, out var serverZoneId))
+        {
+            if (spawned)
+            {
+                StatusText = $"NPC #{instanceId} spawnado — enviado ao {zoneServiceId} (opcode 100).";
+                MessageBox.Show(
+                    $"NPC spawnado (instance #{instanceId}) na zone {effectiveZone}.\n\n" +
+                    "O dummy deve aparecer no PIE imediatamente (sem reiniciar o zone).",
+                    "Spawn OK",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            if (spawnMsg?.Contains("CombatCoreEngine", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                StatusText = $"MySQL OK #{instanceId}; zone sem CombatCoreEngine (MySQL?).";
+                MessageBox.Show(
+                    $"Instância #{instanceId} gravada no MySQL, mas o zone não tem CombatCoreEngine.\n\n" +
+                    $"{spawnMsg}\n\nVerifique conexão MySQL em logs/zone_server.log.",
+                    "Spawn parcial — MySQL zone",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+        }
+
+        // Fallback: recarrega instâncias faltantes do MySQL e broadcast opcode 100
+        if (onlineZones.Contains(zoneServiceId, StringComparer.OrdinalIgnoreCase))
+        {
+            var (reloadOk, reloadResp) = await AdminHub.SendCommandAndWaitAsync(zoneServiceId, "reload_npc_instances", null, 6000);
+            if (reloadOk && reloadResp != null &&
+                reloadResp.Value.TryGetProperty("success", out var reloadSuccess) && reloadSuccess.GetBoolean() &&
+                reloadResp.Value.TryGetProperty("data", out var reloadData) &&
+                reloadData.TryGetProperty("loaded", out var loadedEl) && loadedEl.GetInt32() > 0)
+            {
+                StatusText = $"NPC #{instanceId} carregado via reload_npc_instances ({loadedEl.GetInt32()} inst.).";
+                MessageBox.Show(
+                    $"spawn_npc_instance falhou; reload_npc_instances carregou {loadedEl.GetInt32()} instância(s).\n\n" +
+                    "O dummy deve aparecer no PIE se zone_id e posição estiverem corretos.",
+                    "Spawn OK (reload)",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+        }
+
+        if (zoneOk && zoneResp != null)
+        {
+            var root = zoneResp.Value;
+            if (!root.TryGetProperty("success", out var okEl) || !okEl.GetBoolean())
+            {
+                var zoneErr = root.TryGetProperty("error", out var e) ? e.GetString() : "Erro no zone";
+                StatusText = $"MySQL OK #{instanceId}; zone: {zoneErr}";
+                MessageBox.Show(
+                    $"Instância #{instanceId} gravada no MySQL, mas o zone retornou erro:\n{zoneErr}",
+                    "Spawn parcial",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            StatusText = $"MySQL OK #{instanceId}; zone: {spawnMsg ?? "Falha no zone"}";
+            MessageBox.Show(
+                $"Instância #{instanceId} gravada no MySQL (zone_id={effectiveZone}), mas o zone não spawnou:\n{spawnMsg}\n\n" +
+                $"Servidor admin: {zoneServiceId} (zone_id={serverZoneId}).\n" +
+                "O zone_id do spawn deve ser o mesmo do zone_server em execução (ex.: zone_0 → Zone ID 0).",
+                "Spawn parcial",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var onlineZonesList = onlineZones.Count > 0 ? string.Join(", ", onlineZones) : "(nenhuma)";
+        StatusText = $"MySQL OK #{instanceId}; {zoneServiceId} sem resposta admin.";
+        MessageBox.Show(
+            $"Instância #{instanceId} gravada no MySQL (zone_id={effectiveZone}).\n\n" +
+            $"{zoneServiceId} não respondeu ao comando spawn_npc_instance.\n" +
+            $"Zones admin online: {onlineZonesList}\n\n" +
+            "Inicie zone_0 pelo Manager (Admin TCP = OK) e use Zone ID 0 no spawn.",
+            "Spawn no banco (zone não notificado)",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
+    }
+
+    private static bool TryParseSpawnZoneResponse(JsonElement? zoneResp, out bool spawned, out string? message, out int serverZoneId)
+    {
+        spawned = false;
+        message = null;
+        serverZoneId = -1;
+        if (zoneResp == null) return false;
+
+        var root = zoneResp.Value;
+        if (!root.TryGetProperty("success", out var okEl) || !okEl.GetBoolean()) return true;
+        if (!root.TryGetProperty("data", out var zoneData)) return true;
+
+        spawned = zoneData.TryGetProperty("spawned", out var sp) && sp.GetBoolean();
+        message = zoneData.TryGetProperty("message", out var m) ? m.GetString() : null;
+        if (zoneData.TryGetProperty("server_zone_id", out var sz)) serverZoneId = sz.GetInt32();
+        return true;
     }
 
     [RelayCommand] private async Task KickPlayerAsync(PlayerInfo? player)

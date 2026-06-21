@@ -563,6 +563,298 @@
                 </Grid>
             </TabItem>
 
+            <!-- NPCs -->
+            <TabItem Header="NPCs">
+                <TabControl Margin="4">
+                    <!-- Templates -->
+                    <TabItem Header="Templates">
+                        <Grid Margin="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" MinWidth="500"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="460"/>
+                            </Grid.ColumnDefinitions>
+
+                            <DockPanel Grid.Column="0">
+                                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                                    <Button Content="Atualizar" Command="{Binding RefreshNpcTemplatesCommand}" Margin="0,0,8,0"/>
+                                    <Button Content="Novo template" Command="{Binding NewNpcTemplateCommand}" Margin="0,0,8,0"
+                                            Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                    <TextBlock Text="{Binding NpcTemplates.Count, StringFormat={}{0} templates}"
+                                               VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0.7"/>
+                                </StackPanel>
+
+                                <DataGrid ItemsSource="{Binding NpcTemplates}"
+                                          SelectedItem="{Binding SelectedNpcTemplate}"
+                                          AutoGenerateColumns="False" IsReadOnly="True"
+                                          HeadersVisibility="Column" RowHeight="34"
+                                          HorizontalScrollBarVisibility="Auto"
+                                          CanUserResizeColumns="True">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="55">
+                                            <DataGridTextColumn.ElementStyle>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="FontWeight" Value="Bold"/>
+                                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                                </Style>
+                                            </DataGridTextColumn.ElementStyle>
+                                        </DataGridTextColumn>
+                                        <DataGridTextColumn Header="Nome" Binding="{Binding Name}" Width="180">
+                                            <DataGridTextColumn.ElementStyle>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                                </Style>
+                                            </DataGridTextColumn.ElementStyle>
+                                        </DataGridTextColumn>
+                                        <DataGridTextColumn Header="Resumo" Binding="{Binding Summary}" Width="*"/>
+                                        <DataGridTemplateColumn Header="Ações" Width="100" MinWidth="100">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <Button Content="Editar" Padding="8,2" Height="26"
+                                                            Command="{Binding DataContext.EditNpcTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}"/>
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </DockPanel>
+
+                            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch" Background="Transparent"
+                                          ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
+
+                            <Border Grid.Column="2" BorderBrush="Gray" BorderThickness="1" Padding="14" CornerRadius="4">
+                                <DockPanel>
+                                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                                        <TextBlock Text="{Binding NpcFormTitle}"
+                                                   FontSize="16" FontWeight="Bold" Margin="0,0,0,4"/>
+                                        <TextBlock FontSize="11" Opacity="0.7" TextWrapping="Wrap"
+                                                   Text="Selecione um template na lista. Spawn grava em npc_instances e envia opcode 100 ao zone em execução (zone_N deve estar online)."/>
+                                    </StackPanel>
+
+                                    <Grid DockPanel.Dock="Bottom" Margin="0,12,0,0">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="8"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <Grid Grid.Row="0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="8"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Button Grid.Column="0" Content="Limpar" Command="{Binding NewNpcTemplateCommand}"
+                                                    Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                    HorizontalAlignment="Stretch" Height="36"/>
+                                            <Button Grid.Column="2"
+                                                    Content="{Binding NpcSaveButtonText}"
+                                                    Command="{Binding SaveNpcTemplateCommand}"
+                                                    HorizontalAlignment="Stretch" Height="36"
+                                                    Style="{StaticResource MaterialDesignRaisedButton}"/>
+                                        </Grid>
+                                        <Button Grid.Row="2" Content="Spawn na zone"
+                                                Command="{Binding SpawnNpcAsyncCommand}"
+                                                HorizontalAlignment="Stretch" Height="36"
+                                                Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                    </Grid>
+
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
+                                        <StackPanel>
+                                            <TextBlock Text="Identificação" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                            <TextBox Text="{Binding NewNpcName, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Nome (obrigatório)"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,10"/>
+                                            <TextBox Text="{Binding NewNpcLevel, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Level"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,16"/>
+
+                                            <TextBlock Text="Vitais" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcMaxHealth, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="HP máximo"
+                                                         materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcMaxMana, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="MP máximo"
+                                                         materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+
+                                            <TextBlock Text="Atributos base" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcStrength, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="STR" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcDexterity, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="DEX" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcVitality, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="VIT" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcIntelligence, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="INT" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <TextBox Text="{Binding NewNpcLuck, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="LUCK"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,16"/>
+
+                                            <TextBlock Text="Combate" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcPhysicalAttack, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Ataque físico" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcMagicAttack, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Ataque mágico" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcPhysicalDefense, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Defesa física" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcMagicDefense, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Defesa mágica" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcAccuracy, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Precisão" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcDodge, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Esquiva" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <Grid Margin="0,0,0,16">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcCritical, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Crítico" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcCriticalResistance, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Resist. crítico" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+
+                                            <TextBlock Text="Assets UE" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                            <TextBox Text="{Binding NewNpcSkeletalMeshPath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Skeletal mesh path"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,10"/>
+                                            <TextBox Text="{Binding NewNpcAnimBlueprintPath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Anim Blueprint path"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,16"/>
+
+                                            <TextBlock Text="Spawn (instância)" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                    <TextBox Text="{Binding SpawnZoneId, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="Zone ID (0=zone_0, 1=zone_1)"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,10"/>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding SpawnPosX, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Pos X" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding SpawnPosY, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Pos Y" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding SpawnPosZ, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Pos Z (default 200)" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding SpawnYaw, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Yaw" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <Button Content="Copiar posição do player"
+                                                    Command="{Binding CopySpawnFromPlayerCommand}"
+                                                    Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                    HorizontalAlignment="Stretch" Height="32" Margin="0,0,0,8"/>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </DockPanel>
+                            </Border>
+                        </Grid>
+                    </TabItem>
+
+                    <!-- Instâncias no mundo -->
+                    <TabItem Header="Instâncias no mundo">
+                        <DockPanel Margin="8">
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                                <Button Content="Atualizar instâncias" Command="{Binding RefreshNpcInstancesCommand}" Margin="0,0,8,0"/>
+                                <TextBox Width="80" Margin="0,0,8,0"
+                                         Text="{Binding InstanceZoneFilter, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="Filtro zone (0=todas)"
+                                         materialDesign:HintAssist.IsFloating="True"/>
+                                <TextBlock Text="{Binding NpcInstances.Count, StringFormat={}{0} instância(s)}"
+                                           VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0.7"/>
+                            </StackPanel>
+
+                            <DataGrid ItemsSource="{Binding NpcInstances}"
+                                      SelectedItem="{Binding SelectedNpcInstance}"
+                                      AutoGenerateColumns="False" IsReadOnly="True">
+                                <DataGrid.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="Preencher spawn (aba Templates)"
+                                                  Command="{Binding PlacementTarget.DataContext.FillSpawnFromInstanceCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                        <Separator/>
+                                        <MenuItem Header="Excluir instância"
+                                                  Command="{Binding PlacementTarget.DataContext.DeleteNpcInstanceAsyncCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                    </ContextMenu>
+                                </DataGrid.ContextMenu>
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Instance ID" Binding="{Binding InstanceId}" Width="90"/>
+                                    <DataGridTextColumn Header="Template" Binding="{Binding TemplateLabel}" Width="200"/>
+                                    <DataGridTextColumn Header="Zone" Binding="{Binding ZoneId}" Width="55"/>
+                                    <DataGridTextColumn Header="X" Binding="{Binding PosX, StringFormat=F1}" Width="80"/>
+                                    <DataGridTextColumn Header="Y" Binding="{Binding PosY, StringFormat=F1}" Width="80"/>
+                                    <DataGridTextColumn Header="Z" Binding="{Binding PosZ, StringFormat=F1}" Width="80"/>
+                                    <DataGridTextColumn Header="Yaw" Binding="{Binding Yaw, StringFormat=F1}" Width="60"/>
+                                    <DataGridTextColumn Header="HP" Binding="{Binding CurrentHealth}" Width="70"/>
+                                    <DataGridCheckBoxColumn Header="Morto" Binding="{Binding IsDead}" Width="60"/>
+                                    <DataGridTextColumn Header="Criado" Binding="{Binding CreatedAt}" Width="*"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </TabItem>
+                </TabControl>
+            </TabItem>
+
             <!-- Config -->
             <TabItem Header="Config">
                 <DockPanel Margin="8">

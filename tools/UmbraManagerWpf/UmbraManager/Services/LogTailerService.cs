@@ -13,11 +13,16 @@ public sealed class LogTailerService : IDisposable
     public void WatchLog(string serviceId, string filePath)
     {
         UnwatchLog(serviceId);
+        var dir = Path.GetDirectoryName(filePath);
+        if (string.IsNullOrEmpty(dir))
+            return;
+        try { Directory.CreateDirectory(dir); } catch { /* ignore */ }
+
         var state = new TailState
         {
             ServiceId = serviceId,
             Path = filePath,
-            Watcher = new FileSystemWatcher(Path.GetDirectoryName(filePath)!, Path.GetFileName(filePath))
+            Watcher = new FileSystemWatcher(dir, Path.GetFileName(filePath))
             {
                 NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName
             }
@@ -53,8 +58,19 @@ public sealed class LogTailerService : IDisposable
     public string ReadExisting(string serviceId, int maxLines = 500)
     {
         if (!_tails.TryGetValue(serviceId, out var st) || !File.Exists(st.Path)) return "";
-        var lines = File.ReadLines(st.Path).TakeLast(maxLines);
-        return string.Join(Environment.NewLine, lines);
+        try
+        {
+            using var fs = new FileStream(st.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(fs);
+            var lines = new List<string>();
+            while (reader.ReadLine() is { } line)
+                lines.Add(line);
+            return string.Join(Environment.NewLine, lines.TakeLast(maxLines));
+        }
+        catch
+        {
+            return "";
+        }
     }
 
     private void OnFileEvent(string serviceId, string path)

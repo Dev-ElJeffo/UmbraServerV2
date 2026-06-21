@@ -109,8 +109,8 @@ RespawnResult ZoneCombatService::processRespawn(uint32_t playerId, uint32_t zone
     } catch (...) {}
   }
 
-  auto maxHOpt = db_->executePreparedScalar("SELECT health FROM players WHERE id = ?", {pid});
-  auto maxMOpt = db_->executePreparedScalar("SELECT mana FROM players WHERE id = ?", {pid});
+  auto maxHOpt = db_->executePreparedScalar("SELECT max_health FROM players WHERE id = ?", {pid});
+  auto maxMOpt = db_->executePreparedScalar("SELECT max_mana FROM players WHERE id = ?", {pid});
   int32_t maxHealth = maxHOpt ? std::max(1, std::stoi(*maxHOpt)) : 100;
   int32_t maxMana = maxMOpt ? std::max(1, std::stoi(*maxMOpt)) : 50;
 

@@ -23,7 +23,11 @@ int main(int argc, char* argv[]) {
 
   int zoneId = (argc > 1) ? std::atoi(argv[1]) : 0;
   std::string zoneName = "Zone_" + std::to_string(zoneId);
-  uint16_t zonePort = 8082 + static_cast<uint16_t>(zoneId);
+
+  auto& configManager = Umbra::Core::ConfigManager::getInstance();
+  configManager.loadConfig("config/server.json");
+  const uint16_t zoneBase = configManager.get<uint16_t>("zone.base_port", 8082);
+  uint16_t zonePort = static_cast<uint16_t>(zoneBase + zoneId);
 
   std::cout << "===========================================\n";
   std::cout << "  UmbraEternum Zone Server                \n";
@@ -33,8 +37,7 @@ int main(int argc, char* argv[]) {
   Umbra::Core::Logger::getInstance().info("Starting Zone Server '{}' on port {}...", zoneName, zonePort);
 
   std::shared_ptr<Umbra::Database::MySQLConnector> dbConnector;
-  auto& configManager = Umbra::Core::ConfigManager::getInstance();
-  if (configManager.loadConfig("config/server.json")) {
+  {
     Umbra::Database::MySQLConnector::Config dbConfig;
     dbConfig.host = configManager.get<std::string>("database.host", "localhost");
     dbConfig.port = static_cast<uint16_t>(configManager.get<uint32_t>("database.port", 3306));
