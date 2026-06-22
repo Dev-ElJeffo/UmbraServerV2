@@ -72,10 +72,25 @@ try {
         exit;
     }
 
+    $accountId = $jwtResult['payload']['account_id'] ?? null;
+    if (!$accountId) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'account_id não encontrado no token']);
+        exit;
+    }
+
+    $pdo = getConnection();
+    $ownStmt = $pdo->prepare('SELECT id FROM players WHERE id = :player_id AND account_id = :account_id');
+    $ownStmt->execute([':player_id' => $playerId, ':account_id' => (int)$accountId]);
+    if (!$ownStmt->fetch(PDO::FETCH_ASSOC)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Acesso negado: personagem não pertence à sua conta']);
+        exit;
+    }
+
     $keybindOnly = !empty($data['keybind_only']);
 
     if ($keybindOnly) {
-        $pdo = getConnection();
         $keybindValue = ($keybind === null || $keybind === '') ? null : (string)$keybind;
 
         if (!empty($keybindValue)) {
@@ -120,8 +135,6 @@ try {
         echo json_encode(['success' => false, 'message' => 'Informe apenas skill_id ou item_template_id, não ambos']);
         exit;
     }
-
-    $pdo = getConnection();
 
     if ($skillId !== null && $skillId > 0) {
         $stmt = $pdo->prepare("
