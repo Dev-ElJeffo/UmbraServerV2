@@ -8,9 +8,63 @@
  * @param array $options ['create_stat_points_if_missing' => bool] Se true, insere linha em player_stat_points quando não existir (apenas para próprio personagem).
  * @return array|null Array 'character' ou null se jogador não existir.
  */
+require_once __DIR__ . '/stat_key_mapping.php';
+
+/**
+ * Lista passivas aprendidas e se health_below_percent está ativa (debug).
+ *
+ * @return array<int, array<string, mixed>>
+ */
+function collect_passive_debug(PDO $pdo, int $player_id, int $health_pct): array
+{
+    $passives = [];
+    $passive_stmt = $pdo->prepare("
+        SELECT s.skill_id, s.skill_name, s.effects_json
+        FROM player_skills ps
+        INNER JOIN skills s ON ps.skill_id = s.skill_id
+        WHERE ps.player_id = :player_id AND s.type_id = 2
+    ");
+    $passive_stmt->execute(['player_id' => $player_id]);
+    while ($prow = $passive_stmt->fetch(PDO::FETCH_ASSOC)) {
+        $effects_raw = (string)($prow['effects_json'] ?? '');
+        if ($effects_raw === '' || $effects_raw === 'null') {
+            continue;
+        }
+        $effects = json_decode($effects_raw, true);
+        if (!is_array($effects)) {
+            continue;
+        }
+        foreach ($effects as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $cond = $item['conditions_json'] ?? [];
+            if (!is_array($cond)) {
+                continue;
+            }
+            $threshold = (int)($cond['health_below_percent'] ?? 0);
+            if ($threshold <= 0) {
+                continue;
+            }
+            $passives[] = [
+                'skill_id' => (int)$prow['skill_id'],
+                'skill_name' => (string)($prow['skill_name'] ?? ''),
+                'condition' => 'health_below_percent:' . $threshold,
+                'condition_met' => $health_pct < $threshold,
+                'health_percent' => $health_pct,
+                'target_stat' => (string)($item['target_stat'] ?? ''),
+                'value_flat' => (int)($item['value_flat'] ?? $item['value'] ?? 0),
+                'value_percent' => (int)($item['value_percent'] ?? 0),
+            ];
+        }
+    }
+    return $passives;
+}
+
 function get_character_info_data(PDO $pdo, int $player_id, array $options = []): ?array
 {
     $create_stat_points_if_missing = $options['create_stat_points_if_missing'] ?? false;
+    $include_debug = !empty($options['include_debug']);
 
     // 1. Buscar informações básicas do personagem
     $player_query = "SELECT 
@@ -310,6 +364,90 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
         }
     }
 
+    // Buffs/debuffs de skills (active_buffs) — flat + percent, espelhando CharacterStateLoader.
+    $skill_percent_mods = [];
+    $skill_buffs_stmt = $pdo->prepare("
+        SELECT buff_type, current_stacks, COALESCE(snapshot_json, '') AS snapshot_json
+        FROM active_buffs
+        WHERE target_player_id = :player_id
+          AND (expires_at > NOW(3) OR is_permanent = 1)
+    ");
+    $skill_buffs_stmt->execute(['player_id' => $player_id]);
+    while ($sb = $skill_buffs_stmt->fetch(PDO::FETCH_ASSOC)) {
+        $snap_raw = (string)($sb['snapshot_json'] ?? '');
+        if ($snap_raw === '' || $snap_raw === 'null') {
+            continue;
+        }
+        $snap = json_decode($snap_raw, true);
+        if (!is_array($snap) || !empty($snap['reaction_armed'])) {
+            continue;
+        }
+        $stacks = max(1, (int)($sb['current_stacks'] ?? 1));
+        $stat_key = map_target_stat_to_canonical((string)($snap['target_stat'] ?? ''));
+        $flat = (int)($snap['value_flat'] ?? 0) * $stacks;
+        $pct = (int)($snap['value_percent'] ?? 0) * $stacks;
+        if ($stat_key !== '' && $flat !== 0) {
+            apply_flat_to_totals($stat_key, $flat, $total_stats);
+        }
+        if ($stat_key !== '' && $pct !== 0) {
+            $skill_percent_mods[] = [
+                'key' => $stat_key,
+                'percent' => $pct,
+                'apply_to_totals' => is_totals_percent_key($stat_key),
+            ];
+        }
+    }
+
+    // Passivas condicionais (health_below_percent).
+    $current_health = (int)($player['health'] ?? 0);
+    $base_health_for_pct = (int)($player['base_health'] ?? $player['max_health'] ?? 100);
+    $health_pct = ($current_health > 0 && $base_health_for_pct > 0)
+        ? (int)floor($current_health * 100 / $base_health_for_pct)
+        : 100;
+    $passive_stmt = $pdo->prepare("
+        SELECT s.effects_json
+        FROM player_skills ps
+        INNER JOIN skills s ON ps.skill_id = s.skill_id
+        WHERE ps.player_id = :player_id AND s.type_id = 2
+    ");
+    $passive_stmt->execute(['player_id' => $player_id]);
+    while ($prow = $passive_stmt->fetch(PDO::FETCH_ASSOC)) {
+        $effects_raw = (string)($prow['effects_json'] ?? '');
+        if ($effects_raw === '' || $effects_raw === 'null') {
+            continue;
+        }
+        $effects = json_decode($effects_raw, true);
+        if (!is_array($effects)) {
+            continue;
+        }
+        foreach ($effects as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $cond = $item['conditions_json'] ?? [];
+            if (!is_array($cond)) {
+                continue;
+            }
+            $threshold = (int)($cond['health_below_percent'] ?? 0);
+            if ($threshold <= 0 || $health_pct >= $threshold) {
+                continue;
+            }
+            $stat_key = map_target_stat_to_canonical((string)($item['target_stat'] ?? ''));
+            $flat = (int)($item['value_flat'] ?? $item['value'] ?? 0);
+            $pct = (int)($item['value_percent'] ?? 0);
+            if ($stat_key !== '' && $flat !== 0) {
+                apply_flat_to_totals($stat_key, $flat, $total_stats);
+            }
+            if ($stat_key !== '' && $pct !== 0) {
+                $skill_percent_mods[] = [
+                    'key' => $stat_key,
+                    'percent' => $pct,
+                    'apply_to_totals' => is_totals_percent_key($stat_key),
+                ];
+            }
+        }
+    }
+
     $strength_phys_atk_bonus = floor($total_stats['strength'] / 5) * 2;
     $strength_crit_atk_bonus = floor($total_stats['strength'] / 10);
     $strength_double_atk_bonus = floor($total_stats['strength'] / 10);
@@ -334,10 +472,35 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
     $total_stats['health_bonus'] += $vitality_hp_bonus_total;
     $total_stats['mana_bonus'] += $intelligence_mana_bonus_total;
 
+    foreach ($skill_percent_mods as $pm) {
+        if (!empty($pm['apply_to_totals'])) {
+            apply_percent_to_totals($pm['key'], (int)$pm['percent'], $total_stats);
+        }
+    }
+
     $base_health = (int)($player['base_health'] ?? $player['max_health']);
     $base_mana = (int)($player['base_mana'] ?? $player['max_mana']);
     $final_max_health = $base_health + $level_hp_bonus + $total_stats['health_bonus'];
     $final_max_mana = $base_mana + $level_mp_bonus + $total_stats['mana_bonus'];
+
+    $combat_stats = [
+        'physical_attack' => $total_stats['attack'],
+        'magic_attack' => $total_stats['magic_attack'],
+        'physical_defense' => $total_stats['defense'],
+        'magic_defense' => $total_stats['magic_defense'],
+        'accuracy' => $total_stats['accuracy'],
+        'dodge' => $total_stats['dodge'],
+        'critical' => $total_stats['critical'],
+        'movement' => $total_stats['movement'],
+        'critical_resistance' => $total_stats['resistance'],
+        'double_attack_rate' => $total_stats['double_attack_rate'],
+        'double_attack_resistance' => $total_stats['double_attack_resistance'],
+    ];
+    foreach ($skill_percent_mods as $pm) {
+        if (empty($pm['apply_to_totals'])) {
+            apply_percent_to_combat_stats($pm['key'], (int)$pm['percent'], $combat_stats);
+        }
+    }
 
     $current_level = (int)$player['level'];
     $current_exp = (int)$player['experience'];
@@ -359,7 +522,7 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
         $exp_progress = $exp_for_next_level > 0 ? ($current_exp / $exp_for_next_level) * 100 : 0;
     }
 
-    return [
+    $character_payload = [
         'player_id' => (int)$player['id'],
         'character_name' => $player['character_name'],
         'level' => $current_level,
@@ -425,19 +588,7 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
                 'current' => (int)$player['stamina'],
                 'max' => (int)$player['max_stamina']
             ],
-            'combat' => [
-                'physical_attack' => $total_stats['attack'],
-                'magic_attack' => $total_stats['magic_attack'],
-                'physical_defense' => $total_stats['defense'],
-                'magic_defense' => $total_stats['magic_defense'],
-                'accuracy' => $total_stats['accuracy'],
-                'dodge' => $total_stats['dodge'],
-                'critical' => $total_stats['critical'],
-                'movement' => $total_stats['movement'],
-                'critical_resistance' => $total_stats['resistance'],
-                'double_attack_rate' => $total_stats['double_attack_rate'],
-                'double_attack_resistance' => $total_stats['double_attack_resistance']
-            ]
+            'combat' => $combat_stats
         ],
         'equipped_items' => $equipped_by_slot,
         'stat_points' => [
@@ -451,4 +602,13 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
         'created_at' => $player['created_at'],
         'last_played_at' => $player['last_played_at']
     ];
+
+    if ($include_debug) {
+        $character_payload['debug'] = [
+            'health_percent' => $health_pct,
+            'passives' => collect_passive_debug($pdo, $player_id, $health_pct),
+        ];
+    }
+
+    return $character_payload;
 }

@@ -3,10 +3,12 @@
 #include "zone/MovementProtocol.hpp"
 #include "zone/NpcManager.hpp"
 #include "zone/CharacterStateLoader.hpp"
+#include "zone/ReactionEngine.hpp"
 #include "SkillService.hpp"
 #include "CombatCalculator.hpp"
 #include "database/MySQLConnector.hpp"
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -39,6 +41,8 @@ public:
   void tick(float deltaSeconds);
   /** Regeneracao passiva de HP/MP dos jogadores online (tick lento). */
   void tickRegen(float deltaSeconds);
+  /** Expira buffs de skill (active_buffs) e invalida cache de stats. */
+  void tickBuffExpirations();
   void sendNpcSnapshotToClient(uint32_t clientId);
 
   /** Hot spawn: carrega instância do DB e broadcast opcode 100 a todos os clientes. */
@@ -54,12 +58,47 @@ public:
   void processSkillCast(uint32_t sourcePlayerId, const SkillCastPayload& payload);
   void processBasicAttack(uint32_t sourcePlayerId, const BasicAttackPayload& payload);
 
+  /** Usado por ReactionEngine para opcode 104. */
+  void broadcastSkillBuffSyncPublic(const SkillBuffSyncPayload& payload);
+  void applyReactionBuff(uint32_t targetPlayerId, uint32_t sourcePlayerId, uint32_t skillId,
+                         const Combat::SkillEffect& effect);
+  void applyReactionCounterDamage(uint32_t ownerPlayerId, uint32_t targetPlayerId, uint32_t skillId,
+                                  const Combat::SkillEffect& effect, int32_t fixedDamage = 0);
+  void applyDirectPlayerDamage(uint32_t sourcePlayerId, uint32_t targetPlayerId, int32_t damage,
+                               uint8_t reason);
+  /** Preenche skillName/iconPath em payloads 104 incompletos (ex.: expiração). */
+  void enrichSkillBuffSyncPayload(SkillBuffSyncPayload& payload);
+
+  /** Recarrega reações armadas quando jogador entra na zone. */
+  void onPlayerJoinedZone(uint32_t playerId);
+
+  void setResolvePartyMembersCallback(std::function<std::vector<uint32_t>(uint32_t playerId)> cb);
+
+  /** Multiplicador de velocidade (100 = base) para validação de movimento. */
+  float getPlayerMovementSpeedPercent(uint32_t playerId) const;
+
 private:
+  bool skillHasEffectType(const Combat::SkillData& skill, Combat::EffectType type) const;
+  void armReactionSkill(uint32_t sourcePlayerId, const Combat::SkillData& skill);
+  int32_t computeInstantHealDelta(const Combat::SkillData& skill, uint8_t rank,
+                                  const Combat::CharacterState& sourceState,
+                                  const Combat::CharacterState& healTarget, bool haveSource) const;
+  bool tryGetPlayerPosition(uint32_t playerId, float& outX, float& outY, float& outZ) const;
+  bool tryGetTargetPosition(uint8_t targetType, uint32_t targetId, float& outX, float& outY,
+                            float& outZ) const;
+  bool validateSkillRange(uint32_t sourcePlayerId, const Combat::SkillData& skill,
+                          const SkillCastPayload& payload,
+                          SkillCastRejectReason* outFailReason = nullptr) const;
+  void sendSkillCastRejected(uint32_t playerId, uint32_t skillId, SkillCastRejectReason reason,
+                             const std::string& message = {});
+  bool validateBasicAttackRange(uint32_t sourcePlayerId, uint8_t targetType, uint32_t targetId,
+                                uint16_t rangeMax) const;
+
   bool loadBasicAttacks();
   bool loadPlayerClassId(uint32_t playerId, uint32_t& outClassId);
   uint8_t loadSkillRank(uint32_t playerId, uint32_t skillId);
   bool applyPlayerDamage(uint32_t sourcePlayerId, uint32_t targetPlayerId, int32_t delta, uint8_t reason,
-                         bool isCrit = false);
+                         bool isCrit = false, bool isDouble = false);
   void deductPlayerMana(uint32_t playerId, int32_t cost);
   /** Le vitals atuais do DB e envia opcode 87 (sem floating text) ao jogador e AOI. */
   void broadcastPlayerVitals(uint32_t playerId);
@@ -85,8 +124,14 @@ private:
   void broadcastBasicAttack(const BasicAttackBroadcastPayload& payload);
   void broadcastNpcCombatEvent(const NpcCombatEventPayload& payload);
   void broadcastNpcState(const NpcStatePayload& payload);
+  void broadcastSkillBuffSync(const SkillBuffSyncPayload& payload);
   void loadSkillAnimPaths(uint32_t skillId, std::string& anim, std::string& vfx, std::string& sfx);
   void handleNpcDamageResult(uint32_t npcInstanceId, int32_t applied, bool npcDied);
+  int32_t computeDoubleBonus(const Combat::CharacterState& attacker,
+                             const Combat::CharacterState& defender, bool haveAttacker,
+                             int32_t firstHitAbs) const;
+
+  std::function<std::vector<uint32_t>(uint32_t)> resolvePartyMembers_;
 
   uint32_t zoneId_ = 1;
   std::shared_ptr<Database::MySQLConnector> db_;
@@ -94,6 +139,7 @@ private:
   std::unique_ptr<Combat::SkillService> skillService_;
   std::unique_ptr<NpcManager> npcManager_;
   std::unique_ptr<CharacterStateLoader> stateLoader_;
+  std::unique_ptr<ReactionEngine> reactionEngine_;
   std::unordered_map<uint32_t, Zone::BasicAttackDef> basicAttacksByClass_;
   std::mutex basicCdMu_;
   std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> basicAttackReadyAt_;

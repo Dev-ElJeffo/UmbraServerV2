@@ -119,10 +119,12 @@ try {
         ) VALUES (
             :target_id, :source_id, :skill_id, :effect_id,
             :dot_type, :tick_value, :tick_interval_ms, :ticks_remaining,
-            DATE_ADD(NOW(3), INTERVAL :interval_ms MILLISECOND),
+            DATE_ADD(NOW(3), INTERVAL :interval_us MICROSECOND),
             DATE_ADD(NOW(3), INTERVAL :duration_sec SECOND)
         )
     ");
+
+    $intervalUs = max(0, (int)$tick_interval_ms) * 1000;
 
     $ins->execute([
         'target_id' => $target_player_id,
@@ -133,7 +135,7 @@ try {
         'tick_value' => $tick_value,
         'tick_interval_ms' => $tick_interval_ms,
         'ticks_remaining' => min(255, $ticks_total),
-        'interval_ms' => $tick_interval_ms,
+        'interval_us' => $intervalUs,
         'duration_sec' => $total_duration_sec,
     ]);
 

@@ -1,5 +1,7 @@
 #include "SkillService.hpp"
 #include <algorithm>
+#include <chrono>
+#include <nlohmann/json.hpp>
 
 namespace Umbra {
 namespace Combat {
@@ -38,6 +40,48 @@ int32_t jsonIntField(const nlohmann::json& j, const char* key, int32_t fallback 
   return fallback;
 }
 
+std::string buffTypeToDbString(BuffType type) {
+  switch (type) {
+    case BuffType::DEBUFF: return "DEBUFF";
+    case BuffType::AURA: return "AURA";
+    case BuffType::DOT: return "DOT";
+    case BuffType::HOT: return "HOT";
+    case BuffType::SHIELD: return "SHIELD";
+    default: return "BUFF";
+  }
+}
+
+BuffType effectToBuffType(EffectType effectType) {
+  switch (effectType) {
+    case EffectType::DEBUFF_STAT:
+    case EffectType::STUN:
+    case EffectType::SILENCE:
+    case EffectType::ROOT:
+    case EffectType::SLOW:
+      return BuffType::DEBUFF;
+    case EffectType::SHIELD:
+      return BuffType::SHIELD;
+    default:
+      return BuffType::BUFF;
+  }
+}
+
+std::string effectTypeToString(EffectType t) {
+  switch (t) {
+    case EffectType::DOT: return "DOT";
+    case EffectType::HOT: return "HOT";
+    case EffectType::HEAL: return "HEAL";
+    case EffectType::SHIELD: return "SHIELD";
+    case EffectType::BUFF_STAT: return "BUFF_STAT";
+    case EffectType::DEBUFF_STAT: return "DEBUFF_STAT";
+    case EffectType::STUN: return "STUN";
+    case EffectType::SILENCE: return "SILENCE";
+    case EffectType::SLOW: return "SLOW";
+    case EffectType::ROOT: return "ROOT";
+    default: return "DAMAGE";
+  }
+}
+
 }  // namespace
 
 bool SkillService::loadSkillsFromDatabase() {
@@ -51,12 +95,12 @@ bool SkillService::loadSkillsFromDatabase() {
   auto rows = db_->executePreparedQuery(
       "SELECT skill_id, skill_key, skill_name, class_id, skill_order, required_level, skill_cost, max_rank, "
       "type_id, target_id, element_id, scaling_stat_id, power_coef, resource_type, resource_cost, "
-      "cooldown_ms, cast_time_ms, range_max, can_crit, COALESCE(effects_json,'') "
+      "cooldown_ms, cast_time_ms, range_max, can_crit, COALESCE(effects_json,''), COALESCE(icon_path,'') "
       "FROM skills WHERE is_enabled = 1",
       {});
 
   for (const auto& row : rows) {
-    if (row.size() < 20) continue;
+    if (row.size() < 21) continue;
     SkillData skill;
     try {
       skill.skillId = static_cast<uint32_t>(std::stoul(row[0]));
@@ -79,6 +123,7 @@ bool SkillService::loadSkillsFromDatabase() {
       skill.rangeMax = static_cast<uint16_t>(std::stoul(row[17]));
       skill.canCrit = (std::stoi(row[18]) != 0);
       skill.effects = parseEffectsFromJson(row[19]);
+      skill.iconPath = row[20];
     } catch (...) {
       continue;
     }
@@ -118,6 +163,9 @@ SkillEffect SkillService::parseEffectFromJson(const nlohmann::json& json) {
   effect.durationMs = static_cast<uint32_t>(std::max(0, jsonIntField(json, "duration_ms", 0)));
   effect.tickIntervalMs = static_cast<uint32_t>(std::max(0, jsonIntField(json, "tick_interval_ms", 1000)));
   effect.chancePercent = static_cast<uint8_t>(std::clamp(jsonIntField(json, "chance_percent", 100), 0, 100));
+  if (json.contains("conditions_json") && json["conditions_json"].is_object()) {
+    effect.conditions = json["conditions_json"];
+  }
   return effect;
 }
 
@@ -168,6 +216,116 @@ SkillService::ValidationResult SkillService::validateSkillUse(
 
   result.isValid = true;
   return result;
+}
+
+uint64_t SkillService::applyBuff(uint64_t targetPlayerId, uint64_t sourcePlayerId, uint32_t skillId,
+                                 const SkillEffect& effect, const CharacterState& /*sourceState*/) {
+  if (!db_ || !db_->isConnected() || targetPlayerId == 0) return 0;
+
+  const SkillData* skill = getSkillData(skillId);
+  if (!skill) return 0;
+
+  const BuffType buffType = effectToBuffType(effect.effectType);
+  uint32_t durationMs = effect.durationMs > 0 ? effect.durationMs : skill->durationMs;
+  if (durationMs == 0) durationMs = 5000;
+
+  nlohmann::json snapshot;
+  snapshot["target_stat"] = effect.targetStat;
+  snapshot["value_flat"] = effect.valueFlat;
+  snapshot["value_percent"] = effect.valuePercent;
+  snapshot["effect_type"] = effectTypeToString(effect.effectType);
+  const std::string snapshotStr = snapshot.dump();
+
+  const int32_t valueSnapshot = effect.valueFlat != 0 ? effect.valueFlat : effect.valuePercent;
+  const std::string buffTypeStr = buffTypeToDbString(buffType);
+  const std::string tid = std::to_string(targetPlayerId);
+  const std::string sid = std::to_string(sourcePlayerId);
+  const std::string skillIdStr = std::to_string(skillId);
+  const std::string durUsStr = std::to_string(static_cast<uint64_t>(durationMs) * 1000ULL);
+  const std::string targetStatKey = effect.targetStat.empty() ? std::string("_default") : effect.targetStat;
+
+  auto existing = db_->executePreparedQuery(
+      "SELECT buff_id, current_stacks FROM active_buffs "
+      "WHERE target_player_id = ? AND skill_id = ? AND buff_type = ? AND expires_at > NOW(3) "
+      "AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(snapshot_json, '$.target_stat')), '_default') = ? "
+      "ORDER BY buff_id DESC LIMIT 1",
+      {tid, skillIdStr, buffTypeStr, targetStatKey});
+
+  if (!existing.empty() && existing[0].size() >= 2) {
+    const uint64_t existingId = std::stoull(existing[0][0]);
+    uint8_t stacks = static_cast<uint8_t>(std::stoul(existing[0][1]));
+    if (skill->isStackable && stacks < skill->maxStacks) {
+      stacks = static_cast<uint8_t>(std::min<int>(stacks + 1, skill->maxStacks));
+    }
+    db_->executePreparedInsert(
+        "UPDATE active_buffs SET current_stacks = ?, value_snapshot = ?, snapshot_json = ?, "
+        "expires_at = DATE_ADD(NOW(3), INTERVAL ? MICROSECOND), started_at = NOW(3) "
+        "WHERE buff_id = ?",
+        {std::to_string(stacks), std::to_string(valueSnapshot), snapshotStr, durUsStr,
+         std::to_string(existingId)});
+    Core::Logger::getInstance().info(
+        "[SkillService] buff refresh skill={} target={} stat={} buff_id={} stacks={}", skillId,
+        targetPlayerId, effect.targetStat, existingId, static_cast<int>(stacks));
+    return existingId;
+  }
+
+  if (!db_->executePreparedInsert(
+          "INSERT INTO active_buffs (target_player_id, source_player_id, skill_id, buff_type, "
+          "current_stacks, value_snapshot, expires_at, snapshot_json) VALUES "
+          "(?, ?, ?, ?, 1, ?, DATE_ADD(NOW(3), INTERVAL ? MICROSECOND), ?)",
+          {tid, sid, skillIdStr, buffTypeStr, std::to_string(valueSnapshot), durUsStr,
+           snapshotStr})) {
+    return 0;
+  }
+
+  const uint64_t newId = db_->getLastInsertId();
+  Core::Logger::getInstance().info(
+      "[SkillService] buff apply skill={} target={} stat={} buff_id={} type={} dur={}ms", skillId,
+      targetPlayerId, effect.targetStat, newId, buffTypeStr, durationMs);
+  return newId;
+}
+
+void SkillService::removeBuff(uint64_t playerId, uint64_t buffId) {
+  if (!db_ || !db_->isConnected() || buffId == 0) return;
+  db_->executePreparedInsert("DELETE FROM active_buffs WHERE buff_id = ? AND target_player_id = ?",
+                             {std::to_string(buffId), std::to_string(playerId)});
+}
+
+void SkillService::removeBuffsBySkill(uint64_t playerId, uint32_t skillId) {
+  if (!db_ || !db_->isConnected()) return;
+  db_->executePreparedInsert("DELETE FROM active_buffs WHERE target_player_id = ? AND skill_id = ?",
+                             {std::to_string(playerId), std::to_string(skillId)});
+}
+
+std::vector<SkillService::BuffExpirationEntry> SkillService::processBuffExpirations() {
+  std::vector<BuffExpirationEntry> expired;
+  if (!db_ || !db_->isConnected()) return expired;
+
+  auto rows = db_->executePreparedQuery(
+      "SELECT buff_id, target_player_id, skill_id FROM active_buffs "
+      "WHERE expires_at <= NOW(3) AND is_permanent = 0",
+      {});
+
+  for (const auto& row : rows) {
+    if (row.size() < 3) continue;
+    BuffExpirationEntry entry;
+    try {
+      entry.buffId = std::stoull(row[0]);
+      entry.targetPlayerId = std::stoull(row[1]);
+      entry.skillId = static_cast<uint32_t>(std::stoul(row[2]));
+    } catch (...) {
+      continue;
+    }
+    expired.push_back(entry);
+  }
+
+  if (!expired.empty()) {
+    db_->executePreparedInsert(
+        "DELETE FROM active_buffs WHERE expires_at <= NOW(3) AND is_permanent = 0", {});
+    Core::Logger::getInstance().info("[SkillService] {} buff(s) expirados removidos",
+                                     expired.size());
+  }
+  return expired;
 }
 
 }  // namespace Combat

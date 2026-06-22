@@ -125,6 +125,10 @@ bool ZoneServer::start() {
 
     combatCoreEngine_ = std::make_unique<CombatCoreEngine>();
     if (combatCoreEngine_->initialize(config_.zoneId, config_.dbConnector, movementServer_.get())) {
+      combatCoreEngine_->setResolvePartyMembersCallback(
+          [db = config_.dbConnector.get()](uint32_t playerId) {
+            return resolvePartyMembers(db, playerId);
+          });
       movementServer_->setCombatCoreEngine(combatCoreEngine_.get());
     } else {
       combatCoreEngine_.reset();
@@ -166,6 +170,14 @@ void ZoneServer::update(float deltaTime) {
       combatService_->tickActiveDots(movementServer_.get());
     }
     dotTickAccumulator_ = 0.0f;
+  }
+
+  buffTickAccumulator_ += deltaTime;
+  if (buffTickAccumulator_ >= 0.5f) {
+    if (combatCoreEngine_) {
+      combatCoreEngine_->tickBuffExpirations();
+    }
+    buffTickAccumulator_ = 0.0f;
   }
 
   if (combatCoreEngine_) {

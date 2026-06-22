@@ -203,8 +203,9 @@ void ZoneCombatService::tickActiveDots(MovementServer* movementServer) {
       db_->executePreparedInsert("DELETE FROM active_dots WHERE dot_id = ?", {dotIdStr});
     } else {
       db_->executePreparedInsert(
-          "UPDATE active_dots SET ticks_remaining = ?, next_tick_at = DATE_ADD(NOW(3), INTERVAL ? MILLISECOND) WHERE dot_id = ?",
-          {std::to_string(ticksRemaining), std::to_string(tickIntervalMs), dotIdStr});
+          "UPDATE active_dots SET ticks_remaining = ?, next_tick_at = DATE_ADD(NOW(3), INTERVAL ? MICROSECOND) WHERE dot_id = ?",
+          {std::to_string(ticksRemaining),
+           std::to_string(static_cast<uint64_t>(tickIntervalMs) * 1000ULL), dotIdStr});
     }
   }
 }

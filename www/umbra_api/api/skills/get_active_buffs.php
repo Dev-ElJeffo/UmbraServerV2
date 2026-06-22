@@ -100,6 +100,13 @@ try {
         $totalDurationMs = $buff['total_duration_ms'];
         $progress = $buff['is_permanent'] ? 0 : min(100, (($totalDurationMs - $remainingMs) / $totalDurationMs) * 100);
         
+        $snapshot = json_decode($buff['snapshot_json'] ?? '{}', true);
+        if (!is_array($snapshot)) {
+            $snapshot = [];
+        }
+        $targetStat = $snapshot['target_stat'] ?? '';
+        $valuePercent = (int)($snapshot['value_percent'] ?? 0);
+        
         $processedBuff = [
             'buff_id' => (int)$buff['buff_id'],
             'skill_id' => (int)$buff['skill_id'],
@@ -110,12 +117,14 @@ try {
             'element_color' => $buff['element_color'],
             'stacks' => (int)$buff['current_stacks'],
             'value' => (int)$buff['value_snapshot'],
+            'target_stat' => $targetStat,
+            'value_percent' => $valuePercent,
             'source_name' => $buff['source_name'],
             'is_permanent' => (bool)$buff['is_permanent'],
             'remaining_ms' => (int)$remainingMs,
             'total_ms' => (int)$totalDurationMs,
             'progress_percent' => round($progress, 1),
-            'snapshot' => json_decode($buff['snapshot_json'] ?? '{}', true)
+            'snapshot' => $snapshot
         ];
         
         $processedBuffs[] = $processedBuff;

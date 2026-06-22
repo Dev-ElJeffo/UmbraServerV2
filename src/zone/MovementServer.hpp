@@ -69,9 +69,10 @@ public:
 
   void broadcastVitalsAndCombat(uint32_t targetPlayerId, const PlayerVitalsPayload& vitals,
                               uint32_t sourcePlayerId, int32_t delta, bool triggerDeath,
-                              bool isCrit = false) {
+                              bool isCrit = false, bool isDouble = false) {
     std::lock_guard<std::mutex> lock(mu_);
-    handleVitalsBroadcastUnlocked(targetPlayerId, vitals, sourcePlayerId, delta, triggerDeath, isCrit);
+    handleVitalsBroadcastUnlocked(targetPlayerId, vitals, sourcePlayerId, delta, triggerDeath, isCrit,
+                                   isDouble);
   }
 
   void broadcastDotTick(uint32_t targetPlayerId, const DotTickPayload& dot) {
@@ -88,6 +89,12 @@ public:
   void broadcastToAll(const std::vector<uint8_t>& data) {
     std::lock_guard<std::mutex> lock(mu_);
     ws_.broadcastBinary(data);
+  }
+
+  /** Envia mensagem binária a um jogador online (ex.: opcode 105 SkillCastRejected). */
+  void sendToPlayer(uint32_t playerId, const std::vector<uint8_t>& message) {
+    std::lock_guard<std::mutex> lock(mu_);
+    sendToPlayerUnlocked(playerId, message);
   }
 
   bool start() {
@@ -611,63 +618,56 @@ public:
         uint32_t playerId;
         std::string name, title, guildName;
         if (decodePlayerInfoUpdate(data, playerId, name, title, guildName)) {
-          std::lock_guard<std::mutex> lock(mu_);
-          
-          Umbra::Core::Logger::getInstance().info("Received PlayerInfoUpdate from client {}: playerId={}, name={}, title={}, guild={}", 
-                                                  cid, playerId, name, title, guildName);
-          
-          // Mapear clientId -> playerId para handleClientDisconnect poder remover do grupo
-          clientIdToPlayerId_[cid] = playerId;
-          
-          // Verificar se é um novo player
-          bool isNewPlayer = (players_.find(playerId) == players_.end());
-          
-          Umbra::Core::Logger::getInstance().info("📥 Received PlayerInfoUpdate from client {}: playerId={}, name={}, title={}, isNewPlayer={}, total_players={}", 
-                                                  cid, playerId, name, title, isNewPlayer, players_.size());
-          
-          // Atualizar PlayerStateNet
-          if (players_.find(playerId) != players_.end()) {
-            // Player já existe: apenas atualizar nome/título
-            players_[playerId].characterName = name;
-            players_[playerId].characterTitle = title;
-            players_[playerId].guildName = guildName;
-            Umbra::Core::Logger::getInstance().info("✅ Updated existing PlayerStateNet for player {} (name={}, title={}, guild={})", 
-                                                    playerId, name, title, guildName);
-          } else {
-            // ✅ CRÍTICO: NÃO criar PlayerStateNet com posição padrão aqui!
-            // Isso causa problemas porque quando o primeiro MoveUpdate chega com a posição real,
-            // a distância da posição padrão para a real é enorme e é rejeitado como teleporte.
-            // 
-            // Solução: Criar PlayerStateNet apenas com nome/título, SEM posição.
-            // A posição será definida quando o primeiro MoveUpdate chegar.
-            // 
-            // NOTA: Isso significa que o snapshot inicial não enviará StateUpdate para este player
-            // até que ele envie seu primeiro MoveUpdate. Mas isso é OK porque o PlayerInfoUpdate
-            // já foi enviado, então o client pode spawnar o actor e aguardar o StateUpdate.
-            PlayerStateNet newPlayer;
-            newPlayer.playerId = playerId;
-            newPlayer.characterName = name;
-            newPlayer.characterTitle = title;
-            newPlayer.guildName = guildName;
-            // ✅ NÃO definir posição aqui - será definida no primeiro MoveUpdate
-            // Usar valores que indicam "posição ainda não definida"
-            newPlayer.x = 0.0f;
-            newPlayer.y = 0.0f;
-            newPlayer.z = 0.0f;
-            newPlayer.yaw = 0.0f;
-            newPlayer.tsMs = 0;
-            players_[playerId] = newPlayer;
-            
-            Umbra::Core::Logger::getInstance().info("✅ Created new PlayerStateNet for player {} (name={}, title={}, guild={}) - posição será definida no primeiro MoveUpdate", 
-                                                    playerId, name, title, guildName);
+          bool shouldReloadReactions = false;
+          std::vector<uint8_t> broadcastMsg;
+          {
+            std::lock_guard<std::mutex> lock(mu_);
+
+            Umbra::Core::Logger::getInstance().info("Received PlayerInfoUpdate from client {}: playerId={}, name={}, title={}, guild={}",
+                                                    cid, playerId, name, title, guildName);
+
+            clientIdToPlayerId_[cid] = playerId;
+
+            const bool isNewPlayer = (players_.find(playerId) == players_.end());
+
+            Umbra::Core::Logger::getInstance().info("📥 Received PlayerInfoUpdate from client {}: playerId={}, name={}, title={}, isNewPlayer={}, total_players={}",
+                                                    cid, playerId, name, title, isNewPlayer, players_.size());
+
+            if (players_.find(playerId) != players_.end()) {
+              players_[playerId].characterName = name;
+              players_[playerId].characterTitle = title;
+              players_[playerId].guildName = guildName;
+              Umbra::Core::Logger::getInstance().info("✅ Updated existing PlayerStateNet for player {} (name={}, title={}, guild={})",
+                                                      playerId, name, title, guildName);
+            } else {
+              PlayerStateNet newPlayer;
+              newPlayer.playerId = playerId;
+              newPlayer.characterName = name;
+              newPlayer.characterTitle = title;
+              newPlayer.guildName = guildName;
+              newPlayer.x = 0.0f;
+              newPlayer.y = 0.0f;
+              newPlayer.z = 0.0f;
+              newPlayer.yaw = 0.0f;
+              newPlayer.tsMs = 0;
+              players_[playerId] = newPlayer;
+
+              Umbra::Core::Logger::getInstance().info("✅ Created new PlayerStateNet for player {} (name={}, title={}, guild={}) - posição será definida no primeiro MoveUpdate",
+                                                      playerId, name, title, guildName);
+              shouldReloadReactions = true;
+            }
+
+            broadcastMsg = encodePlayerInfoUpdate(playerId, name, title, guildName);
           }
-          
-          // Fazer broadcast do PlayerInfoUpdate para todos os clientes (EXCETO o próprio que enviou)
-          auto broadcastMsg = encodePlayerInfoUpdate(playerId, name, title, guildName);
+
+          // MySQL em reloadArmedForPlayer: nunca sob mu_ (mesmo padrão de SkillCast/BasicAttack).
+          if (shouldReloadReactions && combatCoreEngine_) {
+            combatCoreEngine_->onPlayerJoinedZone(playerId);
+          }
+
           ws_.broadcastBinary(broadcastMsg);
-          Umbra::Core::Logger::getInstance().info("📤 Broadcasted PlayerInfoUpdate for player {} (name={}, title={}, guild={}) to all clients", 
+          Umbra::Core::Logger::getInstance().info("📤 Broadcasted PlayerInfoUpdate for player {} (name={}, title={}, guild={}) to all clients",
                                                   playerId, name, title, guildName);
-          
         }
         return;
       }
@@ -998,6 +998,12 @@ private:
   }
 
   void handleMoveUpdate(uint32_t cid, const MovementFrame& f, bool hasAnimation, float speed, float velocityZ, bool isInAir) {
+    // loadPlayerState pode ir ao MySQL: ler fora de mu_ para não bloquear WS/combate.
+    float moveSpeedPct = 100.f;
+    if (combatCoreEngine_) {
+      moveSpeedPct = combatCoreEngine_->getPlayerMovementSpeedPercent(f.playerId);
+    }
+
     std::lock_guard<std::mutex> lock(mu_);
     
     // Atualizar mapeamento ClientID -> PlayerID
@@ -1086,9 +1092,10 @@ private:
           
           if (!skipSpeedCheck) {
             float calculatedSpeed = std::sqrt(dist2) / dt;
-            if (calculatedSpeed > maxSpeed_) {
-              Umbra::Core::Logger::getInstance().warn("MoveUpdate from client {} rejected: speed too high (speed={}, dist={}, dt={}, prevTs={}, currTs={})", 
-                                                      cid, calculatedSpeed, std::sqrt(dist2), dt, prevTs, f.tsMs);
+            const float allowedMaxSpeed = maxSpeed_ * moveSpeedPct / 100.f;
+            if (calculatedSpeed > allowedMaxSpeed) {
+              Umbra::Core::Logger::getInstance().warn("MoveUpdate from client {} rejected: speed too high (speed={}, max={}, dist={}, dt={}, prevTs={}, currTs={})", 
+                                                      cid, calculatedSpeed, allowedMaxSpeed, std::sqrt(dist2), dt, prevTs, f.tsMs);
               return;
             }
           }
@@ -1271,12 +1278,6 @@ private:
     }
     Umbra::Core::Logger::getInstance().warn("Player {} not found online, cannot send message", playerId);
   }
-  
-  // Versão pública com lock (para uso externo)
-  void sendToPlayer(uint32_t playerId, const std::vector<uint8_t>& message) {
-    std::lock_guard<std::mutex> lock(mu_);
-    sendToPlayerUnlocked(playerId, message);
-  }
 
   /** Broadcast para jogadores próximos (AOI) em vez de todos. Usa SpatialGrid. */
   void broadcastToNearby(uint32_t sourceClientId, const std::vector<uint8_t>& data) {
@@ -1316,7 +1317,7 @@ private:
 
   void handleVitalsBroadcastUnlocked(uint32_t targetPlayerId, const PlayerVitalsPayload& payload,
                                      uint32_t sourcePlayerId, int32_t delta, bool triggerDeath,
-                                     bool isCrit = false) {
+                                     bool isCrit = false, bool isDouble = false) {
     auto outMsg = encodePlayerVitalsUpdate(MovementMsgType::PlayerVitalsUpdate, payload);
     std::unordered_set<uint32_t> recipients;
     collectVitalsRecipientsUnlocked(targetPlayerId, recipients);
@@ -1331,6 +1332,7 @@ private:
       combat.delta = delta;
       combat.reason = payload.reason;
       combat.isCrit = isCrit ? 1 : 0;
+      combat.isDouble = isDouble ? 1 : 0;
       auto combatPkt = encodeCombatEventNotify(combat);
       for (uint32_t rid : recipients) {
         sendToPlayerUnlocked(rid, combatPkt);

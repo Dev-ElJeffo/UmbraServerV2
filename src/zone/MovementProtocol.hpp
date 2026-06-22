@@ -77,7 +77,7 @@ enum class MovementMsgType : uint8_t {
   PlayerDeathNotify = 89,              // Servidor -> Cliente: [type][playerId:4][killerId:4][reason:1]
   RespawnRequest = 90,                 // Cliente -> Servidor: [type][playerId:4][zoneId:4][spawnKeyLen:1][spawnKey]
   PlayerRespawnedNotify = 91,          // Servidor -> Cliente: [type][playerId:4][x:f][y:f][z:f][yaw:f][hp:i32][maxHp:i32][mp:i32][maxMp:i32]
-  CombatEventNotify = 92,              // Servidor -> Cliente: [type][targetId:4][sourceId:4][delta:i32][reason:1][isCrit:1]
+  CombatEventNotify = 92,              // Servidor -> Cliente: [type][targetId:4][sourceId:4][delta:i32][reason:1][isCrit:1][isDouble:1]
   DotTickNotify = 93,                  // Servidor -> Cliente: [type][targetId:4][dotId:8][delta:i32][dotType:1]
   ConsumableEffectNotify = 94,         // Cliente -> Servidor: efeito de poção (HP/MP/buff) para broadcast AOI
   ConsumableEffectUpdate = 95,         // Servidor -> Clientes: mesmo payload que 94
@@ -88,7 +88,27 @@ enum class MovementMsgType : uint8_t {
   NpcSpawnNotify = 100,                // Servidor -> Cliente: spawn NPC na zona
   NpcDespawnNotify = 101,              // Servidor -> Cliente: despawn NPC
   NpcStateUpdate = 102,                // Servidor -> Cliente: HP/pos NPC
-  NpcCombatEvent = 103                 // Servidor -> Cliente: dano/cura em NPC (floating text)
+  NpcCombatEvent = 103,                // Servidor -> Cliente: dano/cura em NPC (floating text)
+  SkillBuffSync = 104,                 // Servidor -> Clientes: apply/remove buff de skill
+  SkillCastRejected = 105              // Servidor -> Cliente: cast rejeitado (range/mana/etc.)
+};
+
+/** Motivo de rejeição de skill (opcode 105) */
+enum class SkillCastRejectReason : uint8_t {
+  Unknown = 0,
+  RangeExceeded = 1,
+  NoMana = 2,
+  OnCooldown = 3,
+  CannotCast = 4,
+  NoTarget = 5,
+  SkillNotFound = 6
+};
+
+struct SkillCastRejectedPayload {
+  uint32_t playerId = 0;
+  uint32_t skillId = 0;
+  uint8_t reason = 0;
+  std::string message;
 };
 
 /** reason em vitals/combate: 0=unknown, 1=DAMAGE, 2=HEAL, 3=SKILL, 4=ENV, 5=DOT */
@@ -117,6 +137,23 @@ struct RemoteBuffPayload {
   uint32_t durationMs = 0;
   uint32_t itemTemplateId = 0;
   std::string itemName;
+  std::string iconPath;
+};
+
+/** action: 0 = apply/refresh, 1 = remove/expired — buffs de skill (opcode 104) */
+struct SkillBuffSyncPayload {
+  uint8_t action = 0;
+  uint32_t targetPlayerId = 0;
+  uint64_t buffId = 0;
+  uint32_t skillId = 0;
+  uint8_t buffType = 0;
+  uint8_t stacks = 1;
+  int32_t valueFlat = 0;
+  int16_t valuePercent = 0;
+  int64_t expiresAtMs = 0;
+  uint32_t durationMs = 0;
+  std::string targetStat;
+  std::string skillName;
   std::string iconPath;
 };
 
@@ -1320,6 +1357,7 @@ struct CombatEventPayload {
   int32_t delta = 0;
   uint8_t reason = 0;
   uint8_t isCrit = 0;
+  uint8_t isDouble = 0;
 };
 
 struct DotTickPayload {
@@ -1538,11 +1576,12 @@ inline std::vector<uint8_t> encodeCombatEventNotify(const CombatEventPayload& p)
   writeI32(p.delta);
   data.push_back(p.reason);
   data.push_back(p.isCrit);
+  data.push_back(p.isDouble);
   return data;
 }
 
 inline bool decodeCombatEventNotify(const std::vector<uint8_t>& data, CombatEventPayload& p) {
-  if (data.size() < 16) return false;
+  if (data.size() < 15) return false;
   if (static_cast<MovementMsgType>(data[0]) != MovementMsgType::CombatEventNotify) return false;
   size_t off = 1;
   auto readU32 = [&data, &off]() -> uint32_t {
@@ -1557,7 +1596,8 @@ inline bool decodeCombatEventNotify(const std::vector<uint8_t>& data, CombatEven
   p.sourceId = readU32();
   p.delta = static_cast<int32_t>(readU32());
   p.reason = data[off++];
-  p.isCrit = data[off];
+  p.isCrit = data[off++];
+  p.isDouble = (data.size() > off) ? data[off] : 0;
   return true;
 }
 
@@ -1747,6 +1787,7 @@ struct NpcCombatEventPayload {
   int32_t delta = 0;
   uint8_t reason = 1;
   uint8_t isCrit = 0;
+  uint8_t isDouble = 0;
 };
 
 struct BasicAttackDef {
@@ -2050,7 +2091,7 @@ inline bool decodeNpcStateUpdate(const std::vector<uint8_t>& data, NpcStatePaylo
 
 inline std::vector<uint8_t> encodeNpcCombatEvent(const NpcCombatEventPayload& p) {
   std::vector<uint8_t> data;
-  data.reserve(15);
+  data.reserve(16);
   data.push_back(static_cast<uint8_t>(MovementMsgType::NpcCombatEvent));
   auto writeU32 = [&data](uint32_t v) {
     data.push_back(static_cast<uint8_t>(v & 0xFF));
@@ -2064,6 +2105,7 @@ inline std::vector<uint8_t> encodeNpcCombatEvent(const NpcCombatEventPayload& p)
   writeI32(p.delta);
   data.push_back(p.reason);
   data.push_back(p.isCrit);
+  data.push_back(p.isDouble);
   return data;
 }
 
@@ -2080,7 +2122,123 @@ inline bool decodeNpcCombatEvent(const std::vector<uint8_t>& data, NpcCombatEven
   p.sourcePlayerId = readU32();
   p.delta = static_cast<int32_t>(readU32());
   p.reason = data[off++];
-  p.isCrit = data[off];
+  p.isCrit = data[off++];
+  p.isDouble = (data.size() > off) ? data[off] : 0;
+  return true;
+}
+
+inline std::vector<uint8_t> encodeSkillBuffSync(const SkillBuffSyncPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(96);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::SkillBuffSync));
+  auto writeU32 = [&data](uint32_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  auto writeU64 = [&data](uint64_t v) {
+    for (int i = 0; i < 8; ++i) {
+      data.push_back(static_cast<uint8_t>((v >> (i * 8)) & 0xFF));
+    }
+  };
+  auto writeI32 = [&writeU32](int32_t v) { writeU32(static_cast<uint32_t>(v)); };
+  auto writeI16 = [&data](int16_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  };
+  data.push_back(p.action);
+  writeU32(p.targetPlayerId);
+  writeU64(p.buffId);
+  writeU32(p.skillId);
+  data.push_back(p.buffType);
+  data.push_back(p.stacks);
+  writeI32(p.valueFlat);
+  writeI16(p.valuePercent);
+  writeU64(static_cast<uint64_t>(p.expiresAtMs));
+  writeU32(p.durationMs);
+  appendStringField(data, p.targetStat, 32);
+  appendStringField(data, p.skillName, 64);
+  appendStringField(data, p.iconPath, 128);
+  return data;
+}
+
+inline bool decodeSkillBuffSync(const std::vector<uint8_t>& data, SkillBuffSyncPayload& p) {
+  if (data.size() < 30 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::SkillBuffSync) {
+    return false;
+  }
+  size_t off = 1;
+  auto readU32 = [&]() -> uint32_t {
+    uint32_t v = static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) |
+                 (static_cast<uint32_t>(data[off + 2]) << 16) | (static_cast<uint32_t>(data[off + 3]) << 24);
+    off += 4;
+    return v;
+  };
+  auto readU64 = [&]() -> uint64_t {
+    uint64_t v = 0;
+    for (int i = 0; i < 8; ++i) {
+      v |= static_cast<uint64_t>(data[off + i]) << (i * 8);
+    }
+    off += 8;
+    return v;
+  };
+  auto readI16 = [&]() -> int16_t {
+    int16_t v = static_cast<int16_t>(static_cast<uint16_t>(data[off]) |
+                                       (static_cast<uint16_t>(data[off + 1]) << 8));
+    off += 2;
+    return v;
+  };
+  if (off >= data.size()) return false;
+  p.action = data[off++];
+  p.targetPlayerId = readU32();
+  p.buffId = readU64();
+  p.skillId = readU32();
+  if (off + 1 >= data.size()) return false;
+  p.buffType = data[off++];
+  p.stacks = data[off++];
+  p.valueFlat = static_cast<int32_t>(readU32());
+  p.valuePercent = readI16();
+  p.expiresAtMs = static_cast<int64_t>(readU64());
+  p.durationMs = readU32();
+  if (!readStringField(data, off, p.targetStat, 32)) return false;
+  if (!readStringField(data, off, p.skillName, 64)) return false;
+  if (!readStringField(data, off, p.iconPath, 128)) return false;
+  return true;
+}
+
+inline std::vector<uint8_t> encodeSkillCastRejected(const SkillCastRejectedPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(32 + p.message.size());
+  data.push_back(static_cast<uint8_t>(MovementMsgType::SkillCastRejected));
+  auto writeU32 = [&data](uint32_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  writeU32(p.playerId);
+  writeU32(p.skillId);
+  data.push_back(p.reason);
+  appendStringField(data, p.message, 128);
+  return data;
+}
+
+inline bool decodeSkillCastRejected(const std::vector<uint8_t>& data, SkillCastRejectedPayload& p) {
+  if (data.size() < 12 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::SkillCastRejected) {
+    return false;
+  }
+  size_t off = 1;
+  auto readU32 = [&]() -> uint32_t {
+    uint32_t v = static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) |
+                 (static_cast<uint32_t>(data[off + 2]) << 16) | (static_cast<uint32_t>(data[off + 3]) << 24);
+    off += 4;
+    return v;
+  };
+  p.playerId = readU32();
+  p.skillId = readU32();
+  if (off >= data.size()) return false;
+  p.reason = data[off++];
+  if (!readStringField(data, off, p.message, 128)) return false;
   return true;
 }
 

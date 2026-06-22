@@ -47,6 +47,7 @@ class ZoneServer {
   std::unique_ptr<CombatCoreEngine> combatCoreEngine_;
   float snapshotAccumulator_ = 0.0f;
   float dotTickAccumulator_ = 0.0f;
+  float buffTickAccumulator_ = 0.0f;
   float autoSaveAccumulator_ = 0.0f;
   float autoSaveInterval_ = 30.0f;
   bool running_;

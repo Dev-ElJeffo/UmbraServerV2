@@ -85,7 +85,12 @@ try {
         exit;
     }
 
-    $character = get_character_info_data($pdo, $player_id, ['create_stat_points_if_missing' => true]);
+    $include_debug = !empty($data['include_debug']);
+
+    $character = get_character_info_data($pdo, $player_id, [
+        'create_stat_points_if_missing' => true,
+        'include_debug' => $include_debug,
+    ]);
     if ($character === null) {
         http_response_code(404);
         echo json_encode(['success' => false, 'message' => 'Personagem não encontrado']);

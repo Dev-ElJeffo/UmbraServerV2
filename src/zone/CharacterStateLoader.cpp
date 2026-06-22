@@ -1,9 +1,11 @@
 #include "zone/CharacterStateLoader.hpp"
+#include "StatKeyMapping.hpp"
 #include "core/Logger.hpp"
 
 #include <nlohmann/json.hpp>
 #include <cmath>
 #include <unordered_map>
+#include <vector>
 
 namespace Umbra {
 namespace Zone {
@@ -214,6 +216,99 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
     if (it != t.end()) it->second += bonus;
   }
 
+  // Buffs/debuffs de skills (active_buffs) — flat antes dos derivados; CC/shield registrados.
+  bool ccStunned = false;
+  bool ccSilenced = false;
+  bool ccRooted = false;
+  int32_t totalShield = 0;
+  struct SkillPercentMod {
+    std::string key;
+    int32_t percent;
+    bool applyToTotals = false;
+  };
+  std::vector<SkillPercentMod> skillPercentMods;
+
+  auto applyBuffSnapshot = [&](const nlohmann::json& snap, int stacks) {
+    if (!snap.is_object()) return;
+    if (snap.value("reaction_armed", false)) return;
+
+    const std::string effectType = snap.value("effect_type", std::string{});
+    if (effectType == "STUN") ccStunned = true;
+    if (effectType == "SILENCE") ccSilenced = true;
+    if (effectType == "ROOT") ccRooted = true;
+
+    const std::string statKey =
+        Combat::StatKeyMapping::mapTargetStatToCanonical(snap.value("target_stat", std::string{}));
+    const int64_t flat = jsonInt(snap, "value_flat") * stacks;
+    const int32_t pct = static_cast<int32_t>(jsonInt(snap, "value_percent")) * stacks;
+    if (!statKey.empty() && flat != 0) {
+      Combat::StatKeyMapping::applyFlatToTotals(statKey, flat, t);
+    }
+    if (!statKey.empty() && pct != 0) {
+      skillPercentMods.push_back(
+          {statKey, pct, Combat::StatKeyMapping::isTotalsPercentKey(statKey)});
+    }
+  };
+
+  auto skillBuffRows = db_->executePreparedQuery(
+      "SELECT buff_type, current_stacks, value_snapshot, COALESCE(snapshot_json,'') "
+      "FROM active_buffs WHERE target_player_id = ? AND (expires_at > NOW(3) OR is_permanent = 1)",
+      {pid});
+  for (const auto& br : skillBuffRows) {
+    if (br.size() < 4) continue;
+    int stacks = 1;
+    try {
+      stacks = std::max(1, std::stoi(br[1]));
+    } catch (...) {
+    }
+    const std::string& buffTypeDb = br[0];
+    nlohmann::json snap = nlohmann::json::parse(br[3], nullptr, false);
+
+    if (buffTypeDb == "SHIELD") {
+      int32_t shieldVal = 0;
+      try {
+        shieldVal = std::stoi(br[2]);
+      } catch (...) {
+      }
+      if (shieldVal <= 0 && snap.is_object()) {
+        shieldVal = static_cast<int32_t>(jsonInt(snap, "value_flat"));
+      }
+      totalShield += shieldVal * stacks;
+      continue;
+    }
+
+    applyBuffSnapshot(snap, stacks);
+  }
+
+  // Passivas aprendidas com condição health_below_percent (sem linha em active_buffs).
+  const int64_t healthPct = (health > 0 && baseHealth + levelHp > 0)
+                                ? (health * 100 / std::max<int64_t>(1, baseHealth + levelHp))
+                                : 100;
+  auto passiveRows = db_->executePreparedQuery(
+      "SELECT s.effects_json FROM player_skills ps "
+      "INNER JOIN skills s ON ps.skill_id = s.skill_id "
+      "WHERE ps.player_id = ? AND s.type_id = 2",
+      {pid});
+  for (const auto& pr : passiveRows) {
+    if (pr.empty() || pr[0].empty() || pr[0] == "null") continue;
+    nlohmann::json effects = nlohmann::json::parse(pr[0], nullptr, false);
+    if (!effects.is_array()) continue;
+    for (const auto& item : effects) {
+      if (!item.is_object()) continue;
+      nlohmann::json cond = item.value("conditions_json", nlohmann::json::object());
+      if (!cond.is_object()) continue;
+      const int64_t threshold = jsonInt(cond, "health_below_percent");
+      if (threshold <= 0 || healthPct >= threshold) continue;
+
+      nlohmann::json virtualSnap;
+      virtualSnap["target_stat"] = item.value("target_stat", std::string{});
+      virtualSnap["value_flat"] = item.contains("value_flat") ? item["value_flat"] : item.value("value", 0);
+      virtualSnap["value_percent"] = item.value("value_percent", 0);
+      virtualSnap["effect_type"] = item.value("type", item.value("effect_type", std::string{}));
+      applyBuffSnapshot(virtualSnap, 1);
+    }
+  }
+
   // Bônus derivados de atributos (mesma ordem/fórmula do helper PHP).
   const int64_t str = t["strength"];
   const int64_t dex = t["dexterity"];
@@ -230,6 +325,12 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
   t["double_attack_rate"] += (str / 10);
   t["health_bonus"] += (vit / 10) * 30;
   t["mana_bonus"] += (intel / 10) * 30;
+
+  for (const auto& pm : skillPercentMods) {
+    if (pm.applyToTotals) {
+      Combat::StatKeyMapping::applyPercentToTotals(pm.key, pm.percent, t);
+    }
+  }
 
   const int64_t finalMaxHealth = baseHealth + levelHp + t["health_bonus"];
   const int64_t finalMaxMana = baseMana + levelMp + t["mana_bonus"];
@@ -254,6 +355,13 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
   stats.criticalResistance = static_cast<int32_t>(t["resistance"]);
   stats.doubleAttackRate = static_cast<int32_t>(t["double_attack_rate"]);
   stats.doubleAttackResistance = static_cast<int32_t>(t["double_attack_resistance"]);
+  stats.movementSpeed = static_cast<int32_t>(std::max<int64_t>(50, 100 + t["movement"]));
+
+  for (const auto& pm : skillPercentMods) {
+    if (!pm.applyToTotals) {
+      Combat::StatKeyMapping::applyPercentToCharacterStats(pm.key, pm.percent, stats);
+    }
+  }
 
   out = Combat::CharacterState{};
   out.playerId = playerId;
@@ -263,6 +371,11 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
   out.buffedStats = stats;
   out.isAlive = (health > 0);
   out.isPvPEnabled = (pvpFlag != 0);
+  out.isStunned = ccStunned;
+  out.isSilenced = ccSilenced;
+  out.isRooted = ccRooted;
+  out.currentShield = totalShield;
+  out.maxShield = totalShield;
   return true;
 }
 
