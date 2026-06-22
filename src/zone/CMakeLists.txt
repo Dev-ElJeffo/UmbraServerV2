@@ -12,6 +12,7 @@ add_library(umbra_zone STATIC
   SpatialGrid.hpp
   ZoneOrchestrator.hpp
   ZoneCombatService.hpp
+  CombatVitalsUtil.hpp
   NpcManager.hpp
   CombatCoreEngine.hpp
   CharacterStateLoader.hpp
