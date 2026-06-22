@@ -39,12 +39,12 @@ uint64_t AccountDAO::createAccount(const Account& account) {
     return 0;
   }
 
-  bool ok = connector_->executePreparedInsert(
+  auto insertResult = connector_->executePreparedInsertWithLastId(
     "INSERT INTO accounts (username, email, password_hash, salt, created_at) VALUES (?, ?, ?, ?, NOW())",
     {account.username, account.email, account.passwordHash, account.salt});
 
-  if (ok) {
-    uint64_t id = connector_->getLastInsertId();
+  if (insertResult.first) {
+    uint64_t id = insertResult.second;
     Core::Logger::getInstance().info("Created account: {} (ID: {})", account.username, id);
     return id;
   }
