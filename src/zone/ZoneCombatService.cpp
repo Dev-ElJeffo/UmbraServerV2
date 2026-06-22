@@ -1,4 +1,5 @@
 #include "zone/ZoneCombatService.hpp"
+#include "zone/CombatVitalsUtil.hpp"
 #include "zone/MovementServer.hpp"
 #include "database/MySQLConnector.hpp"
 #include "core/Logger.hpp"
@@ -35,13 +36,13 @@ bool ZoneCombatService::applyVitalsInDb(uint32_t sourcePlayerId, uint32_t target
 
   int32_t curHealth = std::stoi(*healthOpt);
   int32_t curMana = std::stoi(*manaOpt);
-  outMaxHealth = std::max(1, curHealth);
-  outMaxMana = std::max(1, curMana);
+  outMaxHealth = 100;
+  outMaxMana = 50;
 
   auto maxHOpt = db_->executePreparedScalar(
-      "SELECT COALESCE(MAX(health), 100) FROM players WHERE id = ?", {tid});
+      "SELECT COALESCE(max_health, 100) FROM players WHERE id = ? LIMIT 1", {tid});
   auto maxMOpt = db_->executePreparedScalar(
-      "SELECT COALESCE(MAX(mana), 50) FROM players WHERE id = ?", {tid});
+      "SELECT COALESCE(max_mana, 50) FROM players WHERE id = ? LIMIT 1", {tid});
   if (maxHOpt && !maxHOpt->empty()) {
     try { outMaxHealth = std::max(1, std::stoi(*maxHOpt)); } catch (...) {}
   }
@@ -49,8 +50,8 @@ bool ZoneCombatService::applyVitalsInDb(uint32_t sourcePlayerId, uint32_t target
     try { outMaxMana = std::max(1, std::stoi(*maxMOpt)); } catch (...) {}
   }
 
-  outNewHealth = std::max(0, std::min(outMaxHealth, curHealth + deltaHealth));
-  outNewMana = std::max(0, std::min(outMaxMana, curMana + deltaMana));
+  outNewHealth = applyVitalDelta(curHealth, outMaxHealth, deltaHealth);
+  outNewMana = applyVitalDelta(curMana, outMaxMana, deltaMana);
   outIsDead = (outNewHealth <= 0);
 
   if (outIsDead) {

@@ -39,6 +39,18 @@ target_link_libraries(test_zone
   Threads::Threads
 )
 
+add_executable(test_zone_combat_vitals
+  test_zone_combat_vitals.cpp
+)
+
+target_link_libraries(test_zone_combat_vitals
+  umbra_core
+  umbra_zone
+  gtest
+  gtest_main
+  Threads::Threads
+)
+
 add_executable(test_network
   test_network.cpp
 )
@@ -85,6 +97,7 @@ target_link_libraries(test_auth_playerdao
 add_test(NAME AuthTests COMMAND test_auth)
 add_test(NAME DatabaseTests COMMAND test_db)
 add_test(NAME ZoneTests COMMAND test_zone)
+add_test(NAME ZoneCombatVitalsTests COMMAND test_zone_combat_vitals)
 add_test(NAME NetworkTests COMMAND test_network)
 add_test(NAME Fase1Tests COMMAND test_fase1)
 add_test(NAME PlayerDAOTests COMMAND test_playerdao)
