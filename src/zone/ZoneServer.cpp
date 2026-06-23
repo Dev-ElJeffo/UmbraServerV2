@@ -1,5 +1,7 @@
 #include "ZoneServer.hpp"
 #include "zone/CombatCoreEngine.hpp"
+#include "zone/ExperienceService.hpp"
+#include "zone/ExpZoneManager.hpp"
 #include "core/Logger.hpp"
 #include "core/ConfigManager.hpp"
 #include "database/MySQLConnector.hpp"
@@ -130,6 +132,13 @@ bool ZoneServer::start() {
             return resolvePartyMembers(db, playerId);
           });
       movementServer_->setCombatCoreEngine(combatCoreEngine_.get());
+
+      experienceService_ = std::make_unique<ExperienceService>(config_.dbConnector);
+      experienceService_->setStateLoader(combatCoreEngine_->getCharacterStateLoader());
+      expZoneManager_ = std::make_unique<ExpZoneManager>(
+          config_.zoneId, config_.dbConnector, experienceService_.get(), movementServer_.get());
+      Core::Logger::getInstance().info("ExperienceService and ExpZoneManager initialized for zone {}",
+                                         config_.zoneId);
     } else {
       combatCoreEngine_.reset();
       Core::Logger::getInstance().warn("CombatCoreEngine failed to initialize");
@@ -183,6 +192,14 @@ void ZoneServer::update(float deltaTime) {
   if (combatCoreEngine_) {
     combatCoreEngine_->tick(deltaTime);
     combatCoreEngine_->tickRegen(deltaTime);
+  }
+
+  expZoneTickAccumulator_ += deltaTime;
+  if (expZoneTickAccumulator_ >= 1.0f) {
+    if (expZoneManager_) {
+      expZoneManager_->tick(expZoneTickAccumulator_);
+    }
+    expZoneTickAccumulator_ = 0.0f;
   }
 
   // Auto-save desabilitado: as posicoes sao salvas pelo PHP (update_position.php)

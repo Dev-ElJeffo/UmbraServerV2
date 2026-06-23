@@ -90,7 +90,9 @@ enum class MovementMsgType : uint8_t {
   NpcStateUpdate = 102,                // Servidor -> Cliente: HP/pos NPC
   NpcCombatEvent = 103,                // Servidor -> Cliente: dano/cura em NPC (floating text)
   SkillBuffSync = 104,                 // Servidor -> Clientes: apply/remove buff de skill
-  SkillCastRejected = 105              // Servidor -> Cliente: cast rejeitado (range/mana/etc.)
+  SkillCastRejected = 105,             // Servidor -> Cliente: cast rejeitado (range/mana/etc.)
+  ExpGainNotify = 106,                 // Servidor -> Cliente: ganho de EXP
+  LevelUpNotify = 107                  // Servidor -> Cliente: subiu de nível
 };
 
 /** Motivo de rejeição de skill (opcode 105) */
@@ -109,6 +111,23 @@ struct SkillCastRejectedPayload {
   uint32_t skillId = 0;
   uint8_t reason = 0;
   std::string message;
+};
+
+struct ExpGainNotifyPayload {
+  uint32_t playerId = 0;
+  int32_t expGained = 0;
+  int64_t totalExp = 0;
+  int32_t expForNext = 0;
+  uint8_t progressPercent = 0;
+  int32_t expInCurrentLevel = 0;
+};
+
+struct LevelUpNotifyPayload {
+  uint32_t playerId = 0;
+  uint32_t newLevel = 0;
+  uint8_t levelsGained = 0;
+  uint16_t statPointsGained = 0;
+  uint16_t skillPointsAvail = 0;
 };
 
 /** reason em vitals/combate: 0=unknown, 1=DAMAGE, 2=HEAL, 3=SKILL, 4=ENV, 5=DOT */
@@ -2239,6 +2258,110 @@ inline bool decodeSkillCastRejected(const std::vector<uint8_t>& data, SkillCastR
   if (off >= data.size()) return false;
   p.reason = data[off++];
   if (!readStringField(data, off, p.message, 128)) return false;
+  return true;
+}
+
+inline std::vector<uint8_t> encodeExpGainNotify(const ExpGainNotifyPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(26);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::ExpGainNotify));
+  auto writeU32 = [&data](uint32_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  auto writeI64 = [&data](int64_t v) {
+    for (int i = 0; i < 8; ++i) {
+      data.push_back(static_cast<uint8_t>((static_cast<uint64_t>(v) >> (i * 8)) & 0xFF));
+    }
+  };
+  writeU32(p.playerId);
+  writeU32(static_cast<uint32_t>(p.expGained));
+  writeI64(p.totalExp);
+  writeU32(static_cast<uint32_t>(p.expForNext));
+  data.push_back(p.progressPercent);
+  writeU32(static_cast<uint32_t>(p.expInCurrentLevel));
+  return data;
+}
+
+inline bool decodeExpGainNotify(const std::vector<uint8_t>& data, ExpGainNotifyPayload& p) {
+  if (data.size() < 22 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::ExpGainNotify) {
+    return false;
+  }
+  size_t off = 1;
+  auto readU32 = [&]() -> uint32_t {
+    uint32_t v = static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) |
+                 (static_cast<uint32_t>(data[off + 2]) << 16) | (static_cast<uint32_t>(data[off + 3]) << 24);
+    off += 4;
+    return v;
+  };
+  auto readI32 = [&]() -> int32_t { return static_cast<int32_t>(readU32()); };
+  auto readI64 = [&]() -> int64_t {
+    int64_t v = 0;
+    for (int i = 0; i < 8; ++i) {
+      v |= static_cast<int64_t>(data[off + i]) << (i * 8);
+    }
+    off += 8;
+    return v;
+  };
+  p.playerId = readU32();
+  p.expGained = readI32();
+  p.totalExp = readI64();
+  p.expForNext = readI32();
+  if (off >= data.size()) return false;
+  p.progressPercent = data[off++];
+  p.expInCurrentLevel = 0;
+  if (data.size() >= off + 4) {
+    p.expInCurrentLevel = readI32();
+  }
+  return true;
+}
+
+inline std::vector<uint8_t> encodeLevelUpNotify(const LevelUpNotifyPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(14);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::LevelUpNotify));
+  auto writeU32 = [&data](uint32_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  auto writeU16 = [&data](uint16_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  };
+  writeU32(p.playerId);
+  writeU32(p.newLevel);
+  data.push_back(p.levelsGained);
+  writeU16(p.statPointsGained);
+  writeU16(p.skillPointsAvail);
+  return data;
+}
+
+inline bool decodeLevelUpNotify(const std::vector<uint8_t>& data, LevelUpNotifyPayload& p) {
+  if (data.size() < 14 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::LevelUpNotify) {
+    return false;
+  }
+  size_t off = 1;
+  auto readU32 = [&]() -> uint32_t {
+    uint32_t v = static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) |
+                 (static_cast<uint32_t>(data[off + 2]) << 16) | (static_cast<uint32_t>(data[off + 3]) << 24);
+    off += 4;
+    return v;
+  };
+  auto readU16 = [&]() -> uint16_t {
+    uint16_t v = static_cast<uint16_t>(data[off]) | (static_cast<uint16_t>(data[off + 1]) << 8);
+    off += 2;
+    return v;
+  };
+  p.playerId = readU32();
+  p.newLevel = readU32();
+  if (off >= data.size()) return false;
+  p.levelsGained = data[off++];
+  p.statPointsGained = readU16();
+  p.skillPointsAvail = readU16();
   return true;
 }
 

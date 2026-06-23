@@ -85,6 +85,26 @@ public:
     }
   }
 
+  void broadcastExpGain(uint32_t playerId, const ExpGainNotifyPayload& payload) {
+    std::lock_guard<std::mutex> lock(mu_);
+    auto pkt = encodeExpGainNotify(payload);
+    std::unordered_set<uint32_t> recipients;
+    collectVitalsRecipientsUnlocked(playerId, recipients);
+    for (uint32_t rid : recipients) {
+      sendToPlayerUnlocked(rid, pkt);
+    }
+  }
+
+  void broadcastLevelUp(uint32_t playerId, const LevelUpNotifyPayload& payload) {
+    std::lock_guard<std::mutex> lock(mu_);
+    auto pkt = encodeLevelUpNotify(payload);
+    std::unordered_set<uint32_t> recipients;
+    collectVitalsRecipientsUnlocked(playerId, recipients);
+    for (uint32_t rid : recipients) {
+      sendToPlayerUnlocked(rid, pkt);
+    }
+  }
+
   /** Broadcast binário para todos os clientes conectados (Combat V2, etc.). */
   void broadcastToAll(const std::vector<uint8_t>& data) {
     std::lock_guard<std::mutex> lock(mu_);

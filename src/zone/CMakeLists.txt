@@ -8,6 +8,8 @@ add_library(umbra_zone STATIC
   CombatCoreEngine.cpp
   CharacterStateLoader.cpp
   ReactionEngine.cpp
+  ExperienceService.cpp
+  ExpZoneManager.cpp
   MovementServer.hpp
   MovementProtocol.hpp
   SpatialGrid.hpp

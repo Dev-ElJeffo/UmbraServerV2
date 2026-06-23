@@ -54,6 +54,7 @@ public:
   void broadcastNpcDespawnToAll(uint32_t npcInstanceId, uint8_t reason = 0);
 
   const NpcManager* getNpcManager() const { return npcManager_.get(); }
+  CharacterStateLoader* getCharacterStateLoader() { return stateLoader_.get(); }
 
   void processSkillCast(uint32_t sourcePlayerId, const SkillCastPayload& payload);
   void processBasicAttack(uint32_t sourcePlayerId, const BasicAttackPayload& payload);
