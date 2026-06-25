@@ -101,6 +101,8 @@ try {
                 AND item_template_id = :item_template_id 
                 AND quantity < :max_stack_size
                 AND is_equipped = FALSE
+                AND slot_index >= 0 AND slot_index < 50
+                AND auction_listing_id IS NULL
                 LIMIT 1
             ";
             $stack_stmt = $pdo->prepare($stack_query);
@@ -140,7 +142,11 @@ try {
         }
         
         // Encontrar primeiro slot vazio (0-49)
-        $occupied_slots_query = "SELECT slot_index FROM player_inventory WHERE player_id = :player_id ORDER BY slot_index ASC";
+        $occupied_slots_query = "
+            SELECT slot_index FROM player_inventory
+            WHERE player_id = :player_id AND slot_index >= 0 AND slot_index < 50 AND auction_listing_id IS NULL
+            ORDER BY slot_index ASC
+        ";
         $occupied_stmt = $pdo->prepare($occupied_slots_query);
         $occupied_stmt->execute(['player_id' => $player_id]);
         $occupied_slots = $occupied_stmt->fetchAll(PDO::FETCH_COLUMN);
@@ -159,7 +165,11 @@ try {
         }
     } else {
         // Verificar se o slot está ocupado
-        $slot_check_query = "SELECT inventory_id FROM player_inventory WHERE player_id = :player_id AND slot_index = :slot_index";
+        $slot_check_query = "
+            SELECT inventory_id FROM player_inventory
+            WHERE player_id = :player_id AND slot_index = :slot_index
+              AND (slot_index >= 50 OR auction_listing_id IS NULL)
+        ";
         $slot_check_stmt = $pdo->prepare($slot_check_query);
         $slot_check_stmt->execute(['player_id' => $player_id, 'slot_index' => $slot_index]);
         

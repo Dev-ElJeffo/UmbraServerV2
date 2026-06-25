@@ -32,6 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/character_info_helper.php';
 
 try {
     $data = json_decode(file_get_contents('php://input'), true);
@@ -220,11 +221,8 @@ try {
     
     // Gerar request_id único para rastrear no servidor C++
     $requestId = uniqid('skill_', true);
-    
-    echo json_encode([
-        'success' => true,
-        'message' => 'Skill request validado',
-        'data' => [
+
+    $responseData = [
             'request_id' => $requestId,
             'skill_id' => (int)$skillId,
             'skill_name' => $playerSkill['skill_name'],
@@ -237,7 +235,18 @@ try {
             'cast_time_ms' => (int)$playerSkill['cast_time_ms'],
             'timestamp' => (int)$currentTime,
             'proceed_to_server' => true
-        ]
+    ];
+    if ($resourceCost > 0) {
+        $responseData['new_health'] = $newHealth;
+        $responseData['new_mana'] = $newMana;
+        $responseData['max_health'] = $maxHealthResp;
+        $responseData['max_mana'] = $maxManaResp;
+    }
+    
+    echo json_encode([
+        'success' => true,
+        'message' => 'Skill request validado',
+        'data' => $responseData
     ], JSON_UNESCAPED_UNICODE);
     
 } catch (PDOException $e) {

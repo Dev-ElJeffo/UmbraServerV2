@@ -31,6 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/auction_helper.php';
 
 $json = file_get_contents('php://input');
 $data = json_decode($json, true) ?: [];
@@ -75,6 +76,7 @@ try {
                     i.item_template_id,
                     i.quantity,
                     i.is_equipped,
+                    i.auction_listing_id,
                     t.max_stack_size,
                     t.item_name
                   FROM player_inventory i
@@ -111,6 +113,13 @@ try {
         $pdo->rollBack();
         http_response_code(404);
         echo json_encode(['success' => false, 'message' => 'Erro ao identificar itens']);
+        exit;
+    }
+
+    if (playerInventoryRowHeldForAuction($source_item) || playerInventoryRowHeldForAuction($target_item)) {
+        $pdo->rollBack();
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Itens anunciados no mercado não podem ser empilhados.']);
         exit;
     }
     

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <g stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Capacete -->
+    <path d="M16 32 C16 20 22 12 32 12 C42 12 48 20 48 32" 
+          fill="#4a4a6a" stroke="#d4af37" stroke-width="2"/>
+    <path d="M16 32 L16 36 L20 40 L24 36 L24 32" fill="#2d2d44" stroke="#d4af37"/>
+    <path d="M48 32 L48 36 L44 40 L40 36 L40 32" fill="#2d2d44" stroke="#d4af37"/>
+    
+    <!-- Viseira -->
+    <rect x="24" y="28" width="16" height="8" fill="#1a1a2e" stroke="#d4af37"/>
+    <path d="M26 32 L38 32" stroke="#d4af37" stroke-width="1"/>
+    
+    <!-- Ornamento de topo -->
+    <path d="M28 12 L32 8 L36 12" stroke="#ffd700" stroke-width="2" fill="none"/>
+    
+    <!-- Corpo/Armadura -->
+    <path d="M20 40 L20 52 C20 54 22 56 24 56 L40 56 C42 56 44 54 44 52 L44 40" 
+          fill="#4a4a6a" stroke="#d4af37" stroke-width="2"/>
+    
+    <!-- Detalhes peitoral -->
+    <circle cx="32" cy="46" r="4" fill="#d4af37" stroke="#ffd700"/>
+  </g>
+</svg>

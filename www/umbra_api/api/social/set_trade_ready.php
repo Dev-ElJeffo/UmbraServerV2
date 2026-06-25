@@ -18,6 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/auction_helper.php';
 
 $json = file_get_contents('php://input');
 $data = json_decode($json, true) ?: [];
@@ -40,7 +41,10 @@ if (!$player_id || !$trade_session_id) {
 }
 
 function findFreeSlot(PDO $pdo, int $player_id): ?int {
-    $stmt = $pdo->prepare("SELECT slot_index FROM player_inventory WHERE player_id = ? AND slot_index >= 0 AND slot_index < 50");
+    $stmt = $pdo->prepare("
+        SELECT slot_index FROM player_inventory
+        WHERE player_id = ? AND slot_index >= 0 AND slot_index < 50 AND auction_listing_id IS NULL
+    ");
     $stmt->execute([$player_id]);
     $occupied = $stmt->fetchAll(PDO::FETCH_COLUMN);
     for ($s = 0; $s < 50; $s++) {
@@ -66,12 +70,19 @@ function executeTrade(PDO $pdo, array $session): void {
         $inv_id = (int)$r['inventory_id'];
         $from = (int)$r['player_id'];
         $to = ($from === $p1) ? $p2 : $p1;
+        $invRow = $pdo->prepare('SELECT auction_listing_id FROM player_inventory WHERE inventory_id = ? FOR UPDATE');
+        $invRow->execute([$inv_id]);
+        $invCheck = $invRow->fetch(PDO::FETCH_ASSOC);
+        if ($invCheck && playerInventoryRowHeldForAuction($invCheck)) {
+            throw new PDOException('Um dos itens está anunciado no mercado e não pode ser trocado.');
+        }
         $freeSlot = findFreeSlot($pdo, $to);
         if ($freeSlot === null) {
             throw new PDOException("Inventário do jogador $to está cheio");
         }
-        $pdo->prepare("UPDATE player_inventory SET player_id = ?, slot_index = ?, is_equipped = 0 WHERE inventory_id = ?")
-            ->execute([$to, $freeSlot, $inv_id]);
+        $pdo->prepare(
+            'UPDATE player_inventory SET player_id = ?, slot_index = ?, is_equipped = 0, auction_listing_id = NULL WHERE inventory_id = ?'
+        )->execute([$to, $freeSlot, $inv_id]);
     }
 
     if ($gold1 > 0 || $gold2 > 0) {

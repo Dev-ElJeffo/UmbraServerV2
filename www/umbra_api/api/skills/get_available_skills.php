@@ -101,6 +101,8 @@ try {
             s.required_level,
             s.skill_cost,
             s.max_rank,
+            s.class_id,
+            s.is_basic_attack,
             st.type_key as skill_type,
             st.type_name as skill_type_name,
             tg.target_key as target_type,
@@ -157,20 +159,33 @@ try {
     foreach ($skills as $skill) {
         $isUnlocked = $player['level'] >= $skill['required_level'];
         $isLearned = $skill['learned_rank'] !== null;
+        $isBasicAttack = !empty($skill['is_basic_attack']);
+        if ($isBasicAttack) {
+            $isLearned = true;
+        }
+        $currentRank = $isLearned ? (int)($skill['learned_rank'] ?? 0) : 0;
+        if ($isBasicAttack && $currentRank < 1) {
+            $currentRank = 1;
+        }
         $canLearn = $isUnlocked && !$isLearned && $skillPoints['points_available'] >= $skill['skill_cost'];
-        $canUpgrade = $isLearned && 
-                      $skill['learned_rank'] < $skill['max_rank'] && 
+        $canUpgrade = $isLearned &&
+                      $currentRank < $skill['max_rank'] &&
                       $skillPoints['points_available'] >= $skill['skill_cost'];
+        if ($isBasicAttack) {
+            $canLearn = false;
+        }
         
         $processedSkills[] = [
             'skill_id' => (int)$skill['skill_id'],
             'skill_key' => $skill['skill_key'],
             'skill_name' => $skill['skill_name'],
             'skill_order' => (int)$skill['skill_order'],
+            'class_id' => (int)$skill['class_id'],
+            'is_basic_attack' => $isBasicAttack,
             'required_level' => (int)$skill['required_level'],
             'skill_cost' => (int)$skill['skill_cost'],
             'max_rank' => (int)$skill['max_rank'],
-            'current_rank' => $isLearned ? (int)$skill['learned_rank'] : 0,
+            'current_rank' => $currentRank,
             'total_uses' => (int)($skill['total_uses'] ?? 0),
             
             'type' => $skill['skill_type'],

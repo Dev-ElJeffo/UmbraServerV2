@@ -27,6 +27,7 @@ class WorldServer {
   
   EventManager& getEventManager();
   TimeManager& getTimeManager();
+  const Config& getConfig() const;
   
   void update();
 

@@ -4,7 +4,20 @@
  * Funções auxiliares para validação e decodificação de tokens JWT
  */
 
-require_once __DIR__ . '/../vendor/autoload.php';
+$__umbra_vendor_autoload = __DIR__ . '/../vendor/autoload.php';
+if (!is_file($__umbra_vendor_autoload)) {
+    $msg = 'Dependencias PHP em falta (vendor/). Na pasta umbra_api executa install_vendor.bat ou: php composer.phar install';
+    if (PHP_SAPI === 'cli' || PHP_SAPI === 'phpdbg') {
+        fwrite(STDERR, $msg . PHP_EOL);
+        exit(1);
+    }
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8', true, 503);
+    }
+    echo json_encode(['success' => false, 'message' => $msg]);
+    exit(1);
+}
+require_once $__umbra_vendor_autoload;
 use \Firebase\JWT\JWT;
 use \Firebase\JWT\Key;
 

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <g stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Auréola -->
+    <circle cx="32" cy="14" r="8" fill="none" stroke="#ffd700" stroke-width="2" opacity="0.8"/>
+    <circle cx="32" cy="14" r="6" fill="none" stroke="#ffd700" stroke-width="1" opacity="0.6"/>
+    
+    <!-- Capuz/Manto -->
+    <path d="M22 18 C22 14 26 12 32 12 C38 12 42 14 42 18 L42 24 L22 24 Z" 
+          fill="#e8e8f0" stroke="#d4af37" stroke-width="2"/>
+    
+    <!-- Túnica -->
+    <path d="M22 24 L18 56 L46 56 L42 24 Z" 
+          fill="#f0f0f8" stroke="#d4af37" stroke-width="2"/>
+    
+    <!-- Cruz no peito -->
+    <path d="M32 30 L32 42" stroke="#d4af37" stroke-width="3"/>
+    <path d="M26 36 L38 36" stroke="#d4af37" stroke-width="3"/>
+    
+    <!-- Báculo sagrado -->
+    <path d="M48 20 L48 58" stroke="#e8e8f0" stroke-width="3"/>
+    <path d="M44 20 L52 20 L52 26 L44 26 Z" fill="#d4af37" stroke="#ffd700" stroke-width="1"/>
+    
+    <!-- Brilho do báculo -->
+    <circle cx="48" cy="23" r="2" fill="#ffd700" opacity="0.8"/>
+    <path d="M46 18 L48 16 L50 18" stroke="#ffd700" stroke-width="1" fill="none"/>
+    
+    <!-- Cinto com cruz -->
+    <rect x="26" y="38" width="12" height="3" fill="#d4af37"/>
+    <circle cx="32" cy="39.5" r="2" fill="#ffd700"/>
+  </g>
+</svg>

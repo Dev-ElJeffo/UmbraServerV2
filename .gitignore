@@ -21,6 +21,7 @@ config/db.json
 
 # PHP vendor (instalado via composer install)
 www/umbra_api/vendor/
+www/umbra_api/composer.phar
 
 # Logs
 *.log
@@ -45,4 +46,12 @@ coverage/
 # OS
 .DS_Store
 Thumbs.db
+
+# UmbraManager WPF (artefatos de build)
+tools/UmbraManagerWpf/**/obj/
+tools/UmbraManagerWpf/**/bin/
+
+# dist/UmbraManager — binários gerados pelo publish (configs são versionados)
+dist/**/*.exe
+dist/**/*.pdb
 

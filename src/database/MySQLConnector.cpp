@@ -388,13 +388,24 @@ bool MySQLConnector::executePreparedInsert(const std::string& query, const std::
         logError("Execute failed: " + std::string(mysql_stmt_error(stmt)));
       } else {
         ok = true;
-        if (usedPool) pool_[idx].lastInsertId = mysql_stmt_insert_id(stmt);
+        const uint64_t insertId = mysql_stmt_insert_id(stmt);
+        if (usedPool) pool_[idx].lastInsertId = insertId;
+        {
+          std::lock_guard<std::mutex> lock(mutex_);
+          lastInsertId_ = insertId;
+        }
       }
     } else {
       if (mysql_stmt_execute(stmt) != 0) {
         logError("Execute (no params) failed: " + std::string(mysql_stmt_error(stmt)));
       } else {
         ok = true;
+        const uint64_t insertId = mysql_stmt_insert_id(stmt);
+        if (usedPool) pool_[idx].lastInsertId = insertId;
+        {
+          std::lock_guard<std::mutex> lock(mutex_);
+          lastInsertId_ = insertId;
+        }
       }
     }
   }
@@ -543,8 +554,7 @@ std::string MySQLConnector::escapeString(const std::string& input) {
 
 uint64_t MySQLConnector::getLastInsertId() {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (!connected_ || !connection_) return 0;
-  return static_cast<uint64_t>(mysql_insert_id(static_cast<MYSQL*>(connection_)));
+  return lastInsertId_;
 }
 
 bool MySQLConnector::beginTransaction() { return execute("START TRANSACTION"); }

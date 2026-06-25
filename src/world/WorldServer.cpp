@@ -39,6 +39,10 @@ TimeManager& WorldServer::getTimeManager() {
   return *timeManager_;
 }
 
+const WorldServer::Config& WorldServer::getConfig() const {
+  return config_;
+}
+
 void WorldServer::update() {
   timeManager_->update();
   eventManager_->processEvents();

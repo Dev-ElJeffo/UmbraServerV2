@@ -54,6 +54,10 @@ class GatewayServer {
    */
   std::optional<AuthResponse> getClientInfo(const std::string& token);
 
+  std::string getAdminClientsJson();
+  bool kickClient(uint32_t clientId);
+  std::string getAuthStatsJson() const;
+
  private:
   Config config_;
   std::unique_ptr<LoadBalancer> loadBalancer_;

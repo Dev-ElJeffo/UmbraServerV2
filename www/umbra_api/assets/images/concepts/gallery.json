@@ -1,0 +1,34 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2026-04-27",
+  "categories": {
+    "characters": {
+      "name": "Personagens",
+      "description": "Arte conceitual de classes, NPCs e personagens jogáveis",
+      "images": []
+    },
+    "environments": {
+      "name": "Ambientes",
+      "description": "As três cidades, Fortedras e paisagens de Umbra Eternum",
+      "images": []
+    },
+    "creatures": {
+      "name": "Criaturas",
+      "description": "Monstros, criaturas corrompidas e entidades da Neblina Vermelha",
+      "images": []
+    },
+    "weapons": {
+      "name": "Armas",
+      "description": "Armamentos, artefatos e equipamentos lendários",
+      "images": []
+    }
+  },
+  "instructions": {
+    "howToAdd": "Para adicionar novas imagens à galeria:",
+    "steps": [
+      "1. Adicione a imagem na pasta correspondente (characters/, environments/, creatures/ ou weapons/)",
+      "2. Adicione uma entrada no array 'images' da categoria com os campos: filename, title, description e tags (opcional)",
+      "3. Exemplo: { \"filename\": \"barbarian_concept.jpg\", \"title\": \"Barbarian - Filha da Ruína\", \"description\": \"Arte conceitual da classe Barbarian\", \"tags\": [\"classe\", \"feminino\", \"guerreiro\"] }"
+    ]
+  }
+}

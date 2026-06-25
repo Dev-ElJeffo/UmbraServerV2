@@ -58,6 +58,8 @@ try {
             pi.durability,
             pi.custom_properties,
             pi.acquired_at,
+            pi.refinement_level,
+            pi.refinement_bonus_stats,
             it.item_name,
             it.item_description,
             it.item_type,
@@ -69,13 +71,17 @@ try {
             it.stats_json,
             it.rarity,
             it.value,
-            it.weight
+            it.weight,
+            it.can_be_refined,
+            it.tradeable,
+            it.item_category
         FROM player_inventory pi
         INNER JOIN item_templates it ON pi.item_template_id = it.item_id
     WHERE pi.player_id = :player_id
       AND pi.slot_index >= 0
       AND pi.slot_index < 50
       AND pi.is_equipped = FALSE
+      AND pi.auction_listing_id IS NULL
     ORDER BY pi.slot_index ASC
     ";
     
@@ -93,6 +99,13 @@ try {
             $item['stats'] = [];
         }
         
+        // Decodificar refinement_bonus_stats
+        if ($item['refinement_bonus_stats']) {
+            $item['refinement_bonus_stats'] = json_decode($item['refinement_bonus_stats'], true);
+        } else {
+            $item['refinement_bonus_stats'] = [];
+        }
+        
         // Decodificar custom_properties
         if ($item['custom_properties']) {
             $item['custom_properties'] = json_decode($item['custom_properties'], true);
@@ -102,6 +115,8 @@ try {
         
         // Converter valores booleanos
         $item['is_equipped'] = (bool)$item['is_equipped'];
+        $item['can_be_refined'] = (bool)$item['can_be_refined'];
+        $item['tradeable'] = (bool)$item['tradeable'];
         
         // Converter valores numéricos
         $item['inventory_id'] = (int)$item['inventory_id'];
@@ -114,6 +129,14 @@ try {
         $item['required_level'] = (int)$item['required_level'];
         $item['value'] = (int)$item['value'];
         $item['weight'] = (float)$item['weight'];
+        $item['refinement_level'] = (int)$item['refinement_level'];
+        
+        // Adicionar nome com refinação (se aplicável)
+        if ($item['refinement_level'] > 0) {
+            $item['display_name'] = $item['item_name'] . ' +' . $item['refinement_level'];
+        } else {
+            $item['display_name'] = $item['item_name'];
+        }
     }
     
     // Obter informações do jogador

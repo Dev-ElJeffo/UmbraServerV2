@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS player_inventory (
     -- Quantidade e posição
     quantity INT NOT NULL DEFAULT 1 COMMENT 'Quantidade do item (para itens empilháveis)',
     slot_index INT NOT NULL COMMENT 'Índice do slot no inventário (0-49 para inventário de 50 slots)',
+    auction_listing_id INT UNSIGNED NULL DEFAULT NULL COMMENT 'Anúncio ativo no mercado; NULL = item na bolsa',
     
     -- Estado do item
     is_equipped BOOLEAN DEFAULT FALSE COMMENT 'Se o item está equipado',
@@ -74,6 +75,7 @@ CREATE TABLE IF NOT EXISTS player_inventory (
     -- Índices
     INDEX idx_player_inventory (player_id),
     INDEX idx_slot_index (player_id, slot_index),
+    INDEX idx_player_inventory_auction (auction_listing_id),
     INDEX idx_equipped (player_id, is_equipped),
     
     -- Constraint: Um jogador não pode ter dois itens no mesmo slot

@@ -94,33 +94,68 @@ CREATE TABLE IF NOT EXISTS inventory (
 
 -- Guilds table
 CREATE TABLE IF NOT EXISTS guilds (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  name VARCHAR(50) NOT NULL UNIQUE,
-  tag VARCHAR(5) NOT NULL UNIQUE,
-  leader_id BIGINT UNSIGNED NOT NULL,
+  guild_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  guild_name VARCHAR(50) NOT NULL UNIQUE,
+  guild_tag VARCHAR(5) DEFAULT NULL UNIQUE,
+  owner_player_id BIGINT UNSIGNED DEFAULT NULL,
+  guild_leader_id BIGINT UNSIGNED NOT NULL,
   description TEXT,
-  level INT UNSIGNED DEFAULT 1,
-  member_count INT UNSIGNED DEFAULT 0,
-  max_members INT UNSIGNED DEFAULT 50,
+  creation_cost_gold BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  guild_level INT UNSIGNED NOT NULL DEFAULT 1,
+  guild_xp BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  ranking_score BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  member_count SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+  member_limit SMALLINT UNSIGNED NOT NULL DEFAULT 128,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   
-  PRIMARY KEY (id),
-  INDEX idx_name (name),
-  INDEX idx_tag (tag),
-  FOREIGN KEY (leader_id) REFERENCES players(id) ON DELETE RESTRICT
+  PRIMARY KEY (guild_id),
+  INDEX idx_guild_name (guild_name),
+  INDEX idx_guild_tag (guild_tag),
+  INDEX idx_guild_owner (owner_player_id),
+  INDEX idx_guild_leader (guild_leader_id),
+  INDEX idx_guild_ranking (ranking_score),
+  CONSTRAINT chk_guild_member_limit CHECK (member_limit > 0 AND member_limit <= 128),
+  CONSTRAINT chk_guild_member_count CHECK (member_count <= member_limit),
+  FOREIGN KEY (owner_player_id) REFERENCES players(id) ON DELETE SET NULL,
+  FOREIGN KEY (guild_leader_id) REFERENCES players(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Guild Members table
 CREATE TABLE IF NOT EXISTS guild_members (
   guild_id BIGINT UNSIGNED NOT NULL,
   player_id BIGINT UNSIGNED NOT NULL,
-  rank TINYINT UNSIGNED DEFAULT 0,
+  member_rank TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  contribution_xp BIGINT UNSIGNED NOT NULL DEFAULT 0,
   joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   
   PRIMARY KEY (guild_id, player_id),
+  UNIQUE KEY unique_player_guild (player_id),
   INDEX idx_player (player_id),
-  FOREIGN KEY (guild_id) REFERENCES guilds(id) ON DELETE CASCADE,
+  INDEX idx_guild_rank (guild_id, member_rank),
+  CONSTRAINT chk_member_rank CHECK (member_rank IN (1,2,3)),
+  FOREIGN KEY (guild_id) REFERENCES guilds(guild_id) ON DELETE CASCADE,
   FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Guild Invites table
+CREATE TABLE IF NOT EXISTS guild_invites (
+  invite_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  guild_id BIGINT UNSIGNED NOT NULL,
+  invited_by_player_id BIGINT UNSIGNED NOT NULL,
+  invited_player_id BIGINT UNSIGNED NOT NULL,
+  status ENUM('pending', 'accepted', 'declined', 'expired', 'cancelled') NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  responded_at TIMESTAMP NULL DEFAULT NULL,
+  expires_at TIMESTAMP NULL DEFAULT NULL,
+
+  PRIMARY KEY (invite_id),
+  INDEX idx_guild_invites_player (invited_player_id),
+  INDEX idx_guild_invites_status (status),
+  FOREIGN KEY (guild_id) REFERENCES guilds(guild_id) ON DELETE CASCADE,
+  FOREIGN KEY (invited_by_player_id) REFERENCES players(id) ON DELETE CASCADE,
+  FOREIGN KEY (invited_player_id) REFERENCES players(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Sessions table (optional, can use Redis instead)

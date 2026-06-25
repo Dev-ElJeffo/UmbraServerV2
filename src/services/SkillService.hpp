@@ -123,9 +123,9 @@ public:
     // ========================================================================
     
     /**
-     * Aplica buff a um jogador
+     * Aplica buff a um jogador. Retorna buff_id (DB) ou 0 se falhou.
      */
-    void applyBuff(
+    uint64_t applyBuff(
         uint64_t targetPlayerId,
         uint64_t sourcePlayerId,
         uint32_t skillId,
@@ -149,9 +149,16 @@ public:
     std::vector<ActiveBuff> getActiveBuffs(uint64_t playerId) const;
     
     /**
-     * Processa expiração de buffs
+     * Processa expiração de buffs (poll DB). Retorna entradas removidas.
      */
-    void processBuffExpirations();
+    struct BuffExpirationEntry {
+        uint64_t targetPlayerId = 0;
+        uint64_t buffId = 0;
+        uint32_t skillId = 0;
+        uint8_t buffType = 0;
+    };
+
+    std::vector<BuffExpirationEntry> processBuffExpirations();
     
     /**
      * Calcula stats com buffs aplicados

@@ -5,6 +5,10 @@
 #include <memory>
 #include <string>
 #include "zone/MovementServer.hpp"
+#include "zone/ZoneCombatService.hpp"
+#include "zone/CombatCoreEngine.hpp"
+#include "zone/ExperienceService.hpp"
+#include "zone/ExpZoneManager.hpp"
 
 namespace Umbra {
 namespace Database { class MySQLConnector; }
@@ -31,13 +35,24 @@ class ZoneServer {
   
   PlayerManager& getPlayerManager();
   EntitySystem& getEntitySystem();
+  MovementServer* getMovementServer();
+  CombatCoreEngine* getCombatCoreEngine();
+  const Config& getConfig() const;
+  void forceSavePositions();
 
  private:
   Config config_;
   std::unique_ptr<PlayerManager> playerManager_;
   std::unique_ptr<EntitySystem> entitySystem_;
   std::unique_ptr<MovementServer> movementServer_;
+  std::unique_ptr<ZoneCombatService> combatService_;
+  std::unique_ptr<CombatCoreEngine> combatCoreEngine_;
+  std::unique_ptr<ExperienceService> experienceService_;
+  std::unique_ptr<ExpZoneManager> expZoneManager_;
+  float expZoneTickAccumulator_ = 0.0f;
   float snapshotAccumulator_ = 0.0f;
+  float dotTickAccumulator_ = 0.0f;
+  float buffTickAccumulator_ = 0.0f;
   float autoSaveAccumulator_ = 0.0f;
   float autoSaveInterval_ = 30.0f;
   bool running_;

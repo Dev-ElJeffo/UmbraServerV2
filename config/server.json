@@ -44,7 +44,7 @@
   },
   
   "chat": {
-    "port": 8083,
+    "port": 8084,
     "max_message_length": 500,
     "rate_limit_per_minute": 30
   },
@@ -81,6 +81,18 @@
     "starting_zone": "Zone_1",
     "respawn_time_seconds": 10,
     "max_inventory_slots": 50
+  },
+
+  "admin": {
+    "enabled": true,
+    "shared_secret": "umbra_dev_admin_secret_change_in_production",
+    "bind_host": "127.0.0.1",
+    "auth_port": 9100,
+    "world_port": 9101,
+    "zone_base_port": 9102,
+    "chat_port": 9110,
+    "gateway_port": 9104,
+    "rate_limit_per_minute": 6000
   }
 }
 

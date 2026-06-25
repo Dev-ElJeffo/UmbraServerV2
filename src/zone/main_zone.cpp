@@ -1,4 +1,6 @@
 #include "ZoneServer.hpp"
+#include "admin/AdminBootstrap.hpp"
+#include "admin/ServiceAdminRegister.hpp"
 #include "core/Logger.hpp"
 #include "core/ConfigManager.hpp"
 #include "database/MySQLConnector.hpp"
@@ -19,10 +21,13 @@ void signalHandler(int signal) {
 int main(int argc, char* argv[]) {
   Umbra::Core::Logger::getInstance().initialize("logs/zone_server.log");
 
-  // Parse arguments
   int zoneId = (argc > 1) ? std::atoi(argv[1]) : 0;
   std::string zoneName = "Zone_" + std::to_string(zoneId);
-  uint16_t zonePort = 8082 + static_cast<uint16_t>(zoneId);
+
+  auto& configManager = Umbra::Core::ConfigManager::getInstance();
+  configManager.loadConfig("config/server.json");
+  const uint16_t zoneBase = configManager.get<uint16_t>("zone.base_port", 8082);
+  uint16_t zonePort = static_cast<uint16_t>(zoneBase + zoneId);
 
   std::cout << "===========================================\n";
   std::cout << "  UmbraEternum Zone Server                \n";
@@ -31,10 +36,8 @@ int main(int argc, char* argv[]) {
 
   Umbra::Core::Logger::getInstance().info("Starting Zone Server '{}' on port {}...", zoneName, zonePort);
 
-  // Database
   std::shared_ptr<Umbra::Database::MySQLConnector> dbConnector;
-  auto& configManager = Umbra::Core::ConfigManager::getInstance();
-  if (configManager.loadConfig("config/server.json")) {
+  {
     Umbra::Database::MySQLConnector::Config dbConfig;
     dbConfig.host = configManager.get<std::string>("database.host", "localhost");
     dbConfig.port = static_cast<uint16_t>(configManager.get<uint32_t>("database.port", 3306));
@@ -62,6 +65,16 @@ int main(int argc, char* argv[]) {
 
   Umbra::Zone::ZoneServer zoneServer(config);
 
+  const uint16_t adminBase = configManager.get<uint16_t>("admin.zone_base_port", 9102);
+  const uint16_t adminPort = static_cast<uint16_t>(adminBase + zoneId);
+  auto adminServer = Umbra::Admin::createFromConfig(
+      zoneName, adminPort,
+      [](int) { running = false; });
+  if (adminServer) {
+    Umbra::Admin::registerZoneCommands(adminServer->getRegistry(), zoneServer);
+    adminServer->start();
+  }
+
   if (!zoneServer.start()) {
     std::cerr << "[FAIL] Zone Server failed to start\n";
     return 1;
@@ -71,37 +84,21 @@ int main(int argc, char* argv[]) {
   std::signal(SIGTERM, signalHandler);
 
   std::cout << "[OK] Zone Server '" << zoneName << "' running on port " << zonePort << "\n";
-  std::cout << "\n  Systems active:\n";
-  std::cout << "    - Spatial Grid AOI (cell=10000u, 3x3 = 30000u radius)\n";
-  std::cout << "    - Auto-save positions (every 30s)\n";
-  std::cout << "    - Per-client Rate Limiting (via SocketServer)\n";
-  std::cout << "    - Movement validation (speed/teleport checks)\n";
+  std::cout << "  Admin port: " << adminPort << "\n";
   std::cout << "\n  Press Ctrl+C to stop.\n\n";
 
-  Umbra::Core::Logger::getInstance().info("Zone '{}' ready. AOI=10000u cells (30000u radius), AutoSave=30s, MaxPlayers={}",
-                                           zoneName, config.maxPlayers);
-
   auto lastUpdate = std::chrono::steady_clock::now();
-  auto lastStats = std::chrono::steady_clock::now();
 
   while (running) {
     auto now = std::chrono::steady_clock::now();
     float deltaTime = std::chrono::duration<float>(now - lastUpdate).count();
     lastUpdate = now;
-
     zoneServer.update(deltaTime);
-
-    auto statsDelta = std::chrono::duration<float>(now - lastStats).count();
-    if (statsDelta >= 60.0f) {
-      Umbra::Core::Logger::getInstance().info("[Zone '{}'] Stats: players online (check MovementServer)",
-                                               zoneName);
-      lastStats = now;
-    }
-
     std::this_thread::sleep_for(std::chrono::milliseconds(16));
   }
 
   std::cout << "\nShutting down Zone Server...\n";
+  if (adminServer) adminServer->stop();
   zoneServer.stop();
   std::cout << "[OK] Zone Server '" << zoneName << "' stopped\n";
 

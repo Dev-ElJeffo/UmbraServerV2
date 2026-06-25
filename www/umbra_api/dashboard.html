@@ -4,143 +4,144 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - UmbraEternum</title>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles/dark-fantasy.css">
+    <link rel="stylesheet" href="styles/components.css">
+    <link rel="stylesheet" href="styles/animations.css">
+    
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, rgba(10, 10, 15, 0.95) 0%, rgba(26, 26, 46, 0.95) 100%),
+                        url('assets/images/backgrounds/login-bg.jpg') center/cover no-repeat fixed;
             min-height: 100vh;
-            padding: 20px;
+            padding: var(--spacing-lg);
         }
         
-        .container {
-            max-width: 1000px;
+        .dashboard-container {
+            max-width: 1200px;
             margin: 0 auto;
         }
         
-        .header {
-            background: white;
-            border-radius: 15px;
-            padding: 30px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        .dashboard-header {
+            background: var(--color-bg-card);
+            border: 2px solid var(--color-red-medium);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-xl);
+            margin-bottom: var(--spacing-xl);
+            box-shadow: var(--shadow-2xl), var(--shadow-red-strong);
             display: flex;
             justify-content: space-between;
             align-items: center;
-            animation: slideIn 0.5s ease;
+            animation: slideInDown 0.6s ease;
         }
         
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateY(-20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .welcome {
+        .welcome-section {
             flex: 1;
         }
         
-        .welcome h1 {
-            color: #667eea;
-            font-size: 28px;
-            margin-bottom: 5px;
+        .welcome-title {
+            font-family: var(--font-title);
+            font-size: var(--font-size-3xl);
+            color: var(--color-red-bright);
+            margin-bottom: var(--spacing-xs);
+            text-shadow: 0 0 20px rgba(255, 68, 68, 0.5);
         }
         
-        .welcome p {
-            color: #666;
-            font-size: 14px;
+        .welcome-subtitle {
+            color: var(--color-text-secondary);
+            font-size: var(--font-size-base);
         }
         
-        .user-info {
+        .user-section {
             text-align: right;
         }
         
-        .user-info .username {
-            font-size: 18px;
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 5px;
-        }
-        
-        .user-info .email {
-            font-size: 14px;
-            color: #666;
-        }
-        
-        .logout-btn {
-            padding: 10px 20px;
-            background: #f44336;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            margin-top: 10px;
-            transition: all 0.3s;
-        }
-        
-        .logout-btn:hover {
-            background: #d32f2f;
-            transform: translateY(-2px);
-        }
-        
-        .admin-btn {
-            padding: 10px 20px;
-            background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
-            color: #333;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
+        .username-display {
+            font-family: var(--font-heading);
+            font-size: var(--font-size-xl);
             font-weight: 700;
-            margin-top: 10px;
-            margin-right: 10px;
-            transition: all 0.3s;
-            box-shadow: 0 4px 15px rgba(255, 215, 0, 0.4);
+            color: var(--color-text-primary);
+            margin-bottom: var(--spacing-xs);
         }
         
-        .admin-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(255, 215, 0, 0.6);
+        .email-display {
+            font-size: var(--font-size-sm);
+            color: var(--color-text-muted);
+            margin-bottom: var(--spacing-md);
         }
         
         .admin-badge {
             display: inline-block;
             padding: 4px 12px;
-            background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
-            color: #333;
+            background: linear-gradient(135deg, var(--color-red-medium) 0%, var(--color-red-bright) 100%);
+            color: var(--color-text-primary);
             border-radius: 20px;
-            font-size: 12px;
+            font-size: var(--font-size-xs);
             font-weight: 700;
-            margin-left: 10px;
+            margin-left: var(--spacing-sm);
+            box-shadow: var(--shadow-red);
         }
         
-        .content {
+        .header-buttons {
+            display: flex;
+            gap: var(--spacing-sm);
+            margin-top: var(--spacing-sm);
+        }
+        
+        .btn-admin {
+            background: linear-gradient(135deg, var(--color-red-medium) 0%, var(--color-red-bright) 100%);
+            color: var(--color-text-primary);
+        }
+        
+        .btn-logout {
+            background: var(--color-bg-tertiary);
+            border: 1px solid var(--color-border-medium);
+        }
+        
+        .btn-logout:hover {
+            background: var(--color-red-dark);
+            border-color: var(--color-red-medium);
+        }
+        
+        .dashboard-content {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: var(--spacing-xl);
         }
         
-        .card {
-            background: white;
-            border-radius: 15px;
-            padding: 25px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            animation: slideIn 0.5s ease;
+        .info-card {
+            background: var(--color-bg-card);
+            border: 2px solid var(--color-border-dark);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-xl);
+            box-shadow: var(--shadow-lg);
+            animation: slideInUp 0.6s ease;
+            transition: all var(--transition-base);
         }
         
-        .card h2 {
-            color: #667eea;
-            font-size: 22px;
-            margin-bottom: 20px;
-            border-bottom: 2px solid #e0e0e0;
-            padding-bottom: 10px;
+        .info-card:hover {
+            border-color: var(--color-red-dark);
+            box-shadow: var(--shadow-red);
+        }
+        
+        .card-title {
+            font-family: var(--font-heading);
+            font-size: var(--font-size-2xl);
+            color: var(--color-red-bright);
+            margin-bottom: var(--spacing-lg);
+            padding-bottom: var(--spacing-md);
+            border-bottom: 2px solid var(--color-border-dark);
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
         }
         
         .stat-item {
             display: flex;
             justify-content: space-between;
-            padding: 12px 0;
-            border-bottom: 1px solid #f0f0f0;
+            padding: var(--spacing-md) 0;
+            border-bottom: 1px solid var(--color-border-dark);
         }
         
         .stat-item:last-child {
@@ -148,136 +149,172 @@
         }
         
         .stat-label {
-            color: #666;
+            color: var(--color-text-secondary);
             font-weight: 500;
         }
         
         .stat-value {
-            color: #333;
+            color: var(--color-text-primary);
             font-weight: 600;
-        }
-        
-        .no-players {
-            text-align: center;
-            padding: 40px 20px;
-            color: #999;
-        }
-        
-        .no-players-icon {
-            font-size: 48px;
-            margin-bottom: 15px;
-        }
-        
-        .create-player-btn {
-            margin-top: 20px;
-            padding: 12px 24px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: all 0.3s;
-        }
-        
-        .create-player-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
-        }
-        
-        .player-card {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 15px;
-            border-left: 4px solid #667eea;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        
-        .player-card:hover {
-            background: #e8eaf6;
-            transform: translateX(4px);
-        }
-        
-        .player-name {
-            font-size: 18px;
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 8px;
-        }
-        
-        .player-info {
-            display: flex;
-            gap: 20px;
-            font-size: 14px;
-            color: #666;
         }
         
         .token-display {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 15px;
-            border: 1px dashed #667eea;
+            background: var(--color-bg-primary);
+            border: 1px dashed var(--color-red-dark);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-md);
+            margin-top: var(--spacing-lg);
         }
         
         .token-label {
-            font-size: 12px;
-            color: #666;
-            margin-bottom: 8px;
+            font-size: var(--font-size-sm);
+            color: var(--color-text-muted);
+            margin-bottom: var(--spacing-sm);
         }
         
         .token-value {
             font-family: 'Courier New', monospace;
-            font-size: 11px;
-            color: #333;
+            font-size: var(--font-size-xs);
+            color: var(--color-red-bright);
             word-break: break-all;
-            background: white;
-            padding: 10px;
-            border-radius: 5px;
+            background: var(--color-bg-secondary);
+            padding: var(--spacing-sm);
+            border-radius: var(--radius-sm);
         }
         
-        .links {
+        .no-players {
             text-align: center;
-            margin-top: 20px;
+            padding: var(--spacing-2xl);
+            color: var(--color-text-muted);
         }
         
-        .links a {
-            color: white;
-            text-decoration: none;
-            margin: 0 15px;
-            font-weight: 500;
+        .no-players-icon {
+            font-size: var(--font-size-5xl);
+            margin-bottom: var(--spacing-lg);
         }
         
-        .links a:hover {
-            text-decoration: underline;
+        .create-player-btn {
+            margin-top: var(--spacing-lg);
+        }
+        
+        .player-card {
+            background: var(--color-bg-tertiary);
+            border: 2px solid var(--color-border-dark);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-lg);
+            margin-bottom: var(--spacing-md);
+            cursor: pointer;
+            transition: all var(--transition-base);
+            border-left: 4px solid var(--color-red-medium);
+        }
+        
+        .player-card:hover {
+            border-color: var(--color-red-bright);
+            background: var(--color-bg-secondary);
+            transform: translateX(4px);
+            box-shadow: var(--shadow-red);
+        }
+        
+        .player-name {
+            font-family: var(--font-heading);
+            font-size: var(--font-size-xl);
+            font-weight: 700;
+            color: var(--color-red-bright);
+            margin-bottom: var(--spacing-sm);
+        }
+        
+        .player-info {
+            display: flex;
+            gap: var(--spacing-lg);
+            font-size: var(--font-size-sm);
+            color: var(--color-text-secondary);
+        }
+        
+        .player-info span {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-xs);
+        }
+        
+        .dashboard-links {
+            text-align: center;
+            margin-top: var(--spacing-xl);
+            padding-top: var(--spacing-lg);
+            border-top: 1px solid var(--color-border-dark);
+        }
+        
+        .dashboard-links a {
+            color: var(--color-red-bright);
+            margin: 0 var(--spacing-lg);
+            transition: all var(--transition-fast);
+        }
+        
+        .dashboard-links a:hover {
+            color: var(--color-red-light);
+            text-shadow: 0 0 10px rgba(255, 68, 68, 0.5);
+        }
+        
+        @media (max-width: 768px) {
+            .dashboard-header {
+                flex-direction: column;
+                text-align: center;
+            }
+            
+            .user-section {
+                text-align: center;
+                margin-top: var(--spacing-lg);
+            }
+            
+            .header-buttons {
+                justify-content: center;
+            }
+            
+            .dashboard-content {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <div class="welcome">
-                <h1>🎮 Dashboard</h1>
-                <p>Bem-vindo ao UmbraEternum</p>
+    <div class="dashboard-container">
+        <!-- Header -->
+        <div class="dashboard-header">
+            <div class="welcome-section">
+                <h1 class="welcome-title">
+                    <i class="fas fa-dungeon"></i>
+                    Dashboard
+                </h1>
+                <p class="welcome-subtitle">Bem-vindo ao UmbraEternum</p>
             </div>
-            <div class="user-info">
-                <div class="username" id="displayUsername">-</div>
-                <div class="email" id="displayEmail">-</div>
+            <div class="user-section">
+                <div class="username-display" id="displayUsername">-</div>
+                <div class="email-display" id="displayEmail">-</div>
                 <div id="adminButtons" style="display: none;">
-                    <button class="admin-btn" onclick="goToAdmin()">👑 Painel Admin</button>
-                    <button class="logout-btn" onclick="logout()">🚪 Sair</button>
+                    <div class="header-buttons">
+                        <button class="btn btn-primary btn-sm btn-admin" onclick="goToAdmin()">
+                            <i class="fas fa-crown"></i> Painel Admin
+                        </button>
+                        <button class="btn btn-secondary btn-sm btn-logout" onclick="logout()">
+                            <i class="fas fa-sign-out-alt"></i> Sair
+                        </button>
+                    </div>
                 </div>
                 <div id="normalButtons">
-                    <button class="logout-btn" onclick="logout()">🚪 Sair</button>
+                    <button class="btn btn-secondary btn-sm btn-logout" onclick="logout()">
+                        <i class="fas fa-sign-out-alt"></i> Sair
+                    </button>
                 </div>
             </div>
         </div>
         
-        <div class="content">
-            <div class="card">
-                <h2>📊 Informações da Conta</h2>
+        <!-- Content -->
+        <div class="dashboard-content">
+            <!-- Account Info Card -->
+            <div class="info-card">
+                <h2 class="card-title">
+                    <i class="fas fa-user-circle"></i>
+                    Informações da Conta
+                </h2>
                 <div class="stat-item">
                     <span class="stat-label">ID da Conta</span>
                     <span class="stat-value" id="accountId">-</span>
@@ -296,39 +333,52 @@
                 </div>
                 
                 <div class="token-display">
-                    <div class="token-label">🔑 Token de Autenticação</div>
+                    <div class="token-label">
+                        <i class="fas fa-key"></i> Token de Autenticação
+                    </div>
                     <div class="token-value" id="authToken">-</div>
                 </div>
             </div>
             
-            <div class="card">
-                <h2>👥 Meus Personagens</h2>
+            <!-- Players Card -->
+            <div class="info-card">
+                <h2 class="card-title">
+                    <i class="fas fa-users"></i>
+                    Meus Personagens
+                </h2>
                 <div id="playersList">
                     <div class="no-players">
-                        <div class="no-players-icon">🎭</div>
+                        <div class="no-players-icon"><i class="fas fa-user-slash"></i></div>
                         <p>Você ainda não tem personagens</p>
-                        <button class="create-player-btn" onclick="createPlayer()">
-                            ➕ Criar Personagem
+                        <button class="btn btn-primary create-player-btn" onclick="createPlayer()">
+                            <i class="fas fa-plus-circle"></i> Criar Personagem
                         </button>
                     </div>
                 </div>
             </div>
         </div>
         
-        <div class="links">
-            <a href="index.php">🧪 Voltar para Testes</a>
-            <a href="#" onclick="refreshData(); return false;">🔄 Atualizar Dados</a>
+        <!-- Links -->
+        <div class="dashboard-links">
+            <a href="index.html">
+                <i class="fas fa-home"></i> Voltar para Início
+            </a>
+            <a href="#" onclick="refreshData(); return false;">
+                <i class="fas fa-sync-alt"></i> Atualizar Dados
+            </a>
         </div>
     </div>
     
+    <script src="scripts/api-client.js"></script>
+    <script src="scripts/components.js"></script>
+    
     <script>
-        // Verificar se está autenticado
+        // TODA A LÓGICA ORIGINAL MANTIDA INTACTA
         const token = sessionStorage.getItem('auth_token');
         const userData = sessionStorage.getItem('user_data');
         const playersData = sessionStorage.getItem('players');
         
         if (!token || !userData) {
-            // Redirecionar para login se não autenticado
             window.location.href = 'login.html';
         } else {
             loadUserData();
@@ -339,18 +389,15 @@
                 const user = JSON.parse(userData);
                 const players = JSON.parse(playersData);
                 
-                // Preencher dados do usuário
                 const usernameDisplay = document.getElementById('displayUsername');
                 usernameDisplay.textContent = user.username;
                 
-                // Adicionar badge de admin se for admin
                 if (user.isadmin === 1) {
                     const badge = document.createElement('span');
                     badge.className = 'admin-badge';
-                    badge.textContent = '👑 ADMIN';
+                    badge.innerHTML = '<i class="fas fa-crown"></i> ADMIN';
                     usernameDisplay.appendChild(badge);
                     
-                    // Mostrar botões de admin
                     document.getElementById('adminButtons').style.display = 'block';
                     document.getElementById('normalButtons').style.display = 'none';
                 }
@@ -362,13 +409,12 @@
                 document.getElementById('playerCount').textContent = players.length;
                 document.getElementById('authToken').textContent = token;
                 
-                // Mostrar personagens
                 if (players.length > 0) {
                     displayPlayers(players);
                 }
             } catch (e) {
                 console.error('Erro ao carregar dados:', e);
-                alert('Erro ao carregar dados do usuário');
+                Toast.error('Erro ao carregar dados do usuário');
             }
         }
         
@@ -387,8 +433,8 @@
                 card.innerHTML = `
                     <div class="player-name">${player.character_name}</div>
                     <div class="player-info">
-                        <span>⚔️ Level ${player.level}</span>
-                        <span>🗺️ ${player.current_zone || 'Zona Inicial'}</span>
+                        <span><i class="fas fa-sword"></i> Level ${player.level}</span>
+                        <span><i class="fas fa-map-marked-alt"></i> ${player.current_zone || 'Zona Inicial'}</span>
                     </div>
                 `;
                 card.onclick = () => selectCharacter(playerId);
@@ -399,25 +445,29 @@
         async function selectCharacter(playerId) {
             const authToken = sessionStorage.getItem('auth_token');
             if (!authToken) {
-                alert('Token não encontrado. Faça login novamente.');
+                Toast.error('Token não encontrado. Faça login novamente.');
                 return;
             }
             try {
+                Loading.show('Selecionando personagem...');
                 const response = await fetch('api/character/select_character.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ token: authToken, player_id: playerId })
                 });
                 const result = await response.json();
+                Loading.hide();
+                
                 if (result.success && result.token) {
                     sessionStorage.setItem('auth_token', result.token);
                     document.getElementById('authToken').textContent = result.token;
-                    alert('Personagem selecionado! Token atualizado com player_id do personagem.');
+                    Toast.success('Personagem selecionado! Token atualizado.');
                 } else {
-                    alert('Erro: ' + (result.message || 'Falha ao selecionar personagem'));
+                    Toast.error(result.message || 'Falha ao selecionar personagem');
                 }
             } catch (error) {
-                alert('Erro ao conectar com servidor');
+                Loading.hide();
+                Toast.error('Erro ao conectar com servidor');
             }
         }
         
@@ -429,13 +479,17 @@
         }
         
         function createPlayer() {
-            alert('Funcionalidade em desenvolvimento!\nEm breve você poderá criar personagens.');
+            Toast.info('Funcionalidade em desenvolvimento!\nEm breve você poderá criar personagens.');
         }
         
         async function refreshData() {
             const user = JSON.parse(userData);
+            const password = prompt('Digite sua senha para atualizar:');
+            
+            if (!password) return;
             
             try {
+                Loading.show('Atualizando dados...');
                 const response = await fetch('api/login.php', {
                     method: 'POST',
                     headers: {
@@ -443,25 +497,41 @@
                     },
                     body: JSON.stringify({
                         username: user.username,
-                        password: prompt('Digite sua senha para atualizar:')
+                        password: password
                     })
                 });
                 
                 const result = await response.json();
+                Loading.hide();
                 
                 if (result.success) {
                     sessionStorage.setItem('auth_token', result.token);
                     sessionStorage.setItem('user_data', JSON.stringify(result.account));
                     sessionStorage.setItem('players', JSON.stringify(result.players));
-                    location.reload();
+                    Toast.success('Dados atualizados com sucesso!');
+                    setTimeout(() => location.reload(), 1000);
                 } else {
-                    alert('Erro ao atualizar: ' + result.message);
+                    Toast.error('Erro ao atualizar: ' + result.message);
                 }
             } catch (error) {
-                alert('Erro ao conectar com servidor');
+                Loading.hide();
+                Toast.error('Erro ao conectar com servidor');
             }
         }
+        
+        // Adicionar partículas ao fundo
+        document.addEventListener('DOMContentLoaded', () => {
+            const particles = 15;
+            for (let i = 0; i < particles; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = `${Math.random() * 100}%`;
+                particle.style.top = `${Math.random() * 100}%`;
+                particle.style.animationDelay = `${Math.random() * 5}s`;
+                particle.style.animationDuration = `${5 + Math.random() * 5}s`;
+                document.body.appendChild(particle);
+            }
+        });
     </script>
 </body>
 </html>
-

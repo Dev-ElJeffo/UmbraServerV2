@@ -1,7 +1,12 @@
 #include "ZoneServer.hpp"
+#include "zone/CombatCoreEngine.hpp"
+#include "zone/ExperienceService.hpp"
+#include "zone/ExpZoneManager.hpp"
 #include "core/Logger.hpp"
+#include "core/ConfigManager.hpp"
 #include "database/MySQLConnector.hpp"
 #include "database/PlayerDAO.hpp"
+#include <vector>
 
 namespace Umbra {
 namespace Zone {
@@ -50,6 +55,32 @@ uint32_t removePlayerFromParty(Umbra::Database::MySQLConnector* db, uint32_t pla
   }
   return partyId;
 }
+
+std::vector<uint32_t> resolvePartyMembers(Umbra::Database::MySQLConnector* db, uint32_t playerId) {
+  std::vector<uint32_t> members;
+  if (!db || !db->isConnected() || playerId == 0) {
+    return members;
+  }
+  const std::string pid = std::to_string(playerId);
+  auto partyIdOpt = db->executePreparedScalar(
+    "SELECT party_id FROM party_members WHERE player_id = ? LIMIT 1", {pid});
+  if (!partyIdOpt || partyIdOpt->empty()) {
+    return members;
+  }
+
+  auto rows = db->executePreparedQuery(
+    "SELECT player_id FROM party_members WHERE party_id = ?",
+    {*partyIdOpt});
+  for (const auto& row : rows) {
+    if (!row.empty()) {
+      try {
+        members.push_back(static_cast<uint32_t>(std::stoul(row[0])));
+      } catch (...) {
+      }
+    }
+  }
+  return members;
+}
 }  // namespace
 
 ZoneServer::ZoneServer(const Config& config)
@@ -65,12 +96,53 @@ ZoneServer::~ZoneServer() {
 
 bool ZoneServer::start() {
   running_ = true;
+  auto& configManager = Umbra::Core::ConfigManager::getInstance();
+  const size_t maxMessageLength = static_cast<size_t>(configManager.get<uint32_t>("chat.max_message_length", 500));
+  const uint32_t rateLimitPerMinute = configManager.get<uint32_t>("chat.rate_limit_per_minute", 30);
+  movementServer_->setChatLimits(maxMessageLength, rateLimitPerMinute);
+  Core::Logger::getInstance().info("Zone chat limits: max_message_length={}, rate_limit_per_minute={}",
+                                   maxMessageLength, rateLimitPerMinute);
+
   if (config_.dbConnector && config_.dbConnector->isConnected()) {
+    combatService_ = std::make_unique<ZoneCombatService>(config_.dbConnector, config_.zoneId);
+    movementServer_->setZoneId(config_.zoneId);
     movementServer_->setOnPlayerDisconnectCallback(
       [db = config_.dbConnector.get()](uint32_t playerId) {
         removePlayerFromSessions(db, playerId);  // lista de amigos: marcar offline
         return removePlayerFromParty(db, playerId);
       });
+    movementServer_->setResolvePartyMembersCallback(
+      [db = config_.dbConnector.get()](uint32_t playerId) {
+        return resolvePartyMembers(db, playerId);
+      });
+    movementServer_->setRespawnHandler(
+      [this](uint32_t playerId, uint32_t zoneId, const std::string& spawnKey,
+             PlayerRespawnPayload& outPayload) -> bool {
+        if (!combatService_) return false;
+        auto result = combatService_->processRespawn(playerId, zoneId, spawnKey);
+        if (!result.success) return false;
+        outPayload = result.payload;
+        return true;
+      });
+
+    combatCoreEngine_ = std::make_unique<CombatCoreEngine>();
+    if (combatCoreEngine_->initialize(config_.zoneId, config_.dbConnector, movementServer_.get())) {
+      combatCoreEngine_->setResolvePartyMembersCallback(
+          [db = config_.dbConnector.get()](uint32_t playerId) {
+            return resolvePartyMembers(db, playerId);
+          });
+      movementServer_->setCombatCoreEngine(combatCoreEngine_.get());
+
+      experienceService_ = std::make_unique<ExperienceService>(config_.dbConnector);
+      experienceService_->setStateLoader(combatCoreEngine_->getCharacterStateLoader());
+      expZoneManager_ = std::make_unique<ExpZoneManager>(
+          config_.zoneId, config_.dbConnector, experienceService_.get(), movementServer_.get());
+      Core::Logger::getInstance().info("ExperienceService and ExpZoneManager initialized for zone {}",
+                                         config_.zoneId);
+    } else {
+      combatCoreEngine_.reset();
+      Core::Logger::getInstance().warn("CombatCoreEngine failed to initialize");
+    }
   }
   Core::Logger::getInstance().info("ZoneServer '{}' (ID: {}) started on port {}", 
                                    config_.zoneName, config_.zoneId, config_.port);
@@ -99,6 +171,35 @@ void ZoneServer::update(float deltaTime) {
   if (snapshotAccumulator_ >= 0.1f) {
     if (movementServer_) movementServer_->broadcastSnapshot();
     snapshotAccumulator_ = 0.0f;
+  }
+
+  dotTickAccumulator_ += deltaTime;
+  if (dotTickAccumulator_ >= 0.25f) {
+    if (combatService_ && movementServer_) {
+      combatService_->tickActiveDots(movementServer_.get());
+    }
+    dotTickAccumulator_ = 0.0f;
+  }
+
+  buffTickAccumulator_ += deltaTime;
+  if (buffTickAccumulator_ >= 0.5f) {
+    if (combatCoreEngine_) {
+      combatCoreEngine_->tickBuffExpirations();
+    }
+    buffTickAccumulator_ = 0.0f;
+  }
+
+  if (combatCoreEngine_) {
+    combatCoreEngine_->tick(deltaTime);
+    combatCoreEngine_->tickRegen(deltaTime);
+  }
+
+  expZoneTickAccumulator_ += deltaTime;
+  if (expZoneTickAccumulator_ >= 1.0f) {
+    if (expZoneManager_) {
+      expZoneManager_->tick(expZoneTickAccumulator_);
+    }
+    expZoneTickAccumulator_ = 0.0f;
   }
 
   // Auto-save desabilitado: as posicoes sao salvas pelo PHP (update_position.php)
@@ -137,6 +238,22 @@ PlayerManager& ZoneServer::getPlayerManager() {
 
 EntitySystem& ZoneServer::getEntitySystem() {
   return *entitySystem_;
+}
+
+MovementServer* ZoneServer::getMovementServer() {
+  return movementServer_.get();
+}
+
+CombatCoreEngine* ZoneServer::getCombatCoreEngine() {
+  return combatCoreEngine_.get();
+}
+
+const ZoneServer::Config& ZoneServer::getConfig() const {
+  return config_;
+}
+
+void ZoneServer::forceSavePositions() {
+  autoSavePlayerPositions();
 }
 
 }  // namespace Zone

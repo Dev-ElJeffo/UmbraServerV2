@@ -1,0 +1,207 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2026-04-27",
+  "categories": {
+    "characters": {
+      "name": "Personagens",
+      "description": "Arte conceitual de classes, NPCs e personagens jogáveis",
+      "images": [
+        {
+          "filename": "barbarian_portrait.jpg",
+          "title": "Barbarian - Filha da Ruína",
+          "description": "Guerreira bárbara moldada pela perda absoluta, endurecida pela Neblina Vermelha. Sua força bruta e resistência são incomparáveis.",
+          "tags": ["classe", "feminino", "barbarian", "guerreiro", "velkaris"]
+        },
+        {
+          "filename": "darkmage_ritual.jpg",
+          "title": "Dark Mage - Herdeira do Véu",
+          "description": "Elfa que aceitou a corrupção como linguagem, negociando com o que restou entre os mundos. Manipula a Neblina com maestria.",
+          "tags": ["classe", "feminino", "darkmage", "elfico", "magia", "grimholt"]
+        },
+        {
+          "filename": "marcial_stance.jpg",
+          "title": "Marcial - Espada Sem Sombra",
+          "description": "Guerreiro ágil e disciplinado que combina técnica marcial com controle de energia vital (Ki), encontrando equilíbrio entre luz e sombra.",
+          "tags": ["classe", "masculino", "marcial", "guerreiro", "ki"]
+        },
+        {
+          "filename": "templar_oath.jpg",
+          "title": "Templar - Guardião da Chama",
+          "description": "Guerreiro sacerdote que escolheu carregar tanto escudo quanto juramento, protegendo os inocentes em um mundo sem deuses.",
+          "tags": ["classe", "masculino", "templar", "sagrado", "tanque", "novarra"]
+        },
+        {
+          "filename": "alchemist_lab.jpg",
+          "title": "Alchemist - Errante Empírico",
+          "description": "Cientista errante que domina a transmutação de matéria e os segredos da Rubicina, criando elixires e armas químicas.",
+          "tags": ["classe", "neutro", "alchemist", "ciencia", "suporte"]
+        },
+        {
+          "filename": "assassin_shadow.jpg",
+          "title": "Assassin - Eco Sem Nome",
+          "description": "Mestre das sombras e venenos, especialista em eliminar alvos com precisão cirúrgica. Ninguém viu seu rosto e viveu para contar.",
+          "tags": ["classe", "neutro", "assassin", "sombra", "veneno", "dps"]
+        },
+        {
+          "filename": "selindra_portrait.jpg",
+          "title": "Lady Selindra Von'Mahr",
+          "description": "Arquinecromante de Grimholt, bela e terrível. Dizem que perdeu o próprio coração décadas atrás e agora governa com frieza absoluta.",
+          "tags": ["npc", "grimholt", "necromancia", "feminino", "líder"]
+        },
+        {
+          "filename": "gorm_ironhand.jpg",
+          "title": "Gorm Mão-de-Ferro",
+          "description": "Mestre-ferreiro de Velkaris, legendário por suas criações em Rubicina. Suas mãos já forjaram mil armas lendárias.",
+          "tags": ["npc", "velkaris", "ferreiro", "masculino", "comerciante"]
+        }
+      ]
+    },
+    "environments": {
+      "name": "Ambientes",
+      "description": "As três cidades, Fortedras e paisagens de Umbra Eternum",
+      "images": [
+        {
+          "filename": "velkaris_forges_night.jpg",
+          "title": "Velkaris - Forjas Noturnas",
+          "description": "As forjas que nunca descansam. A cidade brilha em vermelho sob o céu carmesim, produzindo as melhores armas do mundo conhecido.",
+          "tags": ["velkaris", "cidade", "noite", "forjas", "industrial", "rubicina"]
+        },
+        {
+          "filename": "grimholt_cemetery.jpg",
+          "title": "Grimholt - Cemitério das Mil Lápides",
+          "description": "Onde os mortos nunca descansam verdadeiramente. A névoa serpenteia entre as tumbas enquanto rituais necromânticos ecoam na noite.",
+          "tags": ["grimholt", "cemitério", "necrótico", "noite", "nevoa"]
+        },
+        {
+          "filename": "eremos_temple.jpg",
+          "title": "Eremos - Templo da Lamentação",
+          "description": "Templo flutuante sobre as águas, onde os sacerdotes tentam preservar memórias em um mundo que esquece.",
+          "tags": ["eremos", "templo", "místico", "água", "sagrado"]
+        },
+        {
+          "filename": "fortedras_throne.jpg",
+          "title": "Fortedras - O Trono das Cinzas",
+          "description": "Capital de cinzas e poder. Um castelo colossal onde os artefatos mais perigosos são guardados e estudados.",
+          "tags": ["fortedras", "castelo", "capital", "artefatos", "sombrio"]
+        },
+        {
+          "filename": "red_mist_landscape.jpg",
+          "title": "A Neblina Vermelha - Terras Além",
+          "description": "Paisagem desolada onde a Neblina Vermelha domina. Poucos ousam se aventurar e menos ainda retornam.",
+          "tags": ["paisagem", "neblina", "vermelho", "desolado", "perigoso"]
+        },
+        {
+          "filename": "velkaris_district_market.jpg",
+          "title": "Velkaris - Distrito do Mercado",
+          "description": "O coração comercial da cidade industrial. Armas, armaduras e artefatos são negociados sob a luz das forjas.",
+          "tags": ["velkaris", "mercado", "comercio", "dia", "movimentado"]
+        }
+      ]
+    },
+    "creatures": {
+      "name": "Criaturas",
+      "description": "Monstros, criaturas corrompidas e entidades da Neblina Vermelha",
+      "images": [
+        {
+          "filename": "corrupted_beast_alpha.jpg",
+          "title": "Besta Corrompida - Alpha",
+          "description": "Criatura deformada pela exposição prolongada à Neblina Vermelha. Seu corpo é uma fusão grotesca de carne e cristais carmesins.",
+          "tags": ["monstro", "corrupto", "elite", "neblina", "cristal"]
+        },
+        {
+          "filename": "portal_horror.jpg",
+          "title": "Horror Portal",
+          "description": "Entidade dimensional que atravessou a fenda entre mundos. Sua forma desafia a compreensão e sua presença corrompe a realidade.",
+          "tags": ["monstro", "boss", "dimensional", "portal", "lendario", "aberração"]
+        },
+        {
+          "filename": "shadow_stalker.jpg",
+          "title": "Espreitador das Sombras",
+          "description": "Criatura furtiva que habita as ruínas e catacumbas. Caça em silêncio absoluto e raramente é vista antes do ataque.",
+          "tags": ["monstro", "sombra", "furtivo", "raro", "rápido"]
+        },
+        {
+          "filename": "crimson_wyvern.jpg",
+          "title": "Serpe Carmesim",
+          "description": "Dragão menor corrompido pela Neblina. Respira chamas vermelhas que queimam tanto corpo quanto alma.",
+          "tags": ["monstro", "dragão", "voador", "elite", "fogo", "neblina"]
+        },
+        {
+          "filename": "undead_knight.jpg",
+          "title": "Cavaleiro Morto-Vivo",
+          "description": "Guerreiro ressuscitado pelos necromantes de Grimholt. Mantém suas habilidades de combate mesmo na morte.",
+          "tags": ["morto-vivo", "guerreiro", "grimholt", "comum", "necromancia"]
+        }
+      ]
+    },
+    "weapons": {
+      "name": "Armas",
+      "description": "Armamentos, artefatos e equipamentos lendários",
+      "images": [
+        {
+          "filename": "crimson_blade_legendary.jpg",
+          "title": "Lâmina Carmesim",
+          "description": "Espada lendária forjada com Rubicina pura extraída do coração da montanha. Dizem que a lâmina nunca perde o fio e brilha mais forte quanto mais sangue toca.",
+          "tags": ["espada", "lendario", "rubicina", "duas-mãos", "velkaris"]
+        },
+        {
+          "filename": "staff_of_shadows.jpg",
+          "title": "Cajado das Sombras Eternas",
+          "description": "Cajado ancestral criado pelos primeiros necromantes. Amplifica magias sombrias e permite comunicação com os mortos.",
+          "tags": ["cajado", "epico", "necromancia", "grimholt", "magia"]
+        },
+        {
+          "filename": "bow_moonlight.jpg",
+          "title": "Arco da Luz Lunar",
+          "description": "Arco élfico de madeira sagrada que nunca precisa de flechas. Cria projéteis de luz pura que perfuram armaduras.",
+          "tags": ["arco", "raro", "elfico", "sagrado", "distância"]
+        },
+        {
+          "filename": "axe_behemoth.jpg",
+          "title": "Machado do Behemoth",
+          "description": "Machado colossal forjado para os maiores guerreiros. Tão pesado que poucos podem ergue-lo, mas capaz de partir até mesmo portões de castelo.",
+          "tags": ["machado", "lendario", "duas-mãos", "pesado", "velkaris"]
+        },
+        {
+          "filename": "daggers_twin_fang.jpg",
+          "title": "Presas Gêmeas",
+          "description": "Par de adagas envenenadas usadas pelos assassinos da guilda. As lâminas são tão afiadas que cortam o ar sem som.",
+          "tags": ["adaga", "raro", "veneno", "dual", "furtivo", "par"]
+        },
+        {
+          "filename": "shield_aegis.jpg",
+          "title": "Égide da Fé Perdida",
+          "description": "Escudo sagrado que pertenceu ao último paladino antes da queda dos deuses. Ainda pulsa com energia divina residual.",
+          "tags": ["escudo", "epico", "sagrado", "defesa", "templar"]
+        }
+      ]
+    }
+  },
+  "instructions": {
+    "howToAdd": "Para adicionar novas imagens à galeria:",
+    "steps": [
+      "1. Adicione a imagem na pasta correspondente (characters/, environments/, creatures/ ou weapons/)",
+      "2. Adicione uma entrada no array 'images' da categoria apropriada",
+      "3. Preencha os campos obrigatórios: filename (nome exato do arquivo), title (título exibido)",
+      "4. Adicione description e tags para melhor organização e filtros",
+      "5. Valide o JSON em https://jsonlint.com antes de salvar",
+      "6. Salve este arquivo e atualize a página do site"
+    ],
+    "fieldDescriptions": {
+      "filename": "Nome exato do arquivo (incluindo extensão). Deve corresponder ao arquivo na pasta.",
+      "title": "Título que será exibido na galeria. Seja descritivo e atraente.",
+      "description": "Descrição detalhada da arte. Conte uma história, dê contexto.",
+      "tags": "Array de palavras-chave para filtros. Use tags relevantes à categoria."
+    },
+    "namingConventions": {
+      "good": ["barbarian_portrait.jpg", "velkaris_night.jpg", "crimson_blade.jpg"],
+      "bad": ["IMG 12345.jpg", "personágem.jpg", "Concept(Final).jpg"]
+    },
+    "documentation": [
+      "README.md - Índice e visão geral do sistema",
+      "QUICK_START.md - Guia rápido em 3 passos",
+      "GUIA_GALLERY_JSON.md - Documentação completa",
+      "CHEAT_SHEET.md - Referência rápida e tabelas"
+    ]
+  }
+}

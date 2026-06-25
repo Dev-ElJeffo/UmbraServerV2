@@ -88,9 +88,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'upload_max_filesize' => ini_get('upload_max_filesize')
             ];
             
-            // Server time
+            // Server time (sys_getloadavg não existe no Windows/PHP)
             $server_time = date('Y-m-d H:i:s');
-            $uptime = sys_getloadavg(); // Linux only, retorna false no Windows
+            $load_avg = function_exists('sys_getloadavg') ? sys_getloadavg() : null;
             
             $response['success'] = true;
             $response['server'] = [

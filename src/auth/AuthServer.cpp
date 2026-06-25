@@ -216,6 +216,10 @@ std::string AuthServer::getStats() const {
   return stats.dump();
 }
 
+size_t AuthServer::getActiveSessionCount() const {
+  return sessionManager_->getActiveSessionCount();
+}
+
 bool AuthServer::checkLoginAttempts(const std::string& identifier) {
   std::lock_guard<std::mutex> lock(attemptsMutex_);
   

@@ -1,0 +1,607 @@
+/**
+ * UmbraEternum - Animações CSS
+ * Animações sutis e performáticas para tema dark fantasy
+ */
+
+/* ========================================
+   KEYFRAMES - ANIMAÇÕES BASE
+   ======================================== */
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+@keyframes slideInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes slideInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes slideInLeft {
+    from {
+        opacity: 0;
+        transform: translateX(-30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes scaleOut {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+}
+
+/* ========================================
+   KEYFRAMES - EFEITOS ESPECIAIS
+   ======================================== */
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.8;
+        transform: scale(1.05);
+    }
+}
+
+@keyframes glow {
+    0%, 100% {
+        box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+    }
+    50% {
+        box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
+    }
+}
+
+@keyframes shimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+@keyframes float {
+    0%, 100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-10px);
+    }
+}
+
+@keyframes shake {
+    0%, 100% {
+        transform: translateX(0);
+    }
+    10%, 30%, 50%, 70%, 90% {
+        transform: translateX(-5px);
+    }
+    20%, 40%, 60%, 80% {
+        transform: translateX(5px);
+    }
+}
+
+@keyframes bounce {
+    0%, 20%, 50%, 80%, 100% {
+        transform: translateY(0);
+    }
+    40% {
+        transform: translateY(-20px);
+    }
+    60% {
+        transform: translateY(-10px);
+    }
+}
+
+@keyframes flicker {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.8;
+    }
+    75% {
+        opacity: 0.9;
+    }
+}
+
+@keyframes glowPulse {
+    0%, 100% {
+        box-shadow: 0 0 10px rgba(212, 175, 55, 0.3),
+                    0 0 20px rgba(212, 175, 55, 0.2);
+    }
+    50% {
+        box-shadow: 0 0 20px rgba(212, 175, 55, 0.6),
+                    0 0 30px rgba(212, 175, 55, 0.4),
+                    0 0 40px rgba(212, 175, 55, 0.2);
+    }
+}
+
+@keyframes mysticalGlow {
+    0%, 100% {
+        box-shadow: 0 0 10px rgba(139, 92, 246, 0.3),
+                    0 0 20px rgba(139, 92, 246, 0.2);
+    }
+    50% {
+        box-shadow: 0 0 20px rgba(139, 92, 246, 0.6),
+                    0 0 30px rgba(139, 92, 246, 0.4);
+    }
+}
+
+@keyframes bloodGlow {
+    0%, 100% {
+        box-shadow: 0 0 10px rgba(255, 68, 68, 0.3);
+    }
+    50% {
+        box-shadow: 0 0 20px rgba(255, 68, 68, 0.6),
+                    0 0 30px rgba(255, 68, 68, 0.4);
+    }
+}
+
+/* Partículas flutuantes */
+@keyframes floatParticle {
+    0% {
+        transform: translate(0, 0) rotate(0deg);
+        opacity: 0;
+    }
+    10% {
+        opacity: 0.5;
+    }
+    90% {
+        opacity: 0.5;
+    }
+    100% {
+        transform: translate(var(--particle-x, 50px), var(--particle-y, -100px)) rotate(360deg);
+        opacity: 0;
+    }
+}
+
+/* Animação de névoa */
+@keyframes fogMove {
+    0% {
+        transform: translateX(0) translateY(0);
+        opacity: 0.3;
+    }
+    50% {
+        opacity: 0.5;
+    }
+    100% {
+        transform: translateX(50px) translateY(-20px);
+        opacity: 0.3;
+    }
+}
+
+/* ========================================
+   CLASSES UTILITÁRIAS DE ANIMAÇÃO
+   ======================================== */
+
+/* Fade Animations */
+.animate-fadeIn {
+    animation: fadeIn 0.5s ease;
+}
+
+.animate-fadeOut {
+    animation: fadeOut 0.5s ease;
+}
+
+/* Slide Animations */
+.animate-slideInUp {
+    animation: slideInUp 0.6s ease;
+}
+
+.animate-slideInDown {
+    animation: slideInDown 0.6s ease;
+}
+
+.animate-slideInLeft {
+    animation: slideInLeft 0.6s ease;
+}
+
+.animate-slideInRight {
+    animation: slideInRight 0.6s ease;
+}
+
+/* Scale Animations */
+.animate-scaleIn {
+    animation: scaleIn 0.4s ease;
+}
+
+.animate-scaleOut {
+    animation: scaleOut 0.4s ease;
+}
+
+/* Special Effects */
+.animate-spin {
+    animation: spin 1s linear infinite;
+}
+
+.animate-pulse {
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.animate-glow {
+    animation: glow 2s ease-in-out infinite;
+}
+
+.animate-float {
+    animation: float 3s ease-in-out infinite;
+}
+
+.animate-shake {
+    animation: shake 0.5s ease;
+}
+
+.animate-bounce {
+    animation: bounce 1s ease;
+}
+
+.animate-flicker {
+    animation: flicker 1.5s ease-in-out infinite;
+}
+
+.animate-glowPulse {
+    animation: glowPulse 2s ease-in-out infinite;
+}
+
+.animate-mysticalGlow {
+    animation: mysticalGlow 3s ease-in-out infinite;
+}
+
+.animate-bloodGlow {
+    animation: bloodGlow 2s ease-in-out infinite;
+}
+
+/* ========================================
+   DELAYS DE ANIMAÇÃO (para stagger)
+   ======================================== */
+
+.animate-delay-100 {
+    animation-delay: 0.1s;
+}
+
+.animate-delay-200 {
+    animation-delay: 0.2s;
+}
+
+.animate-delay-300 {
+    animation-delay: 0.3s;
+}
+
+.animate-delay-400 {
+    animation-delay: 0.4s;
+}
+
+.animate-delay-500 {
+    animation-delay: 0.5s;
+}
+
+/* ========================================
+   TRANSIÇÕES SUAVES
+   ======================================== */
+
+.transition-all {
+    transition: all 0.3s ease;
+}
+
+.transition-fast {
+    transition: all 0.15s ease;
+}
+
+.transition-slow {
+    transition: all 0.5s ease;
+}
+
+.transition-colors {
+    transition: color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.transition-transform {
+    transition: transform 0.3s ease;
+}
+
+.transition-opacity {
+    transition: opacity 0.3s ease;
+}
+
+/* ========================================
+   HOVER EFFECTS
+   ======================================== */
+
+.hover-lift {
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.hover-lift:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-xl);
+}
+
+.hover-glow {
+    transition: all 0.3s ease;
+}
+
+.hover-glow:hover {
+    box-shadow: var(--shadow-gold-strong);
+}
+
+.hover-scale {
+    transition: transform 0.3s ease;
+}
+
+.hover-scale:hover {
+    transform: scale(1.05);
+}
+
+.hover-brightness {
+    transition: filter 0.3s ease;
+}
+
+.hover-brightness:hover {
+    filter: brightness(1.2);
+}
+
+/* ========================================
+   SCROLL REVEAL (Intersection Observer)
+   ======================================== */
+
+.scroll-reveal {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.scroll-reveal.revealed {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.scroll-reveal-left {
+    opacity: 0;
+    transform: translateX(-30px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.scroll-reveal-left.revealed {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.scroll-reveal-right {
+    opacity: 0;
+    transform: translateX(30px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.scroll-reveal-right.revealed {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.scroll-reveal-scale {
+    opacity: 0;
+    transform: scale(0.9);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.scroll-reveal-scale.revealed {
+    opacity: 1;
+    transform: scale(1);
+}
+
+/* ========================================
+   PARTÍCULAS E EFEITOS DE FUNDO
+   ======================================== */
+
+.particle {
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    background: var(--color-gold-bright);
+    border-radius: 50%;
+    opacity: 0;
+    pointer-events: none;
+    animation: floatParticle 5s ease-in-out infinite;
+}
+
+.particle-purple {
+    background: var(--color-purple-vibrant);
+}
+
+.particle-small {
+    width: 2px;
+    height: 2px;
+}
+
+.particle-large {
+    width: 6px;
+    height: 6px;
+}
+
+.fog-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: radial-gradient(circle, rgba(74, 74, 106, 0.1) 0%, transparent 70%);
+    animation: fogMove 20s ease-in-out infinite;
+    pointer-events: none;
+}
+
+/* ========================================
+   LOADING STATES
+   ======================================== */
+
+.skeleton {
+    background: linear-gradient(
+        90deg,
+        var(--color-bg-tertiary) 0%,
+        var(--color-stone-medium) 50%,
+        var(--color-bg-tertiary) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+    border-radius: var(--radius-md);
+}
+
+.skeleton-text {
+    height: 1em;
+    margin-bottom: var(--spacing-sm);
+}
+
+.skeleton-title {
+    height: 2em;
+    width: 60%;
+    margin-bottom: var(--spacing-md);
+}
+
+.skeleton-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+}
+
+/* ========================================
+   ESTADOS DE PÁGINA
+   ======================================== */
+
+.page-enter {
+    opacity: 0;
+    transform: translateY(20px);
+}
+
+.page-enter-active {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.page-exit {
+    opacity: 1;
+}
+
+.page-exit-active {
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+/* ========================================
+   PERFORMANCE OPTIMIZATION
+   ======================================== */
+
+.will-animate {
+    will-change: transform, opacity;
+}
+
+/* Prefer usando transform e opacity para animações (GPU accelerated) */
+.gpu-accelerated {
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    perspective: 1000px;
+}
+
+/* ========================================
+   REDUCED MOTION (Acessibilidade)
+   ======================================== */
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+    
+    .scroll-reveal,
+    .scroll-reveal-left,
+    .scroll-reveal-right,
+    .scroll-reveal-scale {
+        opacity: 1;
+        transform: none;
+    }
+}

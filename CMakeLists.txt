@@ -47,6 +47,7 @@ add_subdirectory(src/zone)
 add_subdirectory(src/chat)
 add_subdirectory(src/gateway)
 add_subdirectory(src/services)
+add_subdirectory(src/admin)
 
 # Main executable (Gateway entry point)
 add_executable(umbra_server src/main.cpp)
@@ -60,6 +61,7 @@ target_link_libraries(umbra_server
   umbra_chat
   umbra_database
   umbra_services
+  umbra_admin
   Threads::Threads
 )
 
@@ -70,6 +72,7 @@ target_link_libraries(auth_server
   umbra_network
   umbra_auth
   umbra_database
+  umbra_admin
   Threads::Threads
 )
 
@@ -79,6 +82,7 @@ target_link_libraries(world_server
   umbra_network
   umbra_world
   umbra_database
+  umbra_admin
   Threads::Threads
 )
 
@@ -89,6 +93,7 @@ target_link_libraries(zone_server
   umbra_zone
   umbra_database
   umbra_services
+  umbra_admin
   Threads::Threads
 )
 
@@ -97,6 +102,7 @@ target_link_libraries(chat_server
   umbra_core
   umbra_network
   umbra_chat
+  umbra_admin
   Threads::Threads
 )
 
@@ -106,11 +112,12 @@ target_link_libraries(gateway_server
   umbra_network
   umbra_gateway
   umbra_auth
+  umbra_admin
   Threads::Threads
 )
 
 # Copiar config/server.json para o diretório de saída (servidor precisa no CWD)
-foreach(TGT umbra_server auth_server world_server zone_server gateway_server)
+foreach(TGT umbra_server auth_server world_server zone_server gateway_server chat_server)
   add_custom_command(TARGET ${TGT} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${TGT}>/config"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/config/server.json" "$<TARGET_FILE_DIR:${TGT}>/config/"

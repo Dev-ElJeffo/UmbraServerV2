@@ -93,21 +93,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/verify_admin.php';
 
 $json = file_get_contents('php://input');
 $data = json_decode($json, true) ?: [];
 
-// Validar JWT
-$validation = validateJWTRequest($data, $_SERVER);
-if (!$validation['valid']) {
-    ob_clean();
-    http_response_code(401);
-    echo json_encode([
-        'success' => false,
-        'message' => $validation['error'] ?? 'Token inválido ou expirado'
-    ], JSON_UNESCAPED_UNICODE);
-    ob_end_flush();
-    exit;
+// Autenticação: aceitar admin_username (UmbraManager) OU JWT (cliente UE/web)
+$auth_ok = false;
+if (!empty($data['admin_username'])) {
+    try {
+        $database = new Database();
+        $authDb = $database->connect();
+        $adminCheck = verifyAdmin($authDb, $data['admin_username']);
+        if (!empty($adminCheck['success'])) {
+            $auth_ok = true;
+        } else {
+            ob_clean();
+            http_response_code(403);
+            echo json_encode($adminCheck, JSON_UNESCAPED_UNICODE);
+            ob_end_flush();
+            exit;
+        }
+    } catch (Exception $e) {
+        ob_clean();
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Erro de autenticação: ' . $e->getMessage()], JSON_UNESCAPED_UNICODE);
+        ob_end_flush();
+        exit;
+    }
+}
+if (!$auth_ok) {
+    $validation = validateJWTRequest($data, $_SERVER);
+    if (!$validation['valid']) {
+        ob_clean();
+        http_response_code(401);
+        echo json_encode([
+            'success' => false,
+            'message' => $validation['error'] ?? 'Token inválido ou expirado (forneça admin_username ou token)'
+        ], JSON_UNESCAPED_UNICODE);
+        ob_end_flush();
+        exit;
+    }
 }
 
 // Validar campos obrigatórios
@@ -152,6 +178,11 @@ try {
     $value = isset($data['value']) ? (int)$data['value'] : 0;
     $weight = isset($data['weight']) ? (float)$data['weight'] : 0.0;
     
+    // Novos campos para sistema de refinação
+    $can_be_refined = isset($data['can_be_refined']) ? (bool)$data['can_be_refined'] : false;
+    $tradeable = isset($data['tradeable']) ? (bool)$data['tradeable'] : true;
+    $item_category = isset($data['item_category']) ? $data['item_category'] : 'misc';
+    
     // Validar ENUMs
     $valid_item_types = ['weapon', 'armor', 'consumable', 'material', 'quest', 'misc'];
     if (!in_array($item_type, $valid_item_types)) {
@@ -184,6 +215,18 @@ try {
         echo json_encode([
             'success' => false,
             'message' => "equipment_slot inválido. Valores válidos: " . implode(', ', $valid_equipment_slots)
+        ], JSON_UNESCAPED_UNICODE);
+        ob_end_flush();
+        exit;
+    }
+    
+    $valid_item_categories = ['equipment', 'consumable', 'material', 'upgrade', 'quest', 'misc'];
+    if (!in_array($item_category, $valid_item_categories)) {
+        ob_clean();
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'message' => "item_category inválido. Valores válidos: " . implode(', ', $valid_item_categories)
         ], JSON_UNESCAPED_UNICODE);
         ob_end_flush();
         exit;
@@ -253,7 +296,10 @@ try {
         stats_json,
         rarity,
         value,
-        weight
+        weight,
+        can_be_refined,
+        tradeable,
+        item_category
     ) VALUES (
         :item_name,
         :item_description,
@@ -266,7 +312,10 @@ try {
         :stats_json,
         :rarity,
         :value,
-        :weight
+        :weight,
+        :can_be_refined,
+        :tradeable,
+        :item_category
     )";
     
     $insert_stmt = $pdo->prepare($insert_query);
@@ -282,7 +331,10 @@ try {
         'stats_json' => $stats_json,
         'rarity' => $rarity,
         'value' => $value,
-        'weight' => $weight
+        'weight' => $weight,
+        'can_be_refined' => $can_be_refined ? 1 : 0,
+        'tradeable' => $tradeable ? 1 : 0,
+        'item_category' => $item_category
     ]);
     
     $item_id = $pdo->lastInsertId();
@@ -321,6 +373,10 @@ try {
     $created_item['required_level'] = (int)$created_item['required_level'];
     $created_item['value'] = (int)$created_item['value'];
     $created_item['weight'] = (float)$created_item['weight'];
+    
+    // Converter booleans
+    $created_item['can_be_refined'] = (bool)$created_item['can_be_refined'];
+    $created_item['tradeable'] = (bool)$created_item['tradeable'];
     
     // Limpar qualquer output indesejado
     ob_clean();

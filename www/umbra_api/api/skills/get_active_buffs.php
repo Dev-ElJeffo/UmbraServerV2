@@ -68,6 +68,7 @@ try {
             ab.is_permanent,
             ab.snapshot_json,
             s.skill_name,
+            s.skill_key,
             s.icon_path,
             s.duration_ms as total_duration_ms,
             el.element_key as element,
@@ -100,9 +101,17 @@ try {
         $totalDurationMs = $buff['total_duration_ms'];
         $progress = $buff['is_permanent'] ? 0 : min(100, (($totalDurationMs - $remainingMs) / $totalDurationMs) * 100);
         
+        $snapshot = json_decode($buff['snapshot_json'] ?? '{}', true);
+        if (!is_array($snapshot)) {
+            $snapshot = [];
+        }
+        $targetStat = $snapshot['target_stat'] ?? '';
+        $valuePercent = (int)($snapshot['value_percent'] ?? 0);
+        
         $processedBuff = [
             'buff_id' => (int)$buff['buff_id'],
             'skill_id' => (int)$buff['skill_id'],
+            'skill_key' => (string)($buff['skill_key'] ?? ''),
             'skill_name' => $buff['skill_name'],
             'icon_path' => $buff['icon_path'],
             'buff_type' => $buff['buff_type'],
@@ -110,12 +119,14 @@ try {
             'element_color' => $buff['element_color'],
             'stacks' => (int)$buff['current_stacks'],
             'value' => (int)$buff['value_snapshot'],
+            'target_stat' => $targetStat,
+            'value_percent' => $valuePercent,
             'source_name' => $buff['source_name'],
             'is_permanent' => (bool)$buff['is_permanent'],
             'remaining_ms' => (int)$remainingMs,
             'total_ms' => (int)$totalDurationMs,
             'progress_percent' => round($progress, 1),
-            'snapshot' => json_decode($buff['snapshot_json'] ?? '{}', true)
+            'snapshot' => $snapshot
         ];
         
         $processedBuffs[] = $processedBuff;
@@ -138,6 +149,7 @@ try {
             ad.next_tick_at,
             ad.expires_at,
             s.skill_name,
+            s.skill_key,
             s.icon_path,
             el.element_key as element,
             el.color_hex as element_color,
@@ -162,6 +174,7 @@ try {
         $activeDots[] = [
             'dot_id' => (int)$dot['dot_id'],
             'skill_id' => (int)$dot['skill_id'],
+            'skill_key' => (string)($dot['skill_key'] ?? ''),
             'skill_name' => $dot['skill_name'],
             'icon_path' => $dot['icon_path'],
             'dot_type' => $dot['dot_type'],

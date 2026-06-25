@@ -1,0 +1,1045 @@
+﻿<Window x:Class="UmbraManager.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
+        Title="UmbraManager — UmbraEternum"
+        Height="800" Width="1280"
+        Background="{DynamicResource MaterialDesign.Brush.Background}">
+    <DockPanel>
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem Content="{Binding StatusText}"/>
+        </StatusBar>
+
+        <TabControl Margin="8">
+            <!-- Dashboard -->
+            <TabItem Header="Dashboard">
+                <ScrollViewer>
+                    <StackPanel Margin="12">
+                        <!-- Linha de KPIs no topo -->
+                        <UniformGrid Columns="4" Margin="0,0,0,16">
+                            <Border Margin="0,0,8,0" Padding="14,10" CornerRadius="6"
+                                    Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
+                                <StackPanel>
+                                    <TextBlock Text="Players online" FontSize="11" Opacity="0.7"/>
+                                    <TextBlock Text="{Binding TotalPlayers}" FontSize="28" FontWeight="Bold"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Margin="4,0,4,0" Padding="14,10" CornerRadius="6"
+                                    Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
+                                <StackPanel>
+                                    <TextBlock Text="Zones ativas" FontSize="11" Opacity="0.7"/>
+                                    <TextBlock Text="{Binding ActiveZones}" FontSize="28" FontWeight="Bold"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Margin="4,0,4,0" Padding="14,10" CornerRadius="6"
+                                    Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
+                                <StackPanel>
+                                    <TextBlock Text="Serviços online" FontSize="11" Opacity="0.7"/>
+                                    <TextBlock Text="{Binding OnlineServiceCount}" FontSize="28" FontWeight="Bold"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Margin="8,0,0,0" Padding="14,10" CornerRadius="6"
+                                    Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
+                                <StackPanel>
+                                    <TextBlock Text="Admin conectados" FontSize="11" Opacity="0.7"/>
+                                    <TextBlock Text="{Binding AdminConnectedSummary}" FontSize="28" FontWeight="Bold"/>
+                                </StackPanel>
+                            </Border>
+                        </UniformGrid>
+
+                        <!-- Gráfico CPU -->
+                        <Border Padding="10" CornerRadius="6"
+                                Background="{DynamicResource MaterialDesign.Brush.Card.Background}"
+                                Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="CPU últimos minutos" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                <lvc:CartesianChart Series="{Binding CpuChartSeries}" Height="200"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Cards detalhados por serviço -->
+                        <TextBlock Text="Serviços" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <ItemsControl ItemsSource="{Binding DashboardCards}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,10,10" Padding="12" CornerRadius="6"
+                                            Width="320" BorderThickness="2"
+                                            Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="BorderBrush" Value="#444"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsOnline}" Value="True">
+                                                        <Setter Property="BorderBrush" Value="#4CAF50"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding IsOnline}" Value="False">
+                                                        <Setter Property="BorderBrush" Value="#E53935"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+
+                                            <!-- Linha 1: Nome + LED de status -->
+                                            <DockPanel Grid.Row="0" LastChildFill="True">
+                                                <Ellipse DockPanel.Dock="Left" Width="12" Height="12"
+                                                         Margin="0,0,8,0" VerticalAlignment="Center">
+                                                    <Ellipse.Style>
+                                                        <Style TargetType="Ellipse">
+                                                            <Setter Property="Fill" Value="#E53935"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsOnline}" Value="True">
+                                                                    <Setter Property="Fill" Value="#4CAF50"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Ellipse.Style>
+                                                </Ellipse>
+                                                <TextBlock Text="{Binding DisplayName}" FontWeight="Bold" FontSize="14"
+                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                            </DockPanel>
+
+                                            <!-- Linha 2: ID + status texto -->
+                                            <DockPanel Grid.Row="1" Margin="20,2,0,0">
+                                                <TextBlock Text="{Binding ServiceId}" FontFamily="Consolas"
+                                                           FontSize="11" Opacity="0.7"/>
+                                                <TextBlock Text="{Binding Status}" Margin="10,0,0,0"
+                                                           FontSize="11" HorizontalAlignment="Right">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="#E53935"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsOnline}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#4CAF50"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </DockPanel>
+
+                                            <!-- Linha 3: grade de métricas -->
+                                            <Grid Grid.Row="2" Margin="20,8,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                </Grid.RowDefinitions>
+
+                                                <TextBlock Grid.Row="0" Grid.Column="0" Text="PID" FontSize="10" Opacity="0.6"/>
+                                                <TextBlock Grid.Row="0" Grid.Column="1" Text="Porta" FontSize="10" Opacity="0.6"/>
+                                                <TextBlock Grid.Row="0" Grid.Column="2" Text="Uptime" FontSize="10" Opacity="0.6"/>
+
+                                                <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding Pid}" FontFamily="Consolas"/>
+                                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding GamePort}" FontFamily="Consolas"/>
+                                                <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding UptimeFormatted}" FontFamily="Consolas"/>
+                                            </Grid>
+
+                                            <!-- Linha 4: CPU/RAM/Admin -->
+                                            <Grid Grid.Row="3" Margin="20,8,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                </Grid.RowDefinitions>
+
+                                                <TextBlock Grid.Row="0" Grid.Column="0" Text="CPU" FontSize="10" Opacity="0.6"/>
+                                                <TextBlock Grid.Row="0" Grid.Column="1" Text="RAM" FontSize="10" Opacity="0.6"/>
+                                                <TextBlock Grid.Row="0" Grid.Column="2" Text="Admin" FontSize="10" Opacity="0.6"/>
+
+                                                <TextBlock Grid.Row="1" Grid.Column="0"
+                                                           Text="{Binding CpuPct, StringFormat={}{0:F1}%}"
+                                                           FontFamily="Consolas"/>
+                                                <TextBlock Grid.Row="1" Grid.Column="1"
+                                                           Text="{Binding MemMb, StringFormat={}{0:F0} MB}"
+                                                           FontFamily="Consolas"/>
+                                                <TextBlock Grid.Row="1" Grid.Column="2"
+                                                           Text="{Binding AdminState}"
+                                                           FontSize="11" TextTrimming="CharacterEllipsis"/>
+                                            </Grid>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- Servers -->
+            <TabItem Header="Servers">
+                <DockPanel Margin="8">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button Content="Start All" Command="{Binding StartAllCommand}" Margin="0,0,8,0" Style="{StaticResource MaterialDesignRaisedButton}"/>
+                        <Button Content="Stop All" Command="{Binding StopAllCommand}" Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                    </StackPanel>
+                    <DataGrid ItemsSource="{Binding Servers}" AutoGenerateColumns="False" IsReadOnly="True"
+                              RowHeight="36">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="" Width="30">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Ellipse Width="10" Height="10" HorizontalAlignment="Center"
+                                                 VerticalAlignment="Center">
+                                            <Ellipse.Style>
+                                                <Style TargetType="Ellipse">
+                                                    <Setter Property="Fill" Value="#E53935"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                                                            <Setter Property="Fill" Value="#4CAF50"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Ellipse.Style>
+                                        </Ellipse>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Serviço" Binding="{Binding Definition.DisplayName}" Width="*"/>
+                            <DataGridTextColumn Header="Porta" Binding="{Binding Definition.GamePort}" Width="70"/>
+                            <DataGridTextColumn Header="Admin" Binding="{Binding Definition.AdminPort}" Width="70"/>
+                            <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="70"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="110"/>
+                            <DataGridTextColumn Header="Admin TCP" Binding="{Binding AdminState}" Width="120"/>
+                            <DataGridTextColumn Header="Métricas" Binding="{Binding Stats}" Width="220"/>
+                            <DataGridTemplateColumn Header="Ações" Width="280" MinWidth="280">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button Content="Start" Margin="2" Padding="8,3" Height="28"
+                                                    Command="{Binding DataContext.StartServiceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"/>
+                                            <Button Content="Stop" Margin="2" Padding="8,3" Height="28"
+                                                    Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                    Command="{Binding DataContext.StopServiceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"/>
+                                            <Button Content="Restart" Margin="2" Padding="8,3" Height="28"
+                                                    Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                    Command="{Binding DataContext.RestartServiceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- Zones -->
+            <TabItem Header="Zones">
+                <DataGrid ItemsSource="{Binding Zones}" AutoGenerateColumns="False" IsReadOnly="True" Margin="8">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Zone ID" Binding="{Binding ZoneId}"/>
+                        <DataGridTextColumn Header="Nome" Binding="{Binding ZoneName}"/>
+                        <DataGridTextColumn Header="Porta" Binding="{Binding Port}"/>
+                        <DataGridTextColumn Header="Admin" Binding="{Binding AdminPort}"/>
+                        <DataGridTextColumn Header="Players" Binding="{Binding PlayersOnline}"/>
+                        <DataGridCheckBoxColumn Header="Online" Binding="{Binding Online}"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+
+            <!-- Players -->
+            <TabItem Header="Players">
+                <DataGrid ItemsSource="{Binding Players}" AutoGenerateColumns="False" IsReadOnly="True" Margin="8">
+                    <DataGrid.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Kick"
+                                      Command="{Binding PlacementTarget.DataContext.KickPlayerCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                      CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                            <MenuItem Header="Teleport"
+                                      Command="{Binding PlacementTarget.DataContext.TeleportPlayerCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                      CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                            <MenuItem Header="Broadcast"
+                                      Command="{Binding PlacementTarget.DataContext.BroadcastToZoneCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                      CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                        </ContextMenu>
+                    </DataGrid.ContextMenu>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="ID" Binding="{Binding PlayerId}"/>
+                        <DataGridTextColumn Header="Nome" Binding="{Binding Name}"/>
+                        <DataGridTextColumn Header="Zone" Binding="{Binding ZoneService}"/>
+                        <DataGridTextColumn Header="X" Binding="{Binding X, StringFormat=F1}"/>
+                        <DataGridTextColumn Header="Y" Binding="{Binding Y, StringFormat=F1}"/>
+                        <DataGridTextColumn Header="Z" Binding="{Binding Z, StringFormat=F1}"/>
+                        <DataGridCheckBoxColumn Header="Morto" Binding="{Binding IsDead}"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+
+            <!-- Logs -->
+            <TabItem Header="Logs">
+                <DockPanel Margin="8">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <ComboBox Width="120" Margin="0,0,8,0"
+                                  Text="{Binding LogFilter, UpdateSourceTrigger=PropertyChanged}"
+                                  materialDesign:HintAssist.Hint="Nível (ALL/DEBUG...)"/>
+                        <TextBox Width="200" Margin="0,0,8,0"
+                                 Text="{Binding LogSearch, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="Buscar texto"/>
+                        <Button Content="Exportar tudo" Command="{Binding ExportLogsCommand}" CommandParameter="{x:Null}" Margin="0,0,8,0"/>
+                    </StackPanel>
+                    <TabControl ItemsSource="{Binding LogTabs}">
+                        <TabControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding DisplayName}"/>
+                            </DataTemplate>
+                        </TabControl.ItemTemplate>
+                        <TabControl.ContentTemplate>
+                            <DataTemplate>
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Top" Content="Exportar" HorizontalAlignment="Left" Margin="0,0,0,4"
+                                            Command="{Binding DataContext.ExportLogsCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding ServiceId}"/>
+                                    <ListBox ItemsSource="{Binding Lines}" FontFamily="Consolas" FontSize="11"/>
+                                </DockPanel>
+                            </DataTemplate>
+                        </TabControl.ContentTemplate>
+                    </TabControl>
+                </DockPanel>
+            </TabItem>
+
+            <!-- Accounts -->
+            <TabItem Header="Accounts">
+                <DockPanel Margin="8">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button Content="Atualizar" Command="{Binding RefreshAccountsCommand}" Margin="0,0,8,0"/>
+                        <TextBox Width="220" Text="{Binding BanReason}" materialDesign:HintAssist.Hint="Motivo do ban"/>
+                    </StackPanel>
+                    <DataGrid ItemsSource="{Binding Accounts}" AutoGenerateColumns="False" IsReadOnly="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="60"/>
+                            <DataGridTextColumn Header="Username" Binding="{Binding Username}" Width="*"/>
+                            <DataGridTextColumn Header="Email" Binding="{Binding Email}" Width="*"/>
+                            <DataGridCheckBoxColumn Header="Admin" Binding="{Binding IsAdmin}"/>
+                            <DataGridCheckBoxColumn Header="Banido" Binding="{Binding Banned}"/>
+                            <DataGridTextColumn Header="Players" Binding="{Binding PlayerCount}" Width="70"/>
+                            <DataGridTemplateColumn Header="Ações" Width="160">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button Content="Ban" Margin="2" Padding="6,2"
+                                                    Command="{Binding DataContext.BanAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"/>
+                                            <Button Content="Unban" Margin="2" Padding="6,2"
+                                                    Command="{Binding DataContext.UnbanAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- Items -->
+            <TabItem Header="Items">
+                <Grid Margin="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" MinWidth="500"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="460"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Lista -->
+                    <DockPanel Grid.Column="0">
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Content="Atualizar" Command="{Binding RefreshItemsCommand}" Margin="0,0,8,0"/>
+                            <Button Content="Novo item" Command="{Binding NewItemCommand}" Margin="0,0,8,0"
+                                    Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                            <TextBlock Text="{Binding Items.Count, StringFormat={}{0} itens}"
+                                       VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0.7"/>
+                        </StackPanel>
+
+                        <DataGrid ItemsSource="{Binding Items}" AutoGenerateColumns="False" IsReadOnly="True"
+                                  HeadersVisibility="Column" RowHeight="34"
+                                  HorizontalScrollBarVisibility="Auto"
+                                  CanUserResizeColumns="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="55"/>
+                                <DataGridTextColumn Header="Nome" Binding="{Binding Name}" Width="220">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="FontWeight" Value="SemiBold"/>
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+                                <DataGridTextColumn Header="Tipo" Binding="{Binding Type}" Width="90"/>
+                                <DataGridTextColumn Header="Subtipo" Binding="{Binding Subtype}" Width="90"/>
+                                <DataGridTextColumn Header="Slot" Binding="{Binding EquipmentSlot}" Width="90"/>
+                                <DataGridTextColumn Header="Raridade" Binding="{Binding Rarity}" Width="90"/>
+                                <DataGridTextColumn Header="Lv" Binding="{Binding RequiredLevel}" Width="50"/>
+                                <DataGridTextColumn Header="Stack" Binding="{Binding MaxStackSize}" Width="60"/>
+                                <DataGridTextColumn Header="Valor" Binding="{Binding Value}" Width="80"/>
+                                <DataGridCheckBoxColumn Header="Trade" Binding="{Binding Tradeable}" Width="55"/>
+                                <DataGridCheckBoxColumn Header="Refin" Binding="{Binding CanBeRefined}" Width="55"/>
+                                <DataGridTemplateColumn Header="Ações" Width="180" MinWidth="180">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <Button Content="Editar" Padding="8,2" Margin="0,0,4,0" Height="26"
+                                                        Command="{Binding DataContext.EditItemCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                        CommandParameter="{Binding}"/>
+                                                <Button Content="Excluir" Padding="8,2" Height="26"
+                                                        Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                        Command="{Binding DataContext.DeleteItemCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                        CommandParameter="{Binding}"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+
+                    <!-- Splitter -->
+                    <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Stretch" Background="Transparent"
+                                  ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
+
+                    <!-- Formulário criar/editar -->
+                    <Border Grid.Column="2" BorderBrush="Gray" BorderThickness="1" Padding="14" CornerRadius="4">
+                        <DockPanel>
+                            <!-- Cabeçalho -->
+                            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                                <TextBlock Text="{Binding ItemFormTitle}"
+                                           FontSize="16" FontWeight="Bold" Margin="0,0,0,4"/>
+                                <TextBlock Text="{Binding ItemFormSubtitle}"
+                                           FontSize="11" Opacity="0.7" TextWrapping="Wrap"/>
+                            </StackPanel>
+
+                            <!-- Botões em baixo -->
+                            <Grid DockPanel.Dock="Bottom" Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0" Content="Limpar" Command="{Binding NewItemCommand}"
+                                        Style="{StaticResource MaterialDesignOutlinedButton}"
+                                        HorizontalAlignment="Stretch" Height="36"/>
+                                <Button Grid.Column="2"
+                                        Content="{Binding ItemSaveButtonText}"
+                                        Command="{Binding CreateItemCommand}"
+                                        HorizontalAlignment="Stretch" Height="36"
+                                        Style="{StaticResource MaterialDesignRaisedButton}"/>
+                            </Grid>
+
+                            <!-- Form scrollável -->
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
+                                <StackPanel>
+                                    <!-- Bloco básico -->
+                                    <TextBlock Text="Identificação" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                    <TextBox Text="{Binding NewItemName, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="Nome (obrigatório)"
+                                             materialDesign:HintAssist.IsFloating="True"
+                                             Margin="0,0,0,10"/>
+                                    <TextBox Text="{Binding NewItemDescription, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="Descrição"
+                                             materialDesign:HintAssist.IsFloating="True"
+                                             AcceptsReturn="True" Height="64" TextWrapping="Wrap"
+                                             VerticalScrollBarVisibility="Auto" Margin="0,0,0,10"/>
+                                    <TextBox Text="{Binding NewItemIconPath, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="Icon path (ex: /Game/UI/Icons/Items/ICO_Sword)"
+                                             materialDesign:HintAssist.IsFloating="True"
+                                             Margin="0,0,0,16"/>
+
+                                    <!-- Bloco classificação -->
+                                    <TextBlock Text="Classificação" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <ComboBox Grid.Column="0" ItemsSource="{Binding ItemTypes}"
+                                                  SelectedValue="{Binding NewItemType}"
+                                                  materialDesign:HintAssist.Hint="Tipo"
+                                                  materialDesign:HintAssist.IsFloating="True"/>
+                                        <ComboBox Grid.Column="2"
+                                                  IsEditable="True"
+                                                  ItemsSource="{Binding ItemSubtypes}"
+                                                  Text="{Binding NewItemSubtype, UpdateSourceTrigger=PropertyChanged}"
+                                                  materialDesign:HintAssist.Hint="Subtipo"
+                                                  materialDesign:HintAssist.IsFloating="True"/>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <ComboBox Grid.Column="0" ItemsSource="{Binding ItemRarities}"
+                                                  SelectedValue="{Binding NewItemRarity}"
+                                                  materialDesign:HintAssist.Hint="Raridade"
+                                                  materialDesign:HintAssist.IsFloating="True"/>
+                                        <ComboBox Grid.Column="2" ItemsSource="{Binding ItemCategories}"
+                                                  SelectedValue="{Binding NewItemCategory}"
+                                                  materialDesign:HintAssist.Hint="Categoria"
+                                                  materialDesign:HintAssist.IsFloating="True"/>
+                                    </Grid>
+                                    <ComboBox ItemsSource="{Binding ItemEquipmentSlots}"
+                                              SelectedValue="{Binding NewItemSlot}"
+                                              materialDesign:HintAssist.Hint="Slot equipamento"
+                                              materialDesign:HintAssist.IsFloating="True"
+                                              Margin="0,0,0,16"/>
+
+                                    <!-- Bloco numérico -->
+                                    <TextBlock Text="Atributos" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox Grid.Column="0"
+                                                 Text="{Binding NewItemRequiredLevel, UpdateSourceTrigger=PropertyChanged}"
+                                                 materialDesign:HintAssist.Hint="Nível requerido"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Grid.Column="2"
+                                                 Text="{Binding NewItemMaxStack, UpdateSourceTrigger=PropertyChanged}"
+                                                 materialDesign:HintAssist.Hint="Stack máximo"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox Grid.Column="0"
+                                                 Text="{Binding NewItemValue, UpdateSourceTrigger=PropertyChanged}"
+                                                 materialDesign:HintAssist.Hint="Valor (gold)"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Grid.Column="2"
+                                                 Text="{Binding NewItemWeight, UpdateSourceTrigger=PropertyChanged}"
+                                                 materialDesign:HintAssist.Hint="Peso (kg)"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                    </Grid>
+
+                                    <!-- Flags -->
+                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,16">
+                                        <CheckBox Content="Negociável" IsChecked="{Binding NewItemTradeable}" Margin="0,0,16,0"/>
+                                        <CheckBox Content="Refinável"  IsChecked="{Binding NewItemCanBeRefined}"/>
+                                    </StackPanel>
+
+                                    <!-- Stats JSON -->
+                                    <TextBlock Text="Stats (JSON)" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                    <TextBox Text="{Binding NewItemStatsJson, UpdateSourceTrigger=PropertyChanged}"
+                                             FontFamily="Consolas" FontSize="11"
+                                             AcceptsReturn="True" TextWrapping="Wrap"
+                                             Height="140" VerticalScrollBarVisibility="Auto"
+                                             materialDesign:HintAssist.Hint="{}{&quot;strength&quot;:10,&quot;physical_attack&quot;:50}"
+                                             materialDesign:HintAssist.IsFloating="True"/>
+                                    <TextBlock FontSize="10" Opacity="0.6" TextWrapping="Wrap" Margin="0,4,0,0"
+                                               Text="Chaves aceitas: strength, dexterity, intelligence, vitality, physical_attack, magic_attack, physical_defense, magic_defense, accuracy, dodge, critical, resistance, double_attack_rate, double_attack_resistance, health_bonus, mana_bonus, movement"/>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <!-- NPCs -->
+            <TabItem Header="NPCs">
+                <TabControl Margin="4">
+                    <!-- Templates -->
+                    <TabItem Header="Templates">
+                        <Grid Margin="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" MinWidth="500"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="460"/>
+                            </Grid.ColumnDefinitions>
+
+                            <DockPanel Grid.Column="0">
+                                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                                    <Button Content="Atualizar" Command="{Binding RefreshNpcTemplatesCommand}" Margin="0,0,8,0"/>
+                                    <Button Content="Novo template" Command="{Binding NewNpcTemplateCommand}" Margin="0,0,8,0"
+                                            Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                    <TextBlock Text="{Binding NpcTemplates.Count, StringFormat={}{0} templates}"
+                                               VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0.7"/>
+                                </StackPanel>
+
+                                <DataGrid ItemsSource="{Binding NpcTemplates}"
+                                          SelectedItem="{Binding SelectedNpcTemplate}"
+                                          AutoGenerateColumns="False" IsReadOnly="True"
+                                          HeadersVisibility="Column" RowHeight="34"
+                                          HorizontalScrollBarVisibility="Auto"
+                                          CanUserResizeColumns="True">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="55">
+                                            <DataGridTextColumn.ElementStyle>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="FontWeight" Value="Bold"/>
+                                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                                </Style>
+                                            </DataGridTextColumn.ElementStyle>
+                                        </DataGridTextColumn>
+                                        <DataGridTextColumn Header="Nome" Binding="{Binding Name}" Width="180">
+                                            <DataGridTextColumn.ElementStyle>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                                </Style>
+                                            </DataGridTextColumn.ElementStyle>
+                                        </DataGridTextColumn>
+                                        <DataGridTextColumn Header="Resumo" Binding="{Binding Summary}" Width="*"/>
+                                        <DataGridTemplateColumn Header="Ações" Width="100" MinWidth="100">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <Button Content="Editar" Padding="8,2" Height="26"
+                                                            Command="{Binding DataContext.EditNpcTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}"/>
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </DockPanel>
+
+                            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch" Background="Transparent"
+                                          ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
+
+                            <Border Grid.Column="2" BorderBrush="Gray" BorderThickness="1" Padding="14" CornerRadius="4">
+                                <DockPanel>
+                                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                                        <TextBlock Text="{Binding NpcFormTitle}"
+                                                   FontSize="16" FontWeight="Bold" Margin="0,0,0,4"/>
+                                        <TextBlock FontSize="11" Opacity="0.7" TextWrapping="Wrap"
+                                                   Text="Selecione um template na lista. Spawn grava em npc_instances e envia opcode 100 ao zone em execução (zone_N deve estar online)."/>
+                                    </StackPanel>
+
+                                    <Grid DockPanel.Dock="Bottom" Margin="0,12,0,0">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="8"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <Grid Grid.Row="0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="8"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Button Grid.Column="0" Content="Limpar" Command="{Binding NewNpcTemplateCommand}"
+                                                    Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                    HorizontalAlignment="Stretch" Height="36"/>
+                                            <Button Grid.Column="2"
+                                                    Content="{Binding NpcSaveButtonText}"
+                                                    Command="{Binding SaveNpcTemplateCommand}"
+                                                    HorizontalAlignment="Stretch" Height="36"
+                                                    Style="{StaticResource MaterialDesignRaisedButton}"/>
+                                        </Grid>
+                                        <Button Grid.Row="2" Content="Spawn na zone"
+                                                Command="{Binding SpawnNpcAsyncCommand}"
+                                                HorizontalAlignment="Stretch" Height="36"
+                                                Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                    </Grid>
+
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
+                                        <StackPanel>
+                                            <TextBlock Text="Identificação" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                            <TextBox Text="{Binding NewNpcName, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Nome (obrigatório)"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,10"/>
+                                            <TextBox Text="{Binding NewNpcLevel, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Level"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,16"/>
+
+                                            <TextBlock Text="Vitais" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcMaxHealth, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="HP máximo"
+                                                         materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcMaxMana, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="MP máximo"
+                                                         materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+
+                                            <TextBlock Text="Atributos base" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcStrength, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="STR" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcDexterity, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="DEX" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcVitality, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="VIT" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcIntelligence, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="INT" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <TextBox Text="{Binding NewNpcLuck, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="LUCK"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,16"/>
+
+                                            <TextBlock Text="Combate" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcPhysicalAttack, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Ataque físico" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcMagicAttack, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Ataque mágico" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcPhysicalDefense, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Defesa física" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcMagicDefense, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Defesa mágica" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcAccuracy, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Precisão" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcDodge, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Esquiva" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <Grid Margin="0,0,0,16">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcCritical, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Crítico" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcCriticalResistance, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Resist. crítico" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+
+                                            <TextBlock Text="Assets UE" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                            <TextBox Text="{Binding NewNpcSkeletalMeshPath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Skeletal mesh path"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,10"/>
+                                            <TextBox Text="{Binding NewNpcAnimBlueprintPath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Anim Blueprint path"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,16"/>
+
+                                            <TextBlock Text="Spawn (instância)" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                    <TextBox Text="{Binding SpawnZoneId, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="Zone ID (0=zone_0, 1=zone_1)"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,10"/>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding SpawnPosX, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Pos X" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding SpawnPosY, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Pos Y" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding SpawnPosZ, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Pos Z (default 200)" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding SpawnYaw, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Yaw" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <Button Content="Copiar posição do player"
+                                                    Command="{Binding CopySpawnFromPlayerCommand}"
+                                                    Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                    HorizontalAlignment="Stretch" Height="32" Margin="0,0,0,8"/>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </DockPanel>
+                            </Border>
+                        </Grid>
+                    </TabItem>
+
+                    <!-- Instâncias no mundo -->
+                    <TabItem Header="Instâncias no mundo">
+                        <DockPanel Margin="8">
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                                <Button Content="Atualizar instâncias" Command="{Binding RefreshNpcInstancesCommand}" Margin="0,0,8,0"/>
+                                <TextBox Width="80" Margin="0,0,8,0"
+                                         Text="{Binding InstanceZoneFilter, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="Filtro zone (0=todas)"
+                                         materialDesign:HintAssist.IsFloating="True"/>
+                                <TextBlock Text="{Binding NpcInstances.Count, StringFormat={}{0} instância(s)}"
+                                           VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0.7"/>
+                            </StackPanel>
+
+                            <DataGrid ItemsSource="{Binding NpcInstances}"
+                                      SelectedItem="{Binding SelectedNpcInstance}"
+                                      AutoGenerateColumns="False" IsReadOnly="True">
+                                <DataGrid.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="Preencher spawn (aba Templates)"
+                                                  Command="{Binding PlacementTarget.DataContext.FillSpawnFromInstanceCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                        <Separator/>
+                                        <MenuItem Header="Excluir instância"
+                                                  Command="{Binding PlacementTarget.DataContext.DeleteNpcInstanceAsyncCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                    </ContextMenu>
+                                </DataGrid.ContextMenu>
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Instance ID" Binding="{Binding InstanceId}" Width="90"/>
+                                    <DataGridTextColumn Header="Template" Binding="{Binding TemplateLabel}" Width="200"/>
+                                    <DataGridTextColumn Header="Zone" Binding="{Binding ZoneId}" Width="55"/>
+                                    <DataGridTextColumn Header="X" Binding="{Binding PosX, StringFormat=F1}" Width="80"/>
+                                    <DataGridTextColumn Header="Y" Binding="{Binding PosY, StringFormat=F1}" Width="80"/>
+                                    <DataGridTextColumn Header="Z" Binding="{Binding PosZ, StringFormat=F1}" Width="80"/>
+                                    <DataGridTextColumn Header="Yaw" Binding="{Binding Yaw, StringFormat=F1}" Width="60"/>
+                                    <DataGridTextColumn Header="HP" Binding="{Binding CurrentHealth}" Width="70"/>
+                                    <DataGridCheckBoxColumn Header="Morto" Binding="{Binding IsDead}" Width="60"/>
+                                    <DataGridTextColumn Header="Criado" Binding="{Binding CreatedAt}" Width="*"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </TabItem>
+                </TabControl>
+            </TabItem>
+
+            <!-- Config -->
+            <TabItem Header="Config">
+                <DockPanel Margin="8">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button Content="Validar JSON" Command="{Binding ValidateConfigCommand}" Margin="0,0,8,0"/>
+                        <Button Content="Salvar arquivo" Command="{Binding SaveConfigCommand}" Margin="0,0,8,0"/>
+                        <Button Content="Reload runtime" Command="{Binding ReloadConfigCommand}"/>
+                        <TextBlock Text="{Binding ConfigStatus}" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                    </StackPanel>
+                    <TextBox Text="{Binding ConfigJson, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" FontFamily="Consolas"/>
+                </DockPanel>
+            </TabItem>
+
+            <!-- GM Console -->
+            <TabItem Header="GM Console">
+                <DockPanel Margin="8">
+                    <ListBox DockPanel.Dock="Bottom" Height="200" ItemsSource="{Binding GmOutput}" FontFamily="Consolas" FontSize="11"/>
+                    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
+                        <ComboBox Width="120" ItemsSource="{Binding Definitions}" DisplayMemberPath="Id"
+                                  SelectedValue="{Binding SelectedGmService}" SelectedValuePath="Id" Margin="0,0,8,0"/>
+                        <TextBox x:Name="GmInputBox" Width="400"
+                                 Text="{Binding GmInput, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="comando arg=valor (Tab autocomplete, ↑↓ histórico)"
+                                 KeyDown="GmInput_KeyDown"/>
+                        <Button Content="Enviar" Command="{Binding SendGmCommand}" Margin="8,0,0,0"/>
+                    </StackPanel>
+                </DockPanel>
+            </TabItem>
+
+            <!-- Scheduler -->
+            <TabItem Header="Scheduler">
+                <Grid Margin="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="6"/>
+                        <ColumnDefinition Width="380"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Lista de tarefas + ações rápidas -->
+                    <DockPanel Grid.Column="0">
+                        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                            <TextBlock Text="Ações rápidas" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                            <WrapPanel>
+                                <Button Content="+ Restart stack (a cada 6h)"
+                                        Command="{Binding ScheduleRestartAllCommand}"
+                                        Margin="0,0,8,4" Padding="8,4"/>
+                                <Button Content="+ Save positions (15 min)"
+                                        Command="{Binding ScheduleSavePositionsCommand}"
+                                        Margin="0,0,8,4" Padding="8,4"
+                                        Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                <Button Content="+ Reload config (1h)"
+                                        Command="{Binding ScheduleReloadConfigCommand}"
+                                        Margin="0,0,8,4" Padding="8,4"
+                                        Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                <Button Content="+ Status broadcast (30 min)"
+                                        Command="{Binding ScheduleHourlyBroadcastCommand}"
+                                        Margin="0,0,8,4" Padding="8,4"
+                                        Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                <Button Content="+ Stats stats (5 min)"
+                                        Command="{Binding ScheduleStatsLogCommand}"
+                                        Margin="0,0,8,4" Padding="8,4"
+                                        Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                            </WrapPanel>
+                        </StackPanel>
+
+                        <TextBlock DockPanel.Dock="Top" Text="Tarefas agendadas"
+                                   FontWeight="SemiBold" Margin="0,0,0,6"/>
+
+                        <DataGrid ItemsSource="{Binding ScheduledTasks}" AutoGenerateColumns="False"
+                                  IsReadOnly="True" RowHeight="34" HeadersVisibility="Column">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="On" Binding="{Binding Enabled}" Width="40"/>
+                                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="140" FontFamily="Consolas"/>
+                                <DataGridTextColumn Header="Descrição" Binding="{Binding Description}" Width="*"/>
+                                <DataGridTextColumn Header="Min" Binding="{Binding IntervalMinutes}" Width="50"/>
+                                <DataGridTextColumn Header="Próx." Binding="{Binding NextRunFormatted}" Width="80" FontFamily="Consolas"/>
+                                <DataGridTextColumn Header="Última" Binding="{Binding LastRunFormatted}" Width="80" FontFamily="Consolas"/>
+                                <DataGridTextColumn Header="Runs" Binding="{Binding RunCount}" Width="50"/>
+                                <DataGridTextColumn Header="Resultado" Binding="{Binding LastResult}" Width="120"/>
+                                <DataGridTemplateColumn Header="Ações" Width="200" MinWidth="200">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Button Content="Run" Padding="6,2" Margin="2" Height="26"
+                                                        Command="{Binding DataContext.RunTaskNowCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                        CommandParameter="{Binding}"/>
+                                                <Button Content="Pause" Padding="6,2" Margin="2" Height="26"
+                                                        Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                        Command="{Binding DataContext.ToggleTaskCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                        CommandParameter="{Binding}"/>
+                                                <Button Content="X" Padding="6,2" Margin="2" Height="26"
+                                                        Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                        Command="{Binding DataContext.RemoveTaskCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                        CommandParameter="{Binding}"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+
+                    <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Stretch" Background="Transparent"
+                                  ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
+
+                    <!-- Painel de criação custom -->
+                    <Border Grid.Column="2" BorderBrush="Gray" BorderThickness="1"
+                            Padding="14" CornerRadius="4">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                                <TextBlock Text="Nova tarefa custom" FontSize="16" FontWeight="Bold"/>
+                                <TextBlock Text="Crie uma tarefa que executa a cada N minutos."
+                                           FontSize="11" Opacity="0.7" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                            </StackPanel>
+
+                            <Button DockPanel.Dock="Bottom"
+                                    Content="Adicionar tarefa"
+                                    Command="{Binding AddCustomTaskCommand}"
+                                    Style="{StaticResource MaterialDesignRaisedButton}"
+                                    Height="38" Margin="0,12,0,0"/>
+
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel>
+                                    <TextBox Text="{Binding NewTaskDescription, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="Descrição"
+                                             materialDesign:HintAssist.IsFloating="True"
+                                             Margin="0,0,0,12"/>
+
+                                    <TextBlock Text="Tipo de ação" FontWeight="SemiBold" Margin="0,0,0,4" Opacity="0.85"/>
+                                    <ComboBox ItemsSource="{Binding TaskActionTypes}"
+                                              SelectedValue="{Binding NewTaskAction}"
+                                              materialDesign:HintAssist.Hint="Ação"
+                                              materialDesign:HintAssist.IsFloating="True"
+                                              Margin="0,0,0,12"/>
+
+                                    <TextBox Text="{Binding NewTaskTarget, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="Alvo (id do serviço, mensagem, comando...)"
+                                             materialDesign:HintAssist.IsFloating="True"
+                                             AcceptsReturn="True" TextWrapping="Wrap"
+                                             MinHeight="60" VerticalScrollBarVisibility="Auto"
+                                             Margin="0,0,0,12"/>
+
+                                    <TextBox Text="{Binding NewTaskIntervalMinutes, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="Intervalo (minutos)"
+                                             materialDesign:HintAssist.IsFloating="True"
+                                             Margin="0,0,0,12"/>
+
+                                    <Border Background="{DynamicResource MaterialDesign.Brush.Card.Background}"
+                                            Padding="10" CornerRadius="4" Margin="0,8,0,0">
+                                        <StackPanel>
+                                            <TextBlock Text="Significado de 'Alvo'" FontWeight="SemiBold" FontSize="11"/>
+                                            <TextBlock TextWrapping="Wrap" FontSize="10" Opacity="0.85" Margin="0,4,0,0">
+                                                <Run Text="• "/>
+                                                <Run FontWeight="Bold" Text="restart_stack:"/>
+                                                <Run Text=" deixe vazio (afeta tudo)"/>
+                                                <LineBreak/>
+                                                <Run Text="• "/>
+                                                <Run FontWeight="Bold" Text="restart_service:"/>
+                                                <Run Text=" id do serviço (auth, world, zone_0...)"/>
+                                                <LineBreak/>
+                                                <Run Text="• "/>
+                                                <Run FontWeight="Bold" Text="broadcast_zones:"/>
+                                                <Run Text=" mensagem para todos players"/>
+                                                <LineBreak/>
+                                                <Run Text="• "/>
+                                                <Run FontWeight="Bold" Text="save_positions:"/>
+                                                <Run Text=" deixe vazio"/>
+                                                <LineBreak/>
+                                                <Run Text="• "/>
+                                                <Run FontWeight="Bold" Text="reload_config:"/>
+                                                <Run Text=" deixe vazio"/>
+                                                <LineBreak/>
+                                                <Run Text="• "/>
+                                                <Run FontWeight="Bold" Text="custom_command:"/>
+                                                <Run Text=" 'service|cmd|json_args'"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>

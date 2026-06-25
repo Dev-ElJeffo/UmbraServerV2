@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <g stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Capuz -->
+    <path d="M20 16 C20 10 26 8 32 8 C38 8 44 10 44 16 L44 24 L20 24 Z" 
+          fill="#2d2d44" stroke="#4a4a6a" stroke-width="2"/>
+    
+    <!-- Rosto na sombra -->
+    <ellipse cx="32" cy="20" rx="8" ry="6" fill="#1a1a2e"/>
+    <circle cx="28" cy="20" r="1" fill="#ff4444"/>
+    <circle cx="36" cy="20" r="1" fill="#ff4444"/>
+    
+    <!-- Adaga esquerda -->
+    <path d="M18 32 L14 48" stroke="#c0c0c0" stroke-width="2"/>
+    <path d="M14 48 L12 52" stroke="#d4af37" stroke-width="2"/>
+    
+    <!-- Adaga direita -->
+    <path d="M46 32 L50 48" stroke="#c0c0c0" stroke-width="2"/>
+    <path d="M50 48 L52 52" stroke="#d4af37" stroke-width="2"/>
+    
+    <!-- Corpo/Capa -->
+    <path d="M20 24 L16 56 L48 56 L44 24 Z" 
+          fill="#3a3a52" stroke="#4a4a6a" stroke-width="2"/>
+    
+    <!-- Cinto -->
+    <rect x="24" y="38" width="16" height="3" fill="#d4af37"/>
+    
+    <!-- Sombras da capa -->
+    <path d="M26 28 L22 56" stroke="#2d2d44" stroke-width="1" opacity="0.5"/>
+    <path d="M38 28 L42 56" stroke="#2d2d44" stroke-width="1" opacity="0.5"/>
+  </g>
+</svg>
