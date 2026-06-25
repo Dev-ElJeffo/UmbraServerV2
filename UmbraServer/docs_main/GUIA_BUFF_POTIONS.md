@@ -288,7 +288,24 @@ Bindings no `WBP_BuffTooltip` (todos `BindWidgetOptional`):
    - `Buff Icon Widget Class` = `WBP_BuffIcon`
    - `Buff Tooltip Widget Class` = `WBP_BuffTooltip`
 
-Snapshot HTTP: `get_public_info.php` e `get_party_state.php` retornam `active_buffs[]` por jogador ao abrir/refresh.
+### 5.3 `WBP_SelectedNpcInfo` (alvo NPC)
+
+1. **Reparent** → `UmbraNpcTargetInfoWidget` (cópia de `WBP_SelectedPlayerInfo`).
+2. Confirme bindings: `Text_NpcName`, `Text_Level`, `Text_HP`, `Progress_HP`, **`BuffBar_HBox`**.
+3. **Class Defaults** → **Target | Buffs** (recomendado):
+   - `Buff Icon Widget Class` = `WBP_BuffIcon`
+   - `Buff Tooltip Widget Class` = `WBP_BuffTooltip`
+4. **Fallback C++:** se não configurar no BP, `UmbraPlayerSelectionComponent` injeta `DefaultBuffIconWidgetClass` (carrega `WBP_BuffIcon` ou copia do `WBP_PartyPanel` no viewport).
+5. Buffs NPC vêm de `NpcActiveBuffsCache` via opcode **104** `targetType=1` — requer `zone_server` atualizado.
+
+### 5.4 Party → alvo selecionado (sync de buffs)
+
+O slot de party recebe `Member.ActiveBuffs` via opcode **104** e HTTP (`get_party_state`). Ao clicar no membro **no mundo**, o C++ agora faz merge:
+
+- `MergePartyMemberBuffsIntoRemoteInfo` (party → `SelectedPlayer`)
+- `SyncSelectedPlayerBuffsFromParty` após opcode **104** e `OnPartyStateLoaded`
+
+Isso evita `WBP_SelectedPlayerInfo` desatualizado em relação ao painel de grupo.
 
 ---
 
@@ -351,7 +368,18 @@ curl -X POST http://localhost/umbra_api/api/combat/apply_vitals.php \
 
 **Slot próprio no party:** o Zone **não** envia opcode **87** de volta para quem disparou o **86**. O cliente atualiza o próprio slot via `SyncActivePlayerPartyMember()` (chamado em `ApplyLocalVitalsAndBroadcast`, `OnLoadActiveBuffsComplete` e buffs WS **85** no `ActivePlayerID`).
 
-**Re-seleção de alvo:** `SelectPlayer` chama `InspectPlayer` mesmo com cache hit. `HandlePlayerInspectedInternal` faz merge `MergeActiveBuffArrays(API, cache)` para não apagar buffs que já estavam no cache via WS **85**. `get_public_info.php` inclui sempre `active_buffs[]` (helper opcional, como em `get_party_state.php`).
+**Re-seleção de alvo:** `SelectPlayer` chama `InspectPlayer` mesmo com cache hit. `HandlePlayerInspectedInternal` faz merge `MergeActiveBuffArrays(API, cache)` unindo poções (`BuffKey`), skills/debuffs (`BuffID`) e passivas (`SkillID` + `bIsPassive`). `get_public_info.php` e `get_party_state.php` incluem:
+
+| Campo JSON | Conteúdo |
+|------------|----------|
+| `active_buffs` | Poções (`player_item_buffs`) |
+| `skill_buffs` | Buffs/debuffs de skill (`active_buffs` MySQL) |
+| `passive_buffs` | Passivas condicionais ativas (snapshot) |
+| `passive_skill_defs` | Metadados para recalcular passivas quando HP% muda |
+
+**Opcode 104 (skill buff sync):** broadcast de apply/remove de buff de skill. Campo opcional `targetType` no final do payload: `0` = jogador, `1` = NPC (`targetPlayerId` = `npc_instance_id`). Cliente atualiza `WBP_SelectedPlayerInfo`, party e `WBP_SelectedNpcInfo`.
+
+**Debuff visual:** ícones com `buff_type` `DEBUFF` ou `DOT` recebem tint avermelhado em `UUmbraBuffIconWidget`.
 
 ---
 
@@ -376,6 +404,48 @@ curl -X POST http://localhost/umbra_api/api/combat/apply_vitals.php \
 17. Cliente A chama `ApplyVitalsToTarget(B, -100, 0, "DAMAGE")` → B vê HP próprio cair; A e C (party) veem HP de B no painel/alvo via **87**.
 18. Cliente A cura B (`+200, 0, "HEAL"`) → mesmo fluxo do teste 17.
 19. Log Zone: `PlayerVitalsUpdate from player ...` e `ForeignVitalsUpdate target=...`.
+20. PvP: A aplica debuff de skill em B com B selecionado → ícone da skill aparece em `WBP_SelectedPlayerInfo` imediatamente (opcode **104**) e persiste após re-inspect.
+21. Passiva condicional de B (HP baixo) → ícone `PASSIVE` no painel do alvo após inspect.
+22. Debuff em NPC selecionado → ícone em `WBP_SelectedNpcInfo` (`BuffBar_HBox`); some ao expirar ou morte do mob.
+23. Log cliente: `MergeActiveBuffs player=... merged=...` com contagem de skills > 0 após debuff + inspect.
+24. Passiva/debuff de aliado no party e em `WBP_SelectedPlayerInfo` → ícone correto (não quadrado branco); `skill_key` na API + `ResolveBuffIcon`.
+25. DOT local e em aliado → ícone com timer na skillbar / party / alvo (`dot_buffs` + opcode **104** `buffType=DOT/HOT`).
+26. Reação armada (AURA) → ícone na buffbar local (`fetch_skill_active_buffs` com `for_display=true` em inspect/party).
+27. DOT/debuff em NPC selecionado → ícone em `WBP_SelectedNpcInfo` via opcode **104** `targetType=1`.
+28. Log cliente: sem `ResolveBuffIcon: sem textura` para skills presentes no `SkillIconsDataTable`.
+29. Debuff em aliado no party → clique no slot → mesmo ícone em `WBP_SelectedPlayerInfo` (log `SyncSelectedPlayerBuffsFromParty`).
+30. Debuff/DOT em NPC → ícone em `WBP_SelectedNpcInfo` após `zone_server` novo (sem `BuffIconWidgetClass null` no log).
+31. Debuff no próprio personagem → ícone na skillbar em **&lt;0.5s** (opcode **104**, debounce HTTP 0.2s).
+32. **Multiplayer NPC:** dois clientes na mesma zona; A aplica debuff/DOT no NPC → B seleciona o mesmo NPC e vê o ícone (`SkillBuffSync (NPC)` nos dois logs). B reconecta depois do debuff → snapshot no connect (`sendNpcBuffSnapshot`) mantém ícones.
+33. **Expiração NPC:** debuff curto (~5s) em NPC com `WBP_SelectedNpcInfo` aberto → ícone some em até ~1s (opcode **104** `action=1` ou `PruneExpiredNpcBuffs` no tick do widget). Reaplicar antes de expirar → apenas um ícone (servidor envia `action=1` do buff antigo em `applyNpcSkillBuff`).
+34. **Debuff remoto (PvP/alvo):** A seleciona B e aplica debuff de skill → ícone em `WBP_SelectedPlayerInfo` em **&lt;0.5s** (log `SkillBuffSync (remote)` + `wsCache>0`). Após expirar, ícone some. Skillbar local de A: timers suaves via `PruneExpiredLocalActiveBuffs` (sem esperar HTTP 10s).
+35. **Refresh automático da buffbar (sem re-clique nem piscar):** Com party aberta e/ou alvo selecionado, aplicar debuff em aliado → ícone aparece em `WBP_PartyPanel` e `WBP_SelectedPlayerInfo` via opcode **104** + `OnRemotePlayerBuffsUpdated` **sem** destruir/recriar ícones (`SyncBuffBar`). Timers descem suavemente no `WBP_BuffIcon` (tick 0,25s). Ao expirar, ícone some em até **~1s** (`RemoveFromParent` + purge condicional). Repetir com debuff em NPC: ambos os clientes veem o ícone (`OnNpcBuffsUpdated`); sem ícones presos em `0:00` nem flicker na barra.
+
+---
+
+## 7.1 Ícones de skill remotos (`skill_key`)
+
+| Camada | Detalhe |
+|--------|---------|
+| PHP | `fetch_skill_active_buffs_for_player(..., $for_display=true)` em `get_public_info` / `get_party_state` inclui `skill_key` e reações AURA |
+| PHP | `fetch_active_dots_for_player` → campo `dot_buffs` no inspect/party |
+| Cliente | `ParseActiveBuff` / `ParseDotBuff` leem `skill_key`; `LoadSkillTextureFromPath` normaliza `icon_path` |
+| Cliente | `ResolveBuffIcon`: poção → `SkillKey`/DataTable → `IconPath` normalizado |
+| Cliente | `PopulateBuffBar` ignora slots sem textura resolvida |
+
+## 7.2 DOT e reação em tempo real
+
+| Evento | Canal |
+|--------|--------|
+| DOT/HOT aplicado (player) | `CombatCoreEngine::insertPlayerDot` → opcode **104** (`buffId` = `dot_id`) |
+| DOT/HOT aplicado (NPC) | `npcDots_` in-memory → opcode **104** `targetType=1` |
+| DOT NPC expira | `tickNpcDots` → opcode **104** `action=1` |
+| Cliente conecta na zone | `sendNpcBuffSnapshotToClient` → opcode **104** `action=0` para cada buff/DOT ativo |
+| Debuff NPC expira / reaplica | `tickNpcBuffExpirations` ou `applyNpcSkillBuff` → **104** `action=1`; cliente `SyncBuffBar` via `OnNpcBuffsUpdated` + tick condicional 1s |
+| Debuff em jogador remoto | `RemotePlayerActiveBuffsCache` + opcode **104**; `OnRemotePlayerBuffsUpdated` + `SyncBuffBar` em party/alvo |
+| Skillbar local expira | `PruneExpiredBuffsForPlayer` + `SyncBuffBar` condicional (~1s) em `WBP_SkillBar1`; timers no ícone |
+| Party buffbar | `OnPartyStateLoaded` + `OnRemotePlayerBuffsUpdated`; `SyncBuffBar` no slot (sem `ClearChildren` periódico) |
+| Reação armada | Já broadcast via `armReactionSkill`; HTTP inspect inclui AURA quando `for_display=true` |
 
 ---
 
@@ -408,6 +478,5 @@ curl -X POST http://localhost/umbra_api/api/combat/apply_vitals.php \
 - `UmbraEternumUE/.../UI/UmbraPartyWidget.h/.cpp`
 - `UmbraEternumUE/.../UI/UmbraPartyMemberSlotWidget.h/.cpp`
 - `UmbraEternumUE/.../UI/UmbraBuffIconWidget.h/.cpp`
-- `UmbraEternumUE/.../Network/NetMovementClient.cpp`
-- `src/zone/MovementProtocol.hpp`
-- `src/zone/MovementServer.hpp`
+- `UmbraEternumUE/.../UI/UmbraNpcTargetInfoWidget.h/.cpp`
+- `src/zone/CombatCoreEngine.hpp/.cpp`

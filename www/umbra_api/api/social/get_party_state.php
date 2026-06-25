@@ -258,8 +258,32 @@ try {
 
         try {
             $member_payload['active_buffs'] = party_state_fetch_active_buffs($pdo, $mid);
+            $health_pct = 100;
+            if (isset($member_payload['current_health'], $member_payload['max_health'])) {
+                $cur = (int)$member_payload['current_health'];
+                $max = max(1, (int)$member_payload['max_health']);
+                $health_pct = $cur > 0 ? (int)floor($cur * 100 / $max) : 100;
+            }
+            if (function_exists('fetch_skill_active_buffs_for_player')) {
+                $member_payload['skill_buffs'] = fetch_skill_active_buffs_for_player($pdo, $mid, true);
+            } else {
+                $member_payload['skill_buffs'] = [];
+            }
+            if (function_exists('fetch_passive_display_buffs_for_player')) {
+                $member_payload['passive_buffs'] = fetch_passive_display_buffs_for_player($pdo, $mid, $health_pct);
+            } else {
+                $member_payload['passive_buffs'] = [];
+            }
+            if (function_exists('fetch_active_dots_for_player')) {
+                $member_payload['dot_buffs'] = fetch_active_dots_for_player($pdo, $mid);
+            } else {
+                $member_payload['dot_buffs'] = [];
+            }
         } catch (\Throwable $e) {
             $member_payload['active_buffs'] = [];
+            $member_payload['skill_buffs'] = [];
+            $member_payload['passive_buffs'] = [];
+            $member_payload['dot_buffs'] = [];
         }
 
         $members[] = $member_payload;

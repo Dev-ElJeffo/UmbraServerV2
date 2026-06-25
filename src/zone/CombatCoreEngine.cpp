@@ -3,9 +3,11 @@
 #include "zone/CombatRange.hpp"
 #include "SkillTypes.hpp"
 #include "core/Logger.hpp"
+#include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <unordered_set>
 
 namespace Umbra {
 namespace Zone {
@@ -23,6 +25,15 @@ SkillCastRejectReason rejectReasonFromErrorCode(const std::string& code) {
   if (code == "CANNOT_CAST") return SkillCastRejectReason::CannotCast;
   if (code == "SKILL_NOT_FOUND") return SkillCastRejectReason::SkillNotFound;
   return SkillCastRejectReason::Unknown;
+}
+
+uint8_t buffTypeFromDbString(const std::string& value) {
+  if (value == "DEBUFF") return static_cast<uint8_t>(Combat::BuffType::DEBUFF);
+  if (value == "AURA") return static_cast<uint8_t>(Combat::BuffType::AURA);
+  if (value == "DOT") return static_cast<uint8_t>(Combat::BuffType::DOT);
+  if (value == "HOT") return static_cast<uint8_t>(Combat::BuffType::HOT);
+  if (value == "SHIELD") return static_cast<uint8_t>(Combat::BuffType::SHIELD);
+  return static_cast<uint8_t>(Combat::BuffType::BUFF);
 }
 
 std::string defaultRejectMessage(SkillCastRejectReason reason) {
@@ -110,6 +121,7 @@ void CombatCoreEngine::tick(float deltaSeconds) {
 
   // DOT/HOT de NPC (in-memory) sao processados todo frame por steady_clock.
   tickNpcDots();
+  tickNpcBuffExpirations();
 }
 
 void CombatCoreEngine::tickRegen(float deltaSeconds) {
@@ -185,6 +197,7 @@ void CombatCoreEngine::tickBuffExpirations() {
     sync.targetPlayerId = static_cast<uint32_t>(entry.targetPlayerId);
     sync.buffId = entry.buffId;
     sync.skillId = entry.skillId;
+    sync.buffType = entry.buffType;
     enrichSkillBuffSyncPayload(sync);
     broadcastSkillBuffSync(sync);
     Core::Logger::getInstance().debug(
@@ -224,18 +237,55 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
     const bool isBuffStat = (eff.effectType == Combat::EffectType::BUFF_STAT);
     const bool isDebuffStat = (eff.effectType == Combat::EffectType::DEBUFF_STAT);
     const bool isShield = (eff.effectType == Combat::EffectType::SHIELD);
+    const bool isCcDebuff = (eff.effectType == Combat::EffectType::STUN ||
+                             eff.effectType == Combat::EffectType::SILENCE ||
+                             eff.effectType == Combat::EffectType::ROOT ||
+                             eff.effectType == Combat::EffectType::SLOW);
 
-    if (isBuffStat || isDebuffStat || isShield) {
-      if (effectPlayerId == 0 || !skillService_) continue;
-      if (!effectOnSelf && targetIsNpc) {
-        Core::Logger::getInstance().debug(
-            "[CombatCoreEngine] buff skill={} ignorado (alvo NPC)", skill.skillId);
-        continue;
-      }
+    if (isBuffStat || isDebuffStat || isShield || isCcDebuff) {
+      if (effectPlayerId == 0) continue;
       if (eff.chancePercent < 100) {
         const int32_t roll = std::rand() % 100;
         if (roll >= eff.chancePercent) continue;
       }
+
+      if (!effectOnSelf && targetIsNpc) {
+        uint32_t durationMs = eff.durationMs > 0 ? eff.durationMs : skill.durationMs;
+        if (durationMs == 0) durationMs = 5000;
+        uint8_t buffTypeCode = static_cast<uint8_t>(Combat::BuffType::BUFF);
+        if (isShield) {
+          buffTypeCode = static_cast<uint8_t>(Combat::BuffType::SHIELD);
+        } else if (isDebuffStat || isCcDebuff) {
+          buffTypeCode = static_cast<uint8_t>(Combat::BuffType::DEBUFF);
+        }
+        const uint64_t buffId = applyNpcSkillBuff(targetId, sourcePlayerId, skill.skillId,
+                                                  buffTypeCode, eff, skill);
+        if (buffId > 0) {
+          const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::system_clock::now().time_since_epoch())
+                                    .count();
+          SkillBuffSyncPayload sync;
+          sync.action = 0;
+          sync.targetType = 1;
+          sync.targetPlayerId = targetId;
+          sync.buffId = buffId;
+          sync.skillId = skill.skillId;
+          sync.buffType = buffTypeCode;
+          sync.stacks = 1;
+          sync.valueFlat = eff.valueFlat;
+          sync.valuePercent = eff.valuePercent;
+          sync.expiresAtMs = nowMs + static_cast<int64_t>(durationMs);
+          sync.durationMs = durationMs;
+          sync.targetStat = eff.targetStat;
+          sync.skillName = skill.skillName;
+          sync.iconPath = skill.iconPath;
+          enrichSkillBuffSyncPayload(sync);
+          broadcastSkillBuffSync(sync);
+        }
+        continue;
+      }
+
+      if (!skillService_) continue;
       const uint64_t buffId = skillService_->applyBuff(effectPlayerId, sourcePlayerId, skill.skillId,
                                                        eff, attacker);
       if (buffId > 0) {
@@ -248,13 +298,12 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
                                   std::chrono::system_clock::now().time_since_epoch())
                                   .count();
         SkillBuffSyncPayload sync;
-        sync.action = 0;
-        sync.targetPlayerId = effectPlayerId;
+        sync.targetPlayerId = static_cast<uint32_t>(effectPlayerId);
         sync.buffId = buffId;
         sync.skillId = skill.skillId;
         if (isShield) {
           sync.buffType = static_cast<uint8_t>(Combat::BuffType::SHIELD);
-        } else if (isDebuffStat) {
+        } else if (isDebuffStat || isCcDebuff) {
           sync.buffType = static_cast<uint8_t>(Combat::BuffType::DEBUFF);
         } else {
           sync.buffType = static_cast<uint8_t>(Combat::BuffType::BUFF);
@@ -267,7 +316,11 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
         sync.targetStat = eff.targetStat;
         sync.skillName = skill.skillName;
         sync.iconPath = skill.iconPath;
-        broadcastSkillBuffSync(sync);
+        broadcastPlayerSkillBuffApply(sync);
+      } else {
+        Core::Logger::getInstance().warn(
+            "[CombatCoreEngine] applyBuff retornou 0: skill={} target={} effectType={}",
+            skill.skillId, effectPlayerId, static_cast<int>(eff.effectType));
       }
       continue;
     }
@@ -303,20 +356,50 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
     if (targetIsPlayer) {
       // HOT cura (positivo); DOT dano. active_dots usa tick_value positivo + dot_type.
       const char* dotType = isHot ? "HEAL" : "DAMAGE";
-      insertPlayerDot(sourcePlayerId, targetId, skill.skillId, dotType, tickValue, interval, ticksTotal);
+      insertPlayerDot(sourcePlayerId, targetId, skill.skillId, dotType, tickValue, interval, ticksTotal,
+                      skill);
     } else {  // NPC -> in-memory
       NpcDotInstance inst;
       inst.npcInstanceId = targetId;
       inst.sourcePlayerId = sourcePlayerId;
       inst.skillId = skill.skillId;
+      inst.dotBuffId =
+          (static_cast<uint64_t>(targetId) << 32) |
+          static_cast<uint64_t>(npcDotIdSeq_.fetch_add(1, std::memory_order_relaxed));
       inst.tickValue = isHot ? tickValue : -tickValue;
       inst.intervalMs = interval;
       inst.ticksRemaining = static_cast<uint8_t>(ticksTotal);
+      inst.durationMs = interval * ticksTotal;
+      const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+      inst.expiresAtMs = nowMs + static_cast<int64_t>(inst.durationMs);
       inst.nextTickAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(interval);
       {
         std::lock_guard<std::mutex> lock(npcDotsMu_);
+        npcDots_.erase(std::remove_if(npcDots_.begin(), npcDots_.end(),
+                                      [&](const NpcDotInstance& existing) {
+                                        return existing.npcInstanceId == targetId &&
+                                               existing.skillId == skill.skillId;
+                                      }),
+                         npcDots_.end());
         npcDots_.push_back(inst);
       }
+      SkillBuffSyncPayload sync;
+      sync.action = 0;
+      sync.targetType = 1;
+      sync.targetPlayerId = targetId;
+      sync.buffId = inst.dotBuffId;
+      sync.skillId = skill.skillId;
+      sync.buffType = static_cast<uint8_t>(isHot ? Combat::BuffType::HOT : Combat::BuffType::DOT);
+      sync.stacks = static_cast<uint8_t>(ticksTotal);
+      sync.valueFlat = tickValue;
+      sync.expiresAtMs = inst.expiresAtMs;
+      sync.durationMs = inst.durationMs;
+      sync.skillName = skill.skillName;
+      sync.iconPath = skill.iconPath;
+      enrichSkillBuffSyncPayload(sync);
+      broadcastSkillBuffSync(sync);
       Core::Logger::getInstance().info(
           "[CombatCoreEngine] DOT/HOT NPC aplicado: npc={} src={} skill={} tick={} ticks={} interval={}ms",
           targetId, sourcePlayerId, skill.skillId, inst.tickValue, ticksTotal, interval);
@@ -326,7 +409,8 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
 
 void CombatCoreEngine::insertPlayerDot(uint32_t sourcePlayerId, uint32_t targetPlayerId,
                                        uint32_t skillId, const char* dotType, int32_t tickValue,
-                                       uint32_t tickIntervalMs, uint32_t ticksTotal) {
+                                       uint32_t tickIntervalMs, uint32_t ticksTotal,
+                                       const Combat::SkillData& skill) {
   if (!db_ || !db_->isConnected()) return;
 
   const uint32_t intervalSec = std::max<uint32_t>(1, (tickIntervalMs + 999) / 1000);
@@ -334,7 +418,7 @@ void CombatCoreEngine::insertPlayerDot(uint32_t sourcePlayerId, uint32_t targetP
   const std::string intervalUsStr =
       std::to_string(static_cast<uint64_t>(tickIntervalMs) * 1000ULL);
 
-  db_->executePreparedInsert(
+  if (!db_->executePreparedInsert(
       "INSERT INTO active_dots ("
       "target_player_id, source_player_id, skill_id, dot_type, tick_value, tick_interval_ms, "
       "ticks_remaining, next_tick_at, expires_at) VALUES ("
@@ -344,17 +428,43 @@ void CombatCoreEngine::insertPlayerDot(uint32_t sourcePlayerId, uint32_t targetP
       {std::to_string(targetPlayerId), std::to_string(sourcePlayerId), std::to_string(skillId),
        dotType, std::to_string(tickValue), std::to_string(tickIntervalMs),
        std::to_string(std::min<uint32_t>(255, ticksTotal)), intervalUsStr,
-       std::to_string(totalDurationSec)});
+       std::to_string(totalDurationSec)})) {
+    return;
+  }
+
+  const uint64_t dotId = db_->getLastInsertId();
+  const uint32_t durationMs = tickIntervalMs * ticksTotal;
+  const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+
+  if (dotId > 0 && movementServer_) {
+    SkillBuffSyncPayload sync;
+    sync.targetPlayerId = targetPlayerId;
+    sync.buffId = dotId;
+    sync.skillId = skillId;
+    const bool isHeal = dotType && std::strcmp(dotType, "HEAL") == 0;
+    sync.buffType = static_cast<uint8_t>(isHeal ? Combat::BuffType::HOT : Combat::BuffType::DOT);
+    sync.stacks = static_cast<uint8_t>(std::min<uint32_t>(255, ticksTotal));
+    sync.valueFlat = tickValue;
+    sync.expiresAtMs = nowMs + static_cast<int64_t>(durationMs);
+    sync.durationMs = durationMs;
+    sync.skillName = skill.skillName;
+    sync.iconPath = skill.iconPath;
+    broadcastPlayerSkillBuffApply(sync);
+  }
 
   Core::Logger::getInstance().info(
-      "[CombatCoreEngine] DOT/HOT player aplicado: target={} src={} skill={} type={} tick={} ticks={}",
-      targetPlayerId, sourcePlayerId, skillId, dotType, tickValue, ticksTotal);
+      "[CombatCoreEngine] DOT/HOT player aplicado: target={} src={} skill={} type={} tick={} ticks={} dot_id={}",
+      targetPlayerId, sourcePlayerId, skillId, dotType ? dotType : "?", tickValue, ticksTotal,
+      dotId);
 }
 
 void CombatCoreEngine::tickNpcDots() {
   if (!npcManager_ || !movementServer_) return;
 
   std::vector<NpcDotInstance> due;
+  std::vector<NpcDotInstance> expiredDots;
   const auto now = std::chrono::steady_clock::now();
   {
     std::lock_guard<std::mutex> lock(npcDotsMu_);
@@ -364,12 +474,31 @@ void CombatCoreEngine::tickNpcDots() {
         due.push_back(inst);
         inst.ticksRemaining--;
         inst.nextTickAt += std::chrono::milliseconds(inst.intervalMs);
+        if (inst.ticksRemaining == 0) {
+          expiredDots.push_back(inst);
+        }
       }
     }
     // Remove esgotados.
     npcDots_.erase(std::remove_if(npcDots_.begin(), npcDots_.end(),
                                   [](const NpcDotInstance& i) { return i.ticksRemaining == 0; }),
                    npcDots_.end());
+  }
+
+  for (const auto& inst : expiredDots) {
+    if (inst.dotBuffId == 0) continue;
+    SkillBuffSyncPayload sync;
+    sync.action = 1;
+    sync.targetType = 1;
+    sync.targetPlayerId = inst.npcInstanceId;
+    sync.buffId = inst.dotBuffId;
+    sync.skillId = inst.skillId;
+    sync.buffType = static_cast<uint8_t>(inst.tickValue >= 0 ? Combat::BuffType::HOT
+                                                             : Combat::BuffType::DOT);
+    sync.expiresAtMs = inst.expiresAtMs;
+    sync.durationMs = inst.durationMs;
+    enrichSkillBuffSyncPayload(sync);
+    broadcastSkillBuffSync(sync);
   }
 
   for (const auto& inst : due) {
@@ -395,6 +524,126 @@ void CombatCoreEngine::tickNpcDots() {
                                     }),
                      npcDots_.end());
     }
+  }
+}
+
+uint64_t CombatCoreEngine::applyNpcSkillBuff(uint32_t npcInstanceId, uint32_t sourcePlayerId,
+                                             uint32_t skillId, uint8_t buffType,
+                                             const Combat::SkillEffect& eff,
+                                             const Combat::SkillData& skill) {
+  if (npcInstanceId == 0) return 0;
+
+  uint32_t durationMs = eff.durationMs > 0 ? eff.durationMs : skill.durationMs;
+  if (durationMs == 0) durationMs = 5000;
+
+  const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+  const uint64_t buffId =
+      (static_cast<uint64_t>(npcInstanceId) << 32) |
+      static_cast<uint64_t>(npcBuffIdSeq_.fetch_add(1, std::memory_order_relaxed));
+
+  NpcBuffInstance inst;
+  inst.npcInstanceId = npcInstanceId;
+  inst.buffId = buffId;
+  inst.sourcePlayerId = sourcePlayerId;
+  inst.skillId = skillId;
+  inst.buffType = buffType;
+  inst.stacks = 1;
+  inst.valueFlat = eff.valueFlat;
+  inst.valuePercent = eff.valuePercent;
+  inst.expiresAtMs = nowMs + static_cast<int64_t>(durationMs);
+  inst.durationMs = durationMs;
+  inst.targetStat = eff.targetStat;
+  inst.skillName = skill.skillName;
+  inst.iconPath = skill.iconPath;
+
+  std::vector<NpcBuffInstance> replaced;
+  {
+    std::lock_guard<std::mutex> lock(npcBuffsMu_);
+    for (const auto& existing : npcBuffs_) {
+      if (existing.npcInstanceId == npcInstanceId && existing.skillId == skillId &&
+          existing.buffType == buffType) {
+        replaced.push_back(existing);
+      }
+    }
+    npcBuffs_.erase(std::remove_if(npcBuffs_.begin(), npcBuffs_.end(),
+                                   [&](const NpcBuffInstance& existing) {
+                                     return existing.npcInstanceId == npcInstanceId &&
+                                            existing.skillId == skillId &&
+                                            existing.buffType == buffType;
+                                   }),
+                    npcBuffs_.end());
+    npcBuffs_.push_back(inst);
+  }
+
+  for (const auto& old : replaced) {
+    SkillBuffSyncPayload sync;
+    sync.action = 1;
+    sync.targetType = 1;
+    sync.targetPlayerId = old.npcInstanceId;
+    sync.buffId = old.buffId;
+    sync.skillId = old.skillId;
+    sync.buffType = old.buffType;
+    sync.stacks = old.stacks;
+    sync.valueFlat = old.valueFlat;
+    sync.valuePercent = old.valuePercent;
+    sync.expiresAtMs = old.expiresAtMs;
+    sync.durationMs = old.durationMs;
+    sync.targetStat = old.targetStat;
+    sync.skillName = old.skillName;
+    sync.iconPath = old.iconPath;
+    enrichSkillBuffSyncPayload(sync);
+    broadcastSkillBuffSync(sync);
+  }
+
+  Core::Logger::getInstance().info(
+      "[CombatCoreEngine] buff NPC aplicado: npc={} src={} skill={} buffType={} duration={}ms",
+      npcInstanceId, sourcePlayerId, skillId, static_cast<int>(buffType), durationMs);
+  return buffId;
+}
+
+void CombatCoreEngine::tickNpcBuffExpirations() {
+  const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+
+  std::vector<NpcBuffInstance> expired;
+  {
+    std::lock_guard<std::mutex> lock(npcBuffsMu_);
+    for (const auto& inst : npcBuffs_) {
+      if (inst.expiresAtMs > 0 && inst.expiresAtMs <= nowMs) {
+        expired.push_back(inst);
+      }
+    }
+    npcBuffs_.erase(std::remove_if(npcBuffs_.begin(), npcBuffs_.end(),
+                                   [&](const NpcBuffInstance& inst) {
+                                     return inst.expiresAtMs > 0 && inst.expiresAtMs <= nowMs;
+                                   }),
+                    npcBuffs_.end());
+  }
+
+  for (const auto& inst : expired) {
+    SkillBuffSyncPayload sync;
+    sync.action = 1;
+    sync.targetType = 1;
+    sync.targetPlayerId = inst.npcInstanceId;
+    sync.buffId = inst.buffId;
+    sync.skillId = inst.skillId;
+    sync.buffType = inst.buffType;
+    sync.stacks = inst.stacks;
+    sync.valueFlat = inst.valueFlat;
+    sync.valuePercent = inst.valuePercent;
+    sync.expiresAtMs = inst.expiresAtMs;
+    sync.durationMs = inst.durationMs;
+    sync.targetStat = inst.targetStat;
+    sync.skillName = inst.skillName;
+    sync.iconPath = inst.iconPath;
+    enrichSkillBuffSyncPayload(sync);
+    broadcastSkillBuffSync(sync);
+    Core::Logger::getInstance().debug(
+        "[CombatCoreEngine] buff NPC expirado npc={} buff_id={} skill={}", inst.npcInstanceId,
+        inst.buffId, inst.skillId);
   }
 }
 
@@ -438,6 +687,14 @@ void CombatCoreEngine::broadcastNpcDespawnToAll(uint32_t npcInstanceId, uint8_t 
 void CombatCoreEngine::handleNpcDamageResult(uint32_t npcInstanceId, int32_t applied, bool npcDied) {
   if (applied == 0 && !npcDied) return;
   if (npcDied) {
+    {
+      std::lock_guard<std::mutex> lock(npcBuffsMu_);
+      npcBuffs_.erase(std::remove_if(npcBuffs_.begin(), npcBuffs_.end(),
+                                      [&](const NpcBuffInstance& i) {
+                                        return i.npcInstanceId == npcInstanceId;
+                                      }),
+                      npcBuffs_.end());
+    }
     broadcastNpcDespawnToAll(npcInstanceId, 1);
     return;
   }
@@ -451,6 +708,191 @@ void CombatCoreEngine::sendNpcSnapshotToClient(uint32_t clientId) {
   for (const auto& inst : npcManager_->getAllInstances()) {
     movementServer_->sendBinaryToClient(clientId, encodeNpcSpawnNotify(npcManager_->toSpawnPayload(inst)));
   }
+}
+
+void CombatCoreEngine::sendNpcBuffSnapshotForNpc(uint32_t clientId, uint32_t npcInstanceId) {
+  if (!movementServer_) return;
+
+  const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+
+  std::vector<NpcBuffInstance> buffsCopy;
+  std::vector<NpcDotInstance> dotsCopy;
+  {
+    std::lock_guard<std::mutex> lock(npcBuffsMu_);
+    buffsCopy = npcBuffs_;
+  }
+  {
+    std::lock_guard<std::mutex> lock(npcDotsMu_);
+    dotsCopy = npcDots_;
+  }
+
+  size_t sentBuffs = 0;
+  size_t sentDots = 0;
+
+  for (const auto& inst : buffsCopy) {
+    if (npcInstanceId != 0 && inst.npcInstanceId != npcInstanceId) continue;
+    if (inst.expiresAtMs > 0 && inst.expiresAtMs <= nowMs) continue;
+
+    SkillBuffSyncPayload sync;
+    sync.action = 0;
+    sync.targetType = 1;
+    sync.targetPlayerId = inst.npcInstanceId;
+    sync.buffId = inst.buffId;
+    sync.skillId = inst.skillId;
+    sync.buffType = inst.buffType;
+    sync.stacks = inst.stacks;
+    sync.valueFlat = inst.valueFlat;
+    sync.valuePercent = inst.valuePercent;
+    sync.expiresAtMs = inst.expiresAtMs;
+    sync.durationMs = inst.durationMs;
+    sync.targetStat = inst.targetStat;
+    sync.skillName = inst.skillName;
+    sync.iconPath = inst.iconPath;
+    enrichSkillBuffSyncPayload(sync);
+    movementServer_->sendBinaryToClient(clientId, encodeSkillBuffSync(sync));
+    ++sentBuffs;
+  }
+
+  for (const auto& inst : dotsCopy) {
+    if (npcInstanceId != 0 && inst.npcInstanceId != npcInstanceId) continue;
+    if (inst.ticksRemaining == 0 || inst.dotBuffId == 0) continue;
+
+    SkillBuffSyncPayload sync;
+    sync.action = 0;
+    sync.targetType = 1;
+    sync.targetPlayerId = inst.npcInstanceId;
+    sync.buffId = inst.dotBuffId;
+    sync.skillId = inst.skillId;
+    sync.buffType = static_cast<uint8_t>(inst.tickValue >= 0 ? Combat::BuffType::HOT
+                                                             : Combat::BuffType::DOT);
+    sync.stacks = inst.ticksRemaining;
+    sync.valueFlat = inst.tickValue >= 0 ? inst.tickValue : -inst.tickValue;
+    sync.expiresAtMs = inst.expiresAtMs;
+    sync.durationMs = inst.durationMs;
+    enrichSkillBuffSyncPayload(sync);
+    movementServer_->sendBinaryToClient(clientId, encodeSkillBuffSync(sync));
+    ++sentDots;
+  }
+
+  Core::Logger::getInstance().info(
+      "[CombatCoreEngine] sendNpcBuffSnapshot client={} npc={} buffs={} dots={}", clientId,
+      npcInstanceId, sentBuffs, sentDots);
+}
+
+void CombatCoreEngine::sendNpcBuffSnapshotToClient(uint32_t clientId) {
+  sendNpcBuffSnapshotForNpc(clientId, 0);
+}
+
+void CombatCoreEngine::sendPlayerBuffSnapshotToClient(uint32_t clientId) {
+  if (!movementServer_ || !db_ || !db_->isConnected()) return;
+
+  const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+
+  const auto onlinePlayers = movementServer_->getPlayerStates();
+  if (onlinePlayers.empty()) return;
+
+  std::unordered_set<uint32_t> onlineIds;
+  for (const auto& [pid, st] : onlinePlayers) {
+    if (pid > 0) onlineIds.insert(pid);
+  }
+
+  size_t sentBuffs = 0;
+  size_t sentDots = 0;
+
+  for (uint32_t playerId : onlineIds) {
+    auto buffRows = db_->executePreparedQuery(
+        "SELECT buff_id, skill_id, buff_type, current_stacks, value_snapshot, "
+        "COALESCE(snapshot_json,''), "
+        "GREATEST(0, TIMESTAMPDIFF(MICROSECOND, NOW(3), expires_at) / 1000), is_permanent "
+        "FROM active_buffs WHERE target_player_id = ? AND (expires_at > NOW(3) OR is_permanent = 1)",
+        {std::to_string(playerId)});
+
+    for (const auto& row : buffRows) {
+      if (row.size() < 7) continue;
+      try {
+        SkillBuffSyncPayload sync;
+        sync.action = 0;
+        sync.targetType = 0;
+        sync.targetPlayerId = playerId;
+        sync.buffId = std::stoull(row[0]);
+        sync.skillId = static_cast<uint32_t>(std::stoul(row[1]));
+        sync.buffType = buffTypeFromDbString(row[2]);
+        sync.stacks = static_cast<uint8_t>(std::max(1, std::stoi(row[3])));
+        sync.valueFlat = std::stoi(row[4]);
+        sync.valuePercent = 0;
+
+        const nlohmann::json snap = nlohmann::json::parse(row[5], nullptr, false);
+        if (snap.is_object()) {
+          if (snap.contains("value_percent")) {
+            sync.valuePercent = static_cast<int16_t>(snap["value_percent"].get<int>());
+          }
+          if (snap.contains("value_flat") && sync.valueFlat == 0) {
+            sync.valueFlat = snap["value_flat"].get<int>();
+          }
+          if (snap.contains("target_stat") && snap["target_stat"].is_string()) {
+            sync.targetStat = snap["target_stat"].get<std::string>();
+          }
+        }
+
+        const int64_t remainingMs = std::stoll(row[6]);
+        const bool isPermanent = (row.size() > 7 && row[7] == "1");
+        sync.expiresAtMs = isPermanent ? 0 : (nowMs + remainingMs);
+        sync.durationMs = isPermanent ? 0
+                                      : static_cast<uint32_t>(std::max<int64_t>(0, remainingMs));
+
+        enrichSkillBuffSyncPayload(sync);
+        movementServer_->sendBinaryToClient(clientId, encodeSkillBuffSync(sync));
+        ++sentBuffs;
+      } catch (...) {
+        continue;
+      }
+    }
+
+    auto dotRows = db_->executePreparedQuery(
+        "SELECT dot_id, skill_id, dot_type, tick_value, tick_interval_ms, ticks_remaining, "
+        "GREATEST(0, TIMESTAMPDIFF(MICROSECOND, NOW(3), expires_at) / 1000) "
+        "FROM active_dots WHERE target_player_id = ? AND expires_at > NOW(3)",
+        {std::to_string(playerId)});
+
+    for (const auto& row : dotRows) {
+      if (row.size() < 7) continue;
+      try {
+        const uint32_t skillId = static_cast<uint32_t>(std::stoul(row[1]));
+        const bool isHeal = row[2] == "HEAL";
+        const int32_t tickValue = std::stoi(row[3]);
+        const uint32_t intervalMs = static_cast<uint32_t>(std::stoul(row[4]));
+        const uint8_t ticksRemaining = static_cast<uint8_t>(std::stoul(row[5]));
+        const int64_t remainingMs = std::stoll(row[6]);
+
+        SkillBuffSyncPayload sync;
+        sync.action = 0;
+        sync.targetType = 0;
+        sync.targetPlayerId = playerId;
+        sync.buffId = std::stoull(row[0]);
+        sync.skillId = skillId;
+        sync.buffType =
+            static_cast<uint8_t>(isHeal ? Combat::BuffType::HOT : Combat::BuffType::DOT);
+        sync.stacks = ticksRemaining;
+        sync.valueFlat = tickValue;
+        sync.expiresAtMs = nowMs + remainingMs;
+        sync.durationMs = intervalMs * static_cast<uint32_t>(ticksRemaining);
+
+        enrichSkillBuffSyncPayload(sync);
+        movementServer_->sendBinaryToClient(clientId, encodeSkillBuffSync(sync));
+        ++sentDots;
+      } catch (...) {
+        continue;
+      }
+    }
+  }
+
+  Core::Logger::getInstance().info(
+      "[CombatCoreEngine] sendPlayerBuffSnapshot client={} players={} buffs={} dots={}", clientId,
+      onlineIds.size(), sentBuffs, sentDots);
 }
 
 void CombatCoreEngine::loadSkillAnimPaths(uint32_t skillId,
@@ -811,7 +1253,24 @@ bool CombatCoreEngine::applyPlayerDamage(uint32_t sourcePlayerId, uint32_t targe
 
 void CombatCoreEngine::broadcastSkillBuffSync(const SkillBuffSyncPayload& payload) {
   if (!movementServer_) return;
+  if (payload.targetType == 1) {
+    Core::Logger::getInstance().info(
+        "[CombatCoreEngine] SkillBuffSync broadcast npc={} skill={} action={} buff_id={}",
+        payload.targetPlayerId, payload.skillId, static_cast<int>(payload.action), payload.buffId);
+  } else {
+    Core::Logger::getInstance().info(
+        "[CombatCoreEngine] SkillBuffSync broadcast player={} skill={} action={} buff_id={} type={}",
+        payload.targetPlayerId, payload.skillId, static_cast<int>(payload.action), payload.buffId,
+        static_cast<int>(payload.buffType));
+  }
   movementServer_->broadcastToAll(encodeSkillBuffSync(payload));
+}
+
+void CombatCoreEngine::broadcastPlayerSkillBuffApply(SkillBuffSyncPayload& sync) {
+  sync.action = 0;
+  sync.targetType = 0;
+  enrichSkillBuffSyncPayload(sync);
+  broadcastSkillBuffSync(sync);
 }
 
 void CombatCoreEngine::broadcastSkillBuffSyncPublic(const SkillBuffSyncPayload& payload) {
@@ -876,7 +1335,6 @@ void CombatCoreEngine::armReactionSkill(uint32_t sourcePlayerId, const Combat::S
     if (durationMs == 0) durationMs = 30000;
 
     SkillBuffSyncPayload sync;
-    sync.action = 0;
     sync.targetPlayerId = sourcePlayerId;
     sync.buffId = buffId;
     sync.skillId = skill.skillId;
@@ -889,7 +1347,7 @@ void CombatCoreEngine::armReactionSkill(uint32_t sourcePlayerId, const Combat::S
     sync.targetStat = eff.targetStat.empty() ? "reaction" : eff.targetStat;
     sync.skillName = skill.skillName;
     sync.iconPath = skill.iconPath;
-    broadcastSkillBuffSync(sync);
+    broadcastPlayerSkillBuffApply(sync);
   }
 }
 
@@ -909,7 +1367,6 @@ void CombatCoreEngine::applyReactionBuff(uint32_t targetPlayerId, uint32_t sourc
   const Combat::SkillData* skill = skillService_->getSkillData(skillId);
 
   SkillBuffSyncPayload sync;
-  sync.action = 0;
   sync.targetPlayerId = targetPlayerId;
   sync.buffId = buffId;
   sync.skillId = skillId;
@@ -922,7 +1379,7 @@ void CombatCoreEngine::applyReactionBuff(uint32_t targetPlayerId, uint32_t sourc
   sync.targetStat = effect.targetStat;
   sync.skillName = skill ? skill->skillName : std::string{};
   sync.iconPath = skill ? skill->iconPath : std::string{};
-  broadcastSkillBuffSync(sync);
+  broadcastPlayerSkillBuffApply(sync);
 }
 
 void CombatCoreEngine::applyReactionCounterDamage(uint32_t ownerPlayerId, uint32_t targetPlayerId,
@@ -1061,7 +1518,11 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
       !isHeal && !skillHasEffectType(*skill, Combat::EffectType::DAMAGE) &&
       (skillHasEffectType(*skill, Combat::EffectType::BUFF_STAT) ||
        skillHasEffectType(*skill, Combat::EffectType::DEBUFF_STAT) ||
-       skillHasEffectType(*skill, Combat::EffectType::SHIELD));
+       skillHasEffectType(*skill, Combat::EffectType::SHIELD) ||
+       skillHasEffectType(*skill, Combat::EffectType::STUN) ||
+       skillHasEffectType(*skill, Combat::EffectType::SILENCE) ||
+       skillHasEffectType(*skill, Combat::EffectType::ROOT) ||
+       skillHasEffectType(*skill, Combat::EffectType::SLOW));
 
   const bool effectOnSelf = (skill->target == Combat::TargetType::SELF ||
                              skill->target == Combat::TargetType::PARTY);

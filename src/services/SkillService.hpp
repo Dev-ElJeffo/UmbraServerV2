@@ -155,6 +155,7 @@ public:
         uint64_t targetPlayerId = 0;
         uint64_t buffId = 0;
         uint32_t skillId = 0;
+        uint8_t buffType = 0;
     };
 
     std::vector<BuffExpirationEntry> processBuffExpirations();

@@ -7,6 +7,7 @@
 #include "SkillService.hpp"
 #include "CombatCalculator.hpp"
 #include "database/MySQLConnector.hpp"
+#include <atomic>
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -24,10 +25,30 @@ struct NpcDotInstance {
   uint32_t npcInstanceId = 0;
   uint32_t sourcePlayerId = 0;
   uint32_t skillId = 0;
+  uint64_t dotBuffId = 0;
   int32_t tickValue = 0;   // negativo = dano, positivo = cura
   uint32_t intervalMs = 1000;
   uint8_t ticksRemaining = 0;
+  int64_t expiresAtMs = 0;
+  uint32_t durationMs = 0;
   std::chrono::steady_clock::time_point nextTickAt{};
+};
+
+/** Buff/debuff de skill em NPC (in-memory; NPC nao usa active_buffs MySQL). */
+struct NpcBuffInstance {
+  uint32_t npcInstanceId = 0;
+  uint64_t buffId = 0;
+  uint32_t sourcePlayerId = 0;
+  uint32_t skillId = 0;
+  uint8_t buffType = 0;
+  uint8_t stacks = 1;
+  int32_t valueFlat = 0;
+  int16_t valuePercent = 0;
+  int64_t expiresAtMs = 0;
+  uint32_t durationMs = 0;
+  std::string targetStat;
+  std::string skillName;
+  std::string iconPath;
 };
 
 class CombatCoreEngine {
@@ -44,6 +65,12 @@ public:
   /** Expira buffs de skill (active_buffs) e invalida cache de stats. */
   void tickBuffExpirations();
   void sendNpcSnapshotToClient(uint32_t clientId);
+  /** Reenvia buffs/DOTs ativos de NPCs (opcode 104) a um cliente que acabou de conectar. */
+  void sendNpcBuffSnapshotToClient(uint32_t clientId);
+  /** Reenvia buffs/DOTs de jogadores online (opcode 104) a um cliente que acabou de conectar. */
+  void sendPlayerBuffSnapshotToClient(uint32_t clientId);
+  /** Reenvia buffs/DOTs de um NPC (ou todos se npcInstanceId==0) via opcode 104. */
+  void sendNpcBuffSnapshotForNpc(uint32_t clientId, uint32_t npcInstanceId);
 
   /** Hot spawn: carrega instância do DB e broadcast opcode 100 a todos os clientes. */
   bool spawnNpcInstance(uint32_t npcInstanceId);
@@ -110,8 +137,12 @@ private:
                          bool haveAttacker);
   void insertPlayerDot(uint32_t sourcePlayerId, uint32_t targetPlayerId, uint32_t skillId,
                        const char* dotType, int32_t tickValue, uint32_t tickIntervalMs,
-                       uint32_t ticksTotal);
+                       uint32_t ticksTotal, const Combat::SkillData& skill);
   void tickNpcDots();
+  void tickNpcBuffExpirations();
+  uint64_t applyNpcSkillBuff(uint32_t npcInstanceId, uint32_t sourcePlayerId, uint32_t skillId,
+                             uint8_t buffType, const Combat::SkillEffect& eff,
+                             const Combat::SkillData& skill);
   void writeCombatLog(uint32_t sourcePlayerId, uint32_t targetPlayerId, uint32_t skillId,
                       const char* actionType, int32_t value, bool isCrit, int32_t overkill);
   /** Resolve o defensor a partir do alvo. Retorna false se inválido/morto. */
@@ -126,6 +157,8 @@ private:
   void broadcastNpcCombatEvent(const NpcCombatEventPayload& payload);
   void broadcastNpcState(const NpcStatePayload& payload);
   void broadcastSkillBuffSync(const SkillBuffSyncPayload& payload);
+  /** Opcode 104 action=0 para jogador: targetType=0, enrich e broadcast. */
+  void broadcastPlayerSkillBuffApply(SkillBuffSyncPayload& sync);
   void loadSkillAnimPaths(uint32_t skillId, std::string& anim, std::string& vfx, std::string& sfx);
   void handleNpcDamageResult(uint32_t npcInstanceId, int32_t applied, bool npcDied);
   int32_t computeDoubleBonus(const Combat::CharacterState& attacker,
@@ -149,6 +182,11 @@ private:
 
   std::mutex npcDotsMu_;
   std::vector<NpcDotInstance> npcDots_;
+
+  std::mutex npcBuffsMu_;
+  std::vector<NpcBuffInstance> npcBuffs_;
+  std::atomic<uint32_t> npcBuffIdSeq_{1};
+  std::atomic<uint32_t> npcDotIdSeq_{1};
 };
 
 }  // namespace Zone

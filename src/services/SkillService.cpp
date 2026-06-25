@@ -51,6 +51,15 @@ std::string buffTypeToDbString(BuffType type) {
   }
 }
 
+BuffType parseBuffTypeFromDb(const std::string& value) {
+  if (value == "DEBUFF") return BuffType::DEBUFF;
+  if (value == "AURA") return BuffType::AURA;
+  if (value == "DOT") return BuffType::DOT;
+  if (value == "HOT") return BuffType::HOT;
+  if (value == "SHIELD") return BuffType::SHIELD;
+  return BuffType::BUFF;
+}
+
 BuffType effectToBuffType(EffectType effectType) {
   switch (effectType) {
     case EffectType::DEBUFF_STAT:
@@ -302,17 +311,18 @@ std::vector<SkillService::BuffExpirationEntry> SkillService::processBuffExpirati
   if (!db_ || !db_->isConnected()) return expired;
 
   auto rows = db_->executePreparedQuery(
-      "SELECT buff_id, target_player_id, skill_id FROM active_buffs "
+      "SELECT buff_id, target_player_id, skill_id, buff_type FROM active_buffs "
       "WHERE expires_at <= NOW(3) AND is_permanent = 0",
       {});
 
   for (const auto& row : rows) {
-    if (row.size() < 3) continue;
+    if (row.size() < 4) continue;
     BuffExpirationEntry entry;
     try {
       entry.buffId = std::stoull(row[0]);
       entry.targetPlayerId = std::stoull(row[1]);
       entry.skillId = static_cast<uint32_t>(std::stoul(row[2]));
+      entry.buffType = static_cast<uint8_t>(parseBuffTypeFromDb(row[3]));
     } catch (...) {
       continue;
     }

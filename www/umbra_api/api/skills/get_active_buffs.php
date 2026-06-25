@@ -68,6 +68,7 @@ try {
             ab.is_permanent,
             ab.snapshot_json,
             s.skill_name,
+            s.skill_key,
             s.icon_path,
             s.duration_ms as total_duration_ms,
             el.element_key as element,
@@ -110,6 +111,7 @@ try {
         $processedBuff = [
             'buff_id' => (int)$buff['buff_id'],
             'skill_id' => (int)$buff['skill_id'],
+            'skill_key' => (string)($buff['skill_key'] ?? ''),
             'skill_name' => $buff['skill_name'],
             'icon_path' => $buff['icon_path'],
             'buff_type' => $buff['buff_type'],
@@ -147,6 +149,7 @@ try {
             ad.next_tick_at,
             ad.expires_at,
             s.skill_name,
+            s.skill_key,
             s.icon_path,
             el.element_key as element,
             el.color_hex as element_color,
@@ -171,6 +174,7 @@ try {
         $activeDots[] = [
             'dot_id' => (int)$dot['dot_id'],
             'skill_id' => (int)$dot['skill_id'],
+            'skill_key' => (string)($dot['skill_key'] ?? ''),
             'skill_name' => $dot['skill_name'],
             'icon_path' => $dot['icon_path'],
             'dot_type' => $dot['dot_type'],

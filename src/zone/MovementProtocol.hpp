@@ -92,7 +92,8 @@ enum class MovementMsgType : uint8_t {
   SkillBuffSync = 104,                 // Servidor -> Clientes: apply/remove buff de skill
   SkillCastRejected = 105,             // Servidor -> Cliente: cast rejeitado (range/mana/etc.)
   ExpGainNotify = 106,                 // Servidor -> Cliente: ganho de EXP
-  LevelUpNotify = 107                  // Servidor -> Cliente: subiu de nível
+  LevelUpNotify = 107,                 // Servidor -> Cliente: subiu de nível
+  NpcBuffSnapshotRequest = 108         // Cliente -> Servidor: pede snapshot buffs de um NPC
 };
 
 /** Motivo de rejeição de skill (opcode 105) */
@@ -174,6 +175,8 @@ struct SkillBuffSyncPayload {
   std::string targetStat;
   std::string skillName;
   std::string iconPath;
+  /** 0 = jogador (targetPlayerId), 1 = NPC (npc_instance_id em targetPlayerId). */
+  uint8_t targetType = 0;
 };
 
 enum class ChatChannel : uint8_t {
@@ -2179,6 +2182,7 @@ inline std::vector<uint8_t> encodeSkillBuffSync(const SkillBuffSyncPayload& p) {
   appendStringField(data, p.targetStat, 32);
   appendStringField(data, p.skillName, 64);
   appendStringField(data, p.iconPath, 128);
+  data.push_back(p.targetType);
   return data;
 }
 
@@ -2222,6 +2226,7 @@ inline bool decodeSkillBuffSync(const std::vector<uint8_t>& data, SkillBuffSyncP
   if (!readStringField(data, off, p.targetStat, 32)) return false;
   if (!readStringField(data, off, p.skillName, 64)) return false;
   if (!readStringField(data, off, p.iconPath, 128)) return false;
+  p.targetType = (off < data.size()) ? data[off++] : 0;
   return true;
 }
 
@@ -2363,6 +2368,26 @@ inline bool decodeLevelUpNotify(const std::vector<uint8_t>& data, LevelUpNotifyP
   p.statPointsGained = readU16();
   p.skillPointsAvail = readU16();
   return true;
+}
+
+inline std::vector<uint8_t> encodeNpcBuffSnapshotRequest(uint32_t npcInstanceId) {
+  std::vector<uint8_t> data;
+  data.reserve(5);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::NpcBuffSnapshotRequest));
+  data.push_back(static_cast<uint8_t>(npcInstanceId & 0xFF));
+  data.push_back(static_cast<uint8_t>((npcInstanceId >> 8) & 0xFF));
+  data.push_back(static_cast<uint8_t>((npcInstanceId >> 16) & 0xFF));
+  data.push_back(static_cast<uint8_t>((npcInstanceId >> 24) & 0xFF));
+  return data;
+}
+
+inline bool decodeNpcBuffSnapshotRequest(const std::vector<uint8_t>& data, uint32_t& npcInstanceId) {
+  if (data.size() < 5 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::NpcBuffSnapshotRequest) {
+    return false;
+  }
+  npcInstanceId = static_cast<uint32_t>(data[1]) | (static_cast<uint32_t>(data[2]) << 8) |
+                  (static_cast<uint32_t>(data[3]) << 16) | (static_cast<uint32_t>(data[4]) << 24);
+  return npcInstanceId > 0;
 }
 
 } // namespace Zone

@@ -76,13 +76,38 @@ try {
     }
 
     $character['active_buffs'] = [];
+    $character['skill_buffs'] = [];
+    $character['passive_buffs'] = [];
+    $character['passive_skill_defs'] = [];
+    $character['dot_buffs'] = [];
     try {
         if (function_exists('fetch_active_buffs_for_player')) {
             $character['active_buffs'] = fetch_active_buffs_for_player($pdo, $target_player_id);
         }
+        if (function_exists('fetch_skill_active_buffs_for_player')) {
+            $character['skill_buffs'] = fetch_skill_active_buffs_for_player($pdo, $target_player_id, true);
+        }
+        $base_health = (int)($character['base_health'] ?? $character['max_health'] ?? 100);
+        $current_health = (int)($character['current_health'] ?? $character['health'] ?? 0);
+        $health_pct = ($current_health > 0 && $base_health > 0)
+            ? (int)floor($current_health * 100 / $base_health)
+            : 100;
+        if (function_exists('fetch_passive_display_buffs_for_player')) {
+            $character['passive_buffs'] = fetch_passive_display_buffs_for_player($pdo, $target_player_id, $health_pct);
+        }
+        if (function_exists('fetch_passive_skill_defs_for_player')) {
+            $character['passive_skill_defs'] = fetch_passive_skill_defs_for_player($pdo, $target_player_id);
+        }
+        if (function_exists('fetch_active_dots_for_player')) {
+            $character['dot_buffs'] = fetch_active_dots_for_player($pdo, $target_player_id);
+        }
     } catch (\Throwable $e) {
         error_log("[get_public_info] active_buffs falhou player_id={$target_player_id}: " . $e->getMessage());
         $character['active_buffs'] = [];
+        $character['skill_buffs'] = [];
+        $character['passive_buffs'] = [];
+        $character['passive_skill_defs'] = [];
+        $character['dot_buffs'] = [];
     }
 
     http_response_code(200);

@@ -128,6 +128,8 @@ public:
         }
         if (combatCoreEngine_) {
           combatCoreEngine_->sendNpcSnapshotToClient(cid);
+          combatCoreEngine_->sendNpcBuffSnapshotToClient(cid);
+          combatCoreEngine_->sendPlayerBuffSnapshotToClient(cid);
         }
       } else {
         Umbra::Core::Logger::getInstance().info("WS client {} disconnected", cid);
@@ -413,6 +415,15 @@ public:
           if (combatCoreEngine_) {
             combatCoreEngine_->processSkillCast(payload.sourcePlayerId, payload);
           }
+        }
+        return;
+      }
+
+      // NPC buff snapshot request (108)
+      if (msgType == MovementMsgType::NpcBuffSnapshotRequest) {
+        uint32_t npcInstanceId = 0;
+        if (decodeNpcBuffSnapshotRequest(data, npcInstanceId) && combatCoreEngine_) {
+          combatCoreEngine_->sendNpcBuffSnapshotForNpc(cid, npcInstanceId);
         }
         return;
       }
