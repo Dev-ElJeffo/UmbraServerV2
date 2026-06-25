@@ -84,6 +84,7 @@ class MySQLConnector : public IDatabaseConnector {
   void* connection_;
   mutable std::mutex mutex_;
   bool connected_;
+  uint64_t lastInsertId_ = 0;
 
   bool createPooledConnection(PooledConnection& conn);
   size_t acquireConnection(uint32_t timeoutMs = 5000);
