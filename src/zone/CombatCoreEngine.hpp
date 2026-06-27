@@ -187,6 +187,9 @@ private:
   std::vector<NpcBuffInstance> npcBuffs_;
   std::atomic<uint32_t> npcBuffIdSeq_{1};
   std::atomic<uint32_t> npcDotIdSeq_{1};
+
+  /** Evita reentrância ReactionEngine::mu_ quando dano vem de contra-ataque/reação. */
+  bool inReactionDispatch_ = false;
 };
 
 }  // namespace Zone

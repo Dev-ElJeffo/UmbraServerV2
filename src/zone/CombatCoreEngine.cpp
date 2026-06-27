@@ -1215,7 +1215,7 @@ bool CombatCoreEngine::applyPlayerDamage(uint32_t sourcePlayerId, uint32_t targe
     }
   }
 
-  if (reactionEngine_ && delta < 0) {
+  if (reactionEngine_ && delta < 0 && !inReactionDispatch_) {
     int32_t adjustedDelta = delta;
     reactionEngine_->onAllyDamaged(targetPlayerId, sourcePlayerId, adjustedDelta);
     delta = adjustedDelta;
@@ -1399,6 +1399,12 @@ void CombatCoreEngine::applyReactionCounterDamage(uint32_t ownerPlayerId, uint32
     }
   }
 
+  struct ReactionDispatchGuard {
+    bool& flag;
+    explicit ReactionDispatchGuard(bool& f) : flag(f) { flag = true; }
+    ~ReactionDispatchGuard() { flag = false; }
+  };
+  ReactionDispatchGuard guard(inReactionDispatch_);
   applyPlayerDamage(ownerPlayerId, targetPlayerId, -damage, static_cast<uint8_t>(CombatReason::Skill),
                     false);
   writeCombatLog(ownerPlayerId, targetPlayerId, skillId, "REACTION", damage, false, 0);

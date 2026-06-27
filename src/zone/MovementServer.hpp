@@ -790,15 +790,18 @@ public:
   }
 
   bool kickPlayer(uint32_t playerId) {
-    std::lock_guard<std::mutex> lock(mu_);
     uint32_t cid = 0;
-    for (const auto& [c, p] : clientIdToPlayerId_) {
-      if (p == playerId) {
-        cid = c;
-        break;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      for (const auto& [c, p] : clientIdToPlayerId_) {
+        if (p == playerId) {
+          cid = c;
+          break;
+        }
       }
     }
     if (cid == 0) return false;
+    // disconnect callback adquire mu_ de novo — nunca chamar sob lock.
     ws_.disconnect(cid);
     return true;
   }

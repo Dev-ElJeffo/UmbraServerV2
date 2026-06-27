@@ -208,14 +208,31 @@ void ReactionEngine::executeReaction(uint32_t ownerPlayerId, uint32_t triggerSou
 }
 
 bool ReactionEngine::onPlayerHitReceived(uint32_t targetPlayerId, uint32_t sourcePlayerId) {
-  std::lock_guard<std::mutex> lock(mu_);
+  uint64_t fireBuffId = 0;
+  {
+    std::lock_guard<std::mutex> lock(mu_);
+    if (auto* list = findArmedList(targetPlayerId)) {
+      for (const auto& ar : *list) {
+        if (ar.buffId != 0 && ar.trigger == ReactionTrigger::OnAttackReceived) {
+          fireBuffId = ar.buffId;
+          break;
+        }
+      }
+    }
+  }
+  if (fireBuffId == 0) return false;
+
+  // Mesmo padrão de onPlayerDodge: localizar reação sob lock curto e executar SEM mu_
+  // (executeReaction -> applyPlayerDamage -> onPlayerDamaged re-travaria mu_ -> EDEADLK).
+  std::unique_lock<std::mutex> lock(mu_);
   auto* list = findArmedList(targetPlayerId);
   if (!list) return false;
-
-  for (auto& ar : *list) {
-    if (ar.buffId == 0 || ar.trigger != ReactionTrigger::OnAttackReceived) continue;
-    executeReaction(targetPlayerId, sourcePlayerId, ar);
-    return true;
+  for (auto& live : *list) {
+    if (live.buffId == fireBuffId) {
+      lock.unlock();
+      executeReaction(targetPlayerId, sourcePlayerId, live);
+      return true;
+    }
   }
   return false;
 }
