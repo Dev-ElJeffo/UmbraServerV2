@@ -132,8 +132,12 @@ void CombatCoreEngine::tickRegen(float deltaSeconds) {
 
     if (newHealth == curHealth && newMana == curMana) continue;  // nada mudou
 
-    db_->executePreparedInsert("UPDATE players SET health = ?, mana = ? WHERE id = ?",
-                               {std::to_string(newHealth), std::to_string(newMana), pid});
+    // UPDATE atomico: health + ? no servidor evita sobrescrever dano/cura concorrente.
+    db_->executePreparedInsert(
+        "UPDATE players SET health = LEAST(?, health + ?), mana = LEAST(?, mana + ?) "
+        "WHERE id = ? AND health > 0 AND COALESCE(is_dead, 0) = 0",
+        {std::to_string(maxHealth), std::to_string(healthRegen),
+         std::to_string(maxMana), std::to_string(manaRegen), pid});
     if (stateLoader_) stateLoader_->invalidate(playerId);
     broadcastPlayerVitals(playerId);
   }
@@ -493,34 +497,44 @@ bool CombatCoreEngine::checkAndStampBasicCooldown(uint32_t playerId, uint32_t co
 
 bool CombatCoreEngine::applyPlayerDamage(uint32_t sourcePlayerId, uint32_t targetPlayerId,
                                          int32_t delta, uint8_t reason, bool isCrit) {
-  if (!db_ || !movementServer_ || delta == 0) return false;
+  if (!db_ || !db_->isConnected() || !movementServer_ || delta == 0) return false;
 
   const std::string tid = std::to_string(targetPlayerId);
-  auto healthOpt = db_->executePreparedScalar("SELECT health FROM players WHERE id = ? LIMIT 1", {tid});
-  auto maxHOpt = db_->executePreparedScalar(
-      "SELECT COALESCE(max_health, 100) FROM players WHERE id = ? LIMIT 1", {tid});
-  auto manaOpt = db_->executePreparedScalar("SELECT mana FROM players WHERE id = ? LIMIT 1", {tid});
-  auto maxMOpt = db_->executePreparedScalar(
-      "SELECT COALESCE(max_mana, 50) FROM players WHERE id = ? LIMIT 1", {tid});
-  if (!healthOpt || !manaOpt) return false;
+  const std::string deltaStr = std::to_string(delta);
 
-  int32_t curHealth = std::stoi(*healthOpt);
-  int32_t maxHealth = maxHOpt ? std::max(1, std::stoi(*maxHOpt)) : 100;
-  int32_t curMana = std::stoi(*manaOpt);
-  int32_t maxMana = maxMOpt ? std::max(1, std::stoi(*maxMOpt)) : 50;
+  // UPDATE atomico: evita race com tickRegen/DOT que sobrescreviam HP absoluto.
+  db_->executePreparedInsert(
+      "UPDATE players SET "
+      "health = GREATEST(0, LEAST(COALESCE(max_health, 100), health + ?)), "
+      "is_dead = IF(GREATEST(0, LEAST(COALESCE(max_health, 100), health + ?)) <= 0, 1, 0), "
+      "last_death_at = CASE "
+      "WHEN GREATEST(0, LEAST(COALESCE(max_health, 100), health + ?)) <= 0 AND is_dead = 0 "
+      "THEN CURRENT_TIMESTAMP ELSE last_death_at END "
+      "WHERE id = ?",
+      {deltaStr, deltaStr, deltaStr, tid});
 
-  const int32_t newHealth = std::max(0, std::min(maxHealth, curHealth + delta));
-  const bool isDead = (newHealth <= 0);
+  auto rows = db_->executePreparedQuery(
+      "SELECT health, COALESCE(max_health, 100), mana, COALESCE(max_mana, 50), is_dead "
+      "FROM players WHERE id = ? LIMIT 1",
+      {tid});
+  if (rows.empty() || rows[0].size() < 5) return false;
 
-  if (isDead) {
-    db_->executePreparedInsert(
-        "UPDATE players SET health = ?, is_dead = 1, last_death_at = CURRENT_TIMESTAMP WHERE id = ?",
-        {std::to_string(newHealth), tid});
-  } else {
-    db_->executePreparedInsert(
-        "UPDATE players SET health = ?, is_dead = 0 WHERE id = ?",
-        {std::to_string(newHealth), tid});
+  int32_t newHealth = 0;
+  int32_t maxHealth = 100;
+  int32_t curMana = 0;
+  int32_t maxMana = 50;
+  bool isDead = false;
+  try {
+    newHealth = std::stoi(rows[0][0]);
+    maxHealth = std::max(1, std::stoi(rows[0][1]));
+    curMana = std::stoi(rows[0][2]);
+    maxMana = std::max(1, std::stoi(rows[0][3]));
+    isDead = (std::stoi(rows[0][4]) != 0);
+  } catch (...) {
+    return false;
   }
+
+  if (stateLoader_) stateLoader_->invalidate(targetPlayerId);
 
   PlayerVitalsPayload vitals;
   vitals.playerId = targetPlayerId;
@@ -531,8 +545,8 @@ bool CombatCoreEngine::applyPlayerDamage(uint32_t sourcePlayerId, uint32_t targe
   vitals.sourcePlayerId = sourcePlayerId;
   vitals.reason = reason;
 
-  movementServer_->broadcastVitalsAndCombat(targetPlayerId, vitals, sourcePlayerId,
-                                            newHealth - curHealth, isDead, isCrit);
+  movementServer_->broadcastVitalsAndCombat(targetPlayerId, vitals, sourcePlayerId, delta, isDead,
+                                            isCrit);
   return true;
 }
 
@@ -588,6 +602,35 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
 
   const uint8_t rank = loadSkillRank(sourcePlayerId, payload.skillId);
 
+  const bool isHeal = (skill->type == Combat::SkillType::HOT) ||
+                      skill->target == Combat::TargetType::SELF ||
+                      skill->target == Combat::TargetType::ALLY ||
+                      skill->target == Combat::TargetType::PARTY ||
+                      skill->target == Combat::TargetType::AREA_ALLY;
+
+  Combat::CharacterState defender;
+  bool defenderIsPlayer = false;
+  const bool haveDefender =
+      buildDefenderState(payload.targetType, payload.targetId, defender, defenderIsPlayer);
+
+  if (!isHeal) {
+    if (!haveDefender) {
+      Core::Logger::getInstance().warn(
+          "[CombatCoreEngine] skill {} sem alvo válido (target={})", payload.skillId, payload.targetId);
+      return;
+    }
+    if (haveSource) {
+      const int32_t hitChance =
+          Combat::CombatCalculator::getInstance().calculateHitChance(sourceState, defender);
+      if (!Combat::CombatCalculator::getInstance().rollHit(hitChance)) {
+        broadcastMiss(payload.targetType, payload.targetId, sourcePlayerId);
+        Core::Logger::getInstance().info("[CombatCoreEngine] SkillCast MISS player={} skill={} target={}",
+                                         sourcePlayerId, payload.skillId, payload.targetId);
+        return;
+      }
+    }
+  }
+
   skillService_->startCooldown(sourcePlayerId, payload.skillId, skill->cooldownMs);
 
   if (skill->resourceType == Combat::ResourceType::MANA && skill->resourceCost > 0) {
@@ -607,17 +650,6 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   castBroadcast.sfxPath = sfx;
   broadcastSkillCast(castBroadcast);
 
-  const bool isHeal = (skill->type == Combat::SkillType::HOT) ||
-                      skill->target == Combat::TargetType::SELF ||
-                      skill->target == Combat::TargetType::ALLY ||
-                      skill->target == Combat::TargetType::PARTY ||
-                      skill->target == Combat::TargetType::AREA_ALLY;
-
-  Combat::CharacterState defender;
-  bool defenderIsPlayer = false;
-  const bool haveDefender =
-      buildDefenderState(payload.targetType, payload.targetId, defender, defenderIsPlayer);
-
   int32_t delta = 0;
   bool isCrit = false;
   int32_t overkill = 0;
@@ -628,25 +660,8 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
                                     : static_cast<int32_t>(std::max<uint16_t>(1, skill->powerCoef / 2));
     delta = std::max(1, heal);
   } else {
-    if (!haveDefender) {
-      Core::Logger::getInstance().warn(
-          "[CombatCoreEngine] skill {} sem alvo válido (target={})", payload.skillId, payload.targetId);
-      return;
-    }
     if (haveSource) {
       const bool isPvP = defenderIsPlayer;
-      // Hit/miss para qualquer alvo (player ou NPC). NPC tem dodge=0, entao a
-      // frequencia de miss depende da accuracy do atacante.
-      {
-        const int32_t hitChance =
-            Combat::CombatCalculator::getInstance().calculateHitChance(sourceState, defender);
-        if (!Combat::CombatCalculator::getInstance().rollHit(hitChance)) {
-          broadcastMiss(payload.targetType, payload.targetId, sourcePlayerId);
-          Core::Logger::getInstance().info("[CombatCoreEngine] SkillCast MISS player={} skill={} target={}",
-                                           sourcePlayerId, payload.skillId, payload.targetId);
-          return;
-        }
-      }
       const Combat::DamageBreakdown bd =
           (skill->element == Combat::Element::PHYSICAL)
               ? Combat::CombatCalculator::getInstance().calculatePhysicalDamage(sourceState, defender, *skill, rank, isPvP)
