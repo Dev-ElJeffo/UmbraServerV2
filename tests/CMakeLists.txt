@@ -82,7 +82,17 @@ target_link_libraries(test_auth_playerdao
 )
 
 # Add tests to CTest
-add_test(NAME AuthTests COMMAND test_auth)
+add_executable(test_combat_vitals_math
+  test_combat_vitals_math.cpp
+)
+
+target_link_libraries(test_combat_vitals_math
+  gtest
+  gtest_main
+)
+
+add_test(NAME CombatVitalsMathTests COMMAND test_combat_vitals_math)
+
 add_test(NAME DatabaseTests COMMAND test_db)
 add_test(NAME ZoneTests COMMAND test_zone)
 add_test(NAME NetworkTests COMMAND test_network)

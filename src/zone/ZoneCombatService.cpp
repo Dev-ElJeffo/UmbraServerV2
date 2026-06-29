@@ -29,38 +29,35 @@ bool ZoneCombatService::applyVitalsInDb(uint32_t sourcePlayerId, uint32_t target
   if (!db_ || !db_->isConnected()) return false;
 
   const std::string tid = std::to_string(targetPlayerId);
-  auto healthOpt = db_->executePreparedScalar("SELECT health FROM players WHERE id = ? LIMIT 1", {tid});
-  auto manaOpt = db_->executePreparedScalar("SELECT mana FROM players WHERE id = ? LIMIT 1", {tid});
-  if (!healthOpt || !manaOpt) return false;
+  const std::string deltaHealthStr = std::to_string(deltaHealth);
+  const std::string deltaManaStr = std::to_string(deltaMana);
 
-  int32_t curHealth = std::stoi(*healthOpt);
-  int32_t curMana = std::stoi(*manaOpt);
-  outMaxHealth = std::max(1, curHealth);
-  outMaxMana = std::max(1, curMana);
+  // UPDATE atomico: evita race com regen/dano e usa max_health/max_mana (nao MAX(health)).
+  db_->executePreparedInsert(
+      "UPDATE players SET "
+      "health = GREATEST(0, LEAST(COALESCE(max_health, 100), health + ?)), "
+      "mana = GREATEST(0, LEAST(COALESCE(max_mana, 50), mana + ?)), "
+      "is_dead = IF(GREATEST(0, LEAST(COALESCE(max_health, 100), health + ?)) <= 0, 1, 0), "
+      "last_death_at = CASE "
+      "WHEN GREATEST(0, LEAST(COALESCE(max_health, 100), health + ?)) <= 0 AND is_dead = 0 "
+      "THEN CURRENT_TIMESTAMP ELSE last_death_at END "
+      "WHERE id = ?",
+      {deltaHealthStr, deltaManaStr, deltaHealthStr, deltaHealthStr, tid});
 
-  auto maxHOpt = db_->executePreparedScalar(
-      "SELECT COALESCE(MAX(health), 100) FROM players WHERE id = ?", {tid});
-  auto maxMOpt = db_->executePreparedScalar(
-      "SELECT COALESCE(MAX(mana), 50) FROM players WHERE id = ?", {tid});
-  if (maxHOpt && !maxHOpt->empty()) {
-    try { outMaxHealth = std::max(1, std::stoi(*maxHOpt)); } catch (...) {}
-  }
-  if (maxMOpt && !maxMOpt->empty()) {
-    try { outMaxMana = std::max(1, std::stoi(*maxMOpt)); } catch (...) {}
-  }
+  auto rows = db_->executePreparedQuery(
+      "SELECT health, COALESCE(max_health, 100), mana, COALESCE(max_mana, 50), is_dead "
+      "FROM players WHERE id = ? LIMIT 1",
+      {tid});
+  if (rows.empty() || rows[0].size() < 5) return false;
 
-  outNewHealth = std::max(0, std::min(outMaxHealth, curHealth + deltaHealth));
-  outNewMana = std::max(0, std::min(outMaxMana, curMana + deltaMana));
-  outIsDead = (outNewHealth <= 0);
-
-  if (outIsDead) {
-    db_->executePreparedInsert(
-        "UPDATE players SET health = ?, mana = ?, is_dead = 1, last_death_at = CURRENT_TIMESTAMP WHERE id = ?",
-        {std::to_string(outNewHealth), std::to_string(outNewMana), tid});
-  } else {
-    db_->executePreparedInsert(
-        "UPDATE players SET health = ?, mana = ?, is_dead = 0 WHERE id = ?",
-        {std::to_string(outNewHealth), std::to_string(outNewMana), tid});
+  try {
+    outNewHealth = std::stoi(rows[0][0]);
+    outMaxHealth = std::max(1, std::stoi(rows[0][1]));
+    outNewMana = std::stoi(rows[0][2]);
+    outMaxMana = std::max(1, std::stoi(rows[0][3]));
+    outIsDead = (std::stoi(rows[0][4]) != 0);
+  } catch (...) {
+    return false;
   }
 
   (void)sourcePlayerId;
