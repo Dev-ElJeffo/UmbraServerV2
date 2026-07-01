@@ -4,131 +4,125 @@
 
 Implementar a janela de refinação no UE 5.6.1 com regra de negócio em C++, usando `UUmbraRefinementWidget` e `UUmbraInventorySlotWidget`.
 
-## Passo 1 - Criar `WBP_RefinementWindow`
+## Assets versionados (git)
 
-1. No Content Browser, crie `Widget Blueprint` com nome `WBP_RefinementWindow`.
-2. Em `Class Settings`, defina `Parent Class` = `UmbraRefinementWidget`.
-3. No Designer, crie o layout visual da janela.
+Os Blueprints ficam no submódulo `UmbraEternumUE`:
 
-## Passo 2 - Criar os widgets com nomes exatos (BindWidget)
+- `Content/Widgets/UI/Refinement/WBP_RefinementWindow.uasset`
+- `Content/Widgets/UI/Refinement/WBP_RefinementTooltip.uasset`
 
-No `WBP_RefinementWindow`, marque `Is Variable = true` e use os nomes abaixo exatamente:
+Commitar alterações no branch `develop` do submódulo após editar no editor.
 
-- `InventorySlot_TargetItem` (tipo: `WBP_InventorySlot` herdando de `UUmbraInventorySlotWidget`)
-- `InventorySlot_RefineMaterial` (tipo: `WBP_InventorySlot` herdando de `UUmbraInventorySlotWidget`)
-- `ItemIcon`
-- `ItemNameText`
-- `CurrentLevelText`
-- `MaterialIcon`
-- `MaterialQuantityText`
-- `SuccessRateText`
-- `RequiredMaterialText`
-- `CurrentStatsText`
-- `NextLevelStatsText`
-- `RefineButton`
-- `CancelButton`
-- `Text_Info` (nome novo)
+---
 
-Observação:
-- `InfoMessageText` ainda é suportado no C++ como fallback.
-- Para o fluxo novo, prefira `Text_Info`.
+## Passo 1 - Abrir `WBP_RefinementWindow`
 
-## Passo 3 - Garantir que os dois slots são `InventorySlot`
+1. No Content Browser: `Content/Widgets/UI/Refinement/WBP_RefinementWindow`.
+2. Em **Class Settings**, `Parent Class` = `UmbraRefinementWidget`.
+3. No Designer, ajuste o layout conforme abaixo.
 
-Os dois slots de drop (`InventorySlot_TargetItem` e `InventorySlot_RefineMaterial`) devem ser widgets baseados em `UUmbraInventorySlotWidget` (não usar `Border` puro para drop).
+## Passo 2 - Layout: migração gradual (não quebrar o WBP atual)
 
-## Passo 4 - Deixar o Event Graph do `WBP_RefinementWindow` sem lógica
+O C++ usa **dual-path**: se `InventorySlot_*` existir no WBP, o slot recebe `SetSlotData`; caso contrário, `ItemIcon` / `MaterialIcon` continuam funcionando.
 
-Não implemente regra de negócio no graph desse WBP:
+### Containers de layout (nunca remover no C++)
 
-- não criar `OnDrop` manual
-- não criar validação de item/material em Blueprint
-- não criar binding manual de texto de status
+- `ItemSlotBorder` e `MaterialSlotBorder` são **containers** que agrupam ícone, textos e stats.
+- **Não** ocultar esses borders no C++ — esconder um `Border` colapsa todo o subtree (área de inserção some).
 
-Toda a lógica já está em C++ em `UUmbraRefinementWidget` + `UUmbraInventorySlotWidget`.
+### Área do item a refinar
 
-## Passo 5 - Criar `WBP_RefinementTooltip`
+**WBP legado (funciona hoje):**
 
-1. Crie `Widget Blueprint` com nome `WBP_RefinementTooltip`.
-2. Parent class: `UmbraRefinementTooltipWidget`.
-3. Crie os widgets com `Is Variable = true`:
-   - `ItemNameText`
-   - `RefinementLevelText`
-   - `SuccessRateText`
-   - `StatsContainer`
-   - `BonusStatsContainer`
+- `ItemSlotBorder` (visível) contendo `ItemIcon`, `ItemNameText`, `CurrentLevelText`, etc.
 
-## Passo 6 - Ligar a classe do tooltip no widget de refinação
+**WBP migrado (opcional):**
 
-No `WBP_RefinementWindow` (instância da classe `UUmbraRefinementWidget`), configure a propriedade:
+- Dentro de `ItemSlotBorder`, adicionar `InventorySlot_TargetItem` (`WBP_InventorySlot`).
+- Só **depois de testar**, remover `ItemIcon` duplicado no Designer (o C++ oculta `ItemIcon` automaticamente quando o slot está visível).
 
-- `RefinementTooltipClass` = `WBP_RefinementTooltip`
+### Área do material
 
-Sem isso, o tooltip não será criado por `EnsureRefinementTooltip()`.
+Mesma regra: `MaterialSlotBorder` permanece; adicione `InventorySlot_RefineMaterial` quando quiser unificar; remova `MaterialIcon` só após validar.
 
-## Passo 7 - Integração com o inventário (abertura da janela)
+## Passo 3 - Nomes BindWidget
 
-No widget que abre a refinação (inventário/menu):
+Marque `Is Variable = true`:
 
-1. `Create Widget` (class `WBP_RefinementWindow`)
-2. `Add to Viewport`
+| Nome | Tipo | Obrigatório |
+|------|------|-------------|
+| `ItemNameText` | Text | Sim |
+| `CurrentLevelText` | Text | Sim |
+| `CurrentStatsText` | Text | Sim |
+| `NextLevelStatsText` | Text | Sim |
+| `SuccessRateText` | Text | Sim |
+| `RequiredMaterialText` | Text | Sim |
+| `RefineButton` | Button | Sim |
+| `CancelButton` | Button | Sim |
+| `InventorySlot_TargetItem` | `WBP_InventorySlot` | Opcional (recomendado) |
+| `InventorySlot_RefineMaterial` | `WBP_InventorySlot` | Opcional (recomendado) |
+| `Text_Info` | Text | Opcional |
+| `ItemIcon` | Image | Opcional (fallback legado) |
+| `MaterialIcon` | Image | Opcional (fallback legado) |
+| `ItemSlotBorder` | Border | Opcional (container layout) |
+| `MaterialSlotBorder` | Border | Opcional (container layout) |
 
-Somente isso já basta para inicialização da lógica C++ (`NativeConstruct`).
+**Labels no Designer:** rótulo de `CurrentStatsText` = "Stats atuais"; `NextLevelStatsText` = "Próximo nível".
 
-## Passo 8 - Fluxo de drag & drop esperado (já implementado em C++)
+## Passo 4 - Event Graph vazio
 
-1. Jogador arrasta item no inventário (`UUmbraInventorySlotWidget::CreateItemDragOperation`).
-2. Solta no `InventorySlot_TargetItem`.
-3. O slot chama `HandleRefinementSlotDrop(false, DragOperation)`.
-4. `SetItemToRefine(...)` valida se item é refinável.
-5. Tooltip é criado/atualizado.
-6. `Text_Info` mostra próximo passo.
-7. Jogador arrasta material e solta em `InventorySlot_RefineMaterial`.
-8. O slot chama `HandleRefinementSlotDrop(true, DragOperation)`.
-9. `SetRefinementMaterial(...)` valida material/quantidade para o nível.
-10. `RefineButton` habilita só com par válido.
+- sem `OnDrop` manual
+- sem limpar slots no clique de REFINAR
+- sem binding manual de stats
 
-## Passo 9 - Fluxo de status (`Text_Info`)
+## Passo 5 - `WBP_RefinementTooltip`
 
-O estado textual da janela é controlado por `UpdateInfoText()` em C++:
+1. Asset: `Content/Widgets/UI/Refinement/WBP_RefinementTooltip`.
+2. Parent: `UmbraRefinementTooltipWidget`.
+3. Variáveis: `ItemNameText`, `RefinementLevelText`, `SuccessRateText`, `StatsContainer`, `BonusStatsContainer`.
 
-- sem item alvo: "Arraste o item do inventário para o slot de refinação."
-- com item e sem material: "Agora arraste o material de refinação."
-- com par válido: "Itens válidos. Clique em REFINAR para continuar."
+## Passo 6 - Tooltip na janela
 
-## Passo 10 - Executar refinação
+`RefinementTooltipClass` = `WBP_RefinementTooltip`.
 
-1. Com os dois slots válidos, clique `RefineButton`.
-2. `RefineItem()` chama `UUmbraRefinementSubsystem::RequestRefineItem(...)`.
-3. `OnRefinementComplete(...)` atualiza mensagem e estado visual.
+## Passo 7 - Abrir a janela
 
-## Passo 11 - Checklist final de implementação
+`Create Widget (WBP_RefinementWindow)` → `Add to Viewport`.
 
-- [ ] `WBP_RefinementWindow` herda de `UmbraRefinementWidget`
-- [ ] `InventorySlot_TargetItem` e `InventorySlot_RefineMaterial` são `WBP_InventorySlot` (InventorySlotWidget)
-- [ ] Todos os nomes de variáveis de UI batem com `BindWidget`
-- [ ] `Text_Info` criado e com `Is Variable = true`
-- [ ] `RefinementTooltipClass` apontando para `WBP_RefinementTooltip`
-- [ ] Event Graph do `WBP_RefinementWindow` sem regra de negócio
-- [ ] Janela abre via `Create Widget -> Add to Viewport`
-- [ ] Drop do item alvo funciona
-- [ ] Drop do material funciona
-- [ ] Botão `RefineButton` só habilita com par válido
-- [ ] Tooltip atualiza ao inserir item alvo
+---
 
-## Passo 12 - Teste rápido no jogo
+## Fluxo em C++
 
-1. Login.
-2. Abrir inventário.
-3. Abrir janela de refinação.
-4. Arrastar item refinável para `InventorySlot_TargetItem`.
-5. Arrastar material correto para `InventorySlot_RefineMaterial`.
-6. Confirmar mensagem em `Text_Info`.
-7. Clicar em `REFINAR`.
+### Drag & drop
+
+1. Drop no slot alvo ou área legada → `SetItemToRefine` → `SyncRefinementSlotVisuals`.
+2. Drop no material → `SetRefinementMaterial`.
+3. Se `InventorySlot_*` visível: ícone no slot; senão: `ItemIcon` / `MaterialIcon`.
+
+### Refinar e pós-refino
+
+1. REFINAR → API PHP.
+2. Item permanece no slot; material permanece se houver quantidade.
+3. `LoadInventory()` → `SyncSelectionFromInventory` → UI atualizada.
+
+### Diagnóstico
+
+No Output Log, ao abrir a janela:
+
+`[RefinementUI] TargetSlot=OK|NULL MaterialSlot=... ItemIcon=... ItemBorder=...`
+
+---
+
+## Checklist final
+
+- [ ] `ItemSlotBorder` / `MaterialSlotBorder` visíveis no Designer
+- [ ] `InventorySlot_*` adicionados **antes** de remover ícones legados
+- [ ] Event Graph sem lógica de negócio
+- [ ] Material persiste entre tentativas
+- [ ] Inventário atualiza após REFINAR
 
 ## Referências
 
 - `UmbraEternumUE/Source/UmbraEternumUE/UI/UmbraRefinementWidget.*`
 - `UmbraEternumUE/Source/UmbraEternumUE/UI/UmbraInventorySlotWidget.*`
-- `UmbraEternumUE/Source/UmbraEternumUE/UI/UmbraRefinementTooltipWidget.*`
-- `UmbraEternumUE/Source/UmbraEternumUE/Systems/UmbraRefinementSubsystem.*`
+- `docs_main/GUIA_SISTEMA_REFINACAO_UE561.md`
