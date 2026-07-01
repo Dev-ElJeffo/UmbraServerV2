@@ -93,7 +93,17 @@ enum class MovementMsgType : uint8_t {
   SkillCastRejected = 105,             // Servidor -> Cliente: cast rejeitado (range/mana/etc.)
   ExpGainNotify = 106,                 // Servidor -> Cliente: ganho de EXP
   LevelUpNotify = 107,                 // Servidor -> Cliente: subiu de nível
-  NpcBuffSnapshotRequest = 108         // Cliente -> Servidor: pede snapshot buffs de um NPC
+  NpcBuffSnapshotRequest = 108,        // Cliente -> Servidor: pede snapshot buffs de um NPC
+  SessionAuthNotify = 109,             // Cliente -> Servidor: [msgType][tokenLen:2 LE][token:utf8]
+  SessionRevokedNotify = 110             // Servidor -> Cliente: [msgType][reason:1][msgLen:2 LE][msg:utf8]
+};
+
+/** Motivo de revogacao de sessao WS (opcode 110) */
+enum class SessionRevokeReason : uint8_t {
+  Generic = 0,
+  DuplicateLogin = 1,
+  AuthTimeout = 2,
+  InvalidToken = 3
 };
 
 /** Motivo de rejeição de skill (opcode 105) */
@@ -2388,6 +2398,48 @@ inline bool decodeNpcBuffSnapshotRequest(const std::vector<uint8_t>& data, uint3
   npcInstanceId = static_cast<uint32_t>(data[1]) | (static_cast<uint32_t>(data[2]) << 8) |
                   (static_cast<uint32_t>(data[3]) << 16) | (static_cast<uint32_t>(data[4]) << 24);
   return npcInstanceId > 0;
+}
+
+inline std::vector<uint8_t> encodeSessionAuthNotify(const std::string& token) {
+  std::vector<uint8_t> data;
+  data.reserve(3 + token.size());
+  data.push_back(static_cast<uint8_t>(MovementMsgType::SessionAuthNotify));
+  const size_t capped = token.size() > 4096 ? 4096 : token.size();
+  const uint16_t len = static_cast<uint16_t>(capped);
+  data.push_back(static_cast<uint8_t>(len & 0xFF));
+  data.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
+  data.insert(data.end(), token.begin(), token.begin() + static_cast<std::ptrdiff_t>(capped));
+  return data;
+}
+
+inline bool decodeSessionAuthNotify(const std::vector<uint8_t>& data, std::string& outToken) {
+  if (data.size() < 3 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::SessionAuthNotify) return false;
+  const uint16_t len = static_cast<uint16_t>(data[1]) | (static_cast<uint16_t>(data[2]) << 8);
+  if (data.size() < 3u + len) return false;
+  outToken.assign(reinterpret_cast<const char*>(data.data() + 3), len);
+  return !outToken.empty();
+}
+
+inline std::vector<uint8_t> encodeSessionRevokedNotify(SessionRevokeReason reason, const std::string& message) {
+  std::vector<uint8_t> data;
+  data.reserve(4 + message.size());
+  data.push_back(static_cast<uint8_t>(MovementMsgType::SessionRevokedNotify));
+  data.push_back(static_cast<uint8_t>(reason));
+  const size_t capped = message.size() > 512 ? 512 : message.size();
+  const uint16_t len = static_cast<uint16_t>(capped);
+  data.push_back(static_cast<uint8_t>(len & 0xFF));
+  data.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
+  data.insert(data.end(), message.begin(), message.begin() + static_cast<std::ptrdiff_t>(capped));
+  return data;
+}
+
+inline bool decodeSessionRevokedNotify(const std::vector<uint8_t>& data, uint8_t& outReason, std::string& outMessage) {
+  if (data.size() < 4 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::SessionRevokedNotify) return false;
+  outReason = data[1];
+  const uint16_t len = static_cast<uint16_t>(data[2]) | (static_cast<uint16_t>(data[3]) << 8);
+  if (data.size() < 4u + len) return false;
+  outMessage.assign(reinterpret_cast<const char*>(data.data() + 4), len);
+  return true;
 }
 
 } // namespace Zone

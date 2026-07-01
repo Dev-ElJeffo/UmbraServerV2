@@ -6,7 +6,7 @@
  * com o JWTManager C++ do AuthServer.
  * 
  * Formato do token: header.payload.signature
- * Payload esperado: {account_id, player_id, username, iat, exp}
+ * Payload esperado: {account_id, player_id, username, session_version, iat, exp}
  */
 
 /**
@@ -159,7 +159,7 @@ function base64UrlEncode($input) {
  * @param string $secret Chave secreta para assinatura (padrão: lê de JWT_SECRET ou usa padrão)
  * @return string Token JWT completo (header.payload.signature)
  */
-function generateJWT($accountId, $playerId, $username, $expirationMinutes = 60, $secret = null) {
+function generateJWT($accountId, $playerId, $username, $expirationMinutes = 60, $secret = null, $sessionVersion = 0) {
     // Usar chave secreta padrão (DEVE ser a mesma de helpers/jwt_helper.php)
     if ($secret === null) {
         $secret = getenv('JWT_SECRET') ?: 'umbra_eternum_secret_key_2024_very_secure';
@@ -179,6 +179,7 @@ function generateJWT($accountId, $playerId, $username, $expirationMinutes = 60, 
         'account_id' => (int)$accountId,
         'player_id' => (int)$playerId,
         'username' => $username,
+        'session_version' => (int)$sessionVersion,
         'iat' => $now,
         'exp' => $now + ($expirationMinutes * 60)
     ];

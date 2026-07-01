@@ -1,4 +1,5 @@
 #include "ZoneServer.hpp"
+#include "auth/JWTManager.hpp"
 #include "zone/CombatCoreEngine.hpp"
 #include "zone/ExperienceService.hpp"
 #include "zone/ExpZoneManager.hpp"
@@ -103,9 +104,20 @@ bool ZoneServer::start() {
   Core::Logger::getInstance().info("Zone chat limits: max_message_length={}, rate_limit_per_minute={}",
                                    maxMessageLength, rateLimitPerMinute);
 
+  {
+    std::string jwtSecret = configManager.get<std::string>("auth.jwt_secret", "");
+    if (jwtSecret.empty() || jwtSecret.find("CHANGE_ME") != std::string::npos) {
+      jwtSecret = "umbra_eternum_secret_key_2024_very_secure";
+      Core::Logger::getInstance().warn(
+          "auth.jwt_secret nao configurado; usando chave padrao de desenvolvimento (alinhar com PHP)");
+    }
+    jwtManager_ = std::make_unique<Umbra::Auth::JWTManager>(jwtSecret);
+  }
+
   if (config_.dbConnector && config_.dbConnector->isConnected()) {
     combatService_ = std::make_unique<ZoneCombatService>(config_.dbConnector, config_.zoneId);
     movementServer_->setZoneId(config_.zoneId);
+    movementServer_->setSessionAuth(jwtManager_.get(), config_.dbConnector);
     movementServer_->setOnPlayerDisconnectCallback(
       [db = config_.dbConnector.get()](uint32_t playerId) {
         removePlayerFromSessions(db, playerId);  // lista de amigos: marcar offline
@@ -166,6 +178,10 @@ bool ZoneServer::isRunning() const {
 void ZoneServer::update(float deltaTime) {
   playerManager_->update(deltaTime);
   entitySystem_->update(deltaTime);
+
+  if (movementServer_) {
+    movementServer_->tickSessionAuth();
+  }
 
   snapshotAccumulator_ += deltaTime;
   if (snapshotAccumulator_ >= 0.1f) {

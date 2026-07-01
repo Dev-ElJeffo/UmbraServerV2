@@ -11,6 +11,7 @@
 #include "zone/ExpZoneManager.hpp"
 
 namespace Umbra {
+namespace Auth { class JWTManager; }
 namespace Database { class MySQLConnector; }
 namespace Zone {
 
@@ -49,6 +50,7 @@ class ZoneServer {
   std::unique_ptr<CombatCoreEngine> combatCoreEngine_;
   std::unique_ptr<ExperienceService> experienceService_;
   std::unique_ptr<ExpZoneManager> expZoneManager_;
+  std::unique_ptr<Umbra::Auth::JWTManager> jwtManager_;
   float expZoneTickAccumulator_ = 0.0f;
   float snapshotAccumulator_ = 0.0f;
   float dotTickAccumulator_ = 0.0f;

@@ -12,6 +12,10 @@
 #include "zone/SpatialGrid.hpp"
 #include "zone/CombatCoreEngine.hpp"
 #include "core/Logger.hpp"
+#include "zone/MovementSessionAuth.hpp"
+#include "auth/JWTManager.hpp"
+#include "database/MySQLConnector.hpp"
+#include <memory>
 
 namespace Umbra {
 namespace Zone {
@@ -60,6 +64,19 @@ public:
   void setZoneId(uint32_t zoneId) { zoneId_ = zoneId; }
 
   void setCombatCoreEngine(CombatCoreEngine* engine) { combatCoreEngine_ = engine; }
+  void setSessionAuth(Umbra::Auth::JWTManager* jwt, std::shared_ptr<Umbra::Database::MySQLConnector> db) {
+    sessionAuth_.setJwtManager(jwt);
+    sessionAuth_.setDatabase(std::move(db));
+    sessionAuthEnabled_ = (jwt != nullptr);
+  }
+
+  void tickSessionAuth() {
+    if (!sessionAuthEnabled_) return;
+    sessionAuth_.tickAuthTimeouts([this](uint32_t cid, SessionRevokeReason reason, const std::string& msg) {
+      revokeAndDisconnectClient(cid, reason, msg);
+    });
+  }
+
 
   /** Envia pacote binário a um client WS (snapshot NPC, etc.). */
   void sendBinaryToClient(uint32_t clientId, const std::vector<uint8_t>& data) {
@@ -121,15 +138,10 @@ public:
     ws_.setConnectionCallback([this](uint32_t cid, bool connected){
       if (connected) {
         Umbra::Core::Logger::getInstance().info("WS client {} connected", cid);
-        // Snapshot de players/shops com lock; NPC snapshot fora (sendBinaryToClient adquire mu_)
-        {
-          std::lock_guard<std::mutex> lock(mu_);
-          sendInitialSnapshotLocked(cid);
-        }
-        if (combatCoreEngine_) {
-          combatCoreEngine_->sendNpcSnapshotToClient(cid);
-          combatCoreEngine_->sendNpcBuffSnapshotToClient(cid);
-          combatCoreEngine_->sendPlayerBuffSnapshotToClient(cid);
+        if (sessionAuthEnabled_) {
+          sessionAuth_.onClientConnected(cid);
+        } else {
+          sendPostAuthSnapshots(cid);
         }
       } else {
         Umbra::Core::Logger::getInstance().info("WS client {} disconnected", cid);
@@ -143,8 +155,30 @@ public:
       // Verificar tipo de mensagem primeiro
       if (data.empty()) return;
       MovementMsgType msgType = static_cast<MovementMsgType>(data[0]);
-      
-      // ========== PROCESSAR MENSAGENS SOCIAIS ==========
+
+      if (sessionAuthEnabled_ && msgType == MovementMsgType::SessionAuthNotify) {
+        std::string token;
+        if (!decodeSessionAuthNotify(data, token)) {
+          revokeAndDisconnectClient(cid, SessionRevokeReason::InvalidToken, "Payload de auth invalido.");
+          return;
+        }
+        uint32_t kickCid = 0;
+        std::string kickMsg;
+        if (!sessionAuth_.handleSessionAuth(cid, token, kickCid, kickMsg)) {
+          revokeAndDisconnectClient(cid, SessionRevokeReason::InvalidToken, "Autenticacao falhou.");
+          return;
+        }
+        if (kickCid > 0) {
+          revokeAndDisconnectClient(kickCid, SessionRevokeReason::DuplicateLogin, kickMsg);
+        }
+        sendPostAuthSnapshots(cid);
+        return;
+      }
+      if (sessionAuthEnabled_ && !sessionAuth_.isAuthenticated(cid)) {
+        revokeAndDisconnectClient(cid, SessionRevokeReason::AuthTimeout, "Autentique-se antes de jogar.");
+        return;
+      }
+            // ========== PROCESSAR MENSAGENS SOCIAIS ==========
       
       // Party Invite
       if (msgType == MovementMsgType::PartyInvite) {
@@ -654,6 +688,16 @@ public:
           {
             std::lock_guard<std::mutex> lock(mu_);
 
+            if (sessionAuthEnabled_) {
+              const uint32_t accountId = sessionAuth_.getAccountIdForClient(cid);
+              if (accountId == 0 || !sessionAuth_.playerBelongsToAccount(playerId, accountId)) {
+                Umbra::Core::Logger::getInstance().warn(
+                    "PlayerInfoUpdate rejeitado: client {} player {} nao pertence a account {}",
+                    cid, playerId, accountId);
+                return;
+              }
+            }
+
             Umbra::Core::Logger::getInstance().info("Received PlayerInfoUpdate from client {}: playerId={}, name={}, title={}, guild={}",
                                                     cid, playerId, name, title, guildName);
 
@@ -980,6 +1024,24 @@ private:
   }
 
   // Versão com lock - chamada do callback de conexão (sem lock prévio)
+
+  void revokeAndDisconnectClient(uint32_t cid, SessionRevokeReason reason, const std::string& message) {
+    auto pkt = encodeSessionRevokedNotify(reason, message);
+    ws_.sendBinary(cid, pkt);
+    ws_.disconnect(cid);
+  }
+
+  void sendPostAuthSnapshots(uint32_t cid) {
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      sendInitialSnapshotLocked(cid);
+    }
+    if (combatCoreEngine_) {
+      combatCoreEngine_->sendNpcSnapshotToClient(cid);
+      combatCoreEngine_->sendNpcBuffSnapshotToClient(cid);
+      combatCoreEngine_->sendPlayerBuffSnapshotToClient(cid);
+    }
+  }
   void sendInitialSnapshotLocked(uint32_t clientId) {
     size_t sentStateCount = 0;
     size_t sentInfoCount = 0;
@@ -1246,6 +1308,9 @@ private:
 
   // Remove player quando client desconecta
   void handleClientDisconnect(uint32_t cid) {
+    if (sessionAuthEnabled_) {
+      sessionAuth_.onClientDisconnected(cid);
+    }
     auto it = clientIdToPlayerId_.find(cid);
     if (it != clientIdToPlayerId_.end()) {
       uint32_t playerId = it->second;
@@ -1415,6 +1480,8 @@ private:
   size_t chatMaxMessageLength_ = 500;
   uint32_t chatRateLimitPerMinute_ = 30;
   CombatCoreEngine* combatCoreEngine_ = nullptr;
+  MovementSessionAuth sessionAuth_;
+  bool sessionAuthEnabled_ = false;
 };
 
 } // namespace Zone

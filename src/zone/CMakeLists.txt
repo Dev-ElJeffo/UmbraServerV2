@@ -26,6 +26,7 @@ target_link_libraries(umbra_zone
   umbra_network
   umbra_database
   umbra_services
+  umbra_auth
   Threads::Threads
 )
 

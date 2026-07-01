@@ -24,7 +24,7 @@
   
   "auth": {
     "port": 8080,
-    "jwt_secret": "CHANGE_ME_IN_PRODUCTION_USE_JWT_SECRET_KEY_FILE",
+    "jwt_secret": "umbra_eternum_secret_key_2024_very_secure",
     "session_duration": 60,
     "max_login_attempts": 5,
     "login_attempt_window": 300
