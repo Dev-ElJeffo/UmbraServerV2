@@ -188,7 +188,9 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
                         it.stats_json,
                         it.rarity,
                         it.value,
-                        it.weight
+                        it.weight,
+                        it.can_be_refined,
+                        it.tradeable
                       FROM player_inventory pi
                       INNER JOIN item_templates it ON pi.item_template_id = it.item_id
                       WHERE pi.player_id = :player_id
@@ -308,6 +310,8 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
             'rarity' => $item['rarity'],
             'value' => (int)$item['value'],
             'weight' => (float)$item['weight'],
+            'can_be_refined' => (bool)$item['can_be_refined'],
+            'tradeable' => (bool)$item['tradeable'],
             'refinement_level' => $refinement_level,
             'refinement_bonus_stats' => $refinement_bonus_stats,
             'stats' => $stats
