@@ -358,7 +358,7 @@ Todos little-endian. Definições em [`MovementProtocol.hpp`](../src/zone/Moveme
 
 | Opcode | Nome | Dir | Uso |
 |--------|------|-----|-----|
-| **100** | NpcSpawnNotify | S→C | Spawn completo (mesh, HP, pos) |
+| **100** | NpcSpawnNotify | S→C | Spawn completo (mesh, HP, pos) + campos opcionais: `flags:1` (bit0=attackable, bit1=vendor, bit2=quest), `interactionRadius:f32`, `vendorId:u32` |
 | **101** | NpcDespawnNotify | S→C | Remove NPC (morte/respawn) |
 | **102** | NpcStateUpdate | S→C | HP (+ pos estática do DB) — cliente só atualiza HP |
 | **103** | NpcCombatEvent | S→C | Dano/cura/miss no NPC (`reason=6` = MISS) |

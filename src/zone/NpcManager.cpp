@@ -9,9 +9,12 @@ const char* NpcManager::kInstanceSelectSql =
     "SELECT ni.npc_instance_id, ni.npc_template_id, ni.zone_id, ni.pos_x, ni.pos_y, ni.pos_z, ni.yaw, "
     "ni.current_health, ni.current_mana, ni.is_dead, "
     "nt.npc_name, nt.level, nt.max_health, nt.max_mana, nt.physical_defense, "
-    "nt.skeletal_mesh_path, nt.anim_blueprint_path "
+    "nt.skeletal_mesh_path, nt.anim_blueprint_path, "
+    "nt.is_attackable, nt.interaction_radius, nt.has_vendor, nt.has_quest_dialog, "
+    "COALESCE(nv.vendor_id, 0) AS vendor_id "
     "FROM npc_instances ni "
-    "JOIN npc_templates nt ON nt.npc_template_id = ni.npc_template_id ";
+    "JOIN npc_templates nt ON nt.npc_template_id = ni.npc_template_id "
+    "LEFT JOIN npc_vendors nv ON nv.npc_template_id = nt.npc_template_id ";
 
 NpcManager::NpcManager(std::shared_ptr<Database::MySQLConnector> db, uint32_t zoneId)
     : db_(std::move(db)), zoneId_(zoneId) {}
@@ -91,6 +94,7 @@ size_t NpcManager::reloadMissingInstancesFromDatabase() {
 
 void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
   if (row.size() < 17) return;
+  const bool hasInteractiveFields = row.size() >= 22;
 
   NpcRuntimeInstance inst;
   try {
@@ -111,6 +115,13 @@ void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
     inst.physicalDefense = std::stoi(row[14]);
     inst.skeletalMeshPath = row[15];
     inst.animBlueprintPath = row[16];
+    if (hasInteractiveFields) {
+      inst.isAttackable = (std::stoi(row[17]) != 0);
+      inst.interactionRadius = std::stof(row[18]);
+      inst.hasVendor = (std::stoi(row[19]) != 0);
+      inst.hasQuestDialog = (std::stoi(row[20]) != 0);
+      inst.vendorId = static_cast<uint32_t>(std::stoul(row[21]));
+    }
   } catch (...) {
     return;
   }
@@ -139,6 +150,7 @@ int32_t NpcManager::applyDamage(uint32_t npcInstanceId, int32_t delta, bool& out
 
   NpcRuntimeInstance& inst = instances_[it->second];
   if (inst.isDead) return 0;
+  if (!inst.isAttackable && delta < 0) return 0;
 
   const int32_t before = inst.currentHealth;
   inst.currentHealth = std::max(0, std::min(inst.maxHealth, inst.currentHealth + delta));
@@ -218,6 +230,12 @@ NpcSpawnPayload NpcManager::toSpawnPayload(const NpcRuntimeInstance& inst) const
   p.npcName = inst.npcName;
   p.skeletalMeshPath = inst.skeletalMeshPath;
   p.animBlueprintPath = inst.animBlueprintPath;
+  p.flags = 0;
+  if (inst.isAttackable) p.flags |= 0x01;
+  if (inst.hasVendor) p.flags |= 0x02;
+  if (inst.hasQuestDialog) p.flags |= 0x04;
+  p.interactionRadius = inst.interactionRadius;
+  p.vendorId = inst.vendorId;
   return p;
 }
 

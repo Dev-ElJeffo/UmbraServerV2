@@ -1796,6 +1796,9 @@ struct NpcSpawnPayload {
   std::string npcName;
   std::string skeletalMeshPath;
   std::string animBlueprintPath;
+  uint8_t flags = 0x01;  // bit0=attackable, bit1=vendor, bit2=quest
+  float interactionRadius = 300.f;
+  uint32_t vendorId = 0;
 };
 
 struct NpcDespawnPayload {
@@ -2012,6 +2015,9 @@ inline std::vector<uint8_t> encodeNpcSpawnNotify(const NpcSpawnPayload& p) {
   appendStringField(data, p.npcName, 100);
   appendStringField(data, p.skeletalMeshPath, 255);
   appendStringField(data, p.animBlueprintPath, 255);
+  data.push_back(p.flags);
+  writeF32(p.interactionRadius);
+  writeU32(p.vendorId);
   return data;
 }
 
@@ -2043,6 +2049,15 @@ inline bool decodeNpcSpawnNotify(const std::vector<uint8_t>& data, NpcSpawnPaylo
   if (!readStringField(data, off, p.npcName, 100)) return false;
   if (!readStringField(data, off, p.skeletalMeshPath, 255)) return false;
   if (!readStringField(data, off, p.animBlueprintPath, 255)) return false;
+  if (off < data.size()) {
+    p.flags = data[off++];
+    if (off + 4 <= data.size()) {
+      p.interactionRadius = readF32();
+    }
+    if (off + 4 <= data.size()) {
+      p.vendorId = readU32();
+    }
+  }
   return true;
 }
 

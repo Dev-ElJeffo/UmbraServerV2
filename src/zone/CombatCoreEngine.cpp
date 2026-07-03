@@ -1148,6 +1148,10 @@ bool CombatCoreEngine::buildDefenderState(uint8_t targetType, uint32_t targetId,
   if (!npcManager_) return false;
   const NpcRuntimeInstance* inst = npcManager_->findInstance(targetId);
   if (!inst || inst->isDead) return false;
+  if (!inst->isAttackable) {
+    Core::Logger::getInstance().warn("[CombatCoreEngine] ataque bloqueado em NPC pacífico id={}", targetId);
+    return false;
+  }
   out = CharacterStateLoader::makeNpcDefenderState(*inst);
   return true;
 }

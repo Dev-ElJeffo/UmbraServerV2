@@ -28,6 +28,11 @@ struct NpcRuntimeInstance {
   std::string npcName;
   std::string skeletalMeshPath;
   std::string animBlueprintPath;
+  bool isAttackable = true;
+  float interactionRadius = 300.f;
+  bool hasVendor = false;
+  bool hasQuestDialog = false;
+  uint32_t vendorId = 0;
   bool isDead = false;
   std::chrono::steady_clock::time_point respawnAt{};
 };
