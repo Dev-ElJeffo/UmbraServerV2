@@ -61,7 +61,7 @@ Criar em `/Game/Widgets/UI/Npc/WBP_NpcDialog`.
 |-----------------------|------|--------|
 | `Text_NpcName` | TextBlock | Título / nome |
 | `Text_DialogBody` | TextBlock | Corpo do diálogo |
-| `Btn_Quest` | Button | Stub: mostra texto (fase 2 = quests reais) |
+| `Btn_Quest` | Button | Abre `WBP_QuestInteraction` (sistema de quests) |
 | `Btn_Trade` | Button | Abre `WBP_NpcVendor` |
 | `Btn_Close` | Button | Fecha painel |
 
@@ -259,9 +259,18 @@ ON DUPLICATE KEY UPDATE buy_price_gold = VALUES(buy_price_gold), stock_qty = VAL
 
 ---
 
-## 8. Quest (fase 2 — stub atual)
+## 8. Quest (sistema completo)
 
-O botão **Quest** apenas recarrega `dialog_text` do banco. Tabelas futuras sugeridas: `npc_quests`, `player_quests` (fora do escopo desta entrega).
+O botão **Quest** chama `UUmbraGameInstance::OpenQuestInteractionForNpc` (ZOrder **275**) e abre `WBP_QuestInteraction`. O clique no NPC abre **apenas** o diálogo (ZOrder 260).
+
+Guia completo: [`GUIA_SISTEMA_QUESTS_UE561.md`](GUIA_SISTEMA_QUESTS_UE561.md)
+
+Resumo:
+
+- SQL: `www/umbra_api/scripts/create_quest_system_tables.sql`
+- API: `www/umbra_api/api/quest/*.php`
+- `get_npc_interaction_info.php` retorna `quest_offer_count` e `has_quest_dialog` quando há ofertas
+- Kill progress na zone: `QuestProgressService` + `CombatCoreEngine`
 
 ---
 

@@ -2,24 +2,37 @@
 /**
  * Helper espelhado do ExperienceService C++ (grant EXP + level-up).
  *
+ * @param bool $manageTransaction Quando false, participa da transação PDO já aberta pelo chamador
+ *                              (ex.: turn-in de quest). Evita rollback indevido por transação aninhada.
+ *
  * @return array|null Resultado no formato ExperienceGrantResult ou null em falha.
  */
 require_once __DIR__ . '/../config/database.php';
 
-function umbra_grant_experience(PDO $pdo, int $player_id, int $amount, string $source): ?array
+function umbra_grant_experience(PDO $pdo, int $player_id, int $amount, string $source, bool $manageTransaction = true): ?array
 {
     if ($amount <= 0) {
         return null;
     }
 
+    $startedHere = false;
     try {
-        $pdo->beginTransaction();
+        if ($manageTransaction) {
+            if ($pdo->inTransaction()) {
+                $manageTransaction = false;
+            } else {
+                $pdo->beginTransaction();
+                $startedHere = true;
+            }
+        }
 
         $stmt = $pdo->prepare('SELECT level, experience FROM players WHERE id = :id FOR UPDATE');
         $stmt->execute([':id' => $player_id]);
         $player = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$player) {
-            $pdo->rollBack();
+            if ($startedHere && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             return null;
         }
 
@@ -107,7 +120,9 @@ function umbra_grant_experience(PDO $pdo, int $player_id, int $amount, string $s
             ]);
         }
 
-        $pdo->commit();
+        if ($startedHere) {
+            $pdo->commit();
+        }
 
         $skill_after_stmt = $pdo->prepare(
             'SELECT points_available FROM player_skill_points WHERE player_id = :id'
@@ -138,7 +153,7 @@ function umbra_grant_experience(PDO $pdo, int $player_id, int $amount, string $s
             'leveled_up' => $levels_gained > 0,
         ];
     } catch (Throwable $e) {
-        if ($pdo->inTransaction()) {
+        if ($startedHere && $pdo->inTransaction()) {
             $pdo->rollBack();
         }
         error_log('[experience_helper] ' . $e->getMessage());

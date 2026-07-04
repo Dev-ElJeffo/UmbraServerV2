@@ -34,19 +34,20 @@ struct NpcRuntimeInstance {
   bool hasQuestDialog = false;
   uint32_t vendorId = 0;
   bool isDead = false;
-  std::chrono::steady_clock::time_point respawnAt{};
+  uint32_t respawnSeconds = 30;
+  std::chrono::system_clock::time_point respawnAt{};
 };
 
 class NpcManager {
 public:
-  static constexpr int kDefaultRespawnSeconds = 10;
+  static constexpr uint32_t kDefaultRespawnSeconds = 30;
 
   explicit NpcManager(std::shared_ptr<Database::MySQLConnector> db, uint32_t zoneId);
 
   bool reloadFromDatabase();
-  /** Carrega uma instância viva do DB; retorna true se já estava carregada ou foi adicionada. */
+  /** Carrega instância do DB (viva ou morta aguardando respawn). */
   bool loadInstanceById(uint32_t npcInstanceId);
-  /** Carrega instâncias vivas presentes no DB mas ausentes na memória. Retorna quantas foram adicionadas. */
+  /** Carrega instâncias do DB ausentes na memória. Retorna quantas foram adicionadas. */
   size_t reloadMissingInstancesFromDatabase();
 
   const std::vector<NpcRuntimeInstance>& getAllInstances() const { return instances_; }
@@ -62,7 +63,9 @@ public:
 
 private:
   static const char* kInstanceSelectSql;
+  static std::string zoneWhereClause();
   void loadInstanceFromRow(const std::vector<std::string>& row);
+  bool respawnInstance(NpcRuntimeInstance& inst);
 
   std::shared_ptr<Database::MySQLConnector> db_;
   uint32_t zoneId_;

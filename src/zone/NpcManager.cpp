@@ -1,20 +1,38 @@
 #include "zone/NpcManager.hpp"
 #include "core/Logger.hpp"
 #include <algorithm>
+#include <ctime>
 
 namespace Umbra {
 namespace Zone {
 
+namespace {
+constexpr size_t kMinRowFields = 24;
+
+std::chrono::system_clock::time_point respawnTimeFromUnix(uint64_t unixTs) {
+  if (unixTs == 0) {
+    return std::chrono::system_clock::now();
+  }
+  return std::chrono::system_clock::from_time_t(static_cast<std::time_t>(unixTs));
+}
+}  // namespace
+
 const char* NpcManager::kInstanceSelectSql =
     "SELECT ni.npc_instance_id, ni.npc_template_id, ni.zone_id, ni.pos_x, ni.pos_y, ni.pos_z, ni.yaw, "
     "ni.current_health, ni.current_mana, ni.is_dead, "
+    "COALESCE(UNIX_TIMESTAMP(ni.respawn_at), 0) AS respawn_at_unix, "
     "nt.npc_name, nt.level, nt.max_health, nt.max_mana, nt.physical_defense, "
     "nt.skeletal_mesh_path, nt.anim_blueprint_path, "
     "nt.is_attackable, nt.interaction_radius, nt.has_vendor, nt.has_quest_dialog, "
-    "COALESCE(nv.vendor_id, 0) AS vendor_id "
+    "COALESCE(nv.vendor_id, 0) AS vendor_id, "
+    "COALESCE(nt.respawn_seconds, 30) AS respawn_seconds "
     "FROM npc_instances ni "
     "JOIN npc_templates nt ON nt.npc_template_id = ni.npc_template_id "
     "LEFT JOIN npc_vendors nv ON nv.npc_template_id = nt.npc_template_id ";
+
+std::string NpcManager::zoneWhereClause() {
+  return "WHERE (ni.zone_id = ? OR ni.zone_id = 0) ";
+}
 
 NpcManager::NpcManager(std::shared_ptr<Database::MySQLConnector> db, uint32_t zoneId)
     : db_(std::move(db)), zoneId_(zoneId) {}
@@ -27,9 +45,7 @@ bool NpcManager::reloadFromDatabase() {
   indexById_.clear();
 
   const std::string zoneStr = std::to_string(zoneId_);
-  auto rows = db_->executePreparedQuery(
-      std::string(kInstanceSelectSql) + "WHERE ni.zone_id = ? AND ni.is_dead = 0",
-      {zoneStr});
+  auto rows = db_->executePreparedQuery(std::string(kInstanceSelectSql) + zoneWhereClause(), {zoneStr});
 
   for (const auto& row : rows) {
     loadInstanceFromRow(row);
@@ -51,9 +67,8 @@ bool NpcManager::loadInstanceById(uint32_t npcInstanceId) {
   const std::string idStr = std::to_string(npcInstanceId);
   const std::string zoneStr = std::to_string(zoneId_);
   auto rows = db_->executePreparedQuery(
-      std::string(kInstanceSelectSql) +
-          "WHERE ni.npc_instance_id = ? AND ni.zone_id = ? AND ni.is_dead = 0 LIMIT 1",
-      {idStr, zoneStr});
+      std::string(kInstanceSelectSql) + zoneWhereClause() + "AND ni.npc_instance_id = ? LIMIT 1",
+      {zoneStr, idStr});
 
   if (rows.empty()) return false;
 
@@ -67,9 +82,7 @@ size_t NpcManager::reloadMissingInstancesFromDatabase() {
   if (!db_ || !db_->isConnected()) return 0;
 
   const std::string zoneStr = std::to_string(zoneId_);
-  auto rows = db_->executePreparedQuery(
-      std::string(kInstanceSelectSql) + "WHERE ni.zone_id = ? AND ni.is_dead = 0",
-      {zoneStr});
+  auto rows = db_->executePreparedQuery(std::string(kInstanceSelectSql) + zoneWhereClause(), {zoneStr});
 
   size_t loaded = 0;
   std::lock_guard<std::mutex> lock(mu_);
@@ -93,8 +106,7 @@ size_t NpcManager::reloadMissingInstancesFromDatabase() {
 }
 
 void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
-  if (row.size() < 17) return;
-  const bool hasInteractiveFields = row.size() >= 22;
+  if (row.size() < kMinRowFields) return;
 
   NpcRuntimeInstance inst;
   try {
@@ -108,25 +120,29 @@ void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
     inst.currentHealth = std::stoi(row[7]);
     inst.currentMana = std::stoi(row[8]);
     inst.isDead = (std::stoi(row[9]) != 0);
-    inst.npcName = row[10];
-    inst.level = static_cast<uint32_t>(std::stoul(row[11]));
-    inst.maxHealth = std::stoi(row[12]);
-    inst.maxMana = std::stoi(row[13]);
-    inst.physicalDefense = std::stoi(row[14]);
-    inst.skeletalMeshPath = row[15];
-    inst.animBlueprintPath = row[16];
-    if (hasInteractiveFields) {
-      inst.isAttackable = (std::stoi(row[17]) != 0);
-      inst.interactionRadius = std::stof(row[18]);
-      inst.hasVendor = (std::stoi(row[19]) != 0);
-      inst.hasQuestDialog = (std::stoi(row[20]) != 0);
-      inst.vendorId = static_cast<uint32_t>(std::stoul(row[21]));
+    const uint64_t respawnUnix = std::stoull(row[10]);
+    inst.npcName = row[11];
+    inst.level = static_cast<uint32_t>(std::stoul(row[12]));
+    inst.maxHealth = std::stoi(row[13]);
+    inst.maxMana = std::stoi(row[14]);
+    inst.physicalDefense = std::stoi(row[15]);
+    inst.skeletalMeshPath = row[16];
+    inst.animBlueprintPath = row[17];
+    inst.isAttackable = (std::stoi(row[18]) != 0);
+    inst.interactionRadius = std::stof(row[19]);
+    inst.hasVendor = (std::stoi(row[20]) != 0);
+    inst.hasQuestDialog = (std::stoi(row[21]) != 0);
+    inst.vendorId = static_cast<uint32_t>(std::stoul(row[22]));
+    inst.respawnSeconds = static_cast<uint32_t>(std::stoul(row[23]));
+    if (inst.respawnSeconds == 0) {
+      inst.respawnSeconds = kDefaultRespawnSeconds;
+    }
+    if (inst.isDead) {
+      inst.respawnAt = respawnTimeFromUnix(respawnUnix);
     }
   } catch (...) {
     return;
   }
-
-  if (inst.isDead) return;
 
   indexById_[inst.npcInstanceId] = instances_.size();
   instances_.push_back(std::move(inst));
@@ -139,10 +155,30 @@ const NpcRuntimeInstance* NpcManager::findInstance(uint32_t npcInstanceId) const
   return &instances_[it->second];
 }
 
+bool NpcManager::respawnInstance(NpcRuntimeInstance& inst) {
+  inst.isDead = false;
+  inst.currentHealth = inst.maxHealth;
+  inst.currentMana = inst.maxMana;
+  inst.respawnAt = {};
+
+  if (db_ && db_->isConnected()) {
+    const std::string idStr = std::to_string(inst.npcInstanceId);
+    db_->executePreparedInsert(
+        "UPDATE npc_instances SET current_health = ?, current_mana = ?, is_dead = 0, respawn_at = NULL "
+        "WHERE npc_instance_id = ?",
+        {std::to_string(inst.currentHealth), std::to_string(inst.currentMana), idStr});
+  }
+  return true;
+}
+
 int32_t NpcManager::applyDamage(uint32_t npcInstanceId, int32_t delta, bool& outIsCrit, bool* outNpcDied) {
   outIsCrit = false;
   if (outNpcDied) *outNpcDied = false;
   if (delta == 0) return 0;
+
+  if (!findInstance(npcInstanceId)) {
+    loadInstanceById(npcInstanceId);
+  }
 
   std::lock_guard<std::mutex> lock(mu_);
   auto it = indexById_.find(npcInstanceId);
@@ -158,26 +194,28 @@ int32_t NpcManager::applyDamage(uint32_t npcInstanceId, int32_t delta, bool& out
 
   if (inst.currentHealth <= 0) {
     inst.isDead = true;
-    inst.respawnAt = std::chrono::steady_clock::now() +
-                     std::chrono::seconds(kDefaultRespawnSeconds);
+    const uint32_t respawnSec = std::max(1u, inst.respawnSeconds);
+    inst.respawnAt = std::chrono::system_clock::now() + std::chrono::seconds(respawnSec);
     if (outNpcDied) *outNpcDied = true;
+
+    if (db_ && db_->isConnected()) {
+      const std::string idStr = std::to_string(npcInstanceId);
+      db_->executePreparedInsert(
+          "UPDATE npc_instances SET current_health = 0, is_dead = 1, "
+          "respawn_at = DATE_ADD(NOW(), INTERVAL " +
+              std::to_string(respawnSec) +
+              " SECOND), last_combat_at = CURRENT_TIMESTAMP WHERE npc_instance_id = ?",
+          {idStr});
+    }
+    return applied;
   }
 
   if (db_ && db_->isConnected()) {
     const std::string idStr = std::to_string(npcInstanceId);
-    if (inst.isDead) {
-      db_->executePreparedInsert(
-          "UPDATE npc_instances SET current_health = ?, is_dead = 1, "
-          "respawn_at = DATE_ADD(NOW(), INTERVAL " +
-              std::to_string(kDefaultRespawnSeconds) +
-              " SECOND), last_combat_at = CURRENT_TIMESTAMP WHERE npc_instance_id = ?",
-          {std::to_string(inst.currentHealth), idStr});
-    } else {
-      db_->executePreparedInsert(
-          "UPDATE npc_instances SET current_health = ?, is_dead = 0, last_combat_at = CURRENT_TIMESTAMP "
-          "WHERE npc_instance_id = ?",
-          {std::to_string(inst.currentHealth), idStr});
-    }
+    db_->executePreparedInsert(
+        "UPDATE npc_instances SET current_health = ?, is_dead = 0, last_combat_at = CURRENT_TIMESTAMP "
+        "WHERE npc_instance_id = ?",
+        {std::to_string(inst.currentHealth), idStr});
   }
 
   return applied;
@@ -186,27 +224,17 @@ int32_t NpcManager::applyDamage(uint32_t npcInstanceId, int32_t delta, bool& out
 std::vector<uint32_t> NpcManager::tickRespawns(float deltaSeconds) {
   (void)deltaSeconds;
   std::vector<uint32_t> respawned;
-  if (!db_ || !db_->isConnected()) return respawned;
+  const auto now = std::chrono::system_clock::now();
 
-  const auto now = std::chrono::steady_clock::now();
+  std::lock_guard<std::mutex> lock(mu_);
+  for (auto& inst : instances_) {
+    if (!inst.isDead) continue;
+    if (inst.respawnAt.time_since_epoch().count() == 0) continue;
+    if (now < inst.respawnAt) continue;
 
-  {
-    std::lock_guard<std::mutex> lock(mu_);
-    for (auto& inst : instances_) {
-      if (!inst.isDead || inst.respawnAt.time_since_epoch().count() == 0) continue;
-      if (now < inst.respawnAt) continue;
-
-      inst.isDead = false;
-      inst.currentHealth = inst.maxHealth;
-      inst.currentMana = inst.maxMana;
-      inst.respawnAt = {};
-      respawned.push_back(inst.npcInstanceId);
-
-      const std::string idStr = std::to_string(inst.npcInstanceId);
-      db_->executePreparedInsert(
-          "UPDATE npc_instances SET current_health = ?, current_mana = ?, is_dead = 0, respawn_at = NULL "
-          "WHERE npc_instance_id = ?",
-          {std::to_string(inst.currentHealth), std::to_string(inst.currentMana), idStr});
+    const uint32_t id = inst.npcInstanceId;
+    if (respawnInstance(inst)) {
+      respawned.push_back(id);
     }
   }
 

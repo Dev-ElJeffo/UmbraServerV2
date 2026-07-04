@@ -10,6 +10,7 @@ add_library(umbra_zone STATIC
   ReactionEngine.cpp
   ExperienceService.cpp
   ExpZoneManager.cpp
+  QuestProgressService.cpp
   MovementServer.hpp
   MovementProtocol.hpp
   SpatialGrid.hpp
@@ -19,6 +20,7 @@ add_library(umbra_zone STATIC
   CombatCoreEngine.hpp
   CharacterStateLoader.hpp
   ReactionEngine.hpp
+  QuestProgressService.hpp
 )
 
 target_link_libraries(umbra_zone

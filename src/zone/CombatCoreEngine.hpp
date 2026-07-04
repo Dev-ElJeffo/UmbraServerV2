@@ -4,6 +4,7 @@
 #include "zone/NpcManager.hpp"
 #include "zone/CharacterStateLoader.hpp"
 #include "zone/ReactionEngine.hpp"
+#include "zone/QuestProgressService.hpp"
 #include "SkillService.hpp"
 #include "CombatCalculator.hpp"
 #include "database/MySQLConnector.hpp"
@@ -160,7 +161,8 @@ private:
   /** Opcode 104 action=0 para jogador: targetType=0, enrich e broadcast. */
   void broadcastPlayerSkillBuffApply(SkillBuffSyncPayload& sync);
   void loadSkillAnimPaths(uint32_t skillId, std::string& anim, std::string& vfx, std::string& sfx);
-  void handleNpcDamageResult(uint32_t npcInstanceId, int32_t applied, bool npcDied);
+  void handleNpcDamageResult(uint32_t npcInstanceId, int32_t applied, bool npcDied,
+                             uint32_t killerPlayerId = 0);
   int32_t computeDoubleBonus(const Combat::CharacterState& attacker,
                              const Combat::CharacterState& defender, bool haveAttacker,
                              int32_t firstHitAbs) const;
@@ -174,6 +176,7 @@ private:
   std::unique_ptr<NpcManager> npcManager_;
   std::unique_ptr<CharacterStateLoader> stateLoader_;
   std::unique_ptr<ReactionEngine> reactionEngine_;
+  std::unique_ptr<QuestProgressService> questProgressService_;
   std::unordered_map<uint32_t, Zone::BasicAttackDef> basicAttacksByClass_;
   std::mutex basicCdMu_;
   std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> basicAttackReadyAt_;

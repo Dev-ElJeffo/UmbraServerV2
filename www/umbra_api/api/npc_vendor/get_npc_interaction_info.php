@@ -51,6 +51,14 @@ try {
     }
 
     $inst = $ctx['instance'];
+    $questOfferCount = 0;
+    $qh = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'helpers' . DIRECTORY_SEPARATOR . 'quest_helper.php';
+    if (is_readable($qh)) {
+        require_once $qh;
+        $questOfferCount = questCountOffersForNpc($pdo, (int)$inst['npc_template_id']);
+    }
+    $hasQuestDialog = !empty($inst['has_quest_dialog']) || $questOfferCount > 0;
+
     echo json_encode([
         'success' => true,
         'npc_instance_id' => (int)$inst['npc_instance_id'],
@@ -59,7 +67,8 @@ try {
         'dialog_title' => $inst['dialog_title'] ?? '',
         'dialog_text' => $inst['dialog_text'] ?? '',
         'has_vendor' => !empty($inst['has_vendor']),
-        'has_quest_dialog' => !empty($inst['has_quest_dialog']),
+        'has_quest_dialog' => $hasQuestDialog,
+        'quest_offer_count' => $questOfferCount,
         'is_attackable' => !empty($inst['is_attackable']),
         'interaction_radius' => (float)$inst['interaction_radius'],
         'vendor_id' => (int)($inst['vendor_id'] ?? 0),

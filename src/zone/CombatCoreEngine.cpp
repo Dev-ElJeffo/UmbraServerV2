@@ -1,6 +1,7 @@
 #include "zone/CombatCoreEngine.hpp"
 #include "zone/MovementServer.hpp"
 #include "zone/CombatRange.hpp"
+#include "zone/QuestProgressService.hpp"
 #include "SkillTypes.hpp"
 #include "core/Logger.hpp"
 #include <nlohmann/json.hpp>
@@ -69,6 +70,7 @@ bool CombatCoreEngine::initialize(uint32_t zoneId,
   reactionEngine_ = std::make_unique<ReactionEngine>();
   reactionEngine_->setDatabase(db_);
   reactionEngine_->setCombatEngine(this);
+  questProgressService_ = std::make_unique<QuestProgressService>(db_, zoneId_);
 
   if (!loadBasicAttacks()) {
     Core::Logger::getInstance().warn("[CombatCoreEngine] basic_attacks não carregadas (tabela ausente?)");
@@ -513,7 +515,7 @@ void CombatCoreEngine::tickNpcDots() {
       evt.reason = static_cast<uint8_t>(CombatReason::Dot);
       evt.isCrit = 0;
       broadcastNpcCombatEvent(evt);
-      handleNpcDamageResult(inst.npcInstanceId, applied, npcDied);
+      handleNpcDamageResult(inst.npcInstanceId, applied, npcDied, inst.sourcePlayerId);
     }
     if (npcDied) {
       // Remove DOTs restantes deste NPC.
@@ -653,6 +655,11 @@ bool CombatCoreEngine::spawnNpcInstance(uint32_t npcInstanceId) {
     if (!npcManager_->findInstance(npcInstanceId)) return false;
   }
   if (const NpcRuntimeInstance* inst = npcManager_->findInstance(npcInstanceId)) {
+    if (inst->isDead) {
+      Core::Logger::getInstance().warn("[CombatCoreEngine] spawn bloqueado: NPC {} está morto (aguardando respawn)",
+                                       npcInstanceId);
+      return false;
+    }
     broadcastNpcSpawnToAll(*inst);
     Core::Logger::getInstance().info("[CombatCoreEngine] hot spawn NPC instance {} broadcast", npcInstanceId);
     return true;
@@ -684,9 +691,17 @@ void CombatCoreEngine::broadcastNpcDespawnToAll(uint32_t npcInstanceId, uint8_t 
   movementServer_->broadcastToAll(encodeNpcDespawnNotify(p));
 }
 
-void CombatCoreEngine::handleNpcDamageResult(uint32_t npcInstanceId, int32_t applied, bool npcDied) {
+void CombatCoreEngine::handleNpcDamageResult(uint32_t npcInstanceId, int32_t applied, bool npcDied,
+                                             uint32_t killerPlayerId) {
   if (applied == 0 && !npcDied) return;
   if (npcDied) {
+    if (questProgressService_ && killerPlayerId > 0) {
+      const NpcRuntimeInstance* victim = npcManager_->findInstance(npcInstanceId);
+      if (victim) {
+        questProgressService_->onNpcKilled(killerPlayerId, victim->npcInstanceId, victim->templateId,
+                                           victim->zoneId);
+      }
+    }
     {
       std::lock_guard<std::mutex> lock(npcBuffsMu_);
       npcBuffs_.erase(std::remove_if(npcBuffs_.begin(), npcBuffs_.end(),
@@ -706,6 +721,7 @@ void CombatCoreEngine::handleNpcDamageResult(uint32_t npcInstanceId, int32_t app
 void CombatCoreEngine::sendNpcSnapshotToClient(uint32_t clientId) {
   if (!movementServer_ || !npcManager_) return;
   for (const auto& inst : npcManager_->getAllInstances()) {
+    if (inst.isDead) continue;
     movementServer_->sendBinaryToClient(clientId, encodeNpcSpawnNotify(npcManager_->toSpawnPayload(inst)));
   }
 }
@@ -1620,7 +1636,7 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
       evt.isCrit = isCrit ? 1 : 0;
       evt.isDouble = isDouble ? 1 : 0;
       broadcastNpcCombatEvent(evt);
-      handleNpcDamageResult(payload.targetId, applied, npcDied);
+      handleNpcDamageResult(payload.targetId, applied, npcDied, sourcePlayerId);
       if (isDouble) {
         Core::Logger::getInstance().info(
             "[CombatCoreEngine] DOUBLE player={} targetType={} target={} totalDamage={} skill={}",
@@ -1843,7 +1859,7 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
       evt.isCrit = isCrit ? 1 : 0;
       evt.isDouble = isDouble ? 1 : 0;
       broadcastNpcCombatEvent(evt);
-      handleNpcDamageResult(payload.targetId, applied, npcDied);
+      handleNpcDamageResult(payload.targetId, applied, npcDied, sourcePlayerId);
       if (isDouble) {
         Core::Logger::getInstance().info(
             "[CombatCoreEngine] DOUBLE player={} targetType={} target={} totalDamage={} skill=0",
