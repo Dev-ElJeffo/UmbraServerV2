@@ -302,8 +302,9 @@ Journal completo (tecla **J**).
 | `BTN_Active` | Button | **Recomendado** | Aba de quests ativas/prontas |
 | `BTN_Completed` | Button | **Recomendado** | Aba de quests já concluídas (`CachedJournal.Completed`) |
 | `Text_QuestTitle` | Text Block | Recomendado | Título da quest selecionada |
-| `Text_QuestBody` | Text Block | Recomendado | Descrição |
-| `VBox_Objectives` | Vertical Box | Recomendado | Objetivos com progresso |
+| `Text_QuestBody` | Text Block | Opcional | Legado — o C++ colapsa e usa `VBox_Objectives` |
+| `VBox_Objectives` | Vertical Box | **Obrigatório** | Descrição + objetivos (preenchido pelo C++) |
+| `VBox_Rewards` | Vertical Box | **Recomendado** | Recompensas com ícone + nome do item |
 | `BTN_TurnIn` | Button | **Recomendado** | Entregar — visível só quando status `ready` (itens/objetivos OK) |
 | `BTN_Abandon` | Button | Opcional | Abandonar quest ativa ou pronta |
 | `Btn_Close` | Button | Recomendado | Fecha via `CloseQuestJournal` |
@@ -337,12 +338,16 @@ Se vazio, o C++ usa `UUmbraQuestEntryWidget` diretamente.
 ├── Painel esquerdo
 │   ├── HBox: BTN_Active | BTN_Completed
 │   └── Scroll_QuestList (~35%)
-└── Painel direito
-    ├── Text_QuestTitle
-    ├── Text_QuestBody
-    ├── VBox_Objectives
-    └── HBox: BTN_TurnIn | BTN_Abandon
+└── Painel direito (VerticalBox — filhos com slot Auto, exceto Scroll Fill)
+    ├── Text_QuestTitle                    (Auto)
+    ├── Scroll_QuestDetail                 (Fill) — opcional mas recomendado
+    │   └── VerticalBox
+    │       ├── VBox_Objectives            (Auto) — corpo + objetivos
+    │       └── VBox_Rewards               (Auto) — ícone + nome do item
+    └── HBox: BTN_TurnIn | BTN_Abandon     (Auto)
 ```
+
+> **Evitar sobreposição:** não use **Fill** em `Text_QuestBody`, `VBox_Objectives` e `VBox_Rewards` ao mesmo tempo no mesmo painel sem Scroll. O C++ colapsa `Text_QuestBody` e renderiza tudo em `VBox_Objectives` + `VBox_Rewards`.
 
 ### 9.5 Event Graph
 
@@ -365,17 +370,34 @@ Abre quando `turn_in_quest` retorna `needs_reward_choice: true`.
 | Nome exato | Tipo UE | Obrigatório | Função |
 |------------|---------|-------------|--------|
 | `Text_Title` | Text Block | Opcional | Título ("Escolha sua recompensa") |
-| `VBox_Choices` | Vertical Box | Recomendado | Labels das opções (preenchido pelo C++) |
-| `BTN_ConfirmReward` | Button | Recomendado | Confirma → `ChooseQuestReward` |
+| `Text_SelectedItem` | Text Block | **Recomendado** | Mostra `Item selecionado: {nome}` após clique |
+| `VBox_Choices` | Vertical Box | Recomendado | Linhas `WBP_QuestRewardChoiceEntry` (ícone clicável) |
+| `BTN_ConfirmReward` | Button | Recomendado | Confirma → `ChooseQuestReward` (desabilitado até selecionar) |
+
+### 10.1.1 WBP_QuestRewardChoiceEntry
+
+| Campo | Valor |
+|-------|-------|
+| **Asset** | `Content/Widgets/UI/Quest/WBP_QuestRewardChoiceEntry` |
+| **Parent Class** | `UmbraQuestRewardChoiceEntryWidget` |
+| **Class Default no picker** | `Quest Reward Choice Entry Class` → `WBP_QuestRewardChoiceEntry` |
+
+| Nome exato | Tipo UE | Função |
+|------------|---------|--------|
+| `Btn_Select` | Button | Clique → seleciona a recompensa |
+| `Image_Icon` | Image | Ícone do item (`ItemIconsDataTable` no GI) |
+| `Text_Name` | Text Block | Nome do item / Gold / EXP |
+| `Text_Qty` | Text Block | Quantidade (se > 1) |
+| `Border_Highlight` | Border | Destaque da opção selecionada |
+
+> Sem WBP, o C++ monta uma linha mínima em runtime (fallback).
 
 ### 10.2 Escolha da opção
 
-O C++ define `SelectedChoiceId` como a **primeira opção** ao abrir. Para permitir troca:
+1. Clique numa linha em `VBox_Choices` → `Text_SelectedItem` atualiza e `BTN_ConfirmReward` hababilita.
+2. `BTN_ConfirmReward` chama `ChooseQuestReward` com o `choice_id` selecionado.
 
-1. Adicione botões/radio no Designer para cada opção **ou**
-2. No Event Graph, ao clicar numa opção, chame `Select Choice` (`ChoiceId` = `reward_id` da API).
-
-`BTN_ConfirmReward` usa o `SelectedChoiceId` atual.
+Não é mais necessário wiring manual no Event Graph para a seleção básica.
 
 ### 10.3 Event Graph
 
@@ -398,8 +420,9 @@ Tracker minimizável no HUD (até 3 quests ativas).
 | Nome exato | Tipo UE | Obrigatório | Função |
 |------------|---------|-------------|--------|
 | `Panel_Expanded` | Border / Overlay / qualquer Widget | Recomendado | Painel expandido (oculto quando minimizado) |
-| `VBox_ActiveQuests` | Vertical Box | Recomendado | Até 3 quests: título + objetivo atual |
-| `Text_MinimizedSummary` | Text Block | Recomendado | Modo compacto: ex. `Quests: 2` |
+| `VBox_QuestLines` | Vertical Box | **Recomendado** | Só linhas dinâmicas — **único** container que o C++ limpa |
+| `VBox_ActiveQuests` | Vertical Box | Legado | Fallback se `VBox_QuestLines` ausente — **não** coloque botões aqui |
+| `Text_MinimizedSummary` | Text Block | Recomendado | Modo compacto: ex. `Quests: 2` (fora de `Panel_Expanded`) |
 | `Btn_ToggleMinimize` | Button | Recomendado | Alterna minimizado / expandido |
 | `Btn_OpenJournal` | Button | Opcional | Chama `OpenQuestJournal` no GI |
 
@@ -408,18 +431,18 @@ Tracker minimizável no HUD (até 3 quests ativas).
 ```
 [ Anchor: top-left ou abaixo da barra de EXP ]
 
-Modo expandido (Panel_Expanded):
-├── Btn_ToggleMinimize  "−"
-├── VBox_ActiveQuests
-│   ├── (TextBlock) título quest 1
-│   ├── (TextBlock) objetivo quest 1
-│   └── ...
-└── Btn_OpenJournal  "J — Diário"
+Modo expandido (Panel_Expanded — VerticalBox):
+├── VBox_QuestLines          (Auto) ← título + TODOS os objetivos por quest
+└── HorizontalBox_Tabs       (Auto) ← botões FIXOS (nunca dentro de VBox_QuestLines)
+    ├── Btn_ToggleMinimize
+    └── Btn_OpenJournal
 
-Modo minimizado:
+Modo minimizado (root, fora de Panel_Expanded):
 ├── Btn_ToggleMinimize  "+"
 └── Text_MinimizedSummary  "Quests: N"
 ```
+
+> **Erro comum:** botões dentro de `VBox_ActiveQuests` / `VBox_QuestLines` somem após o primeiro refresh do journal. Mantenha botões como **irmãos** de `VBox_QuestLines`, não filhos dele.
 
 ### 11.3 Comportamento C++
 
@@ -588,7 +611,11 @@ sequenceDiagram
 | HUD não atualiza | Tracker fora do `WBP_PlayerHUD` | §12 |
 | Kill não progride | Zone server sem rebuild / SQL não rodado | §1 e §3 |
 | `Btn_Quest` oculto | Sem `has_quest_dialog` e sem ofertas | Rodar seed SQL |
-| Picker sempre dá 1ª recompensa | Sem UI de seleção | §10.2 — chamar `SelectChoice` |
+| HUD some ao minimizar e não volta | `Btn_ToggleMinimize` dentro de `Panel_Expanded` que era colapsado inteiro | Manter botão fora do conteúdo ou usar `VBox_QuestLines` dedicado; recompilar C++ |
+| HUD só 1 objetivo | Versão antiga usava só `current_objective` | Recompilar — agora lista `detail.objectives` |
+| Textos sobrepostos no journal | Fill em vários TextBlocks no mesmo painel | §9.4 — Scroll + slot Auto; adicionar `VBox_Rewards` |
+| Recompensa mostra `Item #id` | API sem `item_name` ou GI sem DataTable de ícones | SQL com JOIN; `ItemIconsDataTable` no GI |
+| Picker confirma sem escolher | Sem clique na opção | §10 — clicar ícone/linha antes de confirmar |
 
 ---
 
@@ -610,5 +637,6 @@ sequenceDiagram
 | `UUmbraQuestEntryWidget` | `UI/UmbraQuestEntryWidget.h` |
 | `UUmbraQuestHudTrackerWidget` | `UI/UmbraQuestHudTrackerWidget.h` |
 | `UUmbraQuestRewardPickerWidget` | `UI/UmbraQuestRewardPickerWidget.h` |
+| `UUmbraQuestRewardChoiceEntryWidget` | `UI/UmbraQuestRewardChoiceEntryWidget.h` |
 | `UUmbraQuestAreaTrackerComponent` | `Components/UmbraQuestAreaTrackerComponent.h` |
 | `UUmbraGameInstance` (HTTP quests) | `Core/UmbraGameInstance.h` |

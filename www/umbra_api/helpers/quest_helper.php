@@ -86,10 +86,13 @@ function questLoadObjectives(PDO $pdo, int $quest_id): array
 function questLoadRewards(PDO $pdo, int $quest_id): array
 {
     $stmt = $pdo->prepare('
-        SELECT reward_id, reward_type, amount, item_template_id, quantity, choice_group_id, sort_order
-        FROM quest_rewards
-        WHERE quest_id = ?
-        ORDER BY sort_order ASC, reward_id ASC
+        SELECT qr.reward_id, qr.reward_type, qr.amount, qr.item_template_id, qr.quantity,
+               qr.choice_group_id, qr.sort_order,
+               it.item_name, it.icon_path
+        FROM quest_rewards qr
+        LEFT JOIN item_templates it ON it.item_id = qr.item_template_id
+        WHERE qr.quest_id = ?
+        ORDER BY qr.sort_order ASC, qr.reward_id ASC
     ');
     $stmt->execute([$quest_id]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -98,10 +101,13 @@ function questLoadRewards(PDO $pdo, int $quest_id): array
 function questLoadRewardChoices(PDO $pdo, int $quest_id): array
 {
     $stmt = $pdo->prepare('
-        SELECT choice_id, choice_group_id, label, reward_type, amount, item_template_id, quantity, sort_order
-        FROM quest_reward_choices
-        WHERE quest_id = ?
-        ORDER BY choice_group_id ASC, sort_order ASC, choice_id ASC
+        SELECT qrc.choice_id, qrc.choice_group_id, qrc.label, qrc.reward_type, qrc.amount,
+               qrc.item_template_id, qrc.quantity, qrc.sort_order,
+               it.item_name, it.icon_path
+        FROM quest_reward_choices qrc
+        LEFT JOIN item_templates it ON it.item_id = qrc.item_template_id
+        WHERE qrc.quest_id = ?
+        ORDER BY qrc.choice_group_id ASC, qrc.sort_order ASC, qrc.choice_id ASC
     ');
     $stmt->execute([$quest_id]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -125,6 +131,8 @@ function questFormatRewardRow(array $row): array
         'reward_type' => $row['reward_type'] ?? '',
         'amount' => (int)($row['amount'] ?? 0),
         'item_template_id' => isset($row['item_template_id']) ? (int)$row['item_template_id'] : 0,
+        'item_name' => $row['item_name'] ?? '',
+        'icon_path' => $row['icon_path'] ?? '',
         'quantity' => (int)($row['quantity'] ?? 1),
         'choice_group_id' => isset($row['choice_group_id']) ? (int)$row['choice_group_id'] : 0,
         'label' => $row['label'] ?? '',
