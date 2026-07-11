@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "SocketServer.hpp"
 #include "core/Logger.hpp"
 #include <cstring>

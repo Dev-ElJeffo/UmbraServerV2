@@ -524,7 +524,7 @@ struct CooldownEntry {
     int64_t getRemainingMs() const {
         auto now = std::chrono::steady_clock::now();
         auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(expiresAt - now);
-        return std::max(0LL, remaining.count());
+        return std::max(static_cast<int64_t>(0), static_cast<int64_t>(remaining.count()));
     }
 };
 

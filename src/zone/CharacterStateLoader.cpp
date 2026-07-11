@@ -302,7 +302,7 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
 
       nlohmann::json virtualSnap;
       virtualSnap["target_stat"] = item.value("target_stat", std::string{});
-      virtualSnap["value_flat"] = item.contains("value_flat") ? item["value_flat"] : item.value("value", 0);
+      virtualSnap["value_flat"] = item.contains("value_flat") ? item["value_flat"].get<int>() : item.value("value", 0);
       virtualSnap["value_percent"] = item.value("value_percent", 0);
       virtualSnap["effect_type"] = item.value("type", item.value("effect_type", std::string{}));
       applyBuffSnapshot(virtualSnap, 1);

@@ -66,7 +66,11 @@ class MovementSessionAuth {
     auto opt = db_->executePreparedScalar(
         "SELECT id FROM players WHERE id = ? AND account_id = ? LIMIT 1",
         {std::to_string(playerId), std::to_string(accountId)});
-    return opt.has_value() && !opt->empty();
+    if (opt.has_value() && !opt->empty()) return true;
+    const auto rows = db_->executeQuery(
+        "SELECT id FROM players WHERE id = " + std::to_string(playerId) +
+        " AND account_id = " + std::to_string(accountId) + " LIMIT 1");
+    return !rows.empty() && !rows[0].empty();
   }
 
   /** Retorna clientId anterior da mesma conta (0 se nenhum) para kick com mensagem. */
@@ -90,6 +94,14 @@ class MovementSessionAuth {
 
     auto dbSvOpt = db_->executePreparedScalar(
         "SELECT session_version FROM accounts WHERE id = ? LIMIT 1", {std::to_string(accountId)});
+    if (!dbSvOpt || dbSvOpt->empty()) {
+      // Fallback: prepared scalar pode falhar em colunas INT remotas (MySQL 8.4).
+      const auto rows = db_->executeQuery(
+          "SELECT session_version FROM accounts WHERE id = " + std::to_string(accountId) + " LIMIT 1");
+      if (!rows.empty() && !rows[0].empty()) {
+        dbSvOpt = rows[0][0];
+      }
+    }
     if (!dbSvOpt || dbSvOpt->empty()) {
       rejectClient(clientId, SessionRevokeReason::InvalidToken, "Conta nao encontrada.");
       return false;

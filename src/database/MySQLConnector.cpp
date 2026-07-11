@@ -2,9 +2,150 @@
 #include "core/Logger.hpp"
 #include "core/Utils.hpp"
 #include <mysql.h>
+#include <cctype>
+#include <chrono>
 #include <cstring>
 #include <memory>
-#include <chrono>
+#include <string>
+
+namespace {
+
+constexpr unsigned long kResultColumnBuf = 4096;
+constexpr unsigned long kClientMaxPacket = 64UL * 1024UL * 1024UL;
+
+bool isUnsignedIntegerParam(const std::string& value) {
+  if (value.empty()) return false;
+  for (unsigned char ch : value) {
+    if (!std::isdigit(ch)) return false;
+  }
+  return true;
+}
+
+void applyMysqlClientOptions(MYSQL* mysql, const Umbra::Database::MySQLConnector::Config& config) {
+  unsigned int timeout = config.connectionTimeout;
+  mysql_options(mysql, MYSQL_OPT_CONNECT_TIMEOUT, &timeout);
+  mysql_options(mysql, MYSQL_OPT_RECONNECT, &config.autoReconnect);
+  unsigned long maxPacket = kClientMaxPacket;
+  mysql_options(mysql, MYSQL_OPT_MAX_ALLOWED_PACKET, &maxPacket);
+}
+
+struct PreparedParamBind {
+  std::vector<MYSQL_BIND> binds;
+  std::vector<unsigned long> lengths;
+  std::vector<long long> longValues;
+};
+
+struct PreparedResultBind {
+  std::vector<MYSQL_BIND> binds;
+  std::vector<std::vector<char>> stringBuffers;
+  std::vector<unsigned long> lengths;
+  std::vector<long long> longValues;
+  std::vector<char> isNull;
+  std::vector<bool> isInteger;
+  std::vector<bool> isUnsigned;
+};
+
+bool isIntegerMysqlType(enum enum_field_types type) {
+  switch (type) {
+    case MYSQL_TYPE_TINY:
+    case MYSQL_TYPE_SHORT:
+    case MYSQL_TYPE_LONG:
+    case MYSQL_TYPE_INT24:
+    case MYSQL_TYPE_LONGLONG:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool bindPreparedResults(MYSQL_RES* meta, PreparedResultBind& storage, std::string& errorOut) {
+  const unsigned int numFields = mysql_num_fields(meta);
+  if (numFields == 0) return true;
+
+  MYSQL_FIELD* fields = mysql_fetch_fields(meta);
+  if (!fields) {
+    errorOut = "mysql_fetch_fields failed";
+    return false;
+  }
+
+  storage.binds.assign(numFields, {});
+  storage.stringBuffers.assign(numFields, {});
+  storage.lengths.assign(numFields, 0);
+  storage.longValues.assign(numFields, 0);
+  storage.isNull.assign(numFields, 0);
+  storage.isInteger.assign(numFields, false);
+  storage.isUnsigned.assign(numFields, false);
+
+  for (unsigned int i = 0; i < numFields; ++i) {
+    MYSQL_BIND& bind = storage.binds[i];
+    memset(&bind, 0, sizeof(MYSQL_BIND));
+    bind.is_null = reinterpret_cast<bool*>(&storage.isNull[i]);
+    bind.length = &storage.lengths[i];
+
+    if (isIntegerMysqlType(fields[i].type)) {
+      storage.isInteger[i] = true;
+      storage.isUnsigned[i] = (fields[i].flags & UNSIGNED_FLAG) != 0;
+      bind.buffer_type = MYSQL_TYPE_LONGLONG;
+      bind.buffer = &storage.longValues[i];
+      bind.is_unsigned = storage.isUnsigned[i] ? 1 : 0;
+    } else {
+      storage.stringBuffers[i].assign(kResultColumnBuf, 0);
+      bind.buffer_type = MYSQL_TYPE_STRING;
+      bind.buffer = storage.stringBuffers[i].data();
+      bind.buffer_length = kResultColumnBuf;
+    }
+  }
+  return true;
+}
+
+std::string readPreparedResultCell(const PreparedResultBind& storage, unsigned int column) {
+  if (storage.isNull[column]) return "";
+  if (storage.isInteger[column]) {
+    if (storage.isUnsigned[column]) {
+      return std::to_string(static_cast<unsigned long long>(storage.longValues[column]));
+    }
+    return std::to_string(storage.longValues[column]);
+  }
+  return std::string(storage.stringBuffers[column].data(), storage.lengths[column]);
+}
+
+bool bindPreparedParams(MYSQL_STMT* stmt, const std::vector<std::string>& params,
+                        PreparedParamBind& storage, std::string& errorOut) {
+  const unsigned long paramCount = mysql_stmt_param_count(stmt);
+  if (paramCount != params.size()) {
+    errorOut = "Param count mismatch: expected " + std::to_string(paramCount) +
+               " got " + std::to_string(params.size());
+    return false;
+  }
+  if (paramCount == 0) return true;
+
+  storage.binds.assign(paramCount, {});
+  storage.lengths.assign(paramCount, 0);
+  storage.longValues.assign(paramCount, 0);
+  for (unsigned long i = 0; i < paramCount; ++i) {
+    if (isUnsignedIntegerParam(params[i])) {
+      storage.binds[i].buffer_type = MYSQL_TYPE_LONGLONG;
+      storage.longValues[i] = std::stoll(params[i]);
+      storage.binds[i].buffer = &storage.longValues[i];
+      storage.binds[i].is_unsigned = 1;
+      storage.binds[i].is_null = nullptr;
+    } else {
+      storage.binds[i].buffer_type = MYSQL_TYPE_STRING;
+      storage.binds[i].buffer = const_cast<char*>(params[i].c_str());
+      storage.lengths[i] = static_cast<unsigned long>(params[i].size());
+      storage.binds[i].buffer_length = storage.lengths[i];
+      storage.binds[i].length = &storage.lengths[i];
+      storage.binds[i].is_null = nullptr;
+    }
+  }
+  if (mysql_stmt_bind_param(stmt, storage.binds.data()) != 0) {
+    errorOut = std::string(mysql_stmt_error(stmt));
+    return false;
+  }
+  return true;
+}
+
+}  // namespace
 
 namespace Umbra {
 namespace Database {
@@ -41,9 +182,7 @@ bool MySQLConnector::createPooledConnection(PooledConnection& conn) {
     return false;
   }
 
-  unsigned int timeout = config_.connectionTimeout;
-  mysql_options(mysql, MYSQL_OPT_CONNECT_TIMEOUT, &timeout);
-  mysql_options(mysql, MYSQL_OPT_RECONNECT, &config_.autoReconnect);
+  applyMysqlClientOptions(mysql, config_);
 
   MYSQL* result = mysql_real_connect(
     mysql, config_.host.c_str(), config_.username.c_str(),
@@ -127,9 +266,7 @@ bool MySQLConnector::connect() {
     return false;
   }
 
-  unsigned int timeout = config_.connectionTimeout;
-  mysql_options(mysql, MYSQL_OPT_CONNECT_TIMEOUT, &timeout);
-  mysql_options(mysql, MYSQL_OPT_RECONNECT, &config_.autoReconnect);
+  applyMysqlClientOptions(mysql, config_);
 
   MYSQL* result = mysql_real_connect(
     mysql, config_.host.c_str(), config_.username.c_str(),
@@ -370,20 +507,10 @@ bool MySQLConnector::executePreparedInsert(const std::string& query, const std::
     if (paramCount != params.size()) {
       logError("Param count mismatch: expected " + std::to_string(paramCount) + " got " + std::to_string(params.size()));
     } else if (paramCount > 0) {
-      std::vector<MYSQL_BIND> binds(paramCount);
-      std::vector<unsigned long> lengths(paramCount);
-      memset(binds.data(), 0, sizeof(MYSQL_BIND) * paramCount);
-
-      for (unsigned long i = 0; i < paramCount; ++i) {
-        binds[i].buffer_type = MYSQL_TYPE_STRING;
-        binds[i].buffer = const_cast<char*>(params[i].c_str());
-        lengths[i] = static_cast<unsigned long>(params[i].size());
-        binds[i].length = &lengths[i];
-        binds[i].is_null = nullptr;
-      }
-
-      if (mysql_stmt_bind_param(stmt, binds.data()) != 0) {
-        logError("Bind failed: " + std::string(mysql_stmt_error(stmt)));
+      PreparedParamBind paramBind;
+      std::string bindError;
+      if (!bindPreparedParams(stmt, params, paramBind, bindError)) {
+        logError("Bind failed: " + bindError);
       } else if (mysql_stmt_execute(stmt) != 0) {
         logError("Execute failed: " + std::string(mysql_stmt_error(stmt)));
       } else {
@@ -451,28 +578,11 @@ std::vector<std::vector<std::string>> MySQLConnector::executePreparedQuery(
   }
 
   unsigned long paramCount = mysql_stmt_param_count(stmt);
-  if (paramCount != params.size()) {
-    logError("Param count mismatch");
-    mysql_stmt_close(stmt);
-    if (usedPool) releaseConnection(idx);
-    return results;
-  }
-
   if (paramCount > 0) {
-    std::vector<MYSQL_BIND> binds(paramCount);
-    std::vector<unsigned long> lengths(paramCount);
-    memset(binds.data(), 0, sizeof(MYSQL_BIND) * paramCount);
-
-    for (unsigned long i = 0; i < paramCount; ++i) {
-      binds[i].buffer_type = MYSQL_TYPE_STRING;
-      binds[i].buffer = const_cast<char*>(params[i].c_str());
-      lengths[i] = static_cast<unsigned long>(params[i].size());
-      binds[i].length = &lengths[i];
-      binds[i].is_null = nullptr;
-    }
-
-    if (mysql_stmt_bind_param(stmt, binds.data()) != 0) {
-      logError("Bind failed: " + std::string(mysql_stmt_error(stmt)));
+    PreparedParamBind paramBind;
+    std::string bindError;
+    if (!bindPreparedParams(stmt, params, paramBind, bindError)) {
+      logError("Bind failed: " + bindError);
       mysql_stmt_close(stmt);
       if (usedPool) releaseConnection(idx);
       return results;
@@ -493,23 +603,18 @@ std::vector<std::vector<std::string>> MySQLConnector::executePreparedQuery(
     return results;
   }
 
-  unsigned int numFields = mysql_num_fields(meta);
-  std::vector<MYSQL_BIND> resultBinds(numFields);
-  std::vector<std::vector<char>> buffers(numFields, std::vector<char>(1024, 0));
-  std::vector<unsigned long> resultLengths(numFields, 0);
-  std::vector<bool> isNullVec(numFields, false);
-  std::vector<char> isNull(numFields, 0);
-  memset(resultBinds.data(), 0, sizeof(MYSQL_BIND) * numFields);
-
-  for (unsigned int i = 0; i < numFields; ++i) {
-    resultBinds[i].buffer_type = MYSQL_TYPE_STRING;
-    resultBinds[i].buffer = buffers[i].data();
-    resultBinds[i].buffer_length = 1024;
-    resultBinds[i].length = &resultLengths[i];
-    resultBinds[i].is_null = reinterpret_cast<bool*>(&isNull[i]);
+  const unsigned int numFields = mysql_num_fields(meta);
+  PreparedResultBind resultBind;
+  std::string resultBindError;
+  if (!bindPreparedResults(meta, resultBind, resultBindError)) {
+    logError("Bind result setup failed: " + resultBindError);
+    mysql_free_result(meta);
+    mysql_stmt_close(stmt);
+    if (usedPool) releaseConnection(idx);
+    return results;
   }
 
-  if (mysql_stmt_bind_result(stmt, resultBinds.data()) != 0) {
+  if (mysql_stmt_bind_result(stmt, resultBind.binds.data()) != 0) {
     logError("Bind result failed: " + std::string(mysql_stmt_error(stmt)));
     mysql_free_result(meta);
     mysql_stmt_close(stmt);
@@ -521,12 +626,9 @@ std::vector<std::vector<std::string>> MySQLConnector::executePreparedQuery(
 
   while (mysql_stmt_fetch(stmt) == 0) {
     std::vector<std::string> row;
+    row.reserve(numFields);
     for (unsigned int i = 0; i < numFields; ++i) {
-      if (isNull[i]) {
-        row.emplace_back("");
-      } else {
-        row.emplace_back(buffers[i].data(), resultLengths[i]);
-      }
+      row.emplace_back(readPreparedResultCell(resultBind, i));
     }
     results.push_back(std::move(row));
   }

@@ -175,7 +175,11 @@ public:
         return;
       }
       if (sessionAuthEnabled_ && !sessionAuth_.isAuthenticated(cid)) {
-        revokeAndDisconnectClient(cid, SessionRevokeReason::AuthTimeout, "Autentique-se antes de jogar.");
+        // Nao kickar: o cliente UE pode enviar PlayerInfoUpdate/MoveUpdate enquanto o 109
+        // ainda esta em voo (latencia MySQL remoto). O timeout de auth (10s) ainda desconecta.
+        Umbra::Core::Logger::getInstance().warn(
+            "WS client {} msg tipo {} ignorada (aguardando SessionAuthNotify)",
+            cid, static_cast<int>(msgType));
         return;
       }
             // ========== PROCESSAR MENSAGENS SOCIAIS ==========
