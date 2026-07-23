@@ -2,13 +2,16 @@
 #include "zone/MovementServer.hpp"
 #include "zone/CombatRange.hpp"
 #include "zone/QuestProgressService.hpp"
+#include "zone/AgentDebugLog.hpp"
 #include "SkillTypes.hpp"
 #include "core/Logger.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <unordered_set>
+#include <unordered_map>
 
 namespace Umbra {
 namespace Zone {
@@ -80,8 +83,323 @@ bool CombatCoreEngine::initialize(uint32_t zoneId,
   }
 
   skillService_->loadSkillsFromDatabase();
+  preloadSkillAnimPaths();
   npcManager_->reloadFromDatabase();
+
+  if (!dbWriterRunning_.exchange(true)) {
+    dbWriter_ = std::thread([this]() { dbWriterLoop(); });
+    Core::Logger::getInstance().info("[CombatCoreEngine] db writer (write-behind) iniciado");
+  }
+
+  if (npcManager_) {
+    npcManager_->setAsyncDbWrite([this](std::string sql) { enqueueDbWrite(std::move(sql)); });
+  }
+
+  if (!workerRunning_.exchange(true)) {
+    combatWorker_ = std::thread([this]() { combatWorkerLoop(); });
+    Core::Logger::getInstance().info("[CombatCoreEngine] combat worker iniciado (fila FIFO)");
+  }
+
   return movementServer_ != nullptr;
+}
+
+CombatCoreEngine::~CombatCoreEngine() {
+  shutdown();
+}
+
+void CombatCoreEngine::shutdown() {
+  if (!workerRunning_.exchange(false)) {
+    return;
+  }
+  combatQueueCv_.notify_all();
+  if (combatWorker_.joinable()) {
+    combatWorker_.join();
+  }
+  {
+    std::lock_guard<std::mutex> lock(combatQueueMu_);
+    combatQueue_.clear();
+  }
+  Core::Logger::getInstance().info("[CombatCoreEngine] combat worker parado");
+
+  // Drenar as escritas pendentes ANTES de sair para não perder HP/mana/logs no shutdown.
+  if (dbWriterRunning_.exchange(false)) {
+    dbWriteCv_.notify_all();
+    if (dbWriter_.joinable()) {
+      dbWriter_.join();
+    }
+    Core::Logger::getInstance().info("[CombatCoreEngine] db writer parado (fila drenada)");
+  }
+}
+
+void CombatCoreEngine::enqueueDbWrite(std::string sql) {
+  if (sql.empty()) return;
+  // Fallback síncrono se o writer não estiver ativo (ex.: shutdown em progresso).
+  if (!dbWriterRunning_) {
+    if (db_ && db_->isConnected()) db_->executeQuery(sql);
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> lock(dbWriteMu_);
+    while (dbWriteQueue_.size() >= kDbWriteQueueCap) {
+      // Segurança: nunca deixar a fila crescer sem limite; descarta a mais antiga.
+      dbWriteQueue_.pop_front();
+    }
+    dbWriteQueue_.push_back(std::move(sql));
+  }
+  dbWriteCv_.notify_one();
+}
+
+void CombatCoreEngine::enqueueDbWriteFront(std::string sql) {
+  if (sql.empty()) return;
+  if (!dbWriterRunning_) {
+    if (db_ && db_->isConnected()) db_->executeQuery(sql);
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> lock(dbWriteMu_);
+    while (dbWriteQueue_.size() >= kDbWriteQueueCap) {
+      dbWriteQueue_.pop_back();  // descarta a mais nova; a de morte tem prioridade
+    }
+    dbWriteQueue_.push_front(std::move(sql));
+  }
+  dbWriteCv_.notify_one();
+}
+
+void CombatCoreEngine::dbWriterLoop() {
+  while (true) {
+    std::string sql;
+    {
+      std::unique_lock<std::mutex> lock(dbWriteMu_);
+      dbWriteCv_.wait(lock, [this]() {
+        return !dbWriterRunning_ || !dbWriteQueue_.empty();
+      });
+      if (dbWriteQueue_.empty()) {
+        if (!dbWriterRunning_) break;
+        continue;
+      }
+      sql = std::move(dbWriteQueue_.front());
+      dbWriteQueue_.pop_front();
+    }
+    try {
+      if (db_ && db_->isConnected()) db_->executeQuery(sql);
+    } catch (const std::exception& e) {
+      Core::Logger::getInstance().error("[CombatCoreEngine] db writer exceção: {}", e.what());
+    } catch (...) {
+      Core::Logger::getInstance().error("[CombatCoreEngine] db writer exceção desconhecida");
+    }
+  }
+}
+
+void CombatCoreEngine::enqueueJob(CombatJob job) {
+  if (!workerRunning_) {
+    // Fallback síncrono se o worker ainda não subiu / já parou.
+    if (job.kind == CombatJobKind::SkillCast) {
+      processSkillCast(job.sourcePlayerId, job.skill);
+    } else {
+      processBasicAttack(job.sourcePlayerId, job.basic);
+    }
+    return;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(combatQueueMu_);
+    while (combatQueue_.size() >= kCombatQueueCap) {
+      Core::Logger::getInstance().warn(
+          "[CombatCoreEngine] fila de combate cheia ({}), dropando job antigo kind={}",
+          combatQueue_.size(), static_cast<int>(combatQueue_.front().kind));
+      combatQueue_.pop_front();
+    }
+    combatQueue_.push_back(std::move(job));
+  }
+  combatQueueCv_.notify_one();
+}
+
+void CombatCoreEngine::enqueueSkillCast(uint32_t sourcePlayerId, const SkillCastPayload& payload) {
+  if (sourcePlayerId == 0 || payload.skillId == 0 || !skillService_) return;
+
+  const Combat::SkillData* skill = skillService_->getSkillData(payload.skillId);
+  if (!skill) return;
+
+  // Cooldown de um cast JÁ processado: descarta spam.
+  if (skillService_->isSkillOnCooldown(sourcePlayerId, payload.skillId)) {
+    // #region agent log
+    agentDebugLog("H-G", "CombatCoreEngine.cpp:enqueueSkillCast", "combat_enqueue_drop",
+                  std::string("{\"reason\":\"cooldown\",\"playerId\":") +
+                      std::to_string(sourcePlayerId) +
+                      ",\"skillId\":" + std::to_string(payload.skillId) + "}",
+                  "post-fix");
+    // #endregion
+    sendSkillCastRejected(sourcePlayerId, payload.skillId, SkillCastRejectReason::OnCooldown);
+    return;
+  }
+
+  CombatJob job;
+  job.kind = CombatJobKind::SkillCast;
+  job.sourcePlayerId = sourcePlayerId;
+  job.skill = payload;
+
+  if (!workerRunning_) {
+    processSkillCast(sourcePlayerId, payload);
+    return;
+  }
+
+  const uint64_t key = skillCastKey(sourcePlayerId, payload.skillId);
+  size_t queueSize = 0;
+  bool droppedDup = false;
+  {
+    std::lock_guard<std::mutex> lock(combatQueueMu_);
+    if (skillCastInFlight_.count(key) > 0) {
+      droppedDup = true;
+      queueSize = combatQueue_.size();
+    } else {
+      // Só dropa a MESMA skill já pendente/in-flight (spam). Combos com skills
+      // diferentes entram na fila — sem latest-wins (isso engolia o combo).
+      for (const auto& existing : combatQueue_) {
+        if (existing.kind == CombatJobKind::SkillCast &&
+            existing.sourcePlayerId == sourcePlayerId &&
+            existing.skill.skillId == payload.skillId) {
+          droppedDup = true;
+          break;
+        }
+      }
+      if (droppedDup) {
+        queueSize = combatQueue_.size();
+      } else {
+        while (combatQueue_.size() >= kCombatQueueCap) {
+          combatQueue_.pop_front();
+        }
+        job.enqueuedAtMs = agentNowMs();
+        combatQueue_.push_back(std::move(job));
+        queueSize = combatQueue_.size();
+      }
+    }
+  }
+  if (droppedDup) {
+    // #region agent log
+    agentDebugLog("H-Q", "CombatCoreEngine.cpp:enqueueSkillCast", "combat_enqueue_drop",
+                  std::string("{\"reason\":\"same_skill_pending\",\"playerId\":") +
+                      std::to_string(sourcePlayerId) +
+                      ",\"skillId\":" + std::to_string(payload.skillId) +
+                      ",\"queue\":" + std::to_string(queueSize) + "}",
+                  "post-fix");
+    // #endregion
+    sendSkillCastRejected(sourcePlayerId, payload.skillId, SkillCastRejectReason::CannotCast,
+                          "cast_pending");
+    return;
+  }
+  combatQueueCv_.notify_one();
+}
+
+void CombatCoreEngine::enqueueBasicAttack(uint32_t sourcePlayerId, const BasicAttackPayload& payload) {
+  if (sourcePlayerId == 0) return;
+
+  CombatJob job;
+  job.kind = CombatJobKind::BasicAttack;
+  job.sourcePlayerId = sourcePlayerId;
+  job.basic = payload;
+
+  if (!workerRunning_) {
+    processBasicAttack(sourcePlayerId, payload);
+    return;
+  }
+
+  bool droppedDup = false;
+  {
+    std::lock_guard<std::mutex> lock(combatQueueMu_);
+    for (const auto& existing : combatQueue_) {
+      if (existing.kind == CombatJobKind::BasicAttack &&
+          existing.sourcePlayerId == sourcePlayerId) {
+        droppedDup = true;
+        break;
+      }
+    }
+    if (!droppedDup) {
+      while (combatQueue_.size() >= kCombatQueueCap) {
+        combatQueue_.pop_front();
+      }
+      job.enqueuedAtMs = agentNowMs();
+      combatQueue_.push_back(std::move(job));
+    }
+  }
+  if (droppedDup) {
+    // #region agent log
+    agentDebugLog("H-G", "CombatCoreEngine.cpp:enqueueBasicAttack", "combat_enqueue_drop",
+                  std::string("{\"reason\":\"dup_basic\",\"playerId\":") +
+                      std::to_string(sourcePlayerId) + "}",
+                  "post-fix");
+    // #endregion
+    return;
+  }
+  combatQueueCv_.notify_one();
+}
+
+void CombatCoreEngine::combatWorkerLoop() {
+  while (workerRunning_) {
+    CombatJob job;
+    size_t queueBefore = 0;
+    size_t queueAfter = 0;
+    uint64_t inFlightKey = 0;
+    {
+      std::unique_lock<std::mutex> lock(combatQueueMu_);
+      combatQueueCv_.wait(lock, [this]() {
+        return !workerRunning_ || !combatQueue_.empty();
+      });
+      if (!workerRunning_ && combatQueue_.empty()) {
+        break;
+      }
+      if (combatQueue_.empty()) {
+        continue;
+      }
+      queueBefore = combatQueue_.size();
+      job = std::move(combatQueue_.front());
+      combatQueue_.pop_front();
+      queueAfter = combatQueue_.size();
+      if (job.kind == CombatJobKind::SkillCast) {
+        inFlightKey = skillCastKey(job.sourcePlayerId, job.skill.skillId);
+        skillCastInFlight_.insert(inFlightKey);
+      }
+    }
+
+    // #region agent log
+    const int64_t jobT0 = agentNowMs();
+    // #endregion
+    try {
+      if (job.kind == CombatJobKind::SkillCast) {
+        processSkillCast(job.sourcePlayerId, job.skill);
+      } else {
+        processBasicAttack(job.sourcePlayerId, job.basic);
+      }
+    } catch (const std::exception& e) {
+      Core::Logger::getInstance().error(
+          "[CombatCoreEngine] exceção no combat worker: {}", e.what());
+    } catch (...) {
+      Core::Logger::getInstance().error("[CombatCoreEngine] exceção desconhecida no combat worker");
+    }
+    if (inFlightKey != 0) {
+      std::lock_guard<std::mutex> lock(combatQueueMu_);
+      skillCastInFlight_.erase(inFlightKey);
+    }
+    // #region agent log
+    {
+      const int64_t jobMs = agentNowMs() - jobT0;
+      const int64_t queueWaitMs =
+          (job.enqueuedAtMs > 0) ? (jobT0 - job.enqueuedAtMs) : 0;
+      const uint32_t skillId =
+          (job.kind == CombatJobKind::SkillCast) ? job.skill.skillId : 0;
+      if (jobMs >= 20 || queueWaitMs >= 30 || queueBefore >= 2) {
+        agentDebugLog("H-BURST", "CombatCoreEngine.cpp:combatWorkerLoop", "combat_job_ms",
+                      std::string("{\"ms\":") + std::to_string(jobMs) +
+                          ",\"queueWaitMs\":" + std::to_string(queueWaitMs) +
+                          ",\"kind\":" + std::to_string(static_cast<int>(job.kind)) +
+                          ",\"playerId\":" + std::to_string(job.sourcePlayerId) +
+                          ",\"skillId\":" + std::to_string(skillId) +
+                          ",\"queueBefore\":" + std::to_string(queueBefore) +
+                          ",\"queueAfter\":" + std::to_string(queueAfter) + "}",
+                      "burst");
+      }
+    }
+    // #endregion
+  }
 }
 
 bool CombatCoreEngine::loadBasicAttacks() {
@@ -121,9 +439,139 @@ void CombatCoreEngine::tick(float deltaSeconds) {
     respawnTickAccum_ = 0.f;
   }
 
-  // DOT/HOT de NPC (in-memory) sao processados todo frame por steady_clock.
+  // Hits adiados por castTimeMs (antes dos DOTs).
+  tickPendingSkillHits();
+
+  // DOT/HOT + expiração de buffs de player/NPC (in-memory) — sem poll MySQL.
   tickNpcDots();
+  tickPlayerDots();
   tickNpcBuffExpirations();
+  tickBuffExpirations();
+}
+
+void CombatCoreEngine::cancelPendingSkillHit(uint32_t sourcePlayerId) {
+  if (sourcePlayerId == 0) return;
+  size_t removed = 0;
+  {
+    std::lock_guard<std::mutex> lock(pendingSkillHitsMu_);
+    const auto before = pendingSkillHits_.size();
+    pendingSkillHits_.erase(
+        std::remove_if(pendingSkillHits_.begin(), pendingSkillHits_.end(),
+                       [sourcePlayerId](const PendingSkillHit& h) {
+                         return h.sourcePlayerId == sourcePlayerId;
+                       }),
+        pendingSkillHits_.end());
+    removed = before - pendingSkillHits_.size();
+  }
+  if (removed > 0) {
+    // #region agent log
+    agentDebugLog("H-CAST-DELAY", "CombatCoreEngine.cpp:cancelPendingSkillHit", "skill_hit_cancelled",
+                  std::string("{\"playerId\":") + std::to_string(sourcePlayerId) +
+                      ",\"removed\":" + std::to_string(removed) + "}",
+                  "post-fix");
+    // #endregion
+  }
+}
+
+void CombatCoreEngine::commitPendingSkillHitsNow(uint32_t sourcePlayerId) {
+  if (sourcePlayerId == 0) return;
+  std::vector<PendingSkillHit> due;
+  {
+    std::lock_guard<std::mutex> lock(pendingSkillHitsMu_);
+    for (auto it = pendingSkillHits_.begin(); it != pendingSkillHits_.end();) {
+      if (it->sourcePlayerId == sourcePlayerId) {
+        due.push_back(*it);
+        it = pendingSkillHits_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  for (const PendingSkillHit& hit : due) {
+    // #region agent log
+    agentDebugLog("H-CAST-DELAY", "CombatCoreEngine.cpp:commitPendingSkillHitsNow",
+                  "skill_hit_committed",
+                  std::string("{\"playerId\":") + std::to_string(hit.sourcePlayerId) +
+                      ",\"skillId\":" + std::to_string(hit.payload.skillId) + "}",
+                  "post-fix");
+    // #endregion
+    finalizeSkillCastHit(hit.sourcePlayerId, hit.payload);
+  }
+}
+
+void CombatCoreEngine::scheduleSkillHit(uint32_t sourcePlayerId, const SkillCastPayload& payload,
+                                        uint32_t delayMs) {
+  PendingSkillHit hit;
+  hit.sourcePlayerId = sourcePlayerId;
+  hit.payload = payload;
+  hit.executeAtMs = agentNowMs() + static_cast<int64_t>(delayMs);
+  {
+    std::lock_guard<std::mutex> lock(pendingSkillHitsMu_);
+    pendingSkillHits_.push_back(hit);
+  }
+  // #region agent log
+  agentDebugLog("H-CAST-DELAY", "CombatCoreEngine.cpp:scheduleSkillHit", "skill_hit_deferred",
+                std::string("{\"playerId\":") + std::to_string(sourcePlayerId) +
+                    ",\"skillId\":" + std::to_string(payload.skillId) +
+                    ",\"delayMs\":" + std::to_string(delayMs) +
+                    ",\"executeAtMs\":" + std::to_string(hit.executeAtMs) + "}",
+                "post-fix");
+  // #endregion
+}
+
+void CombatCoreEngine::tickPendingSkillHits() {
+  const int64_t now = agentNowMs();
+  std::vector<PendingSkillHit> due;
+  size_t deferredOverdue = 0;
+  {
+    std::lock_guard<std::mutex> lock(pendingSkillHitsMu_);
+    // Stagger: no máximo 1 hit overdue por jogador por tick (~3ms). Se o tick
+    // atrasar, vários hits vencem juntos; disparar todos de uma vez = cascata.
+    // Os restantes ficam para o próximo pumpInbound.
+    std::unordered_set<uint32_t> firedPlayer;
+    for (auto it = pendingSkillHits_.begin(); it != pendingSkillHits_.end();) {
+      if (it->executeAtMs <= now) {
+        if (firedPlayer.count(it->sourcePlayerId) > 0) {
+          ++deferredOverdue;
+          ++it;
+          continue;
+        }
+        firedPlayer.insert(it->sourcePlayerId);
+        due.push_back(*it);
+        it = pendingSkillHits_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  // #region agent log
+  if (due.size() >= 2 || deferredOverdue > 0) {
+    int64_t maxLate = 0;
+    for (const PendingSkillHit& hit : due) {
+      maxLate = std::max(maxLate, now - hit.executeAtMs);
+    }
+    agentDebugLog("H-PENDING-FLUSH", "CombatCoreEngine.cpp:tickPendingSkillHits",
+                  "pending_hit_flush",
+                  std::string("{\"due\":") + std::to_string(due.size()) +
+                      ",\"staggerLeft\":" + std::to_string(deferredOverdue) +
+                      ",\"maxLateMs\":" + std::to_string(maxLate) + "}",
+                  "post-fix");
+  }
+  // #endregion
+  for (const PendingSkillHit& hit : due) {
+    // #region agent log
+    agentDebugLog("H-CAST-DELAY", "CombatCoreEngine.cpp:tickPendingSkillHits", "skill_hit_fire",
+                  std::string("{\"playerId\":") + std::to_string(hit.sourcePlayerId) +
+                      ",\"skillId\":" + std::to_string(hit.payload.skillId) +
+                      ",\"lateMs\":" + std::to_string(now - hit.executeAtMs) + "}",
+                  "post-fix");
+    // #endregion
+    finalizeSkillCastHit(hit.sourcePlayerId, hit.payload);
+  }
+}
+
+namespace {
+thread_local bool g_skillCastHitOnly = false;
 }
 
 void CombatCoreEngine::tickRegen(float deltaSeconds) {
@@ -131,42 +579,32 @@ void CombatCoreEngine::tickRegen(float deltaSeconds) {
   if (regenTickAccum_ < kRegenIntervalSeconds) return;
   regenTickAccum_ = 0.f;
 
-  if (!db_ || !db_->isConnected() || !movementServer_) return;
+  if (!movementServer_ || !stateLoader_) return;
 
+  // #region agent log
+  const int64_t regenT0 = agentNowMs();
+  int cacheHits = 0;
+  int cacheLoads = 0;
+  int updated = 0;
+  // #endregion
   const auto players = movementServer_->getPlayerStates();
   for (const auto& [playerId, state] : players) {
     if (state.isDead) continue;
 
-    const std::string pid = std::to_string(playerId);
-    auto healthOpt = db_->executePreparedScalar("SELECT health FROM players WHERE id = ? LIMIT 1", {pid});
-    auto manaOpt = db_->executePreparedScalar("SELECT mana FROM players WHERE id = ? LIMIT 1", {pid});
-    if (!healthOpt || !manaOpt) continue;
-
-    int32_t curHealth = 0, curMana = 0;
-    try {
-      curHealth = std::stoi(*healthOpt);
-      curMana = std::stoi(*manaOpt);
-    } catch (...) {
+    Combat::CharacterState st;
+    // NUNCA loadPlayerState/DB aqui: um cache miss no Proxmox mediu 2829ms e congelou o tick.
+    // Sem cache → pula este tick; onPlayerJoinedZone / combate reaquecem o estado.
+    if (!stateLoader_->tryGetCachedState(playerId, st)) {
       continue;
     }
+    // #region agent log
+    ++cacheHits;
+    // #endregion
 
-    // Max TOTAL (base + nivel + itens/buffs) para clamp coerente com o HUD.
-    int32_t maxHealth = 100, maxMana = 50;
-    Combat::CharacterState st;
-    if (stateLoader_ && stateLoader_->loadPlayerState(playerId, st)) {
-      maxHealth = std::max(1, st.buffedStats.maxHealth);
-      maxMana = std::max(1, st.buffedStats.maxMana);
-    } else {
-      auto maxHOpt = db_->executePreparedScalar(
-          "SELECT COALESCE(max_health, 100) FROM players WHERE id = ? LIMIT 1", {pid});
-      auto maxMOpt = db_->executePreparedScalar(
-          "SELECT COALESCE(max_mana, 50) FROM players WHERE id = ? LIMIT 1", {pid});
-      try {
-        if (maxHOpt) maxHealth = std::max(1, std::stoi(*maxHOpt));
-        if (maxMOpt) maxMana = std::max(1, std::stoi(*maxMOpt));
-      } catch (...) {
-      }
-    }
+    const int32_t curHealth = st.buffedStats.currentHealth;
+    const int32_t curMana = st.buffedStats.currentMana;
+    const int32_t maxHealth = std::max(1, st.buffedStats.maxHealth);
+    const int32_t maxMana = std::max(1, st.buffedStats.maxMana);
 
     // Mortos (health<=0) nao regeneram; respawn cuida disso.
     if (curHealth <= 0) continue;
@@ -178,34 +616,198 @@ void CombatCoreEngine::tickRegen(float deltaSeconds) {
 
     if (newHealth == curHealth && newMana == curMana) continue;  // nada mudou
 
-    db_->executePreparedInsert("UPDATE players SET health = ?, mana = ? WHERE id = ?",
-                               {std::to_string(newHealth), std::to_string(newMana), pid});
-    if (stateLoader_) stateLoader_->invalidate(playerId);
-    broadcastPlayerVitals(playerId);
+    // Cache imediato + write-behind (não bloqueia o tick da zone no MySQL remoto).
+    stateLoader_->patchCachedHealth(playerId, newHealth);
+    stateLoader_->patchCachedMana(playerId, newMana);
+    enqueueDbWrite("UPDATE players SET health = " + std::to_string(newHealth) +
+                   ", mana = " + std::to_string(newMana) +
+                   " WHERE id = " + std::to_string(playerId));
+    broadcastPlayerVitals(playerId, newHealth, newMana);
+    // #region agent log
+    ++updated;
+    // #endregion
   }
+  // #region agent log
+  // Só loga se custou algo ou houve update — evita I/O a cada 2s no idle (congelava a zone).
+  if (agentNowMs() - regenT0 >= 5 || updated > 0 || cacheLoads > 0) {
+    agentDebugLog("H-B", "CombatCoreEngine.cpp:tickRegen", "regen_tick_ms",
+                  std::string("{\"ms\":") + std::to_string(agentNowMs() - regenT0) +
+                      ",\"players\":" + std::to_string(players.size()) +
+                      ",\"cacheHits\":" + std::to_string(cacheHits) +
+                      ",\"cacheLoads\":" + std::to_string(cacheLoads) +
+                      ",\"updated\":" + std::to_string(updated) + "}");
+  }
+  // #endregion
 }
 
 void CombatCoreEngine::tickBuffExpirations() {
-  if (!skillService_) return;
-  const auto expired = skillService_->processBuffExpirations();
-  if (expired.empty()) return;
-
-  for (const auto& entry : expired) {
-    if (stateLoader_) {
-      stateLoader_->invalidate(static_cast<uint32_t>(entry.targetPlayerId));
+  std::vector<PlayerBuffInstance> expired;
+  const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+  {
+    std::lock_guard<std::mutex> lock(playerBuffsMu_);
+    if (playerBuffs_.empty()) return;
+    auto it = playerBuffs_.begin();
+    while (it != playerBuffs_.end()) {
+      if (it->expiresAtMs > 0 && it->expiresAtMs <= nowMs) {
+        expired.push_back(*it);
+        it = playerBuffs_.erase(it);
+      } else {
+        ++it;
+      }
     }
+  }
+  // #region agent log
+  if (!expired.empty()) {
+    agentDebugLog("H-C", "CombatCoreEngine.cpp:tickBuffExpirations", "buff_expire_ms",
+                  std::string("{\"ms\":0,\"expired\":") + std::to_string(expired.size()) +
+                      ",\"thread\":\"mem\"}",
+                  "post-fix");
+  }
+  // #endregion
+  for (const auto& entry : expired) {
+    const char* buffTypeStr = "BUFF";
+    if (entry.buffType == static_cast<uint8_t>(Combat::BuffType::DEBUFF)) buffTypeStr = "DEBUFF";
+    else if (entry.buffType == static_cast<uint8_t>(Combat::BuffType::SHIELD)) buffTypeStr = "SHIELD";
+    else if (entry.buffType == static_cast<uint8_t>(Combat::BuffType::AURA)) buffTypeStr = "AURA";
+    auto escapeSql = [](std::string s) {
+      std::string out;
+      for (char c : s) {
+        if (c == '\\' || c == '\'') out.push_back('\\');
+        out.push_back(c);
+      }
+      return out;
+    };
+    const std::string statKey = entry.targetStat.empty() ? "_default" : entry.targetStat;
+    enqueueDbWrite(
+        "DELETE FROM active_buffs WHERE target_player_id = " + std::to_string(entry.targetPlayerId) +
+        " AND skill_id = " + std::to_string(entry.skillId) + " AND buff_type = '" + buffTypeStr +
+        "' AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(snapshot_json, '$.target_stat')), '_default') = '" +
+        escapeSql(statKey) + "'");
     SkillBuffSyncPayload sync;
     sync.action = 1;
-    sync.targetPlayerId = static_cast<uint32_t>(entry.targetPlayerId);
+    sync.targetPlayerId = entry.targetPlayerId;
     sync.buffId = entry.buffId;
     sync.skillId = entry.skillId;
     sync.buffType = entry.buffType;
+    sync.skillName = entry.skillName;
+    sync.iconPath = entry.iconPath;
     enrichSkillBuffSyncPayload(sync);
     broadcastSkillBuffSync(sync);
-    Core::Logger::getInstance().debug(
-        "[CombatCoreEngine] buff expirado target={} buff_id={} skill={}", entry.targetPlayerId,
-        entry.buffId, entry.skillId);
   }
+}
+
+uint64_t CombatCoreEngine::applyPlayerBuffInMemory(uint32_t targetPlayerId, uint32_t sourcePlayerId,
+                                                   uint32_t skillId,
+                                                   const Combat::SkillEffect& effect,
+                                                   const Combat::SkillData& skill,
+                                                   uint8_t buffTypeCode) {
+  if (targetPlayerId == 0) return 0;
+
+  uint32_t durationMs = effect.durationMs > 0 ? effect.durationMs : skill.durationMs;
+  if (durationMs == 0) durationMs = 5000;
+  const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+  const std::string targetStat = effect.targetStat;
+  const int32_t valueSnapshot = effect.valueFlat != 0 ? effect.valueFlat : effect.valuePercent;
+
+  const char* buffTypeStr = "BUFF";
+  if (buffTypeCode == static_cast<uint8_t>(Combat::BuffType::DEBUFF)) buffTypeStr = "DEBUFF";
+  else if (buffTypeCode == static_cast<uint8_t>(Combat::BuffType::SHIELD)) buffTypeStr = "SHIELD";
+  else if (buffTypeCode == static_cast<uint8_t>(Combat::BuffType::AURA)) buffTypeStr = "AURA";
+
+  const char* effectTypeStr = "BUFF_STAT";
+  switch (effect.effectType) {
+    case Combat::EffectType::DEBUFF_STAT: effectTypeStr = "DEBUFF_STAT"; break;
+    case Combat::EffectType::SHIELD: effectTypeStr = "SHIELD"; break;
+    case Combat::EffectType::STUN: effectTypeStr = "STUN"; break;
+    case Combat::EffectType::SILENCE: effectTypeStr = "SILENCE"; break;
+    case Combat::EffectType::ROOT: effectTypeStr = "ROOT"; break;
+    case Combat::EffectType::SLOW: effectTypeStr = "SLOW"; break;
+    default: break;
+  }
+
+  uint64_t buffId = 0;
+  uint8_t stacks = 1;
+  {
+    std::lock_guard<std::mutex> lock(playerBuffsMu_);
+    // Refresh mesma skill+stat no alvo.
+    for (auto& existing : playerBuffs_) {
+      if (existing.targetPlayerId == targetPlayerId && existing.skillId == skillId &&
+          existing.targetStat == targetStat && existing.buffType == buffTypeCode) {
+        buffId = existing.buffId;
+        if (skill.isStackable && existing.stacks < skill.maxStacks) {
+          existing.stacks =
+              static_cast<uint8_t>(std::min<int>(existing.stacks + 1, skill.maxStacks));
+        }
+        stacks = existing.stacks;
+        existing.valueFlat = effect.valueFlat;
+        existing.valuePercent = effect.valuePercent;
+        existing.expiresAtMs = nowMs + static_cast<int64_t>(durationMs);
+        existing.durationMs = durationMs;
+        existing.sourcePlayerId = sourcePlayerId;
+        break;
+      }
+    }
+    if (buffId == 0) {
+      buffId = (static_cast<uint64_t>(targetPlayerId) << 32) |
+               static_cast<uint64_t>(playerBuffIdSeq_.fetch_add(1, std::memory_order_relaxed));
+      PlayerBuffInstance inst;
+      inst.targetPlayerId = targetPlayerId;
+      inst.sourcePlayerId = sourcePlayerId;
+      inst.skillId = skillId;
+      inst.buffId = buffId;
+      inst.buffType = buffTypeCode;
+      inst.stacks = 1;
+      inst.valueFlat = effect.valueFlat;
+      inst.valuePercent = effect.valuePercent;
+      inst.expiresAtMs = nowMs + static_cast<int64_t>(durationMs);
+      inst.durationMs = durationMs;
+      inst.targetStat = targetStat;
+      inst.skillName = skill.skillName;
+      inst.iconPath = skill.iconPath;
+      inst.effectTypeStr = effectTypeStr;
+      playerBuffs_.push_back(inst);
+    }
+  }
+
+  // Persistência write-behind (não bloqueia combat worker / zone).
+  auto escapeSql = [](std::string s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (char c : s) {
+      if (c == '\\' || c == '\'') out.push_back('\\');
+      out.push_back(c);
+    }
+    return out;
+  };
+  const std::string snapshotJson =
+      std::string("{\"target_stat\":\"") + escapeSql(targetStat) +
+      "\",\"value_flat\":" + std::to_string(effect.valueFlat) +
+      ",\"value_percent\":" + std::to_string(effect.valuePercent) +
+      ",\"effect_type\":\"" + effectTypeStr + "\"}";
+
+  enqueueDbWrite(
+      "DELETE FROM active_buffs WHERE target_player_id = " + std::to_string(targetPlayerId) +
+      " AND skill_id = " + std::to_string(skillId) +
+      " AND buff_type = '" + buffTypeStr +
+      "' AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(snapshot_json, '$.target_stat')), '_default') = '" +
+      escapeSql(targetStat.empty() ? "_default" : targetStat) + "'");
+  enqueueDbWrite(
+      "INSERT INTO active_buffs (target_player_id, source_player_id, skill_id, buff_type, "
+      "current_stacks, value_snapshot, expires_at, snapshot_json) VALUES (" +
+      std::to_string(targetPlayerId) + ", " + std::to_string(sourcePlayerId) + ", " +
+      std::to_string(skillId) + ", '" + buffTypeStr + "', " + std::to_string(static_cast<unsigned>(stacks)) +
+      ", " + std::to_string(valueSnapshot) +
+      ", DATE_ADD(NOW(3), INTERVAL " + std::to_string(static_cast<uint64_t>(durationMs) * 1000ULL) +
+      " MICROSECOND), '" + escapeSql(snapshotJson) + "')");
+
+  Core::Logger::getInstance().debug(
+      "[CombatCoreEngine] buff player (mem): target={} skill={} type={} stacks={} id={}",
+      targetPlayerId, skillId, buffTypeStr, static_cast<unsigned>(stacks), buffId);
+  return buffId;
 }
 
 void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t targetType,
@@ -288,12 +890,16 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
       }
 
       if (!skillService_) continue;
-      const uint64_t buffId = skillService_->applyBuff(effectPlayerId, sourcePlayerId, skill.skillId,
-                                                       eff, attacker);
+      uint8_t buffTypeCode = static_cast<uint8_t>(Combat::BuffType::BUFF);
+      if (isShield) {
+        buffTypeCode = static_cast<uint8_t>(Combat::BuffType::SHIELD);
+      } else if (isDebuffStat || isCcDebuff) {
+        buffTypeCode = static_cast<uint8_t>(Combat::BuffType::DEBUFF);
+      }
+      const uint64_t buffId =
+          applyPlayerBuffInMemory(effectPlayerId, sourcePlayerId, skill.skillId, eff, skill,
+                                  buffTypeCode);
       if (buffId > 0) {
-        if (stateLoader_) {
-          stateLoader_->invalidate(static_cast<uint32_t>(effectPlayerId));
-        }
         uint32_t durationMs = eff.durationMs > 0 ? eff.durationMs : skill.durationMs;
         if (durationMs == 0) durationMs = 5000;
         const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -303,13 +909,7 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
         sync.targetPlayerId = static_cast<uint32_t>(effectPlayerId);
         sync.buffId = buffId;
         sync.skillId = skill.skillId;
-        if (isShield) {
-          sync.buffType = static_cast<uint8_t>(Combat::BuffType::SHIELD);
-        } else if (isDebuffStat || isCcDebuff) {
-          sync.buffType = static_cast<uint8_t>(Combat::BuffType::DEBUFF);
-        } else {
-          sync.buffType = static_cast<uint8_t>(Combat::BuffType::BUFF);
-        }
+        sync.buffType = buffTypeCode;
         sync.stacks = 1;
         sync.valueFlat = eff.valueFlat;
         sync.valuePercent = eff.valuePercent;
@@ -321,7 +921,7 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
         broadcastPlayerSkillBuffApply(sync);
       } else {
         Core::Logger::getInstance().warn(
-            "[CombatCoreEngine] applyBuff retornou 0: skill={} target={} effectType={}",
+            "[CombatCoreEngine] applyPlayerBuffInMemory retornou 0: skill={} target={} effectType={}",
             skill.skillId, effectPlayerId, static_cast<int>(eff.effectType));
       }
       continue;
@@ -402,7 +1002,7 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
       sync.iconPath = skill.iconPath;
       enrichSkillBuffSyncPayload(sync);
       broadcastSkillBuffSync(sync);
-      Core::Logger::getInstance().info(
+      Core::Logger::getInstance().debug(
           "[CombatCoreEngine] DOT/HOT NPC aplicado: npc={} src={} skill={} tick={} ticks={} interval={}ms",
           targetId, sourcePlayerId, skill.skillId, inst.tickValue, ticksTotal, interval);
     }
@@ -413,53 +1013,125 @@ void CombatCoreEngine::insertPlayerDot(uint32_t sourcePlayerId, uint32_t targetP
                                        uint32_t skillId, const char* dotType, int32_t tickValue,
                                        uint32_t tickIntervalMs, uint32_t ticksTotal,
                                        const Combat::SkillData& skill) {
-  if (!db_ || !db_->isConnected()) return;
+  if (targetPlayerId == 0 || tickValue <= 0 || ticksTotal == 0) return;
 
-  const uint32_t intervalSec = std::max<uint32_t>(1, (tickIntervalMs + 999) / 1000);
-  const uint32_t totalDurationSec = intervalSec * ticksTotal;
-  const std::string intervalUsStr =
-      std::to_string(static_cast<uint64_t>(tickIntervalMs) * 1000ULL);
-
-  if (!db_->executePreparedInsert(
-      "INSERT INTO active_dots ("
-      "target_player_id, source_player_id, skill_id, dot_type, tick_value, tick_interval_ms, "
-      "ticks_remaining, next_tick_at, expires_at) VALUES ("
-      "?, ?, ?, ?, ?, ?, ?, "
-      "DATE_ADD(NOW(3), INTERVAL ? MICROSECOND), "
-      "DATE_ADD(NOW(3), INTERVAL ? SECOND))",
-      {std::to_string(targetPlayerId), std::to_string(sourcePlayerId), std::to_string(skillId),
-       dotType, std::to_string(tickValue), std::to_string(tickIntervalMs),
-       std::to_string(std::min<uint32_t>(255, ticksTotal)), intervalUsStr,
-       std::to_string(totalDurationSec)})) {
-    return;
-  }
-
-  const uint64_t dotId = db_->getLastInsertId();
-  const uint32_t durationMs = tickIntervalMs * ticksTotal;
+  const uint32_t interval = std::max<uint32_t>(200, tickIntervalMs);
+  const uint8_t ticks = static_cast<uint8_t>(std::min<uint32_t>(255, ticksTotal));
+  const uint32_t durationMs = interval * ticks;
   const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::system_clock::now().time_since_epoch())
                             .count();
+  const bool isHeal = (dotType && std::strcmp(dotType, "HEAL") == 0);
+  const uint64_t dotBuffId =
+      (static_cast<uint64_t>(targetPlayerId) << 32) |
+      static_cast<uint64_t>(playerDotIdSeq_.fetch_add(1, std::memory_order_relaxed));
 
-  if (dotId > 0 && movementServer_) {
+  PlayerDotInstance inst;
+  inst.targetPlayerId = targetPlayerId;
+  inst.sourcePlayerId = sourcePlayerId;
+  inst.skillId = skillId;
+  inst.dotBuffId = dotBuffId;
+  inst.tickValue = tickValue;
+  inst.isHeal = isHeal;
+  inst.intervalMs = interval;
+  inst.ticksRemaining = ticks;
+  inst.expiresAtMs = nowMs + static_cast<int64_t>(durationMs);
+  inst.durationMs = durationMs;
+  inst.nextTickAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(interval);
+
+  {
+    std::lock_guard<std::mutex> lock(playerDotsMu_);
+    // Substitui DOT/HOT da mesma skill no mesmo alvo (refresh).
+    playerDots_.erase(std::remove_if(playerDots_.begin(), playerDots_.end(),
+                                     [&](const PlayerDotInstance& existing) {
+                                       return existing.targetPlayerId == targetPlayerId &&
+                                              existing.skillId == skillId;
+                                     }),
+                      playerDots_.end());
+    playerDots_.push_back(inst);
+  }
+
+  // Persistência write-behind (ZoneCombatService não faz mais poll no tick).
+  const uint32_t intervalSec = std::max<uint32_t>(1, (interval + 999) / 1000);
+  const uint32_t totalDurationSec = intervalSec * ticks;
+  enqueueDbWrite(
+      "INSERT INTO active_dots ("
+      "target_player_id, source_player_id, skill_id, dot_type, tick_value, tick_interval_ms, "
+      "ticks_remaining, next_tick_at, expires_at) VALUES (" +
+      std::to_string(targetPlayerId) + ", " + std::to_string(sourcePlayerId) + ", " +
+      std::to_string(skillId) + ", '" + (isHeal ? "HEAL" : "DAMAGE") + "', " +
+      std::to_string(tickValue) + ", " + std::to_string(interval) + ", " +
+      std::to_string(static_cast<unsigned>(ticks)) +
+      ", DATE_ADD(NOW(3), INTERVAL " + std::to_string(static_cast<uint64_t>(interval) * 1000ULL) +
+      " MICROSECOND), DATE_ADD(NOW(3), INTERVAL " + std::to_string(totalDurationSec) +
+      " SECOND))");
+
+  if (movementServer_) {
     SkillBuffSyncPayload sync;
     sync.targetPlayerId = targetPlayerId;
-    sync.buffId = dotId;
+    sync.buffId = dotBuffId;
     sync.skillId = skillId;
-    const bool isHeal = dotType && std::strcmp(dotType, "HEAL") == 0;
     sync.buffType = static_cast<uint8_t>(isHeal ? Combat::BuffType::HOT : Combat::BuffType::DOT);
-    sync.stacks = static_cast<uint8_t>(std::min<uint32_t>(255, ticksTotal));
+    sync.stacks = ticks;
     sync.valueFlat = tickValue;
-    sync.expiresAtMs = nowMs + static_cast<int64_t>(durationMs);
+    sync.expiresAtMs = inst.expiresAtMs;
     sync.durationMs = durationMs;
     sync.skillName = skill.skillName;
     sync.iconPath = skill.iconPath;
     broadcastPlayerSkillBuffApply(sync);
   }
 
-  Core::Logger::getInstance().info(
-      "[CombatCoreEngine] DOT/HOT player aplicado: target={} src={} skill={} type={} tick={} ticks={} dot_id={}",
-      targetPlayerId, sourcePlayerId, skillId, dotType ? dotType : "?", tickValue, ticksTotal,
-      dotId);
+  Core::Logger::getInstance().debug(
+      "[CombatCoreEngine] DOT/HOT player (mem): target={} src={} skill={} type={} tick={} ticks={} id={}",
+      targetPlayerId, sourcePlayerId, skillId, isHeal ? "HEAL" : "DAMAGE", tickValue,
+      static_cast<unsigned>(ticks), dotBuffId);
+}
+
+void CombatCoreEngine::tickPlayerDots() {
+  if (!movementServer_) return;
+
+  std::vector<PlayerDotInstance> due;
+  std::vector<PlayerDotInstance> expiredDots;
+  const auto now = std::chrono::steady_clock::now();
+  {
+    std::lock_guard<std::mutex> lock(playerDotsMu_);
+    if (playerDots_.empty()) return;
+    for (auto& inst : playerDots_) {
+      while (inst.ticksRemaining > 0 && inst.nextTickAt <= now) {
+        due.push_back(inst);
+        inst.ticksRemaining--;
+        inst.nextTickAt += std::chrono::milliseconds(inst.intervalMs);
+        if (inst.ticksRemaining == 0) {
+          expiredDots.push_back(inst);
+        }
+      }
+    }
+    playerDots_.erase(std::remove_if(playerDots_.begin(), playerDots_.end(),
+                                     [](const PlayerDotInstance& i) { return i.ticksRemaining == 0; }),
+                      playerDots_.end());
+  }
+
+  for (const auto& inst : expiredDots) {
+    if (inst.dotBuffId == 0) continue;
+    SkillBuffSyncPayload sync;
+    sync.action = 1;
+    sync.targetType = 0;
+    sync.targetPlayerId = inst.targetPlayerId;
+    sync.buffId = inst.dotBuffId;
+    sync.skillId = inst.skillId;
+    sync.buffType =
+        static_cast<uint8_t>(inst.isHeal ? Combat::BuffType::HOT : Combat::BuffType::DOT);
+    sync.expiresAtMs = inst.expiresAtMs;
+    sync.durationMs = inst.durationMs;
+    enrichSkillBuffSyncPayload(sync);
+    broadcastSkillBuffSync(sync);
+  }
+
+  for (const auto& inst : due) {
+    const int32_t delta = inst.isHeal ? inst.tickValue : -inst.tickValue;
+    applyPlayerDamage(inst.sourcePlayerId, inst.targetPlayerId, delta,
+                      static_cast<uint8_t>(CombatReason::Dot), false, false);
+  }
 }
 
 void CombatCoreEngine::tickNpcDots() {
@@ -599,7 +1271,7 @@ uint64_t CombatCoreEngine::applyNpcSkillBuff(uint32_t npcInstanceId, uint32_t so
     broadcastSkillBuffSync(sync);
   }
 
-  Core::Logger::getInstance().info(
+  Core::Logger::getInstance().debug(
       "[CombatCoreEngine] buff NPC aplicado: npc={} src={} skill={} buffType={} duration={}ms",
       npcInstanceId, sourcePlayerId, skillId, static_cast<int>(buffType), durationMs);
   return buffId;
@@ -720,10 +1392,26 @@ void CombatCoreEngine::handleNpcDamageResult(uint32_t npcInstanceId, int32_t app
 
 void CombatCoreEngine::sendNpcSnapshotToClient(uint32_t clientId) {
   if (!movementServer_ || !npcManager_) return;
+  size_t sent = 0;
+  size_t skippedDead = 0;
   for (const auto& inst : npcManager_->getAllInstances()) {
-    if (inst.isDead) continue;
+    if (inst.isDead) {
+      ++skippedDead;
+      continue;
+    }
     movementServer_->sendBinaryToClient(clientId, encodeNpcSpawnNotify(npcManager_->toSpawnPayload(inst)));
+    ++sent;
   }
+  // #region agent log
+  agentDebugLog("H-NPC", "CombatCoreEngine.cpp:sendNpcSnapshotToClient", "npc_snapshot_sent",
+                std::string("{\"clientId\":") + std::to_string(clientId) +
+                    ",\"sent\":" + std::to_string(sent) +
+                    ",\"skippedDead\":" + std::to_string(skippedDead) + "}",
+                "mid-phase");
+  // #endregion
+  Core::Logger::getInstance().info(
+      "[CombatCoreEngine] NpcSnapshot client={} sent={} skippedDead={}", clientId, sent,
+      skippedDead);
 }
 
 void CombatCoreEngine::sendNpcBuffSnapshotForNpc(uint32_t clientId, uint32_t npcInstanceId) {
@@ -911,11 +1599,45 @@ void CombatCoreEngine::sendPlayerBuffSnapshotToClient(uint32_t clientId) {
       onlineIds.size(), sentBuffs, sentDots);
 }
 
+void CombatCoreEngine::preloadSkillAnimPaths() {
+  if (!db_ || !db_->isConnected()) return;
+
+  auto rows = db_->executePreparedQuery(
+      "SELECT skill_id, COALESCE(cast_anim_path,''), COALESCE(vfx_path,''), COALESCE(sfx_path,'') "
+      "FROM skills WHERE is_enabled = 1",
+      {});
+  std::lock_guard<std::mutex> lock(skillAnimCacheMu_);
+  size_t n = 0;
+  for (const auto& row : rows) {
+    if (row.size() < 4) continue;
+    try {
+      const uint32_t skillId = static_cast<uint32_t>(std::stoul(row[0]));
+      skillAnimCache_[skillId] = SkillAnimPaths{row[1], row[2], row[3]};
+      ++n;
+    } catch (...) {
+      continue;
+    }
+  }
+  Core::Logger::getInstance().info("[CombatCoreEngine] skill anim paths preloaded: {}", n);
+}
+
 void CombatCoreEngine::loadSkillAnimPaths(uint32_t skillId,
                                           std::string& anim, std::string& vfx, std::string& sfx) {
   anim.clear();
   vfx.clear();
   sfx.clear();
+
+  {
+    std::lock_guard<std::mutex> lock(skillAnimCacheMu_);
+    auto it = skillAnimCache_.find(skillId);
+    if (it != skillAnimCache_.end()) {
+      anim = it->second.anim;
+      vfx = it->second.vfx;
+      sfx = it->second.sfx;
+      return;
+    }
+  }
+
   if (!db_ || !db_->isConnected()) return;
 
   auto rows = db_->executePreparedQuery(
@@ -926,6 +1648,9 @@ void CombatCoreEngine::loadSkillAnimPaths(uint32_t skillId,
   anim = rows[0][0];
   vfx = rows[0][1];
   sfx = rows[0][2];
+
+  std::lock_guard<std::mutex> lock(skillAnimCacheMu_);
+  skillAnimCache_[skillId] = SkillAnimPaths{anim, vfx, sfx};
 }
 
 bool CombatCoreEngine::loadPlayerClassId(uint32_t playerId, uint32_t& outClassId) {
@@ -943,63 +1668,116 @@ bool CombatCoreEngine::loadPlayerClassId(uint32_t playerId, uint32_t& outClassId
 }
 
 uint8_t CombatCoreEngine::loadSkillRank(uint32_t playerId, uint32_t skillId) {
+  // Cache-first no hot path: o rank de todas as skills aprendidas é carregado no
+  // warm do CharacterState (skillRanks). Assim o worker não faz SELECT por cast.
+  if (stateLoader_) {
+    Combat::CharacterState st;
+    if (stateLoader_->tryGetCachedState(playerId, st)) {
+      auto rit = st.skillRanks.find(skillId);
+      if (rit != st.skillRanks.end()) {
+        return std::max<uint8_t>(1, rit->second);
+      }
+    }
+  }
+
+  const uint64_t key = (static_cast<uint64_t>(playerId) << 32) | skillId;
+  const auto now = std::chrono::steady_clock::now();
+  {
+    std::lock_guard<std::mutex> lock(rankCacheMu_);
+    auto it = rankCache_.find(key);
+    if (it != rankCache_.end() && now < it->second.expiresAt) {
+      return it->second.rank;
+    }
+  }
+
   if (!db_ || !db_->isConnected()) return 1;
   auto opt = db_->executePreparedScalar(
       "SELECT current_rank FROM player_skills WHERE player_id = ? AND skill_id = ? LIMIT 1",
       {std::to_string(playerId), std::to_string(skillId)});
-  if (!opt || opt->empty()) return 1;
-  try {
-    const int rank = std::stoi(*opt);
-    return static_cast<uint8_t>(std::max(1, rank));
-  } catch (...) {
-    return 1;
-  }
-}
-
-void CombatCoreEngine::deductPlayerMana(uint32_t playerId, int32_t cost) {
-  if (!db_ || !db_->isConnected() || cost <= 0) return;
-  db_->executePreparedInsert(
-      "UPDATE players SET mana = GREATEST(0, mana - ?) WHERE id = ?",
-      {std::to_string(cost), std::to_string(playerId)});
-  if (stateLoader_) stateLoader_->invalidate(playerId);
-  // Sincroniza a mana real no cliente (opcode 87), inclusive quando o alvo e NPC.
-  broadcastPlayerVitals(playerId);
-}
-
-void CombatCoreEngine::broadcastPlayerVitals(uint32_t playerId) {
-  if (!db_ || !movementServer_ || playerId == 0) return;
-
-  const std::string pid = std::to_string(playerId);
-  // Current sempre fresco do DB (regen/cast acabaram de gravar).
-  auto healthOpt = db_->executePreparedScalar("SELECT health FROM players WHERE id = ? LIMIT 1", {pid});
-  auto manaOpt = db_->executePreparedScalar("SELECT mana FROM players WHERE id = ? LIMIT 1", {pid});
-  if (!healthOpt || !manaOpt) return;
-
-  int32_t curHealth = 0, curMana = 0;
-  try {
-    curHealth = std::stoi(*healthOpt);
-    curMana = std::stoi(*manaOpt);
-  } catch (...) {
-    return;
-  }
-
-  // Max TOTAL (base + nivel + itens/buffs), igual ao character_info que o HUD usa.
-  int32_t maxHealth = 100, maxMana = 50;
-  Combat::CharacterState st;
-  if (stateLoader_ && stateLoader_->loadPlayerState(playerId, st)) {
-    maxHealth = std::max(1, st.buffedStats.maxHealth);
-    maxMana = std::max(1, st.buffedStats.maxMana);
-  } else {
-    auto maxHOpt = db_->executePreparedScalar(
-        "SELECT COALESCE(max_health, 100) FROM players WHERE id = ? LIMIT 1", {pid});
-    auto maxMOpt = db_->executePreparedScalar(
-        "SELECT COALESCE(max_mana, 50) FROM players WHERE id = ? LIMIT 1", {pid});
+  uint8_t rank = 1;
+  if (opt && !opt->empty()) {
     try {
-      if (maxHOpt) maxHealth = std::max(1, std::stoi(*maxHOpt));
-      if (maxMOpt) maxMana = std::max(1, std::stoi(*maxMOpt));
+      rank = static_cast<uint8_t>(std::max(1, std::stoi(*opt)));
     } catch (...) {
+      rank = 1;
     }
   }
+  {
+    std::lock_guard<std::mutex> lock(rankCacheMu_);
+    rankCache_[key] = CachedRank{rank, now + std::chrono::milliseconds(kRankCacheTtlMs)};
+  }
+  return rank;
+}
+
+void CombatCoreEngine::deductPlayerMana(uint32_t playerId, int32_t cost,
+                                        int32_t knownCurrentHealth, int32_t knownCurrentMana) {
+  if (!db_ || !db_->isConnected() || cost <= 0) return;
+  // Write-behind: persiste a mana em background (valores numéricos, injection-safe).
+  enqueueDbWrite("UPDATE players SET mana = GREATEST(0, mana - " + std::to_string(cost) +
+                 ") WHERE id = " + std::to_string(playerId));
+
+  int32_t newMana = knownCurrentMana;
+  if (knownCurrentMana >= 0) {
+    newMana = std::max(0, knownCurrentMana - cost);
+    if (stateLoader_) stateLoader_->patchCachedMana(playerId, newMana);
+  }
+
+  // Sincroniza a mana no cliente (opcode 87) sem SELECT/reload no caminho quente.
+  broadcastPlayerVitals(playerId, knownCurrentHealth, newMana);
+}
+
+void CombatCoreEngine::broadcastPlayerVitals(uint32_t playerId, int32_t knownCurrentHealth,
+                                             int32_t knownCurrentMana) {
+  if (!movementServer_ || playerId == 0) return;
+
+  int32_t curHealth = knownCurrentHealth;
+  int32_t curMana = knownCurrentMana;
+  int32_t maxHealth = 100;
+  int32_t maxMana = 50;
+  bool haveMax = false;
+
+  Combat::CharacterState st;
+  if (stateLoader_ && stateLoader_->tryGetCachedState(playerId, st)) {
+    maxHealth = std::max(1, st.buffedStats.maxHealth);
+    maxMana = std::max(1, st.buffedStats.maxMana);
+    if (curHealth < 0) curHealth = st.buffedStats.currentHealth;
+    if (curMana < 0) curMana = st.buffedStats.currentMana;
+    haveMax = true;
+  }
+
+  // Fallback DB só se não houver estado em cache / valores conhecidos.
+  if ((curHealth < 0 || curMana < 0 || !haveMax) && db_ && db_->isConnected()) {
+    const std::string pid = std::to_string(playerId);
+    if (curHealth < 0 || curMana < 0) {
+      auto healthOpt = db_->executePreparedScalar("SELECT health FROM players WHERE id = ? LIMIT 1", {pid});
+      auto manaOpt = db_->executePreparedScalar("SELECT mana FROM players WHERE id = ? LIMIT 1", {pid});
+      if (!healthOpt || !manaOpt) return;
+      try {
+        if (curHealth < 0) curHealth = std::stoi(*healthOpt);
+        if (curMana < 0) curMana = std::stoi(*manaOpt);
+      } catch (...) {
+        return;
+      }
+    }
+    if (!haveMax) {
+      if (stateLoader_ && stateLoader_->loadPlayerState(playerId, st)) {
+        maxHealth = std::max(1, st.buffedStats.maxHealth);
+        maxMana = std::max(1, st.buffedStats.maxMana);
+      } else {
+        auto maxHOpt = db_->executePreparedScalar(
+            "SELECT COALESCE(max_health, 100) FROM players WHERE id = ? LIMIT 1", {pid});
+        auto maxMOpt = db_->executePreparedScalar(
+            "SELECT COALESCE(max_mana, 50) FROM players WHERE id = ? LIMIT 1", {pid});
+        try {
+          if (maxHOpt) maxHealth = std::max(1, std::stoi(*maxHOpt));
+          if (maxMOpt) maxMana = std::max(1, std::stoi(*maxMOpt));
+        } catch (...) {
+        }
+      }
+    }
+  }
+
+  if (curHealth < 0 || curMana < 0) return;
 
   PlayerVitalsPayload vitals;
   vitals.playerId = playerId;
@@ -1019,12 +1797,14 @@ void CombatCoreEngine::writeCombatLog(uint32_t sourcePlayerId, uint32_t targetPl
                                       uint32_t skillId, const char* actionType, int32_t value,
                                       bool isCrit, int32_t overkill) {
   if (!db_ || !db_->isConnected() || targetPlayerId == 0) return;
-  db_->executePreparedInsert(
-      "INSERT INTO combat_log (source_player_id, target_player_id, skill_id, action_type, "
-      "value, is_critical, overkill, zone_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      {std::to_string(sourcePlayerId), std::to_string(targetPlayerId),
-       std::to_string(skillId), actionType, std::to_string(value),
-       isCrit ? "1" : "0", std::to_string(overkill), std::to_string(zoneId_)});
+  // Write-behind: combat_log é puramente histórico; nunca deve bloquear o cast.
+  // actionType é literal fixo do próprio servidor ("DAMAGE"/"HEAL"/"DOUBLE"), injection-safe.
+  enqueueDbWrite(
+      std::string("INSERT INTO combat_log (source_player_id, target_player_id, skill_id, "
+                  "action_type, value, is_critical, overkill, zone_id) VALUES (") +
+      std::to_string(sourcePlayerId) + ", " + std::to_string(targetPlayerId) + ", " +
+      std::to_string(skillId) + ", '" + actionType + "', " + std::to_string(value) + ", " +
+      (isCrit ? "1" : "0") + ", " + std::to_string(overkill) + ", " + std::to_string(zoneId_) + ")");
 }
 
 bool CombatCoreEngine::tryGetPlayerPosition(uint32_t playerId, float& outX, float& outY,
@@ -1159,7 +1939,9 @@ bool CombatCoreEngine::buildDefenderState(uint8_t targetType, uint32_t targetId,
   outIsPlayer = (targetType == static_cast<uint8_t>(CombatTargetType::Player));
   if (outIsPlayer) {
     if (targetId == 0 || !stateLoader_) return false;
-    return stateLoader_->loadPlayerState(targetId, out);
+    // Cache-only no worker: miss agenda warm assíncrono e aborta este hit (o alvo
+    // é aquecido no join, então miss é raro e o próximo cast já acha o cache).
+    return stateLoader_->getCachedOrWarm(targetId, out);
   }
   if (!npcManager_) return false;
   const NpcRuntimeInstance* inst = npcManager_->findInstance(targetId);
@@ -1193,7 +1975,7 @@ void CombatCoreEngine::broadcastMiss(uint8_t targetType, uint32_t targetId, uint
     combat.delta = 0;
     combat.reason = static_cast<uint8_t>(CombatReason::Miss);
     combat.isCrit = 0;
-    movementServer_->broadcastToAll(encodeCombatEventNotify(combat));
+    movementServer_->broadcastNearPlayer(sourcePlayerId, encodeCombatEventNotify(combat));
   }
 }
 
@@ -1214,26 +1996,34 @@ bool CombatCoreEngine::applyPlayerDamage(uint32_t sourcePlayerId, uint32_t targe
   if (!db_ || !movementServer_ || delta == 0) return false;
 
   const std::string tid = std::to_string(targetPlayerId);
-  auto healthOpt = db_->executePreparedScalar("SELECT health FROM players WHERE id = ? LIMIT 1", {tid});
-  auto maxHOpt = db_->executePreparedScalar(
-      "SELECT COALESCE(max_health, 100) FROM players WHERE id = ? LIMIT 1", {tid});
-  auto manaOpt = db_->executePreparedScalar("SELECT mana FROM players WHERE id = ? LIMIT 1", {tid});
-  auto maxMOpt = db_->executePreparedScalar(
-      "SELECT COALESCE(max_mana, 50) FROM players WHERE id = ? LIMIT 1", {tid});
-  if (!healthOpt || !manaOpt) return false;
 
-  int32_t curHealth = std::stoi(*healthOpt);
-  int32_t maxHealth = maxHOpt ? std::max(1, std::stoi(*maxHOpt)) : 100;
-  int32_t curMana = std::stoi(*manaOpt);
-  int32_t maxMana = maxMOpt ? std::max(1, std::stoi(*maxMOpt)) : 50;
-
+  // Preferir cache (mesmo “stale” pós-TTL): loadPlayerState após TTL faz JOIN pesado no MySQL
+  // remoto e congelava o tick (DOT/regen). Fallback a DB só se não houver entrada.
+  int32_t curHealth = -1, maxHealth = 100, curMana = -1, maxMana = 50;
+  bool haveState = false;
   if (stateLoader_) {
     Combat::CharacterState st;
-    if (stateLoader_->loadPlayerState(targetPlayerId, st)) {
+    if (stateLoader_->tryGetCachedState(targetPlayerId, st) ||
+        stateLoader_->loadPlayerState(targetPlayerId, st)) {
+      curHealth = st.buffedStats.currentHealth;
       maxHealth = std::max(1, st.buffedStats.maxHealth);
+      curMana = st.buffedStats.currentMana;
       maxMana = std::max(1, st.buffedStats.maxMana);
+      haveState = true;
     }
   }
+  if (!haveState) {
+    auto healthOpt = db_->executePreparedScalar("SELECT health FROM players WHERE id = ? LIMIT 1", {tid});
+    auto manaOpt = db_->executePreparedScalar("SELECT mana FROM players WHERE id = ? LIMIT 1", {tid});
+    if (!healthOpt || !manaOpt) return false;
+    try {
+      curHealth = std::stoi(*healthOpt);
+      curMana = std::stoi(*manaOpt);
+    } catch (...) {
+      return false;
+    }
+  }
+  if (curHealth < 0 || curMana < 0) return false;
 
   if (reactionEngine_ && delta < 0 && !inReactionDispatch_) {
     int32_t adjustedDelta = delta;
@@ -1245,17 +2035,30 @@ bool CombatCoreEngine::applyPlayerDamage(uint32_t sourcePlayerId, uint32_t targe
   const int32_t clampedHealth = std::max(0, std::min(maxHealth, curHealth + delta));
   const bool deadAfter = (clampedHealth <= 0);
 
+  // Morte: write-behind COM PRIORIDADE (frente da fila). A fonte de verdade para o
+  // respawn é o estado em memória (players_[pid].isDead + memorySaysDead), então não
+  // precisamos mais bloquear o combat worker com UPDATE síncrono. O enqueueDbWriteFront
+  // garante que o is_dead persista antes do backlog de HP (evita respawn/relog lendo
+  // estado defasado, que era o motivo do write síncrono original). HP não-letal segue
+  // write-behind normal.
   if (deadAfter) {
-    db_->executePreparedInsert(
-        "UPDATE players SET health = ?, is_dead = 1, last_death_at = CURRENT_TIMESTAMP WHERE id = ?",
-        {std::to_string(clampedHealth), tid});
+    const std::string deathSql =
+        "UPDATE players SET health = " + std::to_string(clampedHealth) +
+        ", is_dead = 1, last_death_at = CURRENT_TIMESTAMP WHERE id = " + tid;
+    enqueueDbWriteFront(deathSql);
+    // #region agent log
+    agentDebugLog("H-RESPAWN", "CombatCoreEngine.cpp:applyPlayerDamage", "death_async_write",
+                  std::string("{\"playerId\":") + std::to_string(targetPlayerId) +
+                      ",\"health\":" + std::to_string(clampedHealth) + "}",
+                  "post-fix");
+    // #endregion
   } else {
-    db_->executePreparedInsert(
-        "UPDATE players SET health = ?, is_dead = 0 WHERE id = ?",
-        {std::to_string(clampedHealth), tid});
+    enqueueDbWrite("UPDATE players SET health = " + std::to_string(clampedHealth) +
+                   ", is_dead = 0 WHERE id = " + tid);
   }
 
-  if (stateLoader_) stateLoader_->invalidate(targetPlayerId);
+  // Atualiza só o HP no cache (sem invalidate → não força reload de stats no próximo cast).
+  if (stateLoader_) stateLoader_->patchCachedHealth(targetPlayerId, clampedHealth);
 
   PlayerVitalsPayload vitals;
   vitals.playerId = targetPlayerId;
@@ -1274,16 +2077,23 @@ bool CombatCoreEngine::applyPlayerDamage(uint32_t sourcePlayerId, uint32_t targe
 void CombatCoreEngine::broadcastSkillBuffSync(const SkillBuffSyncPayload& payload) {
   if (!movementServer_) return;
   if (payload.targetType == 1) {
-    Core::Logger::getInstance().info(
-        "[CombatCoreEngine] SkillBuffSync broadcast npc={} skill={} action={} buff_id={}",
+    Core::Logger::getInstance().debug(
+        "[CombatCoreEngine] SkillBuffSync npc={} skill={} action={} buff_id={}",
         payload.targetPlayerId, payload.skillId, static_cast<int>(payload.action), payload.buffId);
+    if (npcManager_) {
+      if (const NpcRuntimeInstance* inst = npcManager_->findInstance(payload.targetPlayerId)) {
+        movementServer_->broadcastNearWorldXY(inst->x, inst->y, encodeSkillBuffSync(payload));
+        return;
+      }
+    }
+    movementServer_->broadcastToAll(encodeSkillBuffSync(payload));
   } else {
-    Core::Logger::getInstance().info(
-        "[CombatCoreEngine] SkillBuffSync broadcast player={} skill={} action={} buff_id={} type={}",
+    Core::Logger::getInstance().debug(
+        "[CombatCoreEngine] SkillBuffSync player={} skill={} action={} buff_id={} type={}",
         payload.targetPlayerId, payload.skillId, static_cast<int>(payload.action), payload.buffId,
         static_cast<int>(payload.buffType));
+    movementServer_->broadcastNearPlayer(payload.targetPlayerId, encodeSkillBuffSync(payload));
   }
-  movementServer_->broadcastToAll(encodeSkillBuffSync(payload));
 }
 
 void CombatCoreEngine::broadcastPlayerSkillBuffApply(SkillBuffSyncPayload& sync) {
@@ -1329,7 +2139,7 @@ int32_t CombatCoreEngine::computeInstantHealDelta(const Combat::SkillData& skill
   }
   if (totalHeal > 0) return totalHeal;
   if (!haveSource) {
-    return static_cast<int32_t>(std::max<uint16_t>(1, skill.powerCoef / 2));
+    return 0;  // sem estado do caster: nao inventar cura via powerCoef/2
   }
   return std::max(1, Combat::CombatCalculator::getInstance().calculateHeal(sourceState, healTarget,
                                                                            skill, rank));
@@ -1349,7 +2159,8 @@ void CombatCoreEngine::armReactionSkill(uint32_t sourcePlayerId, const Combat::S
         reactionEngine_->armReaction(sourcePlayerId, sourcePlayerId, skill.skillId, skill, eff);
     if (buffId == 0) continue;
 
-    if (stateLoader_) stateLoader_->invalidate(sourcePlayerId);
+    // Não invalidar CharacterState: reaction é in-memory (ReactionEngine).
+    // invalidate() forçava JOIN MySQL no próximo cast (~100ms no Proxmox) e gerava hitch/cascata.
 
     uint32_t durationMs = eff.durationMs > 0 ? eff.durationMs : skill.durationMs;
     if (durationMs == 0) durationMs = 30000;
@@ -1374,31 +2185,32 @@ void CombatCoreEngine::armReactionSkill(uint32_t sourcePlayerId, const Combat::S
 void CombatCoreEngine::applyReactionBuff(uint32_t targetPlayerId, uint32_t sourcePlayerId,
                                          uint32_t skillId, const Combat::SkillEffect& effect) {
   if (!skillService_) return;
-  Combat::CharacterState dummy;
+  const Combat::SkillData* skill = skillService_->getSkillData(skillId);
+  if (!skill) return;
+
+  const uint8_t buffTypeCode = static_cast<uint8_t>(Combat::BuffType::BUFF);
   const uint64_t buffId =
-      skillService_->applyBuff(targetPlayerId, sourcePlayerId, skillId, effect, dummy);
+      applyPlayerBuffInMemory(targetPlayerId, sourcePlayerId, skillId, effect, *skill, buffTypeCode);
   if (buffId == 0) return;
-  if (stateLoader_) stateLoader_->invalidate(targetPlayerId);
 
   uint32_t durationMs = effect.durationMs > 0 ? effect.durationMs : 500;
   const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::system_clock::now().time_since_epoch())
                             .count();
-  const Combat::SkillData* skill = skillService_->getSkillData(skillId);
 
   SkillBuffSyncPayload sync;
   sync.targetPlayerId = targetPlayerId;
   sync.buffId = buffId;
   sync.skillId = skillId;
-  sync.buffType = static_cast<uint8_t>(Combat::BuffType::BUFF);
+  sync.buffType = buffTypeCode;
   sync.stacks = 1;
   sync.valueFlat = effect.valueFlat;
   sync.valuePercent = effect.valuePercent;
   sync.expiresAtMs = nowMs + static_cast<int64_t>(durationMs);
   sync.durationMs = durationMs;
   sync.targetStat = effect.targetStat;
-  sync.skillName = skill ? skill->skillName : std::string{};
-  sync.iconPath = skill ? skill->iconPath : std::string{};
+  sync.skillName = skill->skillName;
+  sync.iconPath = skill->iconPath;
   broadcastPlayerSkillBuffApply(sync);
 }
 
@@ -1410,7 +2222,7 @@ void CombatCoreEngine::applyReactionCounterDamage(uint32_t ownerPlayerId, uint32
   int32_t damage = fixedDamage;
   if (damage <= 0) {
     Combat::CharacterState owner;
-    if (stateLoader_ && stateLoader_->loadPlayerState(ownerPlayerId, owner)) {
+    if (stateLoader_ && stateLoader_->getCachedOrWarm(ownerPlayerId, owner)) {
       const int32_t base = owner.buffedStats.physicalAttack;
       const int32_t pct = effect.valuePercent > 0 ? effect.valuePercent : 100;
       damage = std::max(1, base * pct / 100);
@@ -1438,42 +2250,137 @@ void CombatCoreEngine::applyDirectPlayerDamage(uint32_t sourcePlayerId, uint32_t
 
 void CombatCoreEngine::broadcastSkillCast(const SkillCastBroadcastPayload& payload) {
   if (!movementServer_) return;
-  movementServer_->broadcastToAll(encodeSkillCastBroadcast(payload));
+  // #region agent log
+  const int64_t t0 = agentNowMs();
+  // #endregion
+  movementServer_->broadcastNearPlayer(payload.sourcePlayerId, encodeSkillCastBroadcast(payload));
+  // #region agent log
+  {
+    const int64_t ms = agentNowMs() - t0;
+    if (ms >= 15) {
+      agentDebugLog("H-BURST", "CombatCoreEngine.cpp:broadcastSkillCast", "skill_bcast_ms",
+                    std::string("{\"ms\":") + std::to_string(ms) +
+                        ",\"playerId\":" + std::to_string(payload.sourcePlayerId) +
+                        ",\"skillId\":" + std::to_string(payload.skillId) + "}",
+                    "burst");
+    }
+  }
+  // #endregion
 }
 
 void CombatCoreEngine::broadcastBasicAttack(const BasicAttackBroadcastPayload& payload) {
   if (!movementServer_) return;
-  movementServer_->broadcastToAll(encodeBasicAttackBroadcast(payload));
+  movementServer_->broadcastNearPlayer(payload.sourcePlayerId, encodeBasicAttackBroadcast(payload));
 }
 
 void CombatCoreEngine::broadcastNpcCombatEvent(const NpcCombatEventPayload& payload) {
   if (!movementServer_) return;
-  movementServer_->broadcastToAll(encodeNpcCombatEvent(payload));
+  // #region agent log
+  const int64_t t0 = agentNowMs();
+  // #endregion
+  if (payload.sourcePlayerId > 0) {
+    movementServer_->broadcastNearPlayer(payload.sourcePlayerId, encodeNpcCombatEvent(payload));
+  } else if (npcManager_) {
+    if (const NpcRuntimeInstance* inst = npcManager_->findInstance(payload.npcId)) {
+      movementServer_->broadcastNearWorldXY(inst->x, inst->y, encodeNpcCombatEvent(payload));
+    } else {
+      movementServer_->broadcastToAll(encodeNpcCombatEvent(payload));
+    }
+  } else {
+    movementServer_->broadcastToAll(encodeNpcCombatEvent(payload));
+  }
+  // #region agent log
+  {
+    const int64_t ms = agentNowMs() - t0;
+    if (ms >= 15) {
+      agentDebugLog("H-BURST", "CombatCoreEngine.cpp:broadcastNpcCombatEvent", "npc_combat_bcast_ms",
+                    std::string("{\"ms\":") + std::to_string(ms) +
+                        ",\"npcId\":" + std::to_string(payload.npcId) +
+                        ",\"src\":" + std::to_string(payload.sourcePlayerId) +
+                        ",\"delta\":" + std::to_string(payload.delta) + "}",
+                    "burst");
+    }
+  }
+  // #endregion
 }
 
 void CombatCoreEngine::broadcastNpcState(const NpcStatePayload& payload) {
   if (!movementServer_) return;
-  movementServer_->broadcastToAll(encodeNpcStateUpdate(payload));
+  movementServer_->broadcastNearWorldXY(payload.x, payload.y, encodeNpcStateUpdate(payload));
+}
+
+void CombatCoreEngine::finalizeSkillCastHit(uint32_t sourcePlayerId, const SkillCastPayload& payload) {
+  struct HitOnlyGuard {
+    HitOnlyGuard() { g_skillCastHitOnly = true; }
+    ~HitOnlyGuard() { g_skillCastHitOnly = false; }
+  } guard;
+  processSkillCast(sourcePlayerId, payload);
 }
 
 void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCastPayload& payload) {
   if (!skillService_ || !movementServer_) return;
+  const bool hitOnly = g_skillCastHitOnly;
+
+  // #region agent log
+  struct CastPhaseLog {
+    int64_t t0 = agentNowMs();
+    int64_t tLoad = 0;
+    int64_t tRank = 0;
+    int64_t tAnim = 0;
+    int64_t tBcast = 0;
+    int64_t tDef = 0;
+    int64_t tHit = 0;
+    int64_t tFx = 0;
+    uint32_t playerId = 0;
+    uint32_t skillId = 0;
+    ~CastPhaseLog() {
+      const int64_t total = agentNowMs() - t0;
+      if (total < 20 && tLoad < 20 && tRank < 20 && tAnim < 20 && tBcast < 20 &&
+          tDef < 20 && tHit < 20 && tFx < 20) {
+        return;
+      }
+      agentDebugLog("H-F", "CombatCoreEngine.cpp:processSkillCast", "cast_phase_ms",
+                    std::string("{\"ms\":") + std::to_string(total) +
+                        ",\"load\":" + std::to_string(tLoad) +
+                        ",\"rank\":" + std::to_string(tRank) +
+                        ",\"anim\":" + std::to_string(tAnim) +
+                        ",\"bcast\":" + std::to_string(tBcast) +
+                        ",\"def\":" + std::to_string(tDef) +
+                        ",\"hit\":" + std::to_string(tHit) +
+                        ",\"fx\":" + std::to_string(tFx) +
+                        ",\"playerId\":" + std::to_string(playerId) +
+                        ",\"skillId\":" + std::to_string(skillId) + "}",
+                    "mid-phase");
+    }
+  } phaseLog;
+  phaseLog.playerId = sourcePlayerId;
+  phaseLog.skillId = payload.skillId;
+  // #endregion
 
   const Combat::SkillData* skill = skillService_->getSkillData(payload.skillId);
   if (!skill) {
     Core::Logger::getInstance().warn("[CombatCoreEngine] skill {} não encontrada", payload.skillId);
-    sendSkillCastRejected(sourcePlayerId, payload.skillId, SkillCastRejectReason::SkillNotFound);
+    if (!hitOnly) {
+      sendSkillCastRejected(sourcePlayerId, payload.skillId, SkillCastRejectReason::SkillNotFound);
+    }
     return;
   }
 
   Combat::CharacterState sourceState;
-  const bool haveSource = stateLoader_ && stateLoader_->loadPlayerState(sourcePlayerId, sourceState);
+  // #region agent log
+  const int64_t a0 = agentNowMs();
+  // #endregion
+  const bool haveSource = stateLoader_ && stateLoader_->getCachedOrWarm(sourcePlayerId, sourceState);
+  // #region agent log
+  phaseLog.tLoad = agentNowMs() - a0;
+  // #endregion
   if (!haveSource) {
     sourceState = Combat::CharacterState{};
     sourceState.playerId = sourcePlayerId;
     sourceState.isAlive = true;
   }
 
+  if (!hitOnly) {
   SkillCastRejectReason rangeFail = SkillCastRejectReason::Unknown;
   if (!validateSkillRange(sourcePlayerId, *skill, payload, &rangeFail)) {
     sendSkillCastRejected(sourcePlayerId, payload.skillId, rangeFail);
@@ -1494,9 +2401,17 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
                           rejectReasonFromErrorCode(validation.errorCode), validation.errorMessage);
     return;
   }
+  }  // !hitOnly
 
+  // #region agent log
+  const int64_t rankT0 = agentNowMs();
+  // #endregion
   const uint8_t rank = loadSkillRank(sourcePlayerId, payload.skillId);
+  // #region agent log
+  phaseLog.tRank = agentNowMs() - rankT0;
+  // #endregion
 
+  if (!hitOnly) {
   const bool isHealPrecheck = (skill->type == Combat::SkillType::HOT) ||
                               skillHasEffectType(*skill, Combat::EffectType::HEAL) ||
                               skillHasEffectType(*skill, Combat::EffectType::HOT);
@@ -1513,11 +2428,24 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   skillService_->startCooldown(sourcePlayerId, payload.skillId, skill->cooldownMs);
 
   if (skill->resourceType == Combat::ResourceType::MANA && skill->resourceCost > 0) {
-    deductPlayerMana(sourcePlayerId, static_cast<int32_t>(skill->resourceCost));
+    const int32_t cost = static_cast<int32_t>(skill->resourceCost);
+    const int32_t knownMana = haveSource ? sourceState.buffedStats.currentMana : -1;
+    const int32_t knownHealth = haveSource ? sourceState.buffedStats.currentHealth : -1;
+    deductPlayerMana(sourcePlayerId, cost, knownHealth, knownMana);
+    if (haveSource) {
+      sourceState.buffedStats.currentMana = std::max(0, sourceState.buffedStats.currentMana - cost);
+      sourceState.baseStats.currentMana = sourceState.buffedStats.currentMana;
+    }
   }
 
   std::string anim, vfx, sfx;
+  // #region agent log
+  const int64_t animT0 = agentNowMs();
+  // #endregion
   loadSkillAnimPaths(payload.skillId, anim, vfx, sfx);
+  // #region agent log
+  phaseLog.tAnim = agentNowMs() - animT0;
+  // #endregion
 
   SkillCastBroadcastPayload castBroadcast;
   castBroadcast.sourcePlayerId = sourcePlayerId;
@@ -1527,15 +2455,52 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   castBroadcast.castAnimPath = anim;
   castBroadcast.vfxPath = vfx;
   castBroadcast.sfxPath = sfx;
+  // #region agent log
+  {
+    static std::mutex lastEmitMu;
+    static std::unordered_map<uint32_t, int64_t> lastEmitByPlayer;
+    int64_t since = -1;
+    {
+      std::lock_guard<std::mutex> lk(lastEmitMu);
+      const int64_t now = agentNowMs();
+      auto it = lastEmitByPlayer.find(sourcePlayerId);
+      if (it != lastEmitByPlayer.end()) {
+        since = now - it->second;
+      }
+      lastEmitByPlayer[sourcePlayerId] = now;
+    }
+    agentDebugLog("H-CASCADE", "CombatCoreEngine.cpp:processSkillCast", "skill_cast_emit",
+                  std::string("{\"playerId\":") + std::to_string(sourcePlayerId) +
+                      ",\"skillId\":" + std::to_string(payload.skillId) +
+                      ",\"targetId\":" + std::to_string(payload.targetId) +
+                      ",\"castTimeMs\":" + std::to_string(skill->castTimeMs) +
+                      ",\"sinceLastEmitMs\":" + std::to_string(since) +
+                      ",\"t\":" + std::to_string(agentNowMs()) + "}",
+                  "cascade");
+  }
+  const int64_t bcastT0 = agentNowMs();
+  // #endregion
   broadcastSkillCast(castBroadcast);
+  // #region agent log
+  phaseLog.tBcast = agentNowMs() - bcastT0;
+  // #endregion
 
   if (skill->type == Combat::SkillType::REACTION) {
     armReactionSkill(sourcePlayerId, *skill);
-    Core::Logger::getInstance().info(
+    Core::Logger::getInstance().debug(
         "[CombatCoreEngine] SkillCast REACTION armada player={} skill={}", sourcePlayerId,
         payload.skillId);
     return;
   }
+
+  // Sem commit-early e sem cancel: cada hit pendente dispara no seu executeAtMs
+  // (castTimeMs). Commitar cedo comprimia vários 103 no mesmo instante (rajada/cascata);
+  // cancelar perdia dano. Deixar a fila resolver mantém os hits espaçados pelo cast time.
+  if (skill->castTimeMs > 0) {
+    scheduleSkillHit(sourcePlayerId, payload, skill->castTimeMs);
+    return;
+  }
+  }  // !hitOnly
 
   const bool isHeal = (skill->type == Combat::SkillType::HOT) ||
                       skillHasEffectType(*skill, Combat::EffectType::HEAL) ||
@@ -1555,14 +2520,33 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
 
   Combat::CharacterState defender;
   bool defenderIsPlayer = false;
+  // #region agent log
+  const int64_t defT0 = agentNowMs();
+  // #endregion
   bool haveDefender =
       buildDefenderState(payload.targetType, payload.targetId, defender, defenderIsPlayer);
+  // #region agent log
+  phaseLog.tDef = agentNowMs() - defT0;
+  // #endregion
   if (effectOnSelf || (isHeal && payload.targetId == 0)) {
     defender = sourceState;
     defenderIsPlayer = true;
     haveDefender = haveSource;
   }
 
+  // #region agent log
+  struct HitPhaseGuard {
+    CastPhaseLog& log;
+    int64_t t0 = agentNowMs();
+    bool active = true;
+    void finish() {
+      if (!active) return;
+      log.tHit = agentNowMs() - t0;
+      active = false;
+    }
+    ~HitPhaseGuard() { finish(); }
+  } hitPhase{phaseLog};
+  // #endregion
   int32_t delta = 0;
   bool isCrit = false;
   int32_t overkill = 0;
@@ -1584,15 +2568,15 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
             Combat::CombatCalculator::getInstance().calculateHitChance(sourceState, defender);
         if (!Combat::CombatCalculator::getInstance().rollHit(hitChance)) {
           broadcastMiss(payload.targetType, payload.targetId, sourcePlayerId);
-          Core::Logger::getInstance().info("[CombatCoreEngine] SkillCast MISS player={} skill={} target={}",
-                                           sourcePlayerId, payload.skillId, payload.targetId);
+          Core::Logger::getInstance().debug("[CombatCoreEngine] SkillCast MISS player={} skill={} target={}",
+                                            sourcePlayerId, payload.skillId, payload.targetId);
           return;
         }
       }
       if (defenderIsPlayer && payload.targetId > 0 && reactionEngine_ &&
           reactionEngine_->onPlayerHitReceived(payload.targetId, sourcePlayerId)) {
         broadcastMiss(payload.targetType, payload.targetId, sourcePlayerId);
-        Core::Logger::getInstance().info(
+        Core::Logger::getInstance().debug(
             "[CombatCoreEngine] SkillCast REACTION miss player={} skill={} target={}", sourcePlayerId,
             payload.skillId, payload.targetId);
         applySkillEffects(sourcePlayerId, payload.targetType, payload.targetId, *skill, sourceState,
@@ -1606,8 +2590,18 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
       delta = -bd.finalDamage;
       isCrit = (bd.critMultiplier != 100);
       overkill = bd.overkill;
+      Core::Logger::getInstance().debug(
+          "[CombatCoreEngine] SkillCast dmg player={} skill={} haveSource=1 physAtk={} magAtk={} str={} "
+          "powerCoef={} finalDamage={} crit={}",
+          sourcePlayerId, payload.skillId, sourceState.buffedStats.physicalAttack,
+          sourceState.buffedStats.magicAttack, sourceState.buffedStats.strength,
+          skill->getEffectivePowerCoef(rank), bd.finalDamage, isCrit ? 1 : 0);
     } else {
-      delta = -static_cast<int32_t>(std::max<uint16_t>(1, skill->getEffectivePowerCoef(rank) / 2));
+      Core::Logger::getInstance().warn(
+          "[CombatCoreEngine] SkillCast ABORTADO: loadPlayerState falhou player={} skill={} "
+          "(fallback powerCoef/2 desativado)",
+          sourcePlayerId, payload.skillId);
+      return;
     }
   }
 
@@ -1635,10 +2629,34 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
       evt.reason = static_cast<uint8_t>(CombatReason::Skill);
       evt.isCrit = isCrit ? 1 : 0;
       evt.isDouble = isDouble ? 1 : 0;
+      // #region agent log
+      {
+        static std::mutex dmgGapMu;
+        static std::unordered_map<uint32_t, int64_t> lastDmgByPlayer;
+        int64_t sinceDmg = -1;
+        const int64_t nowD = agentNowMs();
+        {
+          std::lock_guard<std::mutex> lk(dmgGapMu);
+          auto it = lastDmgByPlayer.find(sourcePlayerId);
+          if (it != lastDmgByPlayer.end()) {
+            sinceDmg = nowD - it->second;
+          }
+          lastDmgByPlayer[sourcePlayerId] = nowD;
+        }
+        agentDebugLog("H-CASCADE", "CombatCoreEngine.cpp:processSkillCast", "damage_emit_103",
+                      std::string("{\"playerId\":") + std::to_string(sourcePlayerId) +
+                          ",\"skillId\":" + std::to_string(payload.skillId) +
+                          ",\"npcId\":" + std::to_string(payload.targetId) +
+                          ",\"delta\":" + std::to_string(applied) +
+                          ",\"sinceLastDmgMs\":" + std::to_string(sinceDmg) +
+                          ",\"t\":" + std::to_string(nowD) + "}",
+                      "cascade");
+      }
+      // #endregion
       broadcastNpcCombatEvent(evt);
       handleNpcDamageResult(payload.targetId, applied, npcDied, sourcePlayerId);
       if (isDouble) {
-        Core::Logger::getInstance().info(
+        Core::Logger::getInstance().debug(
             "[CombatCoreEngine] DOUBLE player={} targetType={} target={} totalDamage={} skill={}",
             sourcePlayerId, payload.targetType, payload.targetId, std::abs(applied), payload.skillId);
       }
@@ -1692,7 +2710,7 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
     bool anyHealApplied = false;
     for (uint32_t tgtId : healTargets) {
       Combat::CharacterState tgtState;
-      if (!stateLoader_ || !stateLoader_->loadPlayerState(tgtId, tgtState)) {
+      if (!stateLoader_ || !stateLoader_->getCachedOrWarm(tgtId, tgtState)) {
         continue;
       }
       if (tgtState.buffedStats.currentHealth >= tgtState.buffedStats.maxHealth) {
@@ -1731,7 +2749,7 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
       writeCombatLog(sourcePlayerId, payload.targetId, payload.skillId,
                      isDouble ? "DOUBLE" : "DAMAGE", std::abs(totalDelta), isCrit, overkill);
       if (isDouble) {
-        Core::Logger::getInstance().info(
+        Core::Logger::getInstance().debug(
             "[CombatCoreEngine] DOUBLE player={} targetType={} target={} totalDamage={} skill={}",
             sourcePlayerId, payload.targetType, payload.targetId, std::abs(totalDelta),
             payload.skillId);
@@ -1740,9 +2758,16 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   }
 
   // DOT/HOT e demais efeitos persistentes da skill (effects_json).
+  // #region agent log
+  hitPhase.finish();
+  const int64_t fxT0 = agentNowMs();
+  // #endregion
   applySkillEffects(sourcePlayerId, payload.targetType, payload.targetId, *skill, sourceState, haveSource);
+  // #region agent log
+  phaseLog.tFx = agentNowMs() - fxT0;
+  // #endregion
 
-  Core::Logger::getInstance().info(
+  Core::Logger::getInstance().debug(
       "[CombatCoreEngine] SkillCast player={} skill={} rank={} targetType={} target={} delta={} crit={}",
       sourcePlayerId, payload.skillId, static_cast<int>(rank), payload.targetType, payload.targetId,
       delta, isCrit ? 1 : 0);
@@ -1751,11 +2776,14 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
 void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAttackPayload& payload) {
   if (!movementServer_) return;
 
-  uint32_t classId = 0;
-  if (!loadPlayerClassId(sourcePlayerId, classId)) {
+  Combat::CharacterState attacker;
+  const bool haveAttacker = stateLoader_ && stateLoader_->getCachedOrWarm(sourcePlayerId, attacker);
+  if (!haveAttacker || attacker.classId == 0) {
     Core::Logger::getInstance().warn("[CombatCoreEngine] class_id não encontrado para player {}", sourcePlayerId);
     return;
   }
+
+  const uint32_t classId = static_cast<uint32_t>(attacker.classId);
 
   auto it = basicAttacksByClass_.find(classId);
   if (it == basicAttacksByClass_.end()) {
@@ -1791,9 +2819,6 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
   synthetic.canCrit = true;
   synthetic.ignoresDefense = false;
 
-  Combat::CharacterState attacker;
-  const bool haveAttacker = stateLoader_ && stateLoader_->loadPlayerState(sourcePlayerId, attacker);
-
   Combat::CharacterState defender;
   bool defenderIsPlayer = false;
   const bool haveDefender =
@@ -1811,14 +2836,14 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
         Combat::CombatCalculator::getInstance().calculateHitChance(attacker, defender);
     if (!Combat::CombatCalculator::getInstance().rollHit(hitChance)) {
       broadcastMiss(payload.targetType, payload.targetId, sourcePlayerId);
-      Core::Logger::getInstance().info("[CombatCoreEngine] BasicAttack MISS player={} target={}",
+      Core::Logger::getInstance().debug("[CombatCoreEngine] BasicAttack MISS player={} target={}",
                                        sourcePlayerId, payload.targetId);
       return;
     }
     if (defenderIsPlayer && payload.targetId > 0 && reactionEngine_ &&
         reactionEngine_->onPlayerHitReceived(payload.targetId, sourcePlayerId)) {
       broadcastMiss(payload.targetType, payload.targetId, sourcePlayerId);
-      Core::Logger::getInstance().info(
+      Core::Logger::getInstance().debug(
           "[CombatCoreEngine] BasicAttack REACTION miss player={} target={}", sourcePlayerId,
           payload.targetId);
       return;
@@ -1834,8 +2859,17 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
     delta = -bd.finalDamage;
     isCrit = (bd.critMultiplier != 100);
     overkill = bd.overkill;
+    Core::Logger::getInstance().info(
+        "[CombatCoreEngine] BasicAttack dmg player={} haveAttacker=1 physAtk={} str={} powerCoef={} "
+        "defPhys={} finalDamage={} crit={}",
+        sourcePlayerId, attacker.buffedStats.physicalAttack, attacker.buffedStats.strength,
+        basic.powerCoef, defender.buffedStats.physicalDefense, bd.finalDamage, isCrit ? 1 : 0);
   } else {
-    delta = -static_cast<int32_t>(std::max<uint16_t>(1, basic.powerCoef / 2));
+    Core::Logger::getInstance().warn(
+        "[CombatCoreEngine] BasicAttack ABORTADO: loadPlayerState falhou player={} "
+        "(fallback powerCoef/2 desativado)",
+        sourcePlayerId);
+    return;
   }
 
   if (payload.targetType == static_cast<uint8_t>(CombatTargetType::Npc)) {
@@ -1861,7 +2895,7 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
       broadcastNpcCombatEvent(evt);
       handleNpcDamageResult(payload.targetId, applied, npcDied, sourcePlayerId);
       if (isDouble) {
-        Core::Logger::getInstance().info(
+        Core::Logger::getInstance().debug(
             "[CombatCoreEngine] DOUBLE player={} targetType={} target={} totalDamage={} skill=0",
             sourcePlayerId, payload.targetType, payload.targetId, std::abs(applied));
       }
@@ -1880,7 +2914,7 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
       writeCombatLog(sourcePlayerId, payload.targetId, 0, isDouble ? "DOUBLE" : "DAMAGE",
                      std::abs(totalDelta), isCrit, overkill);
       if (isDouble) {
-        Core::Logger::getInstance().info(
+        Core::Logger::getInstance().debug(
             "[CombatCoreEngine] DOUBLE player={} targetType={} target={} totalDamage={} skill=0",
             sourcePlayerId, payload.targetType, payload.targetId, std::abs(totalDelta));
       }
@@ -1893,10 +2927,45 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
 }
 
 void CombatCoreEngine::onPlayerJoinedZone(uint32_t playerId) {
-  if (!reactionEngine_ || playerId == 0) return;
+  if (playerId == 0) return;
+  // Aquece o cache de stats/HP/mana na entrada — regen e movimento não batem MySQL no 1º tick.
+  if (stateLoader_) {
+    Combat::CharacterState st;
+    stateLoader_->loadPlayerState(playerId, st);
+  }
+  syncJoinDeathState(playerId);
+  if (!reactionEngine_) return;
   reactionEngine_->reloadArmedForPlayer(playerId);
   Core::Logger::getInstance().info("[CombatCoreEngine] jogador {} entrou na zone — reações recarregadas",
                                    playerId);
+}
+
+void CombatCoreEngine::syncJoinDeathState(uint32_t playerId) {
+  if (playerId == 0 || !stateLoader_ || !movementServer_) return;
+  Combat::CharacterState st;
+  if (!stateLoader_->tryGetCachedState(playerId, st) && !stateLoader_->loadPlayerState(playerId, st)) {
+    return;
+  }
+  if (st.isAlive && st.buffedStats.currentHealth > 0) return;
+
+  // #region agent log
+  agentDebugLog("H-RESPAWN", "CombatCoreEngine.cpp:syncJoinDeathState", "join_dead_detected",
+                std::string("{\"playerId\":") + std::to_string(playerId) +
+                    ",\"hp\":" + std::to_string(st.buffedStats.currentHealth) +
+                    ",\"isAlive\":" + (st.isAlive ? "true" : "false") +
+                    ",\"maxHp\":" + std::to_string(st.buffedStats.maxHealth) + "}",
+                "post-fix");
+  // #endregion
+
+  // Login já morto: auto-respawn (senão fica 0 HP + isDead bloqueando movimento).
+  if (movementServer_->autoRespawnOnJoin(playerId)) {
+    return;
+  }
+
+  movementServer_->forcePlayerDeadState(playerId, st.buffedStats.currentHealth,
+                                        std::max(1, st.buffedStats.maxHealth),
+                                        st.buffedStats.currentMana,
+                                        std::max(1, st.buffedStats.maxMana));
 }
 
 void CombatCoreEngine::setResolvePartyMembersCallback(
@@ -1906,8 +2975,11 @@ void CombatCoreEngine::setResolvePartyMembersCallback(
 
 float CombatCoreEngine::getPlayerMovementSpeedPercent(uint32_t playerId) const {
   if (!stateLoader_ || playerId == 0) return 100.f;
+  // Hot path de movimento (~30 frames/s por cliente, na thread do cliente): usar SOMENTE
+  // o cache, nunca ir ao MySQL. Em cache miss retorna 100% (o combate popula o cache no
+  // primeiro cast/hit). Evita a tempestade de round-trips ao DB remoto que causava o lag.
   Combat::CharacterState st;
-  if (!stateLoader_->loadPlayerState(playerId, st)) return 100.f;
+  if (!stateLoader_->tryGetCachedState(playerId, st)) return 100.f;
   return static_cast<float>(std::max(50, st.buffedStats.movementSpeed));
 }
 

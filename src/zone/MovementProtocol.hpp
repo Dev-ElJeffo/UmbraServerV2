@@ -95,7 +95,8 @@ enum class MovementMsgType : uint8_t {
   LevelUpNotify = 107,                 // Servidor -> Cliente: subiu de nível
   NpcBuffSnapshotRequest = 108,        // Cliente -> Servidor: pede snapshot buffs de um NPC
   SessionAuthNotify = 109,             // Cliente -> Servidor: [msgType][tokenLen:2 LE][token:utf8]
-  SessionRevokedNotify = 110             // Servidor -> Cliente: [msgType][reason:1][msgLen:2 LE][msg:utf8]
+  SessionRevokedNotify = 110,            // Servidor -> Cliente: [msgType][reason:1][msgLen:2 LE][msg:utf8]
+  WsKeepalive = 250                      // Servidor -> Cliente: heartbeat (1 byte); cliente ignora
 };
 
 /** Motivo de revogacao de sessao WS (opcode 110) */

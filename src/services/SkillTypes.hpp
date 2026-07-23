@@ -217,6 +217,10 @@ struct CharacterState {
     // Active effects
     std::vector<ActiveBuff> activeBuffs;
     std::vector<DotInstance> activeDots;
+
+    // Rank aprendido por skill (skill_id -> current_rank), carregado no warm do
+    // estado para que loadSkillRank leia do cache e não faça SELECT no hot path.
+    std::unordered_map<uint32_t, uint8_t> skillRanks;
     
     // Shield (absorb damage)
     int32_t currentShield = 0;

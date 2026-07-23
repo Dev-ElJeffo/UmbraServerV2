@@ -55,19 +55,95 @@ void accumulateItemStats(const nlohmann::json& stats, std::unordered_map<std::st
 }  // namespace
 
 CharacterStateLoader::CharacterStateLoader(std::shared_ptr<Database::MySQLConnector> db)
-    : db_(std::move(db)) {}
+    : db_(std::move(db)) {
+  warmRunning_ = true;
+  warmThread_ = std::thread([this]() { warmLoop(); });
+}
+
+CharacterStateLoader::~CharacterStateLoader() {
+  warmRunning_ = false;
+  warmCv_.notify_all();
+  if (warmThread_.joinable()) {
+    warmThread_.join();
+  }
+}
+
+void CharacterStateLoader::requestWarm(uint32_t playerId) {
+  if (playerId == 0) return;
+  {
+    std::lock_guard<std::mutex> lock(warmMu_);
+    if (!warmPending_.insert(playerId).second) return;  // já enfileirado
+    warmQueue_.push_back(playerId);
+  }
+  warmCv_.notify_one();
+}
+
+void CharacterStateLoader::warmLoop() {
+  while (warmRunning_) {
+    uint32_t playerId = 0;
+    {
+      std::unique_lock<std::mutex> lock(warmMu_);
+      warmCv_.wait(lock, [this]() { return !warmRunning_ || !warmQueue_.empty(); });
+      if (!warmRunning_) break;
+      playerId = warmQueue_.front();
+      warmQueue_.pop_front();
+      warmPending_.erase(playerId);
+    }
+    // Carrega fora de qualquer lock; loadPlayerState popula o cache se ainda vazio.
+    Combat::CharacterState tmp;
+    loadPlayerState(playerId, tmp);
+  }
+}
+
+bool CharacterStateLoader::getCachedOrWarm(uint32_t playerId, Combat::CharacterState& out) {
+  if (tryGetCachedState(playerId, out)) return true;
+  requestWarm(playerId);
+  return false;
+}
 
 void CharacterStateLoader::invalidate(uint32_t playerId) {
   std::lock_guard<std::mutex> lock(cacheMu_);
   cache_.erase(playerId);
 }
 
+void CharacterStateLoader::patchCachedMana(uint32_t playerId, int32_t newMana) {
+  std::lock_guard<std::mutex> lock(cacheMu_);
+  auto it = cache_.find(playerId);
+  if (it == cache_.end()) return;
+  it->second.state.baseStats.currentMana = newMana;
+  it->second.state.buffedStats.currentMana = newMana;
+  // Renova TTL: patch de vital prova que o estado em memória ainda é autoritativo.
+  it->second.expiresAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(kCacheTtlMs);
+}
+
+void CharacterStateLoader::patchCachedHealth(uint32_t playerId, int32_t newHealth) {
+  std::lock_guard<std::mutex> lock(cacheMu_);
+  auto it = cache_.find(playerId);
+  if (it == cache_.end()) return;
+  it->second.state.baseStats.currentHealth = newHealth;
+  it->second.state.buffedStats.currentHealth = newHealth;
+  // Sem isso: morte deixa isAlive=false no load e respawn/patch de HP não reabilitava skills
+  // (CANNOT_CAST "Personagem não pode usar skills").
+  it->second.state.isAlive = (newHealth > 0);
+  it->second.expiresAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(kCacheTtlMs);
+}
+
+bool CharacterStateLoader::tryGetCachedState(uint32_t playerId, Combat::CharacterState& out) const {
+  std::lock_guard<std::mutex> lock(cacheMu_);
+  auto it = cache_.find(playerId);
+  if (it == cache_.end()) return false;
+  out = it->second.state;
+  return true;
+}
+
 bool CharacterStateLoader::loadPlayerState(uint32_t playerId, Combat::CharacterState& out) {
-  const auto now = std::chrono::steady_clock::now();
+  // Hot path de combate: se já há entrada em cache, NUNCA ir ao MySQL (mesmo pós-TTL).
+  // TTL forçava JOIN remoto a cada 10s e media 4s no Proxmox → fila de skills em cascata.
+  // HP/mana são patchados no cache; buffs de skill agora são in-memory no CombatCoreEngine.
   {
     std::lock_guard<std::mutex> lock(cacheMu_);
     auto it = cache_.find(playerId);
-    if (it != cache_.end() && now < it->second.expiresAt) {
+    if (it != cache_.end()) {
       out = it->second.state;
       return true;
     }
@@ -80,7 +156,8 @@ bool CharacterStateLoader::loadPlayerState(uint32_t playerId, Combat::CharacterS
 
   {
     std::lock_guard<std::mutex> lock(cacheMu_);
-    cache_[playerId] = CachedState{state, now + std::chrono::milliseconds(kCacheTtlMs)};
+    cache_[playerId] = CachedState{state, std::chrono::steady_clock::now() +
+                                              std::chrono::milliseconds(kCacheTtlMs)};
   }
   out = std::move(state);
   return true;
@@ -91,7 +168,7 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
 
   const std::string pid = std::to_string(playerId);
 
-  auto rows = db_->executePreparedQuery(
+  const char* kPlayerStateSql =
       "SELECT p.level, p.health, p.mana, p.class_id, p.pvp, "
       "COALESCE(c.base_strength,10), COALESCE(c.base_dexterity,10), COALESCE(c.base_intelligence,10), "
       "COALESCE(c.base_vitality,10), COALESCE(c.base_luck,10), "
@@ -102,14 +179,38 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
       "COALESCE(c.base_movement,0), COALESCE(c.base_critical_resistance,0), "
       "COALESCE(c.base_double_attack_rate,0), "
       "COALESCE(sp.strength_points,0), COALESCE(sp.dexterity_points,0), COALESCE(sp.intelligence_points,0), "
-      "COALESCE(sp.vitality_points,0), COALESCE(sp.luck_points,0) "
+      "COALESCE(sp.vitality_points,0), COALESCE(sp.luck_points,0), "
+      "COALESCE(p.is_dead,0) "
       "FROM players p "
       "LEFT JOIN classes c ON p.class_id = c.class_id "
       "LEFT JOIN player_stat_points sp ON sp.player_id = p.id "
-      "WHERE p.id = ? LIMIT 1",
-      {pid});
+      "WHERE p.id = ? LIMIT 1";
 
-  if (rows.empty() || rows[0].size() < 27) return false;
+  auto rows = db_->executePreparedQuery(kPlayerStateSql, {pid});
+  // Rede de segurança: se o prepared vier vazio (edge do C API em MySQL 8), cair para
+  // texto com pid numérico (injection-safe), espelhando o fallback de active_buffs abaixo.
+  if (rows.empty() || rows[0].size() < 28) {
+    const std::string textSql =
+        "SELECT p.level, p.health, p.mana, p.class_id, p.pvp, "
+        "COALESCE(c.base_strength,10), COALESCE(c.base_dexterity,10), COALESCE(c.base_intelligence,10), "
+        "COALESCE(c.base_vitality,10), COALESCE(c.base_luck,10), "
+        "COALESCE(c.base_health, p.max_health), COALESCE(c.base_mana, p.max_mana), "
+        "COALESCE(c.base_physical_attack,0), COALESCE(c.base_magic_attack,0), "
+        "COALESCE(c.base_physical_defense,0), COALESCE(c.base_magic_defense,0), "
+        "COALESCE(c.base_accuracy,0), COALESCE(c.base_dodge,0), COALESCE(c.base_critical,0), "
+        "COALESCE(c.base_movement,0), COALESCE(c.base_critical_resistance,0), "
+        "COALESCE(c.base_double_attack_rate,0), "
+        "COALESCE(sp.strength_points,0), COALESCE(sp.dexterity_points,0), COALESCE(sp.intelligence_points,0), "
+        "COALESCE(sp.vitality_points,0), COALESCE(sp.luck_points,0), "
+        "COALESCE(p.is_dead,0) "
+        "FROM players p "
+        "LEFT JOIN classes c ON p.class_id = c.class_id "
+        "LEFT JOIN player_stat_points sp ON sp.player_id = p.id "
+        "WHERE p.id = " + pid + " LIMIT 1";
+    rows = db_->executeQuery(textSql);
+  }
+
+  if (rows.empty() || rows[0].size() < 28) return false;
   const auto& r = rows[0];
 
   const int64_t level = toInt(r[0], 1);
@@ -141,6 +242,7 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
   const int64_t intPoints = toInt(r[24]);
   const int64_t vitPoints = toInt(r[25]);
   const int64_t lckPoints = toInt(r[26]);
+  const int64_t isDeadFlag = toInt(r[27]);
 
   const int64_t levelHp = level * 20;
   const int64_t levelMp = level * 20;
@@ -170,12 +272,13 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
   t["double_attack_rate"] = baseDoubleAtk;
 
   // Equipamento equipado: somar stats_json + refinement_bonus_stats.
-  auto equipRows = db_->executePreparedQuery(
+  // Texto com pid numérico (injection-safe): prepared com '?' retorna vazio neste ambiente
+  // (MySQL remoto), mesmo motivo do fallback de active_buffs. Sem texto, equipamento não soma.
+  auto equipRows = db_->executeQuery(
       "SELECT COALESCE(it.stats_json,''), COALESCE(pi.refinement_bonus_stats,'') "
       "FROM player_inventory pi "
       "INNER JOIN item_templates it ON pi.item_template_id = it.item_id "
-      "WHERE pi.player_id = ? AND pi.is_equipped = TRUE",
-      {pid});
+      "WHERE pi.player_id = " + pid + " AND pi.is_equipped = TRUE");
 
   for (const auto& er : equipRows) {
     if (er.empty()) continue;
@@ -201,10 +304,9 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
   const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::system_clock::now().time_since_epoch())
                             .count();
-  auto buffRows = db_->executePreparedQuery(
+  auto buffRows = db_->executeQuery(
       "SELECT buff_key, bonus_value FROM player_item_buffs "
-      "WHERE player_id = ? AND expires_at_ms > ?",
-      {pid, std::to_string(nowMs)});
+      "WHERE player_id = " + pid + " AND expires_at_ms > " + std::to_string(nowMs));
   for (const auto& br : buffRows) {
     if (br.size() < 2) continue;
     const std::string& key = br[0];
@@ -254,6 +356,14 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
       "SELECT buff_type, current_stacks, value_snapshot, COALESCE(snapshot_json,'') "
       "FROM active_buffs WHERE target_player_id = ? AND (expires_at > NOW(3) OR is_permanent = 1)",
       {pid});
+  // Proxmox/MySQL 8: prepared pode vir vazio por falha de bind; fallback text (playerId numérico).
+  if (skillBuffRows.empty()) {
+    skillBuffRows = db_->executeQuery(
+        "SELECT buff_type, current_stacks, value_snapshot, COALESCE(snapshot_json,'') "
+        "FROM active_buffs WHERE target_player_id = " +
+        pid + " AND (expires_at > NOW(3) OR is_permanent = 1)");
+  }
+  int skillBuffsApplied = 0;
   for (const auto& br : skillBuffRows) {
     if (br.size() < 4) continue;
     int stacks = 1;
@@ -274,21 +384,22 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
         shieldVal = static_cast<int32_t>(jsonInt(snap, "value_flat"));
       }
       totalShield += shieldVal * stacks;
+      ++skillBuffsApplied;
       continue;
     }
 
     applyBuffSnapshot(snap, stacks);
+    ++skillBuffsApplied;
   }
 
   // Passivas aprendidas com condição health_below_percent (sem linha em active_buffs).
   const int64_t healthPct = (health > 0 && baseHealth + levelHp > 0)
                                 ? (health * 100 / std::max<int64_t>(1, baseHealth + levelHp))
                                 : 100;
-  auto passiveRows = db_->executePreparedQuery(
+  auto passiveRows = db_->executeQuery(
       "SELECT s.effects_json FROM player_skills ps "
       "INNER JOIN skills s ON ps.skill_id = s.skill_id "
-      "WHERE ps.player_id = ? AND s.type_id = 2",
-      {pid});
+      "WHERE ps.player_id = " + pid + " AND s.type_id = 2");
   for (const auto& pr : passiveRows) {
     if (pr.empty() || pr[0].empty() || pr[0] == "null") continue;
     nlohmann::json effects = nlohmann::json::parse(pr[0], nullptr, false);
@@ -369,13 +480,31 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
   out.level = static_cast<int32_t>(level);
   out.baseStats = stats;
   out.buffedStats = stats;
-  out.isAlive = (health > 0);
+  out.isAlive = (health > 0) && (isDeadFlag == 0);
   out.isPvPEnabled = (pvpFlag != 0);
   out.isStunned = ccStunned;
   out.isSilenced = ccSilenced;
   out.isRooted = ccRooted;
   out.currentShield = totalShield;
   out.maxShield = totalShield;
+
+  // Ranks de todas as skills aprendidas: loadSkillRank passa a ler daqui (cache),
+  // eliminando o SELECT current_rank por skill no worker de combate.
+  auto rankRows = db_->executeQuery(
+      "SELECT skill_id, current_rank FROM player_skills WHERE player_id = " + pid);
+  for (const auto& rr : rankRows) {
+    if (rr.size() < 2) continue;
+    const int64_t sid = toInt(rr[0]);
+    if (sid <= 0) continue;
+    out.skillRanks[static_cast<uint32_t>(sid)] =
+        static_cast<uint8_t>(std::max<int64_t>(1, toInt(rr[1], 1)));
+  }
+
+  Core::Logger::getInstance().debug(
+      "[CharacterStateLoader] loaded player={} lvl={} class={} str={} physAtk={} magAtk={} "
+      "equipRows={} skillBuffs={}",
+      playerId, level, classId, stats.strength, stats.physicalAttack, stats.magicAttack,
+      equipRows.size(), skillBuffsApplied);
   return true;
 }
 

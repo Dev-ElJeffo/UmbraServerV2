@@ -3,6 +3,7 @@
 #include "zone/MovementProtocol.hpp"
 #include "database/MySQLConnector.hpp"
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -55,6 +56,10 @@ public:
 
   /** Aplica dano/cura; retorna delta aplicado. outNpcDied=true quando HP chegou a 0. */
   int32_t applyDamage(uint32_t npcInstanceId, int32_t delta, bool& outIsCrit, bool* outNpcDied = nullptr);
+
+  /** Escrita assíncrona de SQL (write-behind). Se não definido, usa DB síncrono. */
+  void setAsyncDbWrite(std::function<void(std::string)> fn) { asyncDbWrite_ = std::move(fn); }
+
   /** Processa respawns pendentes; retorna IDs que voltaram a ficar vivos. */
   std::vector<uint32_t> tickRespawns(float deltaSeconds);
 
@@ -66,8 +71,10 @@ private:
   static std::string zoneWhereClause();
   void loadInstanceFromRow(const std::vector<std::string>& row);
   bool respawnInstance(NpcRuntimeInstance& inst);
+  void persistNpcSql(const std::string& sql);
 
   std::shared_ptr<Database::MySQLConnector> db_;
+  std::function<void(std::string)> asyncDbWrite_;
   uint32_t zoneId_;
   mutable std::mutex mu_;
   std::vector<NpcRuntimeInstance> instances_;

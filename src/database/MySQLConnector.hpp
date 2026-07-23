@@ -8,6 +8,7 @@
 #include <queue>
 #include <condition_variable>
 #include <functional>
+#include <chrono>
 
 namespace Umbra {
 namespace Database {
@@ -73,6 +74,7 @@ class MySQLConnector : public IDatabaseConnector {
     void* mysql = nullptr;
     bool inUse = false;
     uint64_t lastInsertId = 0;
+    std::chrono::steady_clock::time_point lastUsed{};
   };
 
   std::vector<PooledConnection> pool_;

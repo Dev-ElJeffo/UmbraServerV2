@@ -10,7 +10,7 @@
     "max_connections": 500,
     "connection_timeout": 10,
     "auto_reconnect": true,
-    "pool_size": 5
+    "pool_size": 16
   },
   "redis": {
     "host": "localhost",

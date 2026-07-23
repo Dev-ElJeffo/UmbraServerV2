@@ -167,7 +167,7 @@ class MovementSessionAuth {
   }
 
  private:
-  static constexpr int kAuthTimeoutSeconds = 10;
+  static constexpr int kAuthTimeoutSeconds = 30;
 
   void rejectClient(uint32_t clientId, SessionRevokeReason reason, const std::string& message) {
     std::lock_guard<std::mutex> lock(mu_);

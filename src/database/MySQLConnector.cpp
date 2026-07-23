@@ -199,41 +199,60 @@ bool MySQLConnector::createPooledConnection(PooledConnection& conn) {
   mysql_autocommit(mysql, 1);
   conn.mysql = mysql;
   conn.inUse = false;
+  conn.lastUsed = std::chrono::steady_clock::now();
   return true;
 }
 
 size_t MySQLConnector::acquireConnection(uint32_t timeoutMs) {
-  std::unique_lock<std::mutex> lock(poolMutex_);
+  size_t idx = POOL_NONE;
+  std::chrono::steady_clock::time_point lastUsed{};
+  void* mysqlRaw = nullptr;
 
-  if (!poolInitialized_ || pool_.empty()) {
-    return POOL_NONE;
-  }
+  {
+    std::unique_lock<std::mutex> lock(poolMutex_);
 
-  auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
-
-  while (available_.empty()) {
-    if (poolCond_.wait_until(lock, deadline) == std::cv_status::timeout) {
-      Core::Logger::getInstance().warn("Pool: acquire timed out after {}ms", timeoutMs);
+    if (!poolInitialized_ || pool_.empty()) {
       return POOL_NONE;
     }
-  }
 
-  size_t idx = available_.front();
-  available_.pop();
-  pool_[idx].inUse = true;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
 
-  MYSQL* mysql = static_cast<MYSQL*>(pool_[idx].mysql);
-  if (mysql_ping(mysql) != 0) {
-    Core::Logger::getInstance().warn("Pool: connection {} lost, reconnecting...", idx);
-    mysql_close(mysql);
-    pool_[idx].mysql = nullptr;
-    if (!createPooledConnection(pool_[idx])) {
-      pool_[idx].inUse = false;
-      available_.push(idx);
-      poolCond_.notify_one();
-      return POOL_NONE;
+    while (available_.empty()) {
+      if (poolCond_.wait_until(lock, deadline) == std::cv_status::timeout) {
+        Core::Logger::getInstance().warn("Pool: acquire timed out after {}ms", timeoutMs);
+        return POOL_NONE;
+      }
     }
+
+    idx = available_.front();
+    available_.pop();
     pool_[idx].inUse = true;
+    lastUsed = pool_[idx].lastUsed;
+    mysqlRaw = pool_[idx].mysql;
+  }
+
+  // Ping só fora do poolMutex_ e só se a conexão ficou ociosa (>30s).
+  // Conexões quentes (uso constante em jogo) nunca pagam RTT de ping.
+  constexpr auto kIdlePingThreshold = std::chrono::seconds(30);
+  const auto now = std::chrono::steady_clock::now();
+  const bool idleTooLong =
+      (lastUsed.time_since_epoch().count() == 0) || ((now - lastUsed) > kIdlePingThreshold);
+
+  if (mysqlRaw && idleTooLong) {
+    MYSQL* mysql = static_cast<MYSQL*>(mysqlRaw);
+    if (mysql_ping(mysql) != 0) {
+      std::lock_guard<std::mutex> lock(poolMutex_);
+      Core::Logger::getInstance().warn("Pool: connection {} lost, reconnecting...", idx);
+      mysql_close(mysql);
+      pool_[idx].mysql = nullptr;
+      if (!createPooledConnection(pool_[idx])) {
+        pool_[idx].inUse = false;
+        available_.push(idx);
+        poolCond_.notify_one();
+        return POOL_NONE;
+      }
+      pool_[idx].inUse = true;
+    }
   }
 
   return idx;
@@ -243,6 +262,7 @@ void MySQLConnector::releaseConnection(size_t index) {
   std::lock_guard<std::mutex> lock(poolMutex_);
   if (index < pool_.size()) {
     pool_[index].inUse = false;
+    pool_[index].lastUsed = std::chrono::steady_clock::now();
     available_.push(index);
     poolCond_.notify_one();
   }
@@ -598,6 +618,9 @@ std::vector<std::vector<std::string>> MySQLConnector::executePreparedQuery(
 
   MYSQL_RES* meta = mysql_stmt_result_metadata(stmt);
   if (!meta) {
+    logError("Prepared query result_metadata nulo (stmt_errno=" +
+             std::to_string(mysql_stmt_errno(stmt)) + "): " +
+             std::string(mysql_stmt_error(stmt)));
     mysql_stmt_close(stmt);
     if (usedPool) releaseConnection(idx);
     return results;
@@ -622,15 +645,61 @@ std::vector<std::vector<std::string>> MySQLConnector::executePreparedQuery(
     return results;
   }
 
-  mysql_stmt_store_result(stmt);
+  if (mysql_stmt_store_result(stmt) != 0) {
+    logError("Store result failed: " + std::string(mysql_stmt_error(stmt)));
+    mysql_free_result(meta);
+    mysql_stmt_close(stmt);
+    if (usedPool) releaseConnection(idx);
+    return results;
+  }
 
-  while (mysql_stmt_fetch(stmt) == 0) {
+  // mysql_stmt_fetch retorna 0 (ok), MYSQL_NO_DATA (100, fim), 1 (erro) ou
+  // MYSQL_DATA_TRUNCATED (101, coluna nao coube no buffer). Aceitar 0 e 101:
+  // descartar 101 (comportamento antigo) fazia a linha existente sumir em silencio.
+  int fetchRc = 0;
+  while (true) {
+    fetchRc = mysql_stmt_fetch(stmt);
+    if (fetchRc != 0 && fetchRc != MYSQL_DATA_TRUNCATED) break;
+
     std::vector<std::string> row;
     row.reserve(numFields);
     for (unsigned int i = 0; i < numFields; ++i) {
-      row.emplace_back(readPreparedResultCell(resultBind, i));
+      // Coluna string cujo dado real excede o buffer fixo (stats_json, snapshot_json,
+      // effects_json, refinement_bonus_stats, ...): reler a coluna inteira com um buffer
+      // do tamanho exato via mysql_stmt_fetch_column. Zero perda de dado / sem regressao.
+      if (!resultBind.isInteger[i] && resultBind.lengths[i] > kResultColumnBuf) {
+        std::vector<char> fullBuf(resultBind.lengths[i]);
+        MYSQL_BIND rebind;
+        memset(&rebind, 0, sizeof(rebind));
+        unsigned long realLen = 0;
+        char nullFlag = 0;
+        rebind.buffer_type = MYSQL_TYPE_STRING;
+        rebind.buffer = fullBuf.data();
+        rebind.buffer_length = static_cast<unsigned long>(fullBuf.size());
+        rebind.length = &realLen;
+        rebind.is_null = reinterpret_cast<bool*>(&nullFlag);
+        if (mysql_stmt_fetch_column(stmt, &rebind, i, 0) == 0 && !nullFlag) {
+          const unsigned long n = realLen ? realLen : static_cast<unsigned long>(fullBuf.size());
+          row.emplace_back(fullBuf.data(), n);
+        } else {
+          row.emplace_back();
+        }
+      } else {
+        row.emplace_back(readPreparedResultCell(resultBind, i));
+      }
     }
     results.push_back(std::move(row));
+  }
+
+  if (fetchRc == 1) {
+    logError("Prepared fetch failed (stmt_errno=" +
+             std::to_string(mysql_stmt_errno(stmt)) + "): " +
+             std::string(mysql_stmt_error(stmt)));
+  } else if (results.empty()) {
+    // Diagnostico (nivel debug: resultado vazio pode ser legitimo, ex.: sem equipamento).
+    Core::Logger::getInstance().debug(
+        "Prepared query 0 linhas (num_rows={}, fetch_rc={})",
+        static_cast<unsigned long long>(mysql_stmt_num_rows(stmt)), fetchRc);
   }
 
   mysql_free_result(meta);

@@ -3,10 +3,12 @@
 #include "zone/CombatCoreEngine.hpp"
 #include "zone/ExperienceService.hpp"
 #include "zone/ExpZoneManager.hpp"
+#include "zone/AgentDebugLog.hpp"
 #include "core/Logger.hpp"
 #include "core/ConfigManager.hpp"
 #include "database/MySQLConnector.hpp"
 #include "database/PlayerDAO.hpp"
+#include <algorithm>
 #include <vector>
 
 namespace Umbra {
@@ -128,12 +130,35 @@ bool ZoneServer::start() {
         return resolvePartyMembers(db, playerId);
       });
     movementServer_->setRespawnHandler(
-      [this](uint32_t playerId, uint32_t zoneId, const std::string& spawnKey,
+      [this](uint32_t playerId, uint32_t zoneId, const std::string& spawnKey, bool memorySaysDead,
              PlayerRespawnPayload& outPayload) -> bool {
         if (!combatService_) return false;
-        auto result = combatService_->processRespawn(playerId, zoneId, spawnKey);
-        if (!result.success) return false;
+        int32_t preferMaxH = 0;
+        int32_t preferMaxM = 0;
+        if (combatCoreEngine_) {
+          if (auto* loader = combatCoreEngine_->getCharacterStateLoader()) {
+            Combat::CharacterState st;
+            if (loader->tryGetCachedState(playerId, st) || loader->loadPlayerState(playerId, st)) {
+              preferMaxH = std::max(1, st.buffedStats.maxHealth);
+              preferMaxM = std::max(1, st.buffedStats.maxMana);
+            }
+          }
+        }
+        auto result = combatService_->processRespawn(playerId, zoneId, spawnKey, memorySaysDead,
+                                                     preferMaxH, preferMaxM);
+        if (!result.success) {
+          Core::Logger::getInstance().warn("processRespawn player {} error={}", playerId,
+                                           result.error.empty() ? "?" : result.error);
+          return false;
+        }
         outPayload = result.payload;
+        // Cache: HP cheio + isAlive=true (patchCachedHealth atualiza isAlive).
+        if (combatCoreEngine_) {
+          if (auto* loader = combatCoreEngine_->getCharacterStateLoader()) {
+            loader->patchCachedHealth(playerId, result.payload.currentHealth);
+            loader->patchCachedMana(playerId, result.payload.currentMana);
+          }
+        }
         return true;
       });
 
@@ -167,6 +192,9 @@ bool ZoneServer::start() {
 
 void ZoneServer::stop() {
   running_ = false;
+  if (combatCoreEngine_) {
+    combatCoreEngine_->shutdown();
+  }
   if (movementServer_) movementServer_->stop();
   Core::Logger::getInstance().info("ZoneServer '{}' stopped", config_.zoneName);
 }
@@ -176,52 +204,131 @@ bool ZoneServer::isRunning() const {
 }
 
 void ZoneServer::update(float deltaTime) {
+  // #region agent log
+  const int64_t updT0 = agentNowMs();
+  int64_t tDrain = 0, tSnap = 0, tKa = 0, tCombat = 0, tRegen = 0, tExp = 0;
+  // #endregion
+
   playerManager_->update(deltaTime);
   entitySystem_->update(deltaTime);
 
   if (movementServer_) {
+    // #region agent log
+    const int64_t a = agentNowMs();
+    // #endregion
+    // Drain inbound ANTES de auth/snapshot: libera fila sem bloquear threads de recv.
+    movementServer_->drainInboundQueue();
     movementServer_->tickSessionAuth();
+    // Reabastece o cache de party (throttle interno ~1s) fora do mu_, para o
+    // broadcast de vitals não fazer SELECT segurando o lock global da zona.
+    movementServer_->refreshPartyCache();
+    // #region agent log
+    tDrain = agentNowMs() - a;
+    // #endregion
   }
 
   snapshotAccumulator_ += deltaTime;
   if (snapshotAccumulator_ >= 0.1f) {
+    // #region agent log
+    const int64_t a = agentNowMs();
+    // #endregion
     if (movementServer_) movementServer_->broadcastSnapshot();
+    // #region agent log
+    tSnap = agentNowMs() - a;
+    // #endregion
     snapshotAccumulator_ = 0.0f;
+  }
+
+  // Keepalive app-level (opcode 250). LWS também tem PingPongInterval no cliente.
+  // Intervalo curto: dual-PIE pode deixar de bombear OnRawMessage por alguns segundos.
+  wsKeepaliveAccumulator_ += deltaTime;
+  if (wsKeepaliveAccumulator_ >= 2.0f) {
+    // #region agent log
+    const int64_t a = agentNowMs();
+    // #endregion
+    if (movementServer_) movementServer_->sendKeepalivePings();
+    // #region agent log
+    tKa = agentNowMs() - a;
+    // #endregion
+    wsKeepaliveAccumulator_ = 0.0f;
   }
 
   dotTickAccumulator_ += deltaTime;
   if (dotTickAccumulator_ >= 0.25f) {
-    if (combatService_ && movementServer_) {
-      combatService_->tickActiveDots(movementServer_.get());
-    }
+    // V1 ZoneCombatService::tickActiveDots fazia SELECT/UPDATE active_dots no tick da zone
+    // (medido 122–265ms no Proxmox). DOTs de player agora são in-memory em CombatCoreEngine.
+    // Mantém respawn/outros usos do combatService_; só o poll de dots sai do hot path.
     dotTickAccumulator_ = 0.0f;
   }
 
-  buffTickAccumulator_ += deltaTime;
-  if (buffTickAccumulator_ >= 0.5f) {
-    if (combatCoreEngine_) {
-      combatCoreEngine_->tickBuffExpirations();
-    }
-    buffTickAccumulator_ = 0.0f;
-  }
+  // Expiração de buffs (active_buffs SELECT/DELETE) roda no dbWriter — NÃO no tick da zone.
+  // Medido até 4587ms no update → freeze + skills em cascata ao retomar.
 
   if (combatCoreEngine_) {
+    // #region agent log
+    const int64_t a = agentNowMs();
+    // #endregion
     combatCoreEngine_->tick(deltaTime);
+    // #region agent log
+    tCombat = agentNowMs() - a;
+    const int64_t b = agentNowMs();
+    // #endregion
     combatCoreEngine_->tickRegen(deltaTime);
+    // #region agent log
+    tRegen = agentNowMs() - b;
+    // #endregion
   }
 
   expZoneTickAccumulator_ += deltaTime;
   if (expZoneTickAccumulator_ >= 1.0f) {
+    // #region agent log
+    const int64_t a = agentNowMs();
+    // #endregion
     if (expZoneManager_) {
       expZoneManager_->tick(expZoneTickAccumulator_);
     }
+    // #region agent log
+    tExp = agentNowMs() - a;
+    // #endregion
     expZoneTickAccumulator_ = 0.0f;
   }
+
+  // #region agent log
+  {
+    const int64_t total = agentNowMs() - updT0;
+    if (total >= 50) {
+      agentDebugLog("H-D", "ZoneServer.cpp:update", "zone_update_ms",
+                    std::string("{\"ms\":") + std::to_string(total) +
+                        ",\"drain\":" + std::to_string(tDrain) +
+                        ",\"snap\":" + std::to_string(tSnap) +
+                        ",\"ka\":" + std::to_string(tKa) +
+                        ",\"combat\":" + std::to_string(tCombat) +
+                        ",\"regen\":" + std::to_string(tRegen) +
+                        ",\"exp\":" + std::to_string(tExp) + "}",
+                    "post-fix");
+    }
+  }
+  // #endregion
 
   // Auto-save desabilitado: as posicoes sao salvas pelo PHP (update_position.php)
   // O auto-save C++ competia por locks na tabela players com o PHP, causando
   // "Lock wait timeout exceeded" em todas as APIs (select_character, party, trade, etc.)
   // TODO: reabilitar quando o update_position.php for removido do fluxo do UE5
+}
+
+void ZoneServer::pumpInbound() {
+  // Chamado ~3ms pelo loop principal. Só trabalho barato e sensível a latência:
+  // - drainInboundQueue: tira o cast (opcode 96) do inbound e joga na fila de
+  //   combate quase na hora, em vez de esperar até 16ms pelo update pesado.
+  // - tickPendingSkillHits: dispara o dano dos casts com castTimeMs no momento
+  //   certo (idempotente: só processa hits já vencidos, então chamar junto ao
+  //   update não duplica dano).
+  if (movementServer_) {
+    movementServer_->drainInboundQueue();
+  }
+  if (combatCoreEngine_) {
+    combatCoreEngine_->tickPendingSkillHits();
+  }
 }
 
 void ZoneServer::autoSavePlayerPositions() {

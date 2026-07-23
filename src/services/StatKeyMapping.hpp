@@ -12,8 +12,24 @@ namespace StatKeyMapping {
 /** Mapeia target_stat do SQL/effects_json para chave canônica do loader (totals map). */
 inline std::string mapTargetStatToCanonical(const std::string& raw) {
   if (raw.empty()) return raw;
-  if (raw == "physical_attack") return "attack";
-  if (raw == "physical_defense") return "defense";
+  // ATK físico
+  if (raw == "physical_attack" || raw == "physicalAttack" || raw == "phys_atk" || raw == "atk" ||
+      raw == "attack") {
+    return "attack";
+  }
+  // DEF físico
+  if (raw == "physical_defense" || raw == "physicalDefense" || raw == "phys_def" || raw == "def" ||
+      raw == "defense") {
+    return "defense";
+  }
+  // ATK mágico
+  if (raw == "magic_attack" || raw == "magicAttack" || raw == "mag_atk" || raw == "matk") {
+    return "magic_attack";
+  }
+  // DEF mágico
+  if (raw == "magic_defense" || raw == "magicDefense" || raw == "mag_def" || raw == "mdef") {
+    return "magic_defense";
+  }
   if (raw == "movement_speed") return "movement";
   if (raw == "critical_chance") return "critical";
   if (raw == "critical_resistance") return "resistance";

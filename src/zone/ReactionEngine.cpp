@@ -124,17 +124,29 @@ uint64_t ReactionEngine::armReaction(uint32_t ownerPlayerId, uint32_t sourcePlay
   const std::string snapshotStr = snap.dump();
   const std::string durUsStr = std::to_string(static_cast<uint64_t>(durationMs) * 1000ULL);
 
-  if (!db_->executePreparedInsert(
-          "INSERT INTO active_buffs (target_player_id, source_player_id, skill_id, buff_type, "
-          "current_stacks, value_snapshot, expires_at, snapshot_json) VALUES "
-          "(?, ?, ?, 'AURA', 1, ?, DATE_ADD(NOW(3), INTERVAL ? MICROSECOND), ?)",
-          {std::to_string(ownerPlayerId), std::to_string(sourcePlayerId), std::to_string(skillId),
-           std::to_string(effect.valuePercent != 0 ? effect.valuePercent : effect.valueFlat), durUsStr,
-           snapshotStr})) {
-    return 0;
-  }
+  // ID sintético + write-behind: INSERT sync em active_buffs media segundos no Proxmox.
+  const uint64_t buffId = (static_cast<uint64_t>(ownerPlayerId) << 32) |
+                          (static_cast<uint64_t>(skillId) << 8) |
+                          (static_cast<uint64_t>(static_cast<uint8_t>(trigger)));
 
-  const uint64_t buffId = db_->getLastInsertId();
+  auto escapeSql = [](std::string s) {
+    std::string out;
+    for (char c : s) {
+      if (c == '\\' || c == '\'') out.push_back('\\');
+      out.push_back(c);
+    }
+    return out;
+  };
+  if (combatEngine_) {
+    combatEngine_->enqueueDbWritePublic(
+        "INSERT INTO active_buffs (target_player_id, source_player_id, skill_id, buff_type, "
+        "current_stacks, value_snapshot, expires_at, snapshot_json) VALUES (" +
+        std::to_string(ownerPlayerId) + ", " + std::to_string(sourcePlayerId) + ", " +
+        std::to_string(skillId) + ", 'AURA', 1, " +
+        std::to_string(effect.valuePercent != 0 ? effect.valuePercent : effect.valueFlat) +
+        ", DATE_ADD(NOW(3), INTERVAL " + durUsStr + " MICROSECOND), '" + escapeSql(snapshotStr) +
+        "')");
+  }
 
   ArmedReaction ar;
   ar.buffId = buffId;
@@ -151,7 +163,7 @@ uint64_t ReactionEngine::armReaction(uint32_t ownerPlayerId, uint32_t sourcePlay
     armedByPlayer_[ownerPlayerId].push_back(std::move(ar));
   }
 
-  Core::Logger::getInstance().info(
+  Core::Logger::getInstance().debug(
       "[ReactionEngine] reacao armada player={} skill={} buff_id={} trigger={}", ownerPlayerId,
       skillId, buffId, static_cast<int>(trigger));
   return buffId;
@@ -175,7 +187,11 @@ void ReactionEngine::disarm(uint32_t ownerPlayerId, ArmedReaction& reaction, boo
     if (reaction.usesRemaining > 0) return;
   }
 
-  if (db_ && db_->isConnected() && reaction.buffId > 0) {
+  if (combatEngine_ && reaction.buffId > 0) {
+    combatEngine_->enqueueDbWritePublic(
+        "DELETE FROM active_buffs WHERE target_player_id = " + std::to_string(ownerPlayerId) +
+        " AND skill_id = " + std::to_string(reaction.skillId) + " AND buff_type = 'AURA'");
+  } else if (db_ && db_->isConnected() && reaction.buffId > 0) {
     db_->executePreparedInsert("DELETE FROM active_buffs WHERE buff_id = ? AND target_player_id = ?",
                                {std::to_string(reaction.buffId), std::to_string(ownerPlayerId)});
   }

@@ -33,6 +33,10 @@ class ZoneServer {
   void stop();
   bool isRunning() const;
   void update(float deltaTime);
+  // Trabalho leve e sensível a latência, chamado em alta frequência (~3ms) pelo
+  // loop principal: drena o inbound (casts entram na fila de combate quase na
+  // hora) e dispara os hits adiados por castTimeMs sem esperar o tick pesado.
+  void pumpInbound();
   
   PlayerManager& getPlayerManager();
   EntitySystem& getEntitySystem();
@@ -53,6 +57,7 @@ class ZoneServer {
   std::unique_ptr<Umbra::Auth::JWTManager> jwtManager_;
   float expZoneTickAccumulator_ = 0.0f;
   float snapshotAccumulator_ = 0.0f;
+  float wsKeepaliveAccumulator_ = 0.0f;
   float dotTickAccumulator_ = 0.0f;
   float buffTickAccumulator_ = 0.0f;
   float autoSaveAccumulator_ = 0.0f;

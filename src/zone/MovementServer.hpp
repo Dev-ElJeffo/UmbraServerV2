@@ -7,6 +7,11 @@
 #include <functional>
 #include <deque>
 #include <cctype>
+#include <atomic>
+#include <algorithm>
+#include <memory>
+#include <cstdint>
+#include <climits>
 #include "network/WebSocketServer.hpp"
 #include "zone/MovementProtocol.hpp"
 #include "zone/SpatialGrid.hpp"
@@ -15,7 +20,7 @@
 #include "zone/MovementSessionAuth.hpp"
 #include "auth/JWTManager.hpp"
 #include "database/MySQLConnector.hpp"
-#include <memory>
+#include "zone/AgentDebugLog.hpp"
 
 namespace Umbra {
 namespace Zone {
@@ -38,6 +43,8 @@ struct PlayerStateNet {
 
 class MovementServer {
 public:
+  using Outbox = std::vector<std::pair<uint32_t, std::vector<uint8_t>>>;
+
   explicit MovementServer(uint16_t port)
     : ws_(port) {}
 
@@ -57,7 +64,9 @@ public:
     resolvePartyMembers_ = std::move(cb);
   }
 
-  void setRespawnHandler(std::function<bool(uint32_t, uint32_t, const std::string&, PlayerRespawnPayload&)> cb) {
+  /** (playerId, zoneId, spawnKey, memorySaysDead, outPayload) */
+  void setRespawnHandler(
+      std::function<bool(uint32_t, uint32_t, const std::string&, bool, PlayerRespawnPayload&)> cb) {
     respawnHandler_ = std::move(cb);
   }
 
@@ -87,51 +96,218 @@ public:
   void broadcastVitalsAndCombat(uint32_t targetPlayerId, const PlayerVitalsPayload& vitals,
                               uint32_t sourcePlayerId, int32_t delta, bool triggerDeath,
                               bool isCrit = false, bool isDouble = false) {
-    std::lock_guard<std::mutex> lock(mu_);
-    handleVitalsBroadcastUnlocked(targetPlayerId, vitals, sourcePlayerId, delta, triggerDeath, isCrit,
-                                   isDouble);
+    Outbox outbox;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      handleVitalsBroadcastUnlocked(targetPlayerId, vitals, sourcePlayerId, delta, triggerDeath, isCrit,
+                                     isDouble, outbox);
+    }
+    flushOutbox(outbox);
+  }
+
+  /** Entrada na zone já morto no DB: respawna automaticamente (evita 0 HP / sem controle). */
+  bool autoRespawnOnJoin(uint32_t playerId) {
+    if (!respawnHandler_ || playerId == 0) return false;
+    PlayerRespawnPayload respawnPayload;
+    if (!respawnHandler_(playerId, zoneId_, std::string(), /*memorySaysDead*/ true, respawnPayload)) {
+      // #region agent log
+      agentDebugLog("H-RESPAWN", "MovementServer.hpp:autoRespawnOnJoin", "auto_respawn_fail",
+                    std::string("{\"playerId\":") + std::to_string(playerId) + "}", "post-fix");
+      // #endregion
+      return false;
+    }
+    Outbox outbox;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      applyRespawnSuccessUnlocked(playerId, respawnPayload, outbox);
+    }
+    flushOutbox(outbox);
+    Umbra::Core::Logger::getInstance().info(
+        "Player {} auto-respawned on join at ({:.0f},{:.0f},{:.0f}) hp={}", playerId,
+        respawnPayload.x, respawnPayload.y, respawnPayload.z, respawnPayload.currentHealth);
+    // #region agent log
+    agentDebugLog("H-RESPAWN", "MovementServer.hpp:autoRespawnOnJoin", "auto_respawn_ok",
+                  std::string("{\"playerId\":") + std::to_string(playerId) +
+                      ",\"hp\":" + std::to_string(respawnPayload.currentHealth) +
+                      ",\"maxHp\":" + std::to_string(respawnPayload.maxHealth) + "}",
+                  "post-fix");
+    // #endregion
+    return true;
+  }
+
+  /** Fallback: marca morto e notifica (só se auto-respawn falhar). */
+  void forcePlayerDeadState(uint32_t playerId, int32_t currentHealth, int32_t maxHealth,
+                            int32_t currentMana, int32_t maxMana) {
+    Outbox outbox;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      auto it = players_.find(playerId);
+      if (it != players_.end() && it->second.isDead) {
+        return;
+      }
+      if (it == players_.end()) {
+        PlayerStateNet stub;
+        stub.playerId = playerId;
+        stub.isDead = false;
+        players_[playerId] = stub;
+      }
+      lastKnownHealth_[playerId] = currentHealth;
+
+      PlayerVitalsPayload vitals;
+      vitals.playerId = playerId;
+      vitals.currentHealth = std::max(0, currentHealth);
+      vitals.maxHealth = std::max(1, maxHealth);
+      vitals.currentMana = std::max(0, currentMana);
+      vitals.maxMana = std::max(1, maxMana);
+      vitals.sourcePlayerId = playerId;
+      vitals.reason = 0;
+      handleVitalsBroadcastUnlocked(playerId, vitals, playerId, 0, /*triggerDeath*/ true, false, false,
+                                    outbox);
+    }
+    flushOutbox(outbox);
+    // #region agent log
+    agentDebugLog("H-RESPAWN", "MovementServer.hpp:forcePlayerDeadState", "join_force_dead",
+                  std::string("{\"playerId\":") + std::to_string(playerId) +
+                      ",\"hp\":" + std::to_string(currentHealth) +
+                      ",\"maxHp\":" + std::to_string(maxHealth) + "}",
+                  "post-fix");
+    // #endregion
   }
 
   void broadcastDotTick(uint32_t targetPlayerId, const DotTickPayload& dot) {
-    std::lock_guard<std::mutex> lock(mu_);
-    auto dotPkt = encodeDotTickNotify(dot);
-    std::unordered_set<uint32_t> recipients;
-    collectVitalsRecipientsUnlocked(targetPlayerId, recipients);
-    for (uint32_t rid : recipients) {
-      sendToPlayerUnlocked(rid, dotPkt);
+    Outbox outbox;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      auto dotPkt = encodeDotTickNotify(dot);
+      std::unordered_set<uint32_t> recipients;
+      collectVitalsRecipientsUnlocked(targetPlayerId, recipients);
+      for (uint32_t rid : recipients) {
+        enqueueToPlayerUnlocked(rid, dotPkt, outbox);
+      }
     }
+    flushOutbox(outbox);
   }
 
   void broadcastExpGain(uint32_t playerId, const ExpGainNotifyPayload& payload) {
-    std::lock_guard<std::mutex> lock(mu_);
-    auto pkt = encodeExpGainNotify(payload);
-    std::unordered_set<uint32_t> recipients;
-    collectVitalsRecipientsUnlocked(playerId, recipients);
-    for (uint32_t rid : recipients) {
-      sendToPlayerUnlocked(rid, pkt);
+    Outbox outbox;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      auto pkt = encodeExpGainNotify(payload);
+      std::unordered_set<uint32_t> recipients;
+      collectVitalsRecipientsUnlocked(playerId, recipients);
+      for (uint32_t rid : recipients) {
+        enqueueToPlayerUnlocked(rid, pkt, outbox);
+      }
     }
+    flushOutbox(outbox);
   }
 
   void broadcastLevelUp(uint32_t playerId, const LevelUpNotifyPayload& payload) {
-    std::lock_guard<std::mutex> lock(mu_);
-    auto pkt = encodeLevelUpNotify(payload);
-    std::unordered_set<uint32_t> recipients;
-    collectVitalsRecipientsUnlocked(playerId, recipients);
-    for (uint32_t rid : recipients) {
-      sendToPlayerUnlocked(rid, pkt);
+    Outbox outbox;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      auto pkt = encodeLevelUpNotify(payload);
+      std::unordered_set<uint32_t> recipients;
+      collectVitalsRecipientsUnlocked(playerId, recipients);
+      for (uint32_t rid : recipients) {
+        enqueueToPlayerUnlocked(rid, pkt, outbox);
+      }
     }
+    flushOutbox(outbox);
   }
 
   /** Broadcast binário para todos os clientes conectados (Combat V2, etc.). */
   void broadcastToAll(const std::vector<uint8_t>& data) {
-    std::lock_guard<std::mutex> lock(mu_);
-    ws_.broadcastBinary(data);
+    // Coleta clientIds sob mu_ (rápido); envio DEPOIS de liberar mu_ para não travar
+    // as threads de movimento nem o combat worker durante send() bloqueante.
+    std::vector<uint32_t> recipients;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      recipients.reserve(clientIdToPlayerId_.size());
+      for (const auto& [cid, pid] : clientIdToPlayerId_) {
+        (void)pid;
+        recipients.push_back(cid);
+      }
+    }
+    for (uint32_t cid : recipients) {
+      ws_.sendBinary(cid, data);
+    }
+  }
+
+  /**
+   * Broadcast de combate/VFX para jogadores a até `radius` do âncora (playerId).
+   * Inclui o próprio âncora. Se o âncora não estiver online/com posição, cai para broadcastToAll.
+   * Não é GCD: só reduz fan-out (escala com N players); combos no mesmo raio continuam.
+   */
+  void broadcastNearPlayer(uint32_t anchorPlayerId, const std::vector<uint8_t>& data,
+                           float radius = 8000.f) {
+    if (anchorPlayerId == 0) {
+      broadcastToAll(data);
+      return;
+    }
+    std::vector<uint32_t> recipients;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      auto pit = players_.find(anchorPlayerId);
+      if (pit == players_.end()) {
+        for (const auto& [cid, pid] : clientIdToPlayerId_) {
+          (void)pid;
+          recipients.push_back(cid);
+        }
+      } else {
+        const float ax = pit->second.x;
+        const float ay = pit->second.y;
+        const float r2 = radius * radius;
+        for (const auto& [cid, pid] : clientIdToPlayerId_) {
+          auto oit = players_.find(pid);
+          if (oit == players_.end()) continue;
+          const float dx = oit->second.x - ax;
+          const float dy = oit->second.y - ay;
+          if (dx * dx + dy * dy <= r2) {
+            recipients.push_back(cid);
+          }
+        }
+      }
+    }
+    for (uint32_t cid : recipients) {
+      ws_.sendBinary(cid, data);
+    }
+  }
+
+  /** Broadcast para clientes cujo player está a até `radius` de (x,y) no mundo (NPC/eventos). */
+  void broadcastNearWorldXY(float x, float y, const std::vector<uint8_t>& data,
+                            float radius = 8000.f) {
+    std::vector<uint32_t> recipients;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      const float r2 = radius * radius;
+      for (const auto& [cid, pid] : clientIdToPlayerId_) {
+        auto oit = players_.find(pid);
+        if (oit == players_.end()) continue;
+        const float dx = oit->second.x - x;
+        const float dy = oit->second.y - y;
+        if (dx * dx + dy * dy <= r2) {
+          recipients.push_back(cid);
+        }
+      }
+    }
+    if (recipients.empty()) {
+      broadcastToAll(data);
+      return;
+    }
+    for (uint32_t cid : recipients) {
+      ws_.sendBinary(cid, data);
+    }
   }
 
   /** Envia mensagem binária a um jogador online (ex.: opcode 105 SkillCastRejected). */
   void sendToPlayer(uint32_t playerId, const std::vector<uint8_t>& message) {
-    std::lock_guard<std::mutex> lock(mu_);
-    sendToPlayerUnlocked(playerId, message);
+    Outbox outbox;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      enqueueToPlayerUnlocked(playerId, message, outbox);
+    }
+    flushOutbox(outbox);
   }
 
   bool start() {
@@ -145,18 +321,121 @@ public:
         }
       } else {
         Umbra::Core::Logger::getInstance().info("WS client {} disconnected", cid);
-        // Remover player associado a este client quando desconectar
-        std::lock_guard<std::mutex> lock(mu_);
-        handleClientDisconnect(cid);
+        // #region agent log
+        agentDebugLog("H-C", "MovementServer.hpp:disconnect", "ws_disconnect",
+                      std::string("{\"cid\":") + std::to_string(cid) + "}");
+        // #endregion
+        // Remover player associado a este client quando desconectar.
+        // Sob o mu_ fazemos SOMENTE as mutacoes de mapa (rapido); o trabalho pesado
+        // (DB de party/sessions + broadcasts) roda DEPOIS de liberar o mu_ para nao
+        // travar as threads dos outros clientes por segundos (efeito cascata de queda).
+        DisconnectCleanup cleanup;
+        const int64_t t0 = agentNowMs();
+        {
+          std::lock_guard<std::mutex> lock(mu_);
+          cleanup = handleClientDisconnect(cid);
+        }
+        const int64_t t1 = agentNowMs();
+        finishClientDisconnect(cid, cleanup);
+        const int64_t t2 = agentNowMs();
+        // #region agent log
+        agentDebugLog("H-A", "MovementServer.hpp:disconnect", "disconnect_phases_ms",
+                      std::string("{\"cid\":") + std::to_string(cid) +
+                          ",\"phase1_map_ms\":" + std::to_string(t1 - t0) +
+                          ",\"phase2_db_ms\":" + std::to_string(t2 - t1) +
+                          ",\"playerId\":" + std::to_string(cleanup.playerId) + "}");
+        // #endregion
       }
     });
 
-    ws_.setBinaryCallback([this](uint32_t cid, const std::vector<uint8_t>& data){
+    ws_.setBinaryCallback([this](uint32_t cid, const std::vector<uint8_t>& data) {
+      // CRÍTICO: não processar aqui — este callback roda no thread de recv.
+      // MySQL/auth/PlayerInfo no recv trava o TCP e derruba o cliente (Proxmox).
+      enqueueInboundBinary(cid, data);
+    });
+
+    return ws_.start();
+  }
+
+  void enqueueInboundBinary(uint32_t cid, const std::vector<uint8_t>& data) {
+    if (data.empty()) return;
+    if (static_cast<MovementMsgType>(data[0]) == MovementMsgType::MoveUpdate) {
+      std::lock_guard<std::mutex> lock(inboundMu_);
+      pendingMoveByCid_[cid] = data;  // coalesce: só a posição mais recente
+      return;
+    }
+    std::lock_guard<std::mutex> lock(inboundMu_);
+    inboundQueue_.push_back(InboundMsg{cid, data, agentNowMs()});
+    constexpr size_t kMaxInbound = 4096;
+    if (inboundQueue_.size() > kMaxInbound) {
+      inboundQueue_.pop_front();
+    }
+  }
+
+  void drainInboundQueue() {
+    std::deque<InboundMsg> local;
+    std::unordered_map<uint32_t, std::vector<uint8_t>> moves;
+    {
+      std::lock_guard<std::mutex> lock(inboundMu_);
+      local.swap(inboundQueue_);
+      moves.swap(pendingMoveByCid_);
+    }
+    // #region agent log
+    const int64_t t0 = agentNowMs();
+    const size_t nMsg = local.size() + moves.size();
+    int64_t maxAge = 0;
+    for (const auto& msg : local) {
+      if (msg.enqueuedAtMs > 0) {
+        maxAge = std::max(maxAge, t0 - msg.enqueuedAtMs);
+      }
+    }
+    // #endregion
+    for (auto& msg : local) {
+      // #region agent log
+      if (!msg.data.empty() &&
+          static_cast<MovementMsgType>(msg.data[0]) == MovementMsgType::SkillCastNotify &&
+          msg.enqueuedAtMs > 0) {
+        const int64_t age = agentNowMs() - msg.enqueuedAtMs;
+        if (age >= 10) {
+          agentDebugLog("H-INQ", "MovementServer.hpp:drainInboundQueue", "skill_inbound_age_ms",
+                        std::string("{\"cid\":") + std::to_string(msg.cid) +
+                            ",\"ageMs\":" + std::to_string(age) +
+                            ",\"qDepth\":" + std::to_string(local.size()) + "}",
+                        "drop-debug");
+        }
+      }
+      // #endregion
+      handleInboundBinary(msg.cid, msg.data);
+    }
+    for (auto& [cid, data] : moves) {
+      handleInboundBinary(cid, data);
+    }
+    // #region agent log
+    {
+      const int64_t ms = agentNowMs() - t0;
+      if (nMsg > 0 && (ms > 5 || maxAge >= 20)) {
+        agentDebugLog("H-INQ", "MovementServer.hpp:drainInboundQueue", "inbound_drain_ms",
+                      std::string("{\"ms\":") + std::to_string(ms) +
+                          ",\"msgs\":" + std::to_string(local.size()) +
+                          ",\"moves\":" + std::to_string(moves.size()) +
+                          ",\"maxAgeMs\":" + std::to_string(maxAge) + "}");
+      }
+    }
+    // #endregion
+  }
+
+  void handleInboundBinary(uint32_t cid, const std::vector<uint8_t>& data) {
       // Verificar tipo de mensagem primeiro
       if (data.empty()) return;
       MovementMsgType msgType = static_cast<MovementMsgType>(data[0]);
 
       if (sessionAuthEnabled_ && msgType == MovementMsgType::SessionAuthNotify) {
+        // #region agent log
+        agentDebugLog("H-DUP", "MovementServer.hpp:SessionAuth", "auth_recv",
+                      std::string("{\"cid\":") + std::to_string(cid) +
+                          ",\"bytes\":" + std::to_string(data.size()) + "}",
+                      "dual-login");
+        // #endregion
         std::string token;
         if (!decodeSessionAuthNotify(data, token)) {
           revokeAndDisconnectClient(cid, SessionRevokeReason::InvalidToken, "Payload de auth invalido.");
@@ -165,14 +444,41 @@ public:
         uint32_t kickCid = 0;
         std::string kickMsg;
         if (!sessionAuth_.handleSessionAuth(cid, token, kickCid, kickMsg)) {
+          // #region agent log
+          agentDebugLog("H-DUP", "MovementServer.hpp:SessionAuth", "auth_failed",
+                        std::string("{\"cid\":") + std::to_string(cid) +
+                            ",\"clients\":" + std::to_string(ws_.getClientCount()) + "}",
+                        "dual-login");
+          // #endregion
           revokeAndDisconnectClient(cid, SessionRevokeReason::InvalidToken, "Autenticacao falhou.");
           return;
         }
+        // #region agent log
+        {
+          const uint32_t acc = sessionAuth_.getAccountIdForClient(cid);
+          agentDebugLog("H-DUP", "MovementServer.hpp:SessionAuth", "auth_ok",
+                        std::string("{\"cid\":") + std::to_string(cid) +
+                            ",\"accountId\":" + std::to_string(acc) +
+                            ",\"kickCid\":" + std::to_string(kickCid) +
+                            ",\"clients\":" + std::to_string(ws_.getClientCount()) + "}",
+                        "dual-login");
+        }
+        // #endregion
         if (kickCid > 0) {
+          // #region agent log
+          agentDebugLog("H-DUP", "MovementServer.hpp:SessionAuth", "duplicate_login_kick",
+                        std::string("{\"newCid\":") + std::to_string(cid) +
+                            ",\"kickCid\":" + std::to_string(kickCid) +
+                            ",\"clients\":" + std::to_string(ws_.getClientCount()) + "}",
+                        "dual-login");
+          // #endregion
           revokeAndDisconnectClient(kickCid, SessionRevokeReason::DuplicateLogin, kickMsg);
         }
         sendPostAuthSnapshots(cid);
         return;
+      }
+      if (msgType == MovementMsgType::WsKeepalive) {
+        return;  // server->client only; ignore if echoed
       }
       if (sessionAuthEnabled_ && !sessionAuth_.isAuthenticated(cid)) {
         // Nao kickar: o cliente UE pode enviar PlayerInfoUpdate/MoveUpdate enquanto o 109
@@ -237,7 +543,7 @@ public:
             return;
           }
           if (mappedPid == 0) {
-            clientIdToPlayerId_[cid] = sellerId;
+            setClientPlayerMapUnlocked(cid, sellerId);
           }
           personalShopOpenByPlayerId_[sellerId] = std::make_pair(shopId, shopName);
           auto opened = encodePersonalShopOpened(sellerId, shopId, shopName);
@@ -451,17 +757,30 @@ public:
             }
           }
           if (combatCoreEngine_) {
-            combatCoreEngine_->processSkillCast(payload.sourcePlayerId, payload);
+            combatCoreEngine_->enqueueSkillCast(payload.sourcePlayerId, payload);
           }
         }
         return;
       }
 
-      // NPC buff snapshot request (108)
+      // NPC buff snapshot request (108) — rate-limit: cliente spamava dezenas/s e afogava o tick.
       if (msgType == MovementMsgType::NpcBuffSnapshotRequest) {
         uint32_t npcInstanceId = 0;
         if (decodeNpcBuffSnapshotRequest(data, npcInstanceId) && combatCoreEngine_) {
-          combatCoreEngine_->sendNpcBuffSnapshotForNpc(cid, npcInstanceId);
+          const int64_t nowMs = agentNowMs();
+          bool allow = true;
+          {
+            std::lock_guard<std::mutex> lock(mu_);
+            int64_t& last = lastNpcBuffSnapMsByClient_[cid];
+            if (last > 0 && (nowMs - last) < 250) {
+              allow = false;
+            } else {
+              last = nowMs;
+            }
+          }
+          if (allow) {
+            combatCoreEngine_->sendNpcBuffSnapshotForNpc(cid, npcInstanceId);
+          }
         }
         return;
       }
@@ -482,7 +801,7 @@ public:
             }
           }
           if (combatCoreEngine_) {
-            combatCoreEngine_->processBasicAttack(payload.sourcePlayerId, payload);
+            combatCoreEngine_->enqueueBasicAttack(payload.sourcePlayerId, payload);
           }
         }
         return;
@@ -493,23 +812,28 @@ public:
         PlayerVitalsPayload payload;
         if (decodeForeignVitalsNotify(data, payload)) {
           const uint32_t targetPlayerId = payload.playerId;
-          std::lock_guard<std::mutex> lock(mu_);
-          auto cidIt = clientIdToPlayerId_.find(cid);
-          uint32_t sourcePlayerId = payload.sourcePlayerId;
-          if (sourcePlayerId == 0 && cidIt != clientIdToPlayerId_.end()) {
-            sourcePlayerId = cidIt->second;
+          Outbox outbox;
+          {
+            std::lock_guard<std::mutex> lock(mu_);
+            auto cidIt = clientIdToPlayerId_.find(cid);
+            uint32_t sourcePlayerId = payload.sourcePlayerId;
+            if (sourcePlayerId == 0 && cidIt != clientIdToPlayerId_.end()) {
+              sourcePlayerId = cidIt->second;
+            }
+            int32_t delta = 0;
+            auto prevIt = lastKnownHealth_.find(targetPlayerId);
+            if (prevIt != lastKnownHealth_.end()) {
+              delta = payload.currentHealth - prevIt->second;
+            }
+            if (delta == 0 && payload.deltaAppliedHealth != 0) {
+              delta = payload.deltaAppliedHealth;
+            }
+            lastKnownHealth_[targetPlayerId] = payload.currentHealth;
+            const bool triggerDeath = (payload.currentHealth <= 0);
+            handleVitalsBroadcastUnlocked(targetPlayerId, payload, sourcePlayerId, delta, triggerDeath,
+                                          false, false, outbox);
           }
-          int32_t delta = 0;
-          auto prevIt = lastKnownHealth_.find(targetPlayerId);
-          if (prevIt != lastKnownHealth_.end()) {
-            delta = payload.currentHealth - prevIt->second;
-          }
-          if (delta == 0 && payload.deltaAppliedHealth != 0) {
-            delta = payload.deltaAppliedHealth;
-          }
-          lastKnownHealth_[targetPlayerId] = payload.currentHealth;
-          const bool triggerDeath = (payload.currentHealth <= 0);
-          handleVitalsBroadcastUnlocked(targetPlayerId, payload, sourcePlayerId, delta, triggerDeath);
+          flushOutbox(outbox);
         }
         return;
       }
@@ -520,44 +844,56 @@ public:
         uint32_t zoneId = zoneId_;
         std::string spawnKey;
         if (decodeRespawnRequest(data, playerId, zoneId, spawnKey)) {
-          std::lock_guard<std::mutex> lock(mu_);
-          auto cidIt = clientIdToPlayerId_.find(cid);
-          if (cidIt != clientIdToPlayerId_.end() && cidIt->second > 0) {
-            playerId = cidIt->second;
-          }
           if (!respawnHandler_) {
             Umbra::Core::Logger::getInstance().warn("RespawnRequest: handler não configurado");
             return;
           }
-          const auto now = std::chrono::steady_clock::now();
-          auto cdIt = respawnCooldownUntil_.find(playerId);
-          if (cdIt != respawnCooldownUntil_.end() && now < cdIt->second) {
-            Umbra::Core::Logger::getInstance().warn("RespawnRequest: cooldown player {}", playerId);
-            return;
+          bool memorySaysDead = false;
+          {
+            std::lock_guard<std::mutex> lock(mu_);
+            auto cidIt = clientIdToPlayerId_.find(cid);
+            if (cidIt != clientIdToPlayerId_.end() && cidIt->second > 0) {
+              playerId = cidIt->second;
+            }
+            const auto now = std::chrono::steady_clock::now();
+            auto cdIt = respawnCooldownUntil_.find(playerId);
+            if (cdIt != respawnCooldownUntil_.end() && now < cdIt->second) {
+              Umbra::Core::Logger::getInstance().warn("RespawnRequest: cooldown player {}", playerId);
+              return;
+            }
+            auto pit = players_.find(playerId);
+            if (pit != players_.end() && pit->second.isDead) {
+              memorySaysDead = true;
+            }
+            auto hpIt = lastKnownHealth_.find(playerId);
+            if (hpIt != lastKnownHealth_.end() && hpIt->second <= 0) {
+              memorySaysDead = true;
+            }
           }
+          // MySQL fora de mu_ (Proxmox: prepared/remoto não pode segurar o lock da zone).
           PlayerRespawnPayload respawnPayload;
-          if (!respawnHandler_(playerId, zoneId, spawnKey, respawnPayload)) {
-            Umbra::Core::Logger::getInstance().warn("RespawnRequest: falhou player {}", playerId);
+          if (!respawnHandler_(playerId, zoneId, spawnKey, memorySaysDead, respawnPayload)) {
+            Umbra::Core::Logger::getInstance().warn(
+                "RespawnRequest: falhou player {} (memoryDead={})", playerId, memorySaysDead);
+            // #region agent log
+            agentDebugLog("H-RESPAWN", "MovementServer.hpp:RespawnRequest", "respawn_handler_false",
+                          std::string("{\"playerId\":") + std::to_string(playerId) +
+                              ",\"memorySaysDead\":" + (memorySaysDead ? "true" : "false") + "}",
+                          "post-fix");
+            // #endregion
             return;
           }
-          respawnCooldownUntil_[playerId] = now + std::chrono::seconds(5);
-          auto it = players_.find(playerId);
-          if (it != players_.end()) {
-            it->second.isDead = false;
-            it->second.x = respawnPayload.x;
-            it->second.y = respawnPayload.y;
-            it->second.z = respawnPayload.z;
-            it->second.yaw = respawnPayload.yaw;
+          Outbox outbox;
+          {
+            std::lock_guard<std::mutex> lock(mu_);
+            respawnCooldownUntil_[playerId] =
+                std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            applyRespawnSuccessUnlocked(playerId, respawnPayload, outbox);
           }
-          lastKnownHealth_[playerId] = respawnPayload.currentHealth;
-          auto respawnPkt = encodePlayerRespawnedNotify(respawnPayload);
-          std::unordered_set<uint32_t> recipients;
-          collectVitalsRecipientsUnlocked(playerId, recipients);
-          for (uint32_t rid : recipients) {
-            sendToPlayerUnlocked(rid, respawnPkt);
-          }
+          flushOutbox(outbox);
           Umbra::Core::Logger::getInstance().info("Player {} respawned at ({:.0f},{:.0f},{:.0f})",
-                                                  playerId, respawnPayload.x, respawnPayload.y, respawnPayload.z);
+                                                  playerId, respawnPayload.x, respawnPayload.y,
+                                                  respawnPayload.z);
         }
         return;
       }
@@ -687,25 +1023,56 @@ public:
         uint32_t playerId;
         std::string name, title, guildName;
         if (decodePlayerInfoUpdate(data, playerId, name, title, guildName)) {
+          // Validação de conta FORA do mu_: playerBelongsToAccount faz MySQL e não pode
+          // segurar o mutex global do movimento (medido até 174ms sob mu_ no Proxmox).
+          if (sessionAuthEnabled_) {
+            const uint32_t accountId = sessionAuth_.getAccountIdForClient(cid);
+            bool belongs = false;
+            bool fromCache = false;
+            {
+              std::lock_guard<std::mutex> lock(mu_);
+              auto cacheIt = belongsOkByCid_.find(cid);
+              if (cacheIt != belongsOkByCid_.end() && cacheIt->second == playerId) {
+                belongs = true;
+                fromCache = true;
+              }
+            }
+            // #region agent log
+            const int64_t dbT0 = agentNowMs();
+            // #endregion
+            if (!belongs) {
+              belongs =
+                  (accountId != 0) && sessionAuth_.playerBelongsToAccount(playerId, accountId);
+              if (belongs) {
+                std::lock_guard<std::mutex> lock(mu_);
+                belongsOkByCid_[cid] = playerId;
+              }
+            }
+            // #region agent log
+            agentDebugLog("H-A", "MovementServer.hpp:PlayerInfoUpdate", "belongs_outside_mu",
+                          std::string("{\"cid\":") + std::to_string(cid) +
+                              ",\"playerId\":" + std::to_string(playerId) +
+                              ",\"db_ms\":" + std::to_string(fromCache ? 0 : (agentNowMs() - dbT0)) +
+                              ",\"under_mu\":0,\"ok\":" + (belongs ? "1" : "0") +
+                              ",\"cached\":" + (fromCache ? "1" : "0") + "}");
+            // #endregion
+            if (!belongs) {
+              Umbra::Core::Logger::getInstance().warn(
+                  "PlayerInfoUpdate rejeitado: client {} player {} nao pertence a account {}",
+                  cid, playerId, accountId);
+              return;
+            }
+          }
+
           bool shouldReloadReactions = false;
           std::vector<uint8_t> broadcastMsg;
           {
             std::lock_guard<std::mutex> lock(mu_);
 
-            if (sessionAuthEnabled_) {
-              const uint32_t accountId = sessionAuth_.getAccountIdForClient(cid);
-              if (accountId == 0 || !sessionAuth_.playerBelongsToAccount(playerId, accountId)) {
-                Umbra::Core::Logger::getInstance().warn(
-                    "PlayerInfoUpdate rejeitado: client {} player {} nao pertence a account {}",
-                    cid, playerId, accountId);
-                return;
-              }
-            }
-
             Umbra::Core::Logger::getInstance().info("Received PlayerInfoUpdate from client {}: playerId={}, name={}, title={}, guild={}",
                                                     cid, playerId, name, title, guildName);
 
-            clientIdToPlayerId_[cid] = playerId;
+            setClientPlayerMapUnlocked(cid, playerId);
 
             const bool isNewPlayer = (players_.find(playerId) == players_.end());
 
@@ -740,8 +1107,12 @@ public:
           }
 
           // MySQL em reloadArmedForPlayer: nunca sob mu_ (mesmo padrão de SkillCast/BasicAttack).
-          if (shouldReloadReactions && combatCoreEngine_) {
-            combatCoreEngine_->onPlayerJoinedZone(playerId);
+          if (combatCoreEngine_) {
+            if (shouldReloadReactions) {
+              combatCoreEngine_->onPlayerJoinedZone(playerId);
+            } else {
+              combatCoreEngine_->syncJoinDeathState(playerId);
+            }
           }
 
           ws_.broadcastBinary(broadcastMsg);
@@ -798,32 +1169,52 @@ public:
       }
       
       handleMoveUpdate(cid, f, hasAnimation, speed, velocityZ, isInAir);
-    });
-
-    return ws_.start();
   }
 
   void stop() { ws_.stop(); }
 
-  /** Snapshot periódico (10-20 Hz). Agora usa AOI: cada jogador recebe apenas updates de jogadores próximos. */
+  /** PING RFC6455 a todos os clientes (evita WinHTTP HttpActivityTimeout ~30s sem tráfego). */
+  void sendKeepalivePings() { ws_.broadcastPing(); }
+
+  /** Snapshot periódico (10 Hz). Coleta sob mu_; envio FORA do lock (send bloqueante). */
   void broadcastSnapshot() {
-    std::lock_guard<std::mutex> lock(mu_);
-    for (const auto& [pid, st] : players_) {
-      MovementFrame f{MovementMsgType::StateUpdate, st.playerId, st.x, st.y, st.z, st.yaw, st.tsMs};
-      auto bytes = encodeWithAnimation(f, st.speed, st.velocityZ, st.isInAir);
+    Outbox outbox;
+    const int64_t t0 = agentNowMs();
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      for (const auto& [pid, st] : players_) {
+        MovementFrame f{MovementMsgType::StateUpdate, st.playerId, st.x, st.y, st.z, st.yaw, st.tsMs};
+        auto bytes = encodeWithAnimation(f, st.speed, st.velocityZ, st.isInAir);
 
-      uint32_t sourceClientId = 0;
-      for (const auto& [cid, mappedPid] : clientIdToPlayerId_) {
-        if (mappedPid == pid) { sourceClientId = cid; break; }
-      }
+        uint32_t sourceClientId = 0;
+        for (const auto& [cid, mappedPid] : clientIdToPlayerId_) {
+          if (mappedPid == pid) {
+            sourceClientId = cid;
+            break;
+          }
+        }
 
-      if (sourceClientId > 0) {
-        auto nearby = aoiGrid_.getNearbyPlayers(sourceClientId);
-        for (uint32_t nearbyClientId : nearby) {
-          ws_.sendBinary(nearbyClientId, bytes);
+        if (sourceClientId > 0) {
+          auto nearby = aoiGrid_.getNearbyPlayers(sourceClientId);
+          for (uint32_t nearbyClientId : nearby) {
+            outbox.emplace_back(nearbyClientId, bytes);
+          }
         }
       }
     }
+    const int64_t t1 = agentNowMs();
+    flushOutbox(outbox);
+    const int64_t t2 = agentNowMs();
+    // #region agent log
+    // Amostrar ~1/10; só grava se custou ou há outbox — I/O idle poluía e podia travar.
+    static std::atomic<uint32_t> snapSeq{0};
+    if ((++snapSeq % 10) == 0 && (t2 - t0 > 0 || !outbox.empty())) {
+      agentDebugLog("H-E", "MovementServer.hpp:broadcastSnapshot", "snapshot_ms",
+                    std::string("{\"lock_ms\":") + std::to_string(t1 - t0) +
+                        ",\"flush_ms\":" + std::to_string(t2 - t1) +
+                        ",\"outbox\":" + std::to_string(outbox.size()) + "}");
+    }
+    // #endregion
   }
 
   /** Retorna cópia dos estados dos players (thread-safe, para auto-save). */
@@ -1030,71 +1421,63 @@ private:
   // Versão com lock - chamada do callback de conexão (sem lock prévio)
 
   void revokeAndDisconnectClient(uint32_t cid, SessionRevokeReason reason, const std::string& message) {
+    // #region agent log
+    agentDebugLog("H-DUP", "MovementServer.hpp:revokeAndDisconnectClient", "server_revoke",
+                  std::string("{\"cid\":") + std::to_string(cid) +
+                      ",\"reason\":" + std::to_string(static_cast<int>(reason)) +
+                      ",\"clientsBefore\":" + std::to_string(ws_.getClientCount()) + "}",
+                  "dual-login");
+    // #endregion
     auto pkt = encodeSessionRevokedNotify(reason, message);
     ws_.sendBinary(cid, pkt);
     ws_.disconnect(cid);
   }
 
   void sendPostAuthSnapshots(uint32_t cid) {
+    Outbox outbox;
+    size_t sentInfoCount = 0;
+    size_t sentStateCount = 0;
     {
       std::lock_guard<std::mutex> lock(mu_);
-      sendInitialSnapshotLocked(cid);
+      collectInitialSnapshotUnlocked(cid, outbox, sentInfoCount, sentStateCount);
     }
+    flushOutbox(outbox);
+    Umbra::Core::Logger::getInstance().info("Initial snapshot to client {}: {} info + {} states",
+                                             cid, sentInfoCount, sentStateCount);
     if (combatCoreEngine_) {
       combatCoreEngine_->sendNpcSnapshotToClient(cid);
       combatCoreEngine_->sendNpcBuffSnapshotToClient(cid);
       combatCoreEngine_->sendPlayerBuffSnapshotToClient(cid);
     }
   }
-  void sendInitialSnapshotLocked(uint32_t clientId) {
-    size_t sentStateCount = 0;
-    size_t sentInfoCount = 0;
-    
-    // ✅ CRÍTICO: Primeiro enviar PlayerInfoUpdate para todos os players existentes
-    // Isso garante que o novo client receba os nomes/títulos ANTES dos StateUpdate
-    // que spawnam os actors
+
+  /** Monta o snapshot inicial no outbox (chamar sob mu_). Envio via flushOutbox fora do lock. */
+  void collectInitialSnapshotUnlocked(uint32_t clientId, Outbox& outbox, size_t& sentInfoCount,
+                                      size_t& sentStateCount) {
+    sentInfoCount = 0;
+    sentStateCount = 0;
+
     for (const auto& [pid, st] : players_) {
       if (!st.characterName.empty() || !st.characterTitle.empty() || !st.guildName.empty()) {
-        auto infoMsg = encodePlayerInfoUpdate(st.playerId, st.characterName, st.characterTitle, st.guildName);
-        if (ws_.sendBinary(clientId, infoMsg)) {
-          sentInfoCount++;
-        }
+        outbox.emplace_back(clientId,
+                            encodePlayerInfoUpdate(st.playerId, st.characterName, st.characterTitle,
+                                                   st.guildName));
+        ++sentInfoCount;
       }
     }
-    
-    // Depois enviar StateUpdate para spawnar os actors
-    // ✅ CRÍTICO: Só enviar StateUpdate se o player tiver uma posição válida (não 0,0,0)
-    // Players que acabaram de enviar PlayerInfoUpdate ainda não têm posição definida
+
     for (const auto& [pid, st] : players_) {
-      // Verificar se a posição é válida (não é 0,0,0 que indica "posição ainda não definida")
-      bool hasValidPosition = (st.x != 0.0f || st.y != 0.0f || st.z != 0.0f);
+      const bool hasValidPosition = (st.x != 0.0f || st.y != 0.0f || st.z != 0.0f);
       if (!hasValidPosition) continue;
-      
+
       MovementFrame f{MovementMsgType::StateUpdate, st.playerId, st.x, st.y, st.z, st.yaw, st.tsMs};
-      auto bytes = encodeWithAnimation(f, st.speed, st.velocityZ, st.isInAir);
-      if (ws_.sendBinary(clientId, bytes)) {
-        sentStateCount++;
-      }
+      outbox.emplace_back(clientId, encodeWithAnimation(f, st.speed, st.velocityZ, st.isInAir));
+      ++sentStateCount;
     }
+
     for (const auto& [pid, info] : personalShopOpenByPlayerId_) {
-      auto shopMsg = encodePersonalShopOpened(pid, info.first, info.second);
-      if (ws_.sendBinary(clientId, shopMsg)) {
-        Umbra::Core::Logger::getInstance().debug("Initial snapshot: PersonalShopOpened to client {} for seller {}", clientId, pid);
-      }
+      outbox.emplace_back(clientId, encodePersonalShopOpened(pid, info.first, info.second));
     }
-
-    Umbra::Core::Logger::getInstance().info("Initial snapshot to client {}: {} info + {} states", 
-                                             clientId, sentInfoCount, sentStateCount);
-  }
-
-  // Versão sem lock - chamada de handleMoveUpdate que já tem lock
-  void sendFullSnapshotToAllUnlocked() {
-    for (const auto& [pid, st] : players_) {
-      MovementFrame f{MovementMsgType::StateUpdate, st.playerId, st.x, st.y, st.z, st.yaw, st.tsMs};
-      auto bytes = encodeWithAnimation(f, st.speed, st.velocityZ, st.isInAir);
-      ws_.broadcastBinary(bytes);
-    }
-    Umbra::Core::Logger::getInstance().debug("Broadcasted full snapshot to all clients ({} players)", players_.size());
   }
 
   void handleMoveUpdate(uint32_t cid, const MovementFrame& f, bool hasAnimation, float speed, float velocityZ, bool isInAir) {
@@ -1104,10 +1487,12 @@ private:
       moveSpeedPct = combatCoreEngine_->getPlayerMovementSpeedPercent(f.playerId);
     }
 
-    std::lock_guard<std::mutex> lock(mu_);
+    const int64_t tLock0 = agentNowMs();
+    std::unique_lock<std::mutex> lock(mu_);
+    const int64_t tLockWait = agentNowMs() - tLock0;
     
     // Atualizar mapeamento ClientID -> PlayerID
-    clientIdToPlayerId_[cid] = f.playerId;
+    setClientPlayerMapUnlocked(cid, f.playerId);
 
     if (personalShopOpenByPlayerId_.find(f.playerId) != personalShopOpenByPlayerId_.end()) {
       Umbra::Core::Logger::getInstance().debug("MoveUpdate rejected: player {} has personal shop open", f.playerId);
@@ -1167,10 +1552,26 @@ private:
           } else if (f.tsMs > prevTs) {
             // Calcular dt baseado na diferença entre timestamps relativos do cliente
             uint32_t timeDiff = f.tsMs - prevTs;
-            // Se a diferença for muito grande (>10s), provavelmente houve um reset ou problema
-            if (timeDiff > 10000) {
-              dt = 0.033f;  // Usar padrão seguro
-              Umbra::Core::Logger::getInstance().debug("Large time difference for player {} ({}ms), using default dt", f.playerId, timeDiff);
+            // Gap longo (lag/spike/host I/O / tab-out): NÃO usar dt=0.033 — isso infla a
+            // velocidade (dist/0.033), rejeita o move e deixa prevTs travado → jogador
+            // "não anda" até reconectar. Evidência: speed~4k–6k com prevTs fixo e currTs
+            // avançando após spikes de sleepMs~2–3s no Proxmox.
+            if (timeDiff > 500) {
+              dt = timeDiff / 1000.0f;
+              skipSpeedCheck = true;
+              // #region agent log
+              Umbra::Zone::agentDebugLog(
+                  "H-MOVE-GAP", "MovementServer.hpp:handleMoveUpdate", "move_gap_reconcile",
+                  std::string("{\"playerId\":") + std::to_string(f.playerId) +
+                      ",\"timeDiffMs\":" + std::to_string(timeDiff) +
+                      ",\"dist\":" + std::to_string(std::sqrt(dist2)) +
+                      ",\"prevTs\":" + std::to_string(prevTs) +
+                      ",\"currTs\":" + std::to_string(f.tsMs) + "}",
+                  "post-fix");
+              // #endregion
+              Umbra::Core::Logger::getInstance().debug(
+                  "Large move gap for player {} ({}ms): reconcile without speed reject",
+                  f.playerId, timeDiff);
             } else {
               dt = timeDiff / 1000.0f;
               // Garantir dt mínimo razoável (pelo menos 1 frame = ~16ms)
@@ -1266,22 +1667,46 @@ private:
     }
     
     if (isFirstPositionUpdate) {
-      MovementFrame out{MovementMsgType::StateUpdate, f.playerId, f.x, f.y, f.z, f.yaw, finalTimestamp};
-      std::vector<uint8_t> broadcastBytes;
+      MovementFrame firstOut{MovementMsgType::StateUpdate, f.playerId, f.x, f.y, f.z, f.yaw, finalTimestamp};
+      std::vector<uint8_t> firstBroadcastBytes;
       if (hasAnimation) {
-        broadcastBytes = encodeWithAnimation(out, speed, velocityZ, isInAir);
+        firstBroadcastBytes = encodeWithAnimation(firstOut, speed, velocityZ, isInAir);
       } else {
-        broadcastBytes = encodeWithAnimation(out, 0.0f, 0.0f, false);
+        firstBroadcastBytes = encodeWithAnimation(firstOut, 0.0f, 0.0f, false);
       }
-      
-      size_t clientCount = ws_.getClientCount();
-      ws_.broadcastBinary(broadcastBytes);
-      Umbra::Core::Logger::getInstance().info("Player {} first position ({:.0f},{:.0f},{:.0f}) broadcast to {} clients",
-                                              f.playerId, f.x, f.y, f.z, clientCount);
-      
+
+      std::vector<uint32_t> allClients;
+      allClients.reserve(clientIdToPlayerId_.size());
+      for (const auto& [c, p] : clientIdToPlayerId_) {
+        (void)p;
+        allClients.push_back(c);
+      }
+
+      Outbox newPlayerSnapshot;
       if (isNewPlayer) {
-        sendFullSnapshotToAllUnlocked();
+        for (const auto& [pid, st] : players_) {
+          const bool hasValidPosition = (st.x != 0.0f || st.y != 0.0f || st.z != 0.0f);
+          if (!hasValidPosition) continue;
+          MovementFrame sf{MovementMsgType::StateUpdate, st.playerId, st.x, st.y, st.z, st.yaw, st.tsMs};
+          auto snapBytes = encodeWithAnimation(sf, st.speed, st.velocityZ, st.isInAir);
+          for (uint32_t rcid : allClients) {
+            newPlayerSnapshot.emplace_back(rcid, snapBytes);
+          }
+        }
       }
+
+      const size_t clientCount = allClients.size();
+      lock.unlock();
+      for (uint32_t rcid : allClients) {
+        ws_.sendBinary(rcid, firstBroadcastBytes);
+      }
+      Umbra::Core::Logger::getInstance().info(
+          "Player {} first position ({:.0f},{:.0f},{:.0f}) broadcast to {} clients", f.playerId, f.x,
+          f.y, f.z, clientCount);
+      if (!newPlayerSnapshot.empty()) {
+        flushOutbox(newPlayerSnapshot);
+      }
+      return;
     }
 
     // broadcast imediato de state_update (além do snapshot periódico)
@@ -1306,12 +1731,47 @@ private:
     }
     
     if (!isFirstPositionUpdate) {
-      broadcastToNearby(cid, broadcastBytes);
+      // Resolver destinatários AOI sob mu_ (aoiGrid_ é mutável por outras threads),
+      // depois LIBERAR mu_ e enviar: send() é bloqueante e não pode segurar mu_
+      // (senão um cliente lento congela todas as threads e derruba conexões).
+      std::vector<uint32_t> moveRecipients = aoiGrid_.getNearbyPlayers(cid);
+      moveRecipients.push_back(cid);
+      const int64_t tHold = agentNowMs() - tLock0;
+      lock.unlock();
+      const int64_t tSend0 = agentNowMs();
+      for (uint32_t rcid : moveRecipients) {
+        ws_.sendBinary(rcid, broadcastBytes);
+      }
+      const int64_t tSend = agentNowMs() - tSend0;
+      // #region agent log
+      static std::atomic<uint32_t> moveLogSeq{0};
+      if (tLockWait > 5 || tHold > 10 || tSend > 10 || (++moveLogSeq % 60) == 0) {
+        agentDebugLog("H-A", "MovementServer.hpp:handleMoveUpdate", "move_timing",
+                      std::string("{\"cid\":") + std::to_string(cid) +
+                          ",\"playerId\":" + std::to_string(f.playerId) +
+                          ",\"lock_wait_ms\":" + std::to_string(tLockWait) +
+                          ",\"lock_hold_ms\":" + std::to_string(tHold) +
+                          ",\"send_ms\":" + std::to_string(tSend) +
+                          ",\"recipients\":" + std::to_string(moveRecipients.size()) + "}");
+      }
+      // #endregion
     }
   }
 
-  // Remove player quando client desconecta
-  void handleClientDisconnect(uint32_t cid) {
+  // Trabalho de desconexao a ser executado FORA do mu_ (DB + broadcasts).
+  struct DisconnectCleanup {
+    bool hasPlayer = false;
+    uint32_t playerId = 0;
+  };
+
+  // Fase 1 (sob mu_): apenas mutacoes em memoria. Rapido, nao bloqueia outros clientes.
+  DisconnectCleanup handleClientDisconnect(uint32_t cid) {
+    DisconnectCleanup cleanup;
+    {
+      std::lock_guard<std::mutex> lock(inboundMu_);
+      pendingMoveByCid_.erase(cid);
+    }
+    belongsOkByCid_.erase(cid);
     if (sessionAuthEnabled_) {
       sessionAuth_.onClientDisconnected(cid);
     }
@@ -1325,51 +1785,164 @@ private:
         players_.erase(playerIt);
         personalShopOpenByPlayerId_.erase(playerId);
         chatMessageHistoryByPlayer_.erase(playerId);
-
-        // Remover jogador do grupo no servidor (party_members no DB) e broadcast PartyMemberLeft se estava em grupo
-        uint32_t partyId = 0;
-        if (onPlayerDisconnect_) {
-          try {
-            partyId = onPlayerDisconnect_(playerId);
-          } catch (const std::exception& e) {
-            Umbra::Core::Logger::getInstance().error("Exception in onPlayerDisconnect for player {}: {}", playerId, e.what());
-          } catch (...) {
-            Umbra::Core::Logger::getInstance().error("Unknown exception in onPlayerDisconnect for player {}", playerId);
-          }
-        }
-        if (partyId > 0) {
-          auto memberLeftMsg = encodePartyMemberLeft(partyId);
-          ws_.broadcastBinary(memberLeftMsg);
-          Umbra::Core::Logger::getInstance().info("Broadcasted PartyMemberLeft for party {} (player {} disconnected)", partyId, playerId);
-        }
-        
-        // Notificar todos os OUTROS clientes que este player desconectou
-        // IMPORTANTE: Não fazer broadcast se não houver outros clients conectados
-        // O WebSocketServer continua rodando mesmo sem clients
-        try {
-          auto disconnectMsg = encodePlayerDisconnected(playerId);
-          // broadcastBinary é seguro mesmo sem clients (apenas não envia nada)
-          ws_.broadcastBinary(disconnectMsg);
-          Umbra::Core::Logger::getInstance().info("Broadcasted PlayerDisconnected message for player {} (if other clients exist)", playerId);
-        } catch (const std::exception& e) {
-          Umbra::Core::Logger::getInstance().error("Exception while broadcasting PlayerDisconnected for player {}: {}", playerId, e.what());
-          // NÃO parar o servidor por causa de erro no broadcast
-        } catch (...) {
-          Umbra::Core::Logger::getInstance().error("Unknown exception while broadcasting PlayerDisconnected for player {}", playerId);
-          // NÃO parar o servidor por causa de erro no broadcast
-        }
+        cleanup.hasPlayer = true;
+        cleanup.playerId = playerId;
       }
-      clientIdToPlayerId_.erase(it);
+      eraseClientMapUnlocked(cid);
     } else {
       Umbra::Core::Logger::getInstance().debug("Client {} disconnected but had no associated player", cid);
     }
-    
+    return cleanup;
+  }
+
+  // Fase 2 (SEM mu_): DB (sair de party / player_sessions) + broadcasts. Pode levar
+  // centenas de ms / segundos no DB remoto sem travar as threads dos outros clientes.
+  void finishClientDisconnect(uint32_t cid, const DisconnectCleanup& cleanup) {
+    if (cleanup.hasPlayer) {
+      const uint32_t playerId = cleanup.playerId;
+
+      // Remover jogador do grupo no servidor (party_members no DB) e broadcast PartyMemberLeft se estava em grupo
+      uint32_t partyId = 0;
+      if (onPlayerDisconnect_) {
+        try {
+          partyId = onPlayerDisconnect_(playerId);
+        } catch (const std::exception& e) {
+          Umbra::Core::Logger::getInstance().error("Exception in onPlayerDisconnect for player {}: {}", playerId, e.what());
+        } catch (...) {
+          Umbra::Core::Logger::getInstance().error("Unknown exception in onPlayerDisconnect for player {}", playerId);
+        }
+      }
+      if (partyId > 0) {
+        auto memberLeftMsg = encodePartyMemberLeft(partyId);
+        ws_.broadcastBinary(memberLeftMsg);
+        Umbra::Core::Logger::getInstance().info("Broadcasted PartyMemberLeft for party {} (player {} disconnected)", partyId, playerId);
+      }
+
+      // Notificar todos os OUTROS clientes que este player desconectou
+      // IMPORTANTE: Não fazer broadcast se não houver outros clients conectados
+      // O WebSocketServer continua rodando mesmo sem clients
+      try {
+        auto disconnectMsg = encodePlayerDisconnected(playerId);
+        // broadcastBinary é seguro mesmo sem clients (apenas não envia nada)
+        ws_.broadcastBinary(disconnectMsg);
+        Umbra::Core::Logger::getInstance().info("Broadcasted PlayerDisconnected message for player {} (if other clients exist)", playerId);
+      } catch (const std::exception& e) {
+        Umbra::Core::Logger::getInstance().error("Exception while broadcasting PlayerDisconnected for player {}: {}", playerId, e.what());
+        // NÃO parar o servidor por causa de erro no broadcast
+      } catch (...) {
+        Umbra::Core::Logger::getInstance().error("Unknown exception while broadcasting PlayerDisconnected for player {}", playerId);
+        // NÃO parar o servidor por causa de erro no broadcast
+      }
+    }
+
     // IMPORTANTE: O servidor WebSocket DEVE continuar rodando mesmo sem players
-    // Apenas removemos o player do map, mas o servidor continua aceitando novas conexões
-    Umbra::Core::Logger::getInstance().info("Client {} disconnected. Server continues running. Remaining players: {}", cid, players_.size());
+    Umbra::Core::Logger::getInstance().info("Client {} disconnected. Server continues running.", cid);
+  }
+
+  // Tipo do "outbox": pares (clientId, bytes) resolvidos sob mu_ para envio DEPOIS de liberar mu_.
+
+  /** Resolve o clientId do playerId e enfileira no outbox (chamar sob mu_). Não envia nada. */
+  // Mantém clientIdToPlayerId_ e o reverso playerIdToClientId_ em sincronia (1:1).
+  void setClientPlayerMapUnlocked(uint32_t cid, uint32_t pid) {
+    auto old = clientIdToPlayerId_.find(cid);
+    if (old != clientIdToPlayerId_.end() && old->second != pid) {
+      auto rev = playerIdToClientId_.find(old->second);
+      if (rev != playerIdToClientId_.end() && rev->second == cid) {
+        playerIdToClientId_.erase(rev);
+      }
+    }
+    clientIdToPlayerId_[cid] = pid;
+    playerIdToClientId_[pid] = cid;
+  }
+
+  void eraseClientMapUnlocked(uint32_t cid) {
+    auto it = clientIdToPlayerId_.find(cid);
+    if (it == clientIdToPlayerId_.end()) return;
+    auto rev = playerIdToClientId_.find(it->second);
+    if (rev != playerIdToClientId_.end() && rev->second == cid) {
+      playerIdToClientId_.erase(rev);
+    }
+    clientIdToPlayerId_.erase(it);
+  }
+
+  uint32_t findClientIdForPlayerUnlocked(uint32_t playerId) const {
+    auto it = playerIdToClientId_.find(playerId);
+    return (it != playerIdToClientId_.end()) ? it->second : 0;
+  }
+
+  void enqueueToPlayerUnlocked(uint32_t playerId, const std::vector<uint8_t>& message, Outbox& outbox) {
+    const uint32_t cid = findClientIdForPlayerUnlocked(playerId);
+    if (cid != 0) {
+      outbox.emplace_back(cid, message);
+      return;
+    }
+    Umbra::Core::Logger::getInstance().warn("Player {} not found online, cannot send message", playerId);
+  }
+
+  /** Enfileira tudo do outbox. Agrupa por cid para uma única aquisição de lock por
+   *  cliente (a writer thread do WS coalesce os frames num único send()).
+   *  Pode ser chamado fora do mu_ pois o envio é assíncrono. */
+  void flushOutbox(const Outbox& outbox) {
+    if (outbox.empty()) return;
+    // Agrupa preservando a ordem de chegada por cliente.
+    std::unordered_map<uint32_t, std::vector<const std::vector<uint8_t>*>> byCid;
+    std::vector<uint32_t> order;
+    order.reserve(outbox.size());
+    for (const auto& entry : outbox) {
+      auto it = byCid.find(entry.first);
+      if (it == byCid.end()) {
+        order.push_back(entry.first);
+        byCid[entry.first].push_back(&entry.second);
+      } else {
+        it->second.push_back(&entry.second);
+      }
+    }
+    for (uint32_t cid : order) {
+      ws_.sendBinaryBatch(cid, byCid[cid]);
+    }
   }
 
   // Enviar mensagem para um jogador específico (por PlayerID) - versão sem lock (chamada com lock já adquirido)
+  void applyRespawnSuccessUnlocked(uint32_t playerId, const PlayerRespawnPayload& payload,
+                                   Outbox& outbox) {
+    auto it = players_.find(playerId);
+    if (it != players_.end()) {
+      it->second.isDead = false;
+      it->second.x = payload.x;
+      it->second.y = payload.y;
+      it->second.z = payload.z;
+      it->second.yaw = payload.yaw;
+    } else {
+      PlayerStateNet stub;
+      stub.playerId = playerId;
+      stub.isDead = false;
+      stub.x = payload.x;
+      stub.y = payload.y;
+      stub.z = payload.z;
+      stub.yaw = payload.yaw;
+      players_[playerId] = stub;
+    }
+    lastKnownHealth_[playerId] = payload.currentHealth;
+
+    PlayerVitalsPayload vitals;
+    vitals.playerId = playerId;
+    vitals.currentHealth = payload.currentHealth;
+    vitals.maxHealth = std::max(1, payload.maxHealth);
+    vitals.currentMana = payload.currentMana;
+    vitals.maxMana = std::max(1, payload.maxMana);
+    vitals.sourcePlayerId = playerId;
+    vitals.reason = 0;
+    handleVitalsBroadcastUnlocked(playerId, vitals, playerId, /*delta*/ 0, /*triggerDeath*/ false,
+                                  false, false, outbox);
+
+    auto respawnPkt = encodePlayerRespawnedNotify(payload);
+    std::unordered_set<uint32_t> recipients;
+    collectVitalsRecipientsUnlocked(playerId, recipients);
+    for (uint32_t rid : recipients) {
+      enqueueToPlayerUnlocked(rid, respawnPkt, outbox);
+    }
+  }
+
   void sendToPlayerUnlocked(uint32_t playerId, const std::vector<uint8_t>& message) {
     // Encontrar clientId associado ao playerId
     for (const auto& [cid, pid] : clientIdToPlayerId_) {
@@ -1391,25 +1964,68 @@ private:
     ws_.sendBinary(sourceClientId, data);
   }
 
+  // Lê os membros de party do cache (sem MySQL). Retorna vazio se ainda não
+  // aquecido; refreshPartyCache() popula fora do mu_.
+  std::vector<uint32_t> getPartyMembersCached(uint32_t playerId) {
+    std::lock_guard<std::mutex> lock(partyCacheMu_);
+    auto it = partyCache_.find(playerId);
+    if (it == partyCache_.end()) return {};
+    return it->second.members;
+  }
+
+ public:
+  // Reabastece o cache de party dos jogadores online. Chamado pelo tick da zone
+  // (throttle interno ~1s). Faz os SELECTs FORA do mu_ e sem segurar partyCacheMu_
+  // durante o MySQL, então nunca bloqueia o hot path de vitals nem o combat worker.
+  void refreshPartyCache() {
+    if (!resolvePartyMembers_) return;
+    const auto now = std::chrono::steady_clock::now();
+    if (now < nextPartyRefresh_) return;
+    nextPartyRefresh_ = now + std::chrono::milliseconds(kPartyCacheTtlMs);
+
+    std::vector<uint32_t> onlinePids;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      onlinePids.reserve(clientIdToPlayerId_.size());
+      for (const auto& [cid, pid] : clientIdToPlayerId_) {
+        if (pid > 0) onlinePids.push_back(pid);
+      }
+    }
+
+    // SELECTs sem nenhum lock desta classe.
+    std::unordered_map<uint32_t, std::vector<uint32_t>> fresh;
+    fresh.reserve(onlinePids.size());
+    for (uint32_t pid : onlinePids) {
+      fresh[pid] = resolvePartyMembers_(pid);
+    }
+
+    const auto expiresAt = std::chrono::steady_clock::now() +
+                           std::chrono::milliseconds(kPartyCacheTtlMs * 2);
+    std::lock_guard<std::mutex> lock(partyCacheMu_);
+    partyCache_.clear();  // remove jogadores que saíram
+    for (auto& [pid, members] : fresh) {
+      partyCache_[pid] = PartyCacheEntry{std::move(members), expiresAt};
+    }
+  }
+
+ private:
   void collectVitalsRecipientsUnlocked(uint32_t targetPlayerId,
                                          std::unordered_set<uint32_t>& recipients) {
-    if (resolvePartyMembers_) {
-      for (uint32_t memberId : resolvePartyMembers_(targetPlayerId)) {
-        recipients.insert(memberId);
-      }
+    // Party via cache (mutex próprio), NUNCA MySQL aqui: esta função roda sob mu_
+    // e todo dano/DOT/regen passa por ela. O cache é reabastecido por
+    // refreshPartyCache() fora do mu_. Miss = party ainda entra pelo AOI se perto.
+    for (uint32_t memberId : getPartyMembersCached(targetPlayerId)) {
+      recipients.insert(memberId);
     }
     recipients.insert(targetPlayerId);
 
-    uint32_t targetClientId = 0;
-    for (const auto& [mappedCid, mappedPid] : clientIdToPlayerId_) {
-      if (mappedPid == targetPlayerId) {
-        targetClientId = mappedCid;
-        break;
-      }
-    }
+    const uint32_t targetClientId = findClientIdForPlayerUnlocked(targetPlayerId);
     if (targetClientId > 0) {
       auto nearbyClientIds = aoiGrid_.getNearbyPlayers(targetClientId);
+      // Cap de fan-out: em altíssima densidade (100+ na mesma célula), limitar quantos
+      // vizinhos recebem vitals evita O(N^2) por evento. Party + próprio já entraram.
       for (uint32_t nearbyCid : nearbyClientIds) {
+        if (recipients.size() >= kMaxVitalsRecipients) break;
         auto pidIt = clientIdToPlayerId_.find(nearbyCid);
         if (pidIt != clientIdToPlayerId_.end()) {
           recipients.insert(pidIt->second);
@@ -1418,14 +2034,44 @@ private:
     }
   }
 
+  // Preenche o outbox (sob mu_); os envios de rede acontecem depois via flushOutbox, FORA do mu_.
+  // Assim um send() bloqueante para um cliente lento nunca congela as demais threads.
   void handleVitalsBroadcastUnlocked(uint32_t targetPlayerId, const PlayerVitalsPayload& payload,
                                      uint32_t sourcePlayerId, int32_t delta, bool triggerDeath,
-                                     bool isCrit = false, bool isDouble = false) {
+                                     bool isCrit, bool isDouble, Outbox& outbox) {
+    // Supressão de vitals redundantes: o caminho delta=0 (regen/sync de mana) era
+    // 100% do tráfego de vitals e enchia o buffer do cliente (cascata). Só enviamos
+    // opcode 87 com delta=0 quando (a) HP/MP mudaram desde o último broadcast E
+    // (b) passou a janela de throttle (~15Hz). Dano/heal/morte/miss sempre passam.
+    const bool isMiss = (payload.reason == 6);  // CombatReason::Miss
+    bool sendVitals = true;
+    if (delta == 0 && !triggerDeath && !isMiss) {
+      auto& st = vitalsBcast_[targetPlayerId];
+      const int64_t now = agentNowMs();
+      const bool changed =
+          (st.hp != payload.currentHealth) || (st.mp != payload.currentMana);
+      if (!changed || (now - st.lastMs < kVitalsThrottleMs)) {
+        sendVitals = false;
+      } else {
+        st.hp = payload.currentHealth;
+        st.mp = payload.currentMana;
+        st.lastMs = now;
+      }
+      if (!sendVitals) {
+        return;  // nada mudou / dentro do throttle: não gera tráfego nem log
+      }
+    } else {
+      auto& st = vitalsBcast_[targetPlayerId];
+      st.hp = payload.currentHealth;
+      st.mp = payload.currentMana;
+      st.lastMs = agentNowMs();
+    }
+
     auto outMsg = encodePlayerVitalsUpdate(MovementMsgType::PlayerVitalsUpdate, payload);
     std::unordered_set<uint32_t> recipients;
     collectVitalsRecipientsUnlocked(targetPlayerId, recipients);
     for (uint32_t rid : recipients) {
-      sendToPlayerUnlocked(rid, outMsg);
+      enqueueToPlayerUnlocked(rid, outMsg, outbox);
     }
 
     if (delta != 0) {
@@ -1438,7 +2084,7 @@ private:
       combat.isDouble = isDouble ? 1 : 0;
       auto combatPkt = encodeCombatEventNotify(combat);
       for (uint32_t rid : recipients) {
-        sendToPlayerUnlocked(rid, combatPkt);
+        enqueueToPlayerUnlocked(rid, combatPkt, outbox);
       }
     }
 
@@ -1452,13 +2098,13 @@ private:
         death.reason = payload.reason;
         auto deathPkt = encodePlayerDeathNotify(death);
         for (uint32_t rid : recipients) {
-          sendToPlayerUnlocked(rid, deathPkt);
+          enqueueToPlayerUnlocked(rid, deathPkt, outbox);
         }
         Umbra::Core::Logger::getInstance().info("Player {} died (killer={})", targetPlayerId, sourcePlayerId);
       }
     }
 
-    Umbra::Core::Logger::getInstance().info(
+    Umbra::Core::Logger::getInstance().debug(
         "VitalsUpdate target={} delta={} -> {} recipients",
         targetPlayerId, delta, recipients.size());
   }
@@ -1467,11 +2113,39 @@ private:
   mutable std::mutex mu_;
   std::unordered_map<uint32_t, PlayerStateNet> players_;
   std::unordered_map<uint32_t, uint32_t> clientIdToPlayerId_;
+  /** Mapa reverso playerId -> clientId (1:1). Evita varredura O(clientes) no hot path
+   *  (enqueueToPlayerUnlocked / collectVitalsRecipientsUnlocked). Mantido em sincronia
+   *  com clientIdToPlayerId_ via setClientPlayerMapUnlocked/eraseClientMapUnlocked. */
+  std::unordered_map<uint32_t, uint32_t> playerIdToClientId_;
+  /** Rate-limit opcode 108 (NpcBuffSnapshotRequest) por client. */
+  std::unordered_map<uint32_t, int64_t> lastNpcBuffSnapMsByClient_;
   std::unordered_map<uint32_t, std::deque<std::chrono::steady_clock::time_point>> chatMessageHistoryByPlayer_;
   std::function<uint32_t(uint32_t)> onPlayerDisconnect_;
   std::function<std::vector<uint32_t>(uint32_t)> resolvePartyMembers_;
-  std::function<bool(uint32_t, uint32_t, const std::string&, PlayerRespawnPayload&)> respawnHandler_;
+
+  // Cache de membros de party (mutex próprio, fora do mu_). Evita 2 SELECTs sob
+  // mu_ a cada broadcast de vitals/dano/DOT. Reabastecido por refreshPartyCache().
+  struct PartyCacheEntry {
+    std::vector<uint32_t> members;
+    std::chrono::steady_clock::time_point expiresAt;
+  };
+  mutable std::mutex partyCacheMu_;
+  std::unordered_map<uint32_t, PartyCacheEntry> partyCache_;
+  std::chrono::steady_clock::time_point nextPartyRefresh_{};
+  static constexpr int kPartyCacheTtlMs = 1000;
+  std::function<bool(uint32_t, uint32_t, const std::string&, bool, PlayerRespawnPayload&)> respawnHandler_;
   std::unordered_map<uint32_t, int32_t> lastKnownHealth_;
+  // Baseline do último broadcast de vitals por jogador: suprime opcode 87 redundante
+  // (delta=0 sem mudança real) e aplica throttle a mudanças de regen/mana.
+  struct VitalsBcastState {
+    int32_t hp = INT32_MIN;
+    int32_t mp = INT32_MIN;
+    int64_t lastMs = 0;
+  };
+  std::unordered_map<uint32_t, VitalsBcastState> vitalsBcast_;
+  static constexpr int64_t kVitalsThrottleMs = 66;  // ~15Hz para vitals sem dano
+  // Cap de destinatários de vitals por evento (bound do fan-out em alta densidade).
+  static constexpr size_t kMaxVitalsRecipients = 60;
   std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> respawnCooldownUntil_;
   uint32_t zoneId_ = 1;
   SpatialGrid aoiGrid_{10000.0f};
@@ -1486,6 +2160,17 @@ private:
   CombatCoreEngine* combatCoreEngine_ = nullptr;
   MovementSessionAuth sessionAuth_;
   bool sessionAuthEnabled_ = false;
+
+  struct InboundMsg {
+    uint32_t cid = 0;
+    std::vector<uint8_t> data;
+    int64_t enqueuedAtMs = 0;
+  };
+  std::mutex inboundMu_;
+  std::deque<InboundMsg> inboundQueue_;
+  std::unordered_map<uint32_t, std::vector<uint8_t>> pendingMoveByCid_;
+  /** cid -> playerId já validado (evita MySQL a cada PlayerInfoUpdate). */
+  std::unordered_map<uint32_t, uint32_t> belongsOkByCid_;
 };
 
 } // namespace Zone

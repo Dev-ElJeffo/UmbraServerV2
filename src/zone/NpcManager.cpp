@@ -155,19 +155,28 @@ const NpcRuntimeInstance* NpcManager::findInstance(uint32_t npcInstanceId) const
   return &instances_[it->second];
 }
 
+void NpcManager::persistNpcSql(const std::string& sql) {
+  if (sql.empty()) return;
+  if (asyncDbWrite_) {
+    asyncDbWrite_(sql);
+    return;
+  }
+  if (db_ && db_->isConnected()) {
+    db_->executeQuery(sql);
+  }
+}
+
 bool NpcManager::respawnInstance(NpcRuntimeInstance& inst) {
   inst.isDead = false;
   inst.currentHealth = inst.maxHealth;
   inst.currentMana = inst.maxMana;
   inst.respawnAt = {};
 
-  if (db_ && db_->isConnected()) {
-    const std::string idStr = std::to_string(inst.npcInstanceId);
-    db_->executePreparedInsert(
-        "UPDATE npc_instances SET current_health = ?, current_mana = ?, is_dead = 0, respawn_at = NULL "
-        "WHERE npc_instance_id = ?",
-        {std::to_string(inst.currentHealth), std::to_string(inst.currentMana), idStr});
-  }
+  persistNpcSql(
+      "UPDATE npc_instances SET current_health = " + std::to_string(inst.currentHealth) +
+      ", current_mana = " + std::to_string(inst.currentMana) +
+      ", is_dead = 0, respawn_at = NULL WHERE npc_instance_id = " +
+      std::to_string(inst.npcInstanceId));
   return true;
 }
 
@@ -198,25 +207,19 @@ int32_t NpcManager::applyDamage(uint32_t npcInstanceId, int32_t delta, bool& out
     inst.respawnAt = std::chrono::system_clock::now() + std::chrono::seconds(respawnSec);
     if (outNpcDied) *outNpcDied = true;
 
-    if (db_ && db_->isConnected()) {
-      const std::string idStr = std::to_string(npcInstanceId);
-      db_->executePreparedInsert(
-          "UPDATE npc_instances SET current_health = 0, is_dead = 1, "
-          "respawn_at = DATE_ADD(NOW(), INTERVAL " +
-              std::to_string(respawnSec) +
-              " SECOND), last_combat_at = CURRENT_TIMESTAMP WHERE npc_instance_id = ?",
-          {idStr});
-    }
+    persistNpcSql(
+        "UPDATE npc_instances SET current_health = 0, is_dead = 1, respawn_at = DATE_ADD(NOW(), "
+        "INTERVAL " +
+        std::to_string(respawnSec) +
+        " SECOND), last_combat_at = CURRENT_TIMESTAMP WHERE npc_instance_id = " +
+        std::to_string(npcInstanceId));
     return applied;
   }
 
-  if (db_ && db_->isConnected()) {
-    const std::string idStr = std::to_string(npcInstanceId);
-    db_->executePreparedInsert(
-        "UPDATE npc_instances SET current_health = ?, is_dead = 0, last_combat_at = CURRENT_TIMESTAMP "
-        "WHERE npc_instance_id = ?",
-        {std::to_string(inst.currentHealth), idStr});
-  }
+  persistNpcSql(
+      "UPDATE npc_instances SET current_health = " + std::to_string(inst.currentHealth) +
+      ", is_dead = 0, last_combat_at = CURRENT_TIMESTAMP WHERE npc_instance_id = " +
+      std::to_string(npcInstanceId));
 
   return applied;
 }
