@@ -5,6 +5,7 @@
 #include "zone/CharacterStateLoader.hpp"
 #include "zone/ReactionEngine.hpp"
 #include "zone/QuestProgressService.hpp"
+#include "zone/LootService.hpp"
 #include "SkillService.hpp"
 #include "CombatCalculator.hpp"
 #include "database/MySQLConnector.hpp"
@@ -160,6 +161,7 @@ public:
   void syncJoinDeathState(uint32_t playerId);
 
   void setResolvePartyMembersCallback(std::function<std::vector<uint32_t>(uint32_t playerId)> cb);
+  void setLootService(LootService* loot) { lootService_ = loot; }
 
   /** Multiplicador de velocidade (100 = base) para validação de movimento. */
   float getPlayerMovementSpeedPercent(uint32_t playerId) const;
@@ -243,6 +245,7 @@ private:
   std::unique_ptr<CharacterStateLoader> stateLoader_;
   std::unique_ptr<ReactionEngine> reactionEngine_;
   std::unique_ptr<QuestProgressService> questProgressService_;
+  LootService* lootService_ = nullptr;
   std::unordered_map<uint32_t, Zone::BasicAttackDef> basicAttacksByClass_;
   std::mutex basicCdMu_;
   std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> basicAttackReadyAt_;

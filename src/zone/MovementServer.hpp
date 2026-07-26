@@ -73,6 +73,7 @@ public:
   void setZoneId(uint32_t zoneId) { zoneId_ = zoneId; }
 
   void setCombatCoreEngine(CombatCoreEngine* engine) { combatCoreEngine_ = engine; }
+  void setLootService(LootService* loot) { lootService_ = loot; }
   void setSessionAuth(Umbra::Auth::JWTManager* jwt, std::shared_ptr<Umbra::Database::MySQLConnector> db) {
     sessionAuth_.setJwtManager(jwt);
     sessionAuth_.setDatabase(std::move(db));
@@ -91,6 +92,12 @@ public:
   void sendBinaryToClient(uint32_t clientId, const std::vector<uint8_t>& data) {
     std::lock_guard<std::mutex> lock(mu_);
     ws_.sendBinary(clientId, data);
+  }
+
+  /** Resolve clientId WS a partir do playerId (0 se offline). */
+  uint32_t getClientIdForPlayer(uint32_t playerId) {
+    std::lock_guard<std::mutex> lock(mu_);
+    return findClientIdForPlayerUnlocked(playerId);
   }
 
   void broadcastVitalsAndCombat(uint32_t targetPlayerId, const PlayerVitalsPayload& vitals,
@@ -803,6 +810,36 @@ public:
           if (combatCoreEngine_) {
             combatCoreEngine_->enqueueBasicAttack(payload.sourcePlayerId, payload);
           }
+        }
+        return;
+      }
+
+      // Loot take item (113)
+      if (msgType == MovementMsgType::LootTakeItem) {
+        LootTakeItemPayload payload;
+        if (decodeLootTakeItem(data, payload) && lootService_) {
+          uint32_t playerId = 0;
+          {
+            std::lock_guard<std::mutex> lock(mu_);
+            auto cidIt = clientIdToPlayerId_.find(cid);
+            if (cidIt != clientIdToPlayerId_.end()) playerId = cidIt->second;
+          }
+          if (playerId > 0) lootService_->handleLootTakeItem(playerId, payload);
+        }
+        return;
+      }
+
+      // Loot take all (114)
+      if (msgType == MovementMsgType::LootTakeAll) {
+        LootTakeAllPayload payload;
+        if (decodeLootTakeAll(data, payload) && lootService_) {
+          uint32_t playerId = 0;
+          {
+            std::lock_guard<std::mutex> lock(mu_);
+            auto cidIt = clientIdToPlayerId_.find(cid);
+            if (cidIt != clientIdToPlayerId_.end()) playerId = cidIt->second;
+          }
+          if (playerId > 0) lootService_->handleLootTakeAll(playerId, payload);
         }
         return;
       }
@@ -2158,6 +2195,7 @@ private:
   size_t chatMaxMessageLength_ = 500;
   uint32_t chatRateLimitPerMinute_ = 30;
   CombatCoreEngine* combatCoreEngine_ = nullptr;
+  LootService* lootService_ = nullptr;
   MovementSessionAuth sessionAuth_;
   bool sessionAuthEnabled_ = false;
 

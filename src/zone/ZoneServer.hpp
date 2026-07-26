@@ -9,6 +9,7 @@
 #include "zone/CombatCoreEngine.hpp"
 #include "zone/ExperienceService.hpp"
 #include "zone/ExpZoneManager.hpp"
+#include "zone/LootService.hpp"
 
 namespace Umbra {
 namespace Auth { class JWTManager; }
@@ -54,6 +55,7 @@ class ZoneServer {
   std::unique_ptr<CombatCoreEngine> combatCoreEngine_;
   std::unique_ptr<ExperienceService> experienceService_;
   std::unique_ptr<ExpZoneManager> expZoneManager_;
+  std::unique_ptr<LootService> lootService_;
   std::unique_ptr<Umbra::Auth::JWTManager> jwtManager_;
   float expZoneTickAccumulator_ = 0.0f;
   float snapshotAccumulator_ = 0.0f;

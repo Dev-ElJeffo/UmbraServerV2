@@ -28,6 +28,7 @@ require_once __DIR__ . '/../../config/database.php';
 $type = $_GET['type'] ?? null;
 $rarity = $_GET['rarity'] ?? null;
 $search = $_GET['search'] ?? null;
+$idsParam = $_GET['ids'] ?? null;
 
 try {
     $pdo = getConnection();
@@ -51,6 +52,27 @@ try {
         $query .= " AND (item_name LIKE :search OR item_description LIKE :search)";
         $params['search'] = "%$search%";
     }
+
+    if ($idsParam !== null && $idsParam !== '') {
+        $idList = [];
+        foreach (explode(',', (string)$idsParam) as $raw) {
+            $id = (int)trim($raw);
+            if ($id > 0) {
+                $idList[$id] = $id;
+            }
+        }
+        if (!empty($idList)) {
+            $placeholders = [];
+            $i = 0;
+            foreach ($idList as $id) {
+                $key = ':id' . $i;
+                $placeholders[] = $key;
+                $params[$key] = $id;
+                $i++;
+            }
+            $query .= ' AND item_id IN (' . implode(',', $placeholders) . ')';
+        }
+    }
     
     $query .= " ORDER BY rarity DESC, item_name ASC";
     
@@ -70,6 +92,8 @@ try {
         
         // Converter valores numéricos
         $template['item_id'] = (int)$template['item_id'];
+        // Alias para o parser do cliente UE (ParseItemTemplate usa item_template_id)
+        $template['item_template_id'] = $template['item_id'];
         $template['max_stack_size'] = (int)$template['max_stack_size'];
         $template['required_level'] = (int)$template['required_level'];
         $template['value'] = (int)$template['value'];

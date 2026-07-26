@@ -96,7 +96,60 @@ enum class MovementMsgType : uint8_t {
   NpcBuffSnapshotRequest = 108,        // Cliente -> Servidor: pede snapshot buffs de um NPC
   SessionAuthNotify = 109,             // Cliente -> Servidor: [msgType][tokenLen:2 LE][token:utf8]
   SessionRevokedNotify = 110,            // Servidor -> Cliente: [msgType][reason:1][msgLen:2 LE][msg:utf8]
+  LootWindowOpen = 111,                // Servidor -> Cliente: janela de loot (killer)
+  LootWindowClose = 112,               // Servidor -> Cliente: fecha janela
+  LootTakeItem = 113,                  // Cliente -> Servidor: loot slot selecionado
+  LootTakeAll = 114,                   // Cliente -> Servidor: loot all
+  LootWindowUpdate = 115,              // Servidor -> Cliente: slots restantes + gold opcional
   WsKeepalive = 250                      // Servidor -> Cliente: heartbeat (1 byte); cliente ignora
+};
+
+/** kind em slots de loot: 0=item, 1=gold */
+enum class LootEntryKind : uint8_t {
+  Item = 0,
+  Gold = 1
+};
+
+enum class LootCloseReason : uint8_t {
+  Empty = 0,
+  Expired = 1,
+  ClosedByClient = 2,
+  Error = 3
+};
+
+struct LootSlotPayload {
+  uint8_t slotIndex = 0;
+  uint8_t kind = 0;           // LootEntryKind
+  uint32_t itemTemplateId = 0;  // 0 se gold
+  uint32_t quantity = 0;
+};
+
+struct LootWindowOpenPayload {
+  uint64_t corpseId = 0;
+  uint32_t npcTemplateId = 0;
+  uint32_t npcInstanceId = 0;
+  std::vector<LootSlotPayload> slots;  // <= 10
+};
+
+struct LootWindowClosePayload {
+  uint64_t corpseId = 0;
+  uint8_t reason = 0;
+};
+
+struct LootTakeItemPayload {
+  uint64_t corpseId = 0;
+  uint8_t slotIndex = 0;
+};
+
+struct LootTakeAllPayload {
+  uint64_t corpseId = 0;
+};
+
+struct LootWindowUpdatePayload {
+  uint64_t corpseId = 0;
+  int64_t playerGold = -1;  // <0 = não atualizar; >=0 = novo saldo
+  uint8_t inventoryChanged = 0;
+  std::vector<LootSlotPayload> slots;  // slots ainda não taken
 };
 
 /** Motivo de revogacao de sessao WS (opcode 110) */
@@ -2461,6 +2514,165 @@ inline bool decodeSessionRevokedNotify(const std::vector<uint8_t>& data, uint8_t
   if (data.size() < 4u + len) return false;
   outMessage.assign(reinterpret_cast<const char*>(data.data() + 4), len);
   return true;
+}
+
+// ---- Loot window (111–115) ----
+// 111: [type][corpseId:u64][npcTemplateId:u32][npcInstanceId:u32][count:u8]
+//      repeating count× [slot:u8][kind:u8][itemId:u32][qty:u32]
+// 112: [type][corpseId:u64][reason:u8]
+// 113: [type][corpseId:u64][slot:u8]
+// 114: [type][corpseId:u64]
+// 115: [type][corpseId:u64][playerGold:i64][invChanged:u8][count:u8] + slots...
+
+inline void appendLootU64(std::vector<uint8_t>& data, uint64_t v) {
+  for (int i = 0; i < 8; ++i) {
+    data.push_back(static_cast<uint8_t>((v >> (i * 8)) & 0xFF));
+  }
+}
+
+inline void appendLootU32(std::vector<uint8_t>& data, uint32_t v) {
+  data.push_back(static_cast<uint8_t>(v & 0xFF));
+  data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  data.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+  data.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+}
+
+inline void appendLootI64(std::vector<uint8_t>& data, int64_t v) {
+  appendLootU64(data, static_cast<uint64_t>(v));
+}
+
+inline uint64_t readLootU64(const std::vector<uint8_t>& data, size_t& off) {
+  uint64_t v = 0;
+  for (int i = 0; i < 8; ++i) {
+    v |= (static_cast<uint64_t>(data[off + static_cast<size_t>(i)]) << (i * 8));
+  }
+  off += 8;
+  return v;
+}
+
+inline uint32_t readLootU32(const std::vector<uint8_t>& data, size_t& off) {
+  uint32_t v = static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) |
+               (static_cast<uint32_t>(data[off + 2]) << 16) | (static_cast<uint32_t>(data[off + 3]) << 24);
+  off += 4;
+  return v;
+}
+
+inline void appendLootSlots(std::vector<uint8_t>& data, const std::vector<LootSlotPayload>& slots) {
+  const uint8_t count = static_cast<uint8_t>(slots.size() > 10 ? 10 : slots.size());
+  data.push_back(count);
+  for (uint8_t i = 0; i < count; ++i) {
+    const auto& s = slots[i];
+    data.push_back(s.slotIndex);
+    data.push_back(s.kind);
+    appendLootU32(data, s.itemTemplateId);
+    appendLootU32(data, s.quantity);
+  }
+}
+
+inline bool readLootSlots(const std::vector<uint8_t>& data, size_t& off, std::vector<LootSlotPayload>& slots) {
+  if (off >= data.size()) return false;
+  const uint8_t count = data[off++];
+  slots.clear();
+  slots.reserve(count);
+  for (uint8_t i = 0; i < count; ++i) {
+    if (off + 10 > data.size()) return false;
+    LootSlotPayload s;
+    s.slotIndex = data[off++];
+    s.kind = data[off++];
+    s.itemTemplateId = readLootU32(data, off);
+    s.quantity = readLootU32(data, off);
+    slots.push_back(s);
+  }
+  return true;
+}
+
+inline std::vector<uint8_t> encodeLootWindowOpen(const LootWindowOpenPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(1 + 8 + 4 + 4 + 1 + p.slots.size() * 10);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::LootWindowOpen));
+  appendLootU64(data, p.corpseId);
+  appendLootU32(data, p.npcTemplateId);
+  appendLootU32(data, p.npcInstanceId);
+  appendLootSlots(data, p.slots);
+  return data;
+}
+
+inline bool decodeLootWindowOpen(const std::vector<uint8_t>& data, LootWindowOpenPayload& p) {
+  if (data.size() < 18 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::LootWindowOpen) return false;
+  size_t off = 1;
+  p.corpseId = readLootU64(data, off);
+  p.npcTemplateId = readLootU32(data, off);
+  p.npcInstanceId = readLootU32(data, off);
+  return readLootSlots(data, off, p.slots);
+}
+
+inline std::vector<uint8_t> encodeLootWindowClose(const LootWindowClosePayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(10);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::LootWindowClose));
+  appendLootU64(data, p.corpseId);
+  data.push_back(p.reason);
+  return data;
+}
+
+inline bool decodeLootWindowClose(const std::vector<uint8_t>& data, LootWindowClosePayload& p) {
+  if (data.size() < 10 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::LootWindowClose) return false;
+  size_t off = 1;
+  p.corpseId = readLootU64(data, off);
+  p.reason = data[off];
+  return true;
+}
+
+inline std::vector<uint8_t> encodeLootTakeItem(const LootTakeItemPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(10);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::LootTakeItem));
+  appendLootU64(data, p.corpseId);
+  data.push_back(p.slotIndex);
+  return data;
+}
+
+inline bool decodeLootTakeItem(const std::vector<uint8_t>& data, LootTakeItemPayload& p) {
+  if (data.size() < 10 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::LootTakeItem) return false;
+  size_t off = 1;
+  p.corpseId = readLootU64(data, off);
+  p.slotIndex = data[off];
+  return true;
+}
+
+inline std::vector<uint8_t> encodeLootTakeAll(const LootTakeAllPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(9);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::LootTakeAll));
+  appendLootU64(data, p.corpseId);
+  return data;
+}
+
+inline bool decodeLootTakeAll(const std::vector<uint8_t>& data, LootTakeAllPayload& p) {
+  if (data.size() < 9 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::LootTakeAll) return false;
+  size_t off = 1;
+  p.corpseId = readLootU64(data, off);
+  return true;
+}
+
+inline std::vector<uint8_t> encodeLootWindowUpdate(const LootWindowUpdatePayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(1 + 8 + 8 + 1 + 1 + p.slots.size() * 10);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::LootWindowUpdate));
+  appendLootU64(data, p.corpseId);
+  appendLootI64(data, p.playerGold);
+  data.push_back(p.inventoryChanged);
+  appendLootSlots(data, p.slots);
+  return data;
+}
+
+inline bool decodeLootWindowUpdate(const std::vector<uint8_t>& data, LootWindowUpdatePayload& p) {
+  if (data.size() < 19 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::LootWindowUpdate) return false;
+  size_t off = 1;
+  p.corpseId = readLootU64(data, off);
+  p.playerGold = static_cast<int64_t>(readLootU64(data, off));
+  p.inventoryChanged = data[off++];
+  return readLootSlots(data, off, p.slots);
 }
 
 } // namespace Zone

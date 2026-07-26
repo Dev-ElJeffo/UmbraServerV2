@@ -174,8 +174,14 @@ bool ZoneServer::start() {
       experienceService_->setStateLoader(combatCoreEngine_->getCharacterStateLoader());
       expZoneManager_ = std::make_unique<ExpZoneManager>(
           config_.zoneId, config_.dbConnector, experienceService_.get(), movementServer_.get());
-      Core::Logger::getInstance().info("ExperienceService and ExpZoneManager initialized for zone {}",
-                                         config_.zoneId);
+      lootService_ = std::make_unique<LootService>(
+          config_.zoneId, config_.dbConnector, movementServer_.get(), experienceService_.get());
+      lootService_->loadFromDatabase();
+      combatCoreEngine_->setLootService(lootService_.get());
+      movementServer_->setLootService(lootService_.get());
+      Core::Logger::getInstance().info(
+          "ExperienceService, ExpZoneManager and LootService initialized for zone {}",
+          config_.zoneId);
     } else {
       combatCoreEngine_.reset();
       Core::Logger::getInstance().warn("CombatCoreEngine failed to initialize");
@@ -286,6 +292,9 @@ void ZoneServer::update(float deltaTime) {
     // #endregion
     if (expZoneManager_) {
       expZoneManager_->tick(expZoneTickAccumulator_);
+    }
+    if (lootService_) {
+      lootService_->tick(expZoneTickAccumulator_);
     }
     // #region agent log
     tExp = agentNowMs() - a;

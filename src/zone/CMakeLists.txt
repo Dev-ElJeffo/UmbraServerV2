@@ -11,6 +11,7 @@ add_library(umbra_zone STATIC
   ExperienceService.cpp
   ExpZoneManager.cpp
   QuestProgressService.cpp
+  LootService.cpp
   MovementServer.hpp
   MovementProtocol.hpp
   SpatialGrid.hpp
@@ -21,6 +22,9 @@ add_library(umbra_zone STATIC
   CharacterStateLoader.hpp
   ReactionEngine.hpp
   QuestProgressService.hpp
+  LootService.hpp
+  ExperienceService.hpp
+  ExpZoneManager.hpp
 )
 
 target_link_libraries(umbra_zone

@@ -1374,6 +1374,13 @@ void CombatCoreEngine::handleNpcDamageResult(uint32_t npcInstanceId, int32_t app
                                            victim->zoneId);
       }
     }
+    if (lootService_ && killerPlayerId > 0) {
+      const NpcRuntimeInstance* victim = npcManager_->findInstance(npcInstanceId);
+      if (victim) {
+        lootService_->onNpcKilled(killerPlayerId, victim->npcInstanceId, victim->templateId,
+                                   victim->zoneId, victim->x, victim->y, victim->z);
+      }
+    }
     {
       std::lock_guard<std::mutex> lock(npcBuffsMu_);
       npcBuffs_.erase(std::remove_if(npcBuffs_.begin(), npcBuffs_.end(),

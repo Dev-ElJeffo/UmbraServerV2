@@ -13,34 +13,38 @@ $data = json_decode(file_get_contents('php://input'), true) ?: [];
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $data['admin_username'] = $_GET['admin_username'] ?? $data['admin_username'] ?? null;
     $data['token'] = $_GET['token'] ?? $data['token'] ?? null;
+    $data['npc_template_id'] = isset($_GET['npc_template_id']) ? (int)$_GET['npc_template_id'] : ($data['npc_template_id'] ?? 0);
 }
 
 require_once __DIR__ . '/require_admin_auth.php';
 requireAdminAuth($data);
 
+$templateId = (int)($data['npc_template_id'] ?? 0);
+if ($templateId <= 0) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'npc_template_id é obrigatório'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 try {
     $pdo = getConnection();
-    $stmt = $pdo->query(
-        "SELECT npc_template_id, npc_name, level, max_health, max_mana,
-                strength, dexterity, vitality, intelligence, luck,
-                physical_attack, magic_attack, physical_defense, magic_defense,
-                accuracy, dodge, critical, critical_resistance,
-                double_attack_rate, double_attack_resistance,
-                skeletal_mesh_path, anim_blueprint_path, mesh_scale, is_editable,
-                kill_exp
-         FROM npc_templates
-         ORDER BY npc_template_id ASC"
+    $stmt = $pdo->prepare(
+        'SELECT loot_entry_id, npc_template_id, entry_kind, item_template_id,
+                drop_chance, min_qty, max_qty, enabled, sort_order
+         FROM npc_loot_entries
+         WHERE npc_template_id = :tid
+         ORDER BY sort_order ASC, loot_entry_id ASC'
     );
+    $stmt->execute([':tid' => $templateId]);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     echo json_encode([
         'success' => true,
-        'message' => 'Templates NPC carregados',
-        'templates' => $rows,
-        'total' => count($rows),
+        'npc_template_id' => $templateId,
+        'entries' => $rows,
     ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
-    error_log('[admin/list_npc_templates] ' . $e->getMessage());
+    error_log('[admin/list_npc_loot_entries] ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['success' => false, 'message' => 'Erro interno'], JSON_UNESCAPED_UNICODE);
 }
