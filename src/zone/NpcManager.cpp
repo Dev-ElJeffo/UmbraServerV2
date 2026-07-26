@@ -7,7 +7,7 @@ namespace Umbra {
 namespace Zone {
 
 namespace {
-constexpr size_t kMinRowFields = 24;
+constexpr size_t kMinRowFields = 25;
 
 std::chrono::system_clock::time_point respawnTimeFromUnix(uint64_t unixTs) {
   if (unixTs == 0) {
@@ -23,6 +23,7 @@ const char* NpcManager::kInstanceSelectSql =
     "COALESCE(UNIX_TIMESTAMP(ni.respawn_at), 0) AS respawn_at_unix, "
     "nt.npc_name, nt.level, nt.max_health, nt.max_mana, nt.physical_defense, "
     "nt.skeletal_mesh_path, nt.anim_blueprint_path, "
+    "COALESCE(nt.mesh_scale, 1.0) AS mesh_scale, "
     "nt.is_attackable, nt.interaction_radius, nt.has_vendor, nt.has_quest_dialog, "
     "COALESCE(nv.vendor_id, 0) AS vendor_id, "
     "COALESCE(nt.respawn_seconds, 30) AS respawn_seconds "
@@ -128,12 +129,16 @@ void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
     inst.physicalDefense = std::stoi(row[15]);
     inst.skeletalMeshPath = row[16];
     inst.animBlueprintPath = row[17];
-    inst.isAttackable = (std::stoi(row[18]) != 0);
-    inst.interactionRadius = std::stof(row[19]);
-    inst.hasVendor = (std::stoi(row[20]) != 0);
-    inst.hasQuestDialog = (std::stoi(row[21]) != 0);
-    inst.vendorId = static_cast<uint32_t>(std::stoul(row[22]));
-    inst.respawnSeconds = static_cast<uint32_t>(std::stoul(row[23]));
+    inst.meshScale = std::stof(row[18]);
+    if (inst.meshScale <= 0.01f) {
+      inst.meshScale = 1.f;
+    }
+    inst.isAttackable = (std::stoi(row[19]) != 0);
+    inst.interactionRadius = std::stof(row[20]);
+    inst.hasVendor = (std::stoi(row[21]) != 0);
+    inst.hasQuestDialog = (std::stoi(row[22]) != 0);
+    inst.vendorId = static_cast<uint32_t>(std::stoul(row[23]));
+    inst.respawnSeconds = static_cast<uint32_t>(std::stoul(row[24]));
     if (inst.respawnSeconds == 0) {
       inst.respawnSeconds = kDefaultRespawnSeconds;
     }
@@ -267,6 +272,7 @@ NpcSpawnPayload NpcManager::toSpawnPayload(const NpcRuntimeInstance& inst) const
   if (inst.hasQuestDialog) p.flags |= 0x04;
   p.interactionRadius = inst.interactionRadius;
   p.vendorId = inst.vendorId;
+  p.meshScale = inst.meshScale;
   return p;
 }
 

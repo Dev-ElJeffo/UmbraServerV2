@@ -1800,6 +1800,7 @@ struct NpcSpawnPayload {
   uint8_t flags = 0x01;  // bit0=attackable, bit1=vendor, bit2=quest
   float interactionRadius = 300.f;
   uint32_t vendorId = 0;
+  float meshScale = 1.f;
 };
 
 struct NpcDespawnPayload {
@@ -2019,6 +2020,7 @@ inline std::vector<uint8_t> encodeNpcSpawnNotify(const NpcSpawnPayload& p) {
   data.push_back(p.flags);
   writeF32(p.interactionRadius);
   writeU32(p.vendorId);
+  writeF32(p.meshScale);
   return data;
 }
 
@@ -2057,6 +2059,9 @@ inline bool decodeNpcSpawnNotify(const std::vector<uint8_t>& data, NpcSpawnPaylo
     }
     if (off + 4 <= data.size()) {
       p.vendorId = readU32();
+    }
+    if (off + 4 <= data.size()) {
+      p.meshScale = readF32();
     }
   }
   return true;

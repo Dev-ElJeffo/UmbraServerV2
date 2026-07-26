@@ -34,16 +34,20 @@ try {
             physical_attack, magic_attack, physical_defense, magic_defense,
             accuracy, dodge, critical, critical_resistance,
             double_attack_rate, double_attack_resistance,
-            skeletal_mesh_path, anim_blueprint_path, is_editable
+            skeletal_mesh_path, anim_blueprint_path, mesh_scale, is_editable
         ) VALUES (
             :npc_name, :level, :max_health, :max_mana,
             :strength, :dexterity, :vitality, :intelligence, :luck,
             :physical_attack, :magic_attack, :physical_defense, :magic_defense,
             :accuracy, :dodge, :critical, :critical_resistance,
             :double_attack_rate, :double_attack_resistance,
-            :skeletal_mesh_path, :anim_blueprint_path, :is_editable
+            :skeletal_mesh_path, :anim_blueprint_path, :mesh_scale, :is_editable
         )"
     );
+    $meshScale = isset($data['mesh_scale']) ? (float)$data['mesh_scale'] : 1.0;
+    if ($meshScale <= 0.01) {
+        $meshScale = 1.0;
+    }
     $stmt->execute([
         ':npc_name' => $npcName,
         ':level' => (int)($data['level'] ?? 1),
@@ -66,6 +70,7 @@ try {
         ':double_attack_resistance' => (int)($data['double_attack_resistance'] ?? 0),
         ':skeletal_mesh_path' => $data['skeletal_mesh_path'] ?? null,
         ':anim_blueprint_path' => $data['anim_blueprint_path'] ?? null,
+        ':mesh_scale' => $meshScale,
         ':is_editable' => (int)($data['is_editable'] ?? 1),
     ]);
 

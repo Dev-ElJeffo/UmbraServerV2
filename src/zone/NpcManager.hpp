@@ -29,6 +29,7 @@ struct NpcRuntimeInstance {
   std::string npcName;
   std::string skeletalMeshPath;
   std::string animBlueprintPath;
+  float meshScale = 1.f;
   bool isAttackable = true;
   float interactionRadius = 300.f;
   bool hasVendor = false;
