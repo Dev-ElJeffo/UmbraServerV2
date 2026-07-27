@@ -373,14 +373,73 @@ uint8_t CombatCoreEngine::loadSkillRank(uint32_t playerId, uint32_t skillId) {
   }
 }
 
-void CombatCoreEngine::deductPlayerMana(uint32_t playerId, int32_t cost) {
-  if (!db_ || !db_->isConnected() || cost <= 0) return;
+bool CombatCoreEngine::tryDeductPlayerMana(uint32_t playerId, int32_t cost) {
+  if (!db_ || !db_->isConnected() || cost <= 0) return true;
+
+  const std::string pid = std::to_string(playerId);
+  auto manaOpt = db_->executePreparedScalar("SELECT mana FROM players WHERE id = ? LIMIT 1", {pid});
+  if (!manaOpt) return false;
+
+  int32_t curMana = 0;
+  try {
+    curMana = std::stoi(*manaOpt);
+  } catch (...) {
+    return false;
+  }
+  if (curMana < cost) return false;
+
   db_->executePreparedInsert(
-      "UPDATE players SET mana = GREATEST(0, mana - ?) WHERE id = ?",
-      {std::to_string(cost), std::to_string(playerId)});
+      "UPDATE players SET mana = ? WHERE id = ?",
+      {std::to_string(curMana - cost), pid});
   if (stateLoader_) stateLoader_->invalidate(playerId);
   // Sincroniza a mana real no cliente (opcode 87), inclusive quando o alvo e NPC.
   broadcastPlayerVitals(playerId);
+  return true;
+}
+
+bool CombatCoreEngine::resolveForeignVitalsFromDb(uint32_t senderPlayerId, PlayerVitalsPayload& inOut) {
+  if (!db_ || !db_->isConnected() || senderPlayerId == 0 || inOut.playerId == 0) return false;
+
+  uint32_t sourcePlayerId = inOut.sourcePlayerId;
+  if (sourcePlayerId == 0) sourcePlayerId = senderPlayerId;
+  if (sourcePlayerId != senderPlayerId) return false;
+
+  const std::string tid = std::to_string(inOut.playerId);
+  auto healthOpt = db_->executePreparedScalar("SELECT health FROM players WHERE id = ? LIMIT 1", {tid});
+  auto manaOpt = db_->executePreparedScalar("SELECT mana FROM players WHERE id = ? LIMIT 1", {tid});
+  if (!healthOpt || !manaOpt) return false;
+
+  int32_t curHealth = 0, curMana = 0;
+  try {
+    curHealth = std::stoi(*healthOpt);
+    curMana = std::stoi(*manaOpt);
+  } catch (...) {
+    return false;
+  }
+
+  int32_t maxHealth = 100, maxMana = 50;
+  Combat::CharacterState st;
+  if (stateLoader_ && stateLoader_->loadPlayerState(inOut.playerId, st)) {
+    maxHealth = std::max(1, st.buffedStats.maxHealth);
+    maxMana = std::max(1, st.buffedStats.maxMana);
+  } else {
+    auto maxHOpt = db_->executePreparedScalar(
+        "SELECT COALESCE(max_health, 100) FROM players WHERE id = ? LIMIT 1", {tid});
+    auto maxMOpt = db_->executePreparedScalar(
+        "SELECT COALESCE(max_mana, 50) FROM players WHERE id = ? LIMIT 1", {tid});
+    try {
+      if (maxHOpt) maxHealth = std::max(1, std::stoi(*maxHOpt));
+      if (maxMOpt) maxMana = std::max(1, std::stoi(*maxMOpt));
+    } catch (...) {
+    }
+  }
+
+  inOut.sourcePlayerId = sourcePlayerId;
+  inOut.currentHealth = std::clamp(curHealth, 0, maxHealth);
+  inOut.maxHealth = maxHealth;
+  inOut.currentMana = std::clamp(curMana, 0, maxMana);
+  inOut.maxMana = maxMana;
+  return true;
 }
 
 void CombatCoreEngine::broadcastPlayerVitals(uint32_t playerId) {
@@ -497,17 +556,27 @@ bool CombatCoreEngine::applyPlayerDamage(uint32_t sourcePlayerId, uint32_t targe
 
   const std::string tid = std::to_string(targetPlayerId);
   auto healthOpt = db_->executePreparedScalar("SELECT health FROM players WHERE id = ? LIMIT 1", {tid});
-  auto maxHOpt = db_->executePreparedScalar(
-      "SELECT COALESCE(max_health, 100) FROM players WHERE id = ? LIMIT 1", {tid});
   auto manaOpt = db_->executePreparedScalar("SELECT mana FROM players WHERE id = ? LIMIT 1", {tid});
-  auto maxMOpt = db_->executePreparedScalar(
-      "SELECT COALESCE(max_mana, 50) FROM players WHERE id = ? LIMIT 1", {tid});
   if (!healthOpt || !manaOpt) return false;
 
   int32_t curHealth = std::stoi(*healthOpt);
-  int32_t maxHealth = maxHOpt ? std::max(1, std::stoi(*maxHOpt)) : 100;
   int32_t curMana = std::stoi(*manaOpt);
-  int32_t maxMana = maxMOpt ? std::max(1, std::stoi(*maxMOpt)) : 50;
+
+  // Max TOTAL (base + nivel + itens/buffs), igual ao HUD e tickRegen.
+  int32_t maxHealth = 100;
+  int32_t maxMana = 50;
+  Combat::CharacterState st;
+  if (stateLoader_ && stateLoader_->loadPlayerState(targetPlayerId, st)) {
+    maxHealth = std::max(1, st.buffedStats.maxHealth);
+    maxMana = std::max(1, st.buffedStats.maxMana);
+  } else {
+    auto maxHOpt = db_->executePreparedScalar(
+        "SELECT COALESCE(max_health, 100) FROM players WHERE id = ? LIMIT 1", {tid});
+    auto maxMOpt = db_->executePreparedScalar(
+        "SELECT COALESCE(max_mana, 50) FROM players WHERE id = ? LIMIT 1", {tid});
+    if (maxHOpt) maxHealth = std::max(1, std::stoi(*maxHOpt));
+    if (maxMOpt) maxMana = std::max(1, std::stoi(*maxMOpt));
+  }
 
   const int32_t newHealth = std::max(0, std::min(maxHealth, curHealth + delta));
   const bool isDead = (newHealth <= 0);
@@ -580,19 +649,34 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
     req.targetPlayerId = payload.targetId;
   }
 
+  // Mana fresca do DB: o cache de CharacterStateLoader (1s) permitia casts extras.
+  if (skill->resourceType == Combat::ResourceType::MANA && skill->resourceCost > 0 && db_) {
+    auto manaOpt = db_->executePreparedScalar(
+        "SELECT mana FROM players WHERE id = ? LIMIT 1", {std::to_string(sourcePlayerId)});
+    if (manaOpt) {
+      try {
+        sourceState.baseStats.currentMana = std::stoi(*manaOpt);
+      } catch (...) {
+      }
+    }
+  }
+
   const auto validation = skillService_->validateSkillUse(sourceState, req);
   if (!validation.isValid) {
     Core::Logger::getInstance().warn("[CombatCoreEngine] skill cast rejeitado: {}", validation.errorCode);
     return;
   }
 
+  if (skill->resourceType == Combat::ResourceType::MANA && skill->resourceCost > 0) {
+    if (!tryDeductPlayerMana(sourcePlayerId, static_cast<int32_t>(skill->resourceCost))) {
+      Core::Logger::getInstance().warn("[CombatCoreEngine] skill cast rejeitado: NO_MANA (db)");
+      return;
+    }
+  }
+
   const uint8_t rank = loadSkillRank(sourcePlayerId, payload.skillId);
 
   skillService_->startCooldown(sourcePlayerId, payload.skillId, skill->cooldownMs);
-
-  if (skill->resourceType == Combat::ResourceType::MANA && skill->resourceCost > 0) {
-    deductPlayerMana(sourcePlayerId, static_cast<int32_t>(skill->resourceCost));
-  }
 
   std::string anim, vfx, sfx;
   loadSkillAnimPaths(payload.skillId, anim, vfx, sfx);
