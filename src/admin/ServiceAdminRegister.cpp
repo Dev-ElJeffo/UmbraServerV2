@@ -157,6 +157,53 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
     return d;
   });
 
+  registry.registerCommand("despawn_npc_instance", [&server](const nlohmann::json& args) {
+    nlohmann::json d;
+    const uint32_t instanceId = args.value("npc_instance_id", 0u);
+    d["npc_instance_id"] = instanceId;
+    auto* engine = server.getCombatCoreEngine();
+    if (!engine) {
+      d["despawned"] = false;
+      d["message"] = "CombatCoreEngine não inicializado";
+      return d;
+    }
+    const bool ok = engine->despawnNpcInstance(instanceId, 2);
+    d["despawned"] = ok;
+    d["server_zone_id"] = server.getConfig().zoneId;
+    if (!ok) {
+      d["message"] = "Instância não encontrada em memória nesta zone.";
+    }
+    return d;
+  });
+
+  registry.registerCommand("move_npc_instance", [&server](const nlohmann::json& args) {
+    nlohmann::json d;
+    const uint32_t instanceId = args.value("npc_instance_id", 0u);
+    const float x = args.value("x", args.value("pos_x", 0.0f));
+    const float y = args.value("y", args.value("pos_y", 0.0f));
+    const float z = args.value("z", args.value("pos_z", 0.0f));
+    const float yaw = args.value("yaw", 0.0f);
+    d["npc_instance_id"] = instanceId;
+    d["x"] = x;
+    d["y"] = y;
+    d["z"] = z;
+    d["yaw"] = yaw;
+    auto* engine = server.getCombatCoreEngine();
+    if (!engine) {
+      d["moved"] = false;
+      d["message"] = "CombatCoreEngine não inicializado";
+      return d;
+    }
+    const bool ok = engine->moveNpcInstance(instanceId, x, y, z, yaw);
+    d["moved"] = ok;
+    d["clients_notified"] = ok;
+    d["server_zone_id"] = server.getConfig().zoneId;
+    if (!ok) {
+      d["message"] = "Instância não encontrada nesta zone (zone_id diferente ou MySQL sem linha).";
+    }
+    return d;
+  });
+
   registry.registerCommand("list_npcs", [&server](const nlohmann::json&) {
     nlohmann::json d;
     d["npcs"] = nlohmann::json::array();

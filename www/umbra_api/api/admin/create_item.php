@@ -177,6 +177,7 @@ try {
     $rarity = $data['rarity'];
     $value = isset($data['value']) ? (int)$data['value'] : 0;
     $weight = isset($data['weight']) ? (float)$data['weight'] : 0.0;
+    $use_cooldown_ms = isset($data['use_cooldown_ms']) ? (int)$data['use_cooldown_ms'] : 5000;
     
     // Novos campos para sistema de refinação
     $can_be_refined = isset($data['can_be_refined']) ? (bool)$data['can_be_refined'] : false;
@@ -245,6 +246,9 @@ try {
     if ($weight < 0) {
         $weight = 0.0;
     }
+    if ($use_cooldown_ms < 0) {
+        $use_cooldown_ms = 0;
+    }
     
     // Processar stats (JSON)
     $stats = isset($data['stats']) && is_array($data['stats']) ? $data['stats'] : [];
@@ -294,6 +298,7 @@ try {
         equipment_slot,
         required_level,
         stats_json,
+        use_cooldown_ms,
         rarity,
         value,
         weight,
@@ -310,6 +315,7 @@ try {
         :equipment_slot,
         :required_level,
         :stats_json,
+        :use_cooldown_ms,
         :rarity,
         :value,
         :weight,
@@ -329,6 +335,7 @@ try {
         'equipment_slot' => $equipment_slot,
         'required_level' => $required_level,
         'stats_json' => $stats_json,
+        'use_cooldown_ms' => $use_cooldown_ms,
         'rarity' => $rarity,
         'value' => $value,
         'weight' => $weight,

@@ -119,6 +119,9 @@ public:
 
   /** Hot spawn: carrega instância do DB e broadcast opcode 100 a todos os clientes. */
   bool spawnNpcInstance(uint32_t npcInstanceId);
+  bool despawnNpcInstance(uint32_t npcInstanceId, uint8_t reason = 0);
+  /** Move NPC em runtime e rebroadcast spawn (opcode 100). Não grava MySQL (Manager/PHP). */
+  bool moveNpcInstance(uint32_t npcInstanceId, float x, float y, float z, float yaw);
   /** Sincroniza instâncias novas do DB e broadcast spawn para cada uma adicionada. */
   size_t reloadMissingInstancesFromDatabase();
 

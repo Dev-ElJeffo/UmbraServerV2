@@ -24,6 +24,15 @@ public sealed class NpcTemplateRow
     public int DoubleAttackResistance { get; set; }
     public string SkeletalMeshPath { get; set; } = "";
     public string AnimBlueprintPath { get; set; } = "";
+    public float MeshScale { get; set; } = 1f;
     public bool IsEditable { get; set; } = true;
-    public string Summary => $"Lv {Level} | HP {MaxHealth} | PA {PhysicalAttack} | MD {MagicDefense}";
+    public bool IsAttackable { get; set; } = true;
+    public float InteractionRadius { get; set; } = 300f;
+    public bool HasVendor { get; set; }
+    public bool HasQuestDialog { get; set; }
+    public string DialogTitle { get; set; } = "";
+    public string DialogText { get; set; } = "";
+    public int RespawnSeconds { get; set; } = 30;
+    public int KillExp { get; set; }
+    public string Summary => $"Lv {Level} | HP {MaxHealth} | PA {PhysicalAttack} | Resp {RespawnSeconds}s | Vendor {(HasVendor ? "Sim" : "Nao")}";
 }

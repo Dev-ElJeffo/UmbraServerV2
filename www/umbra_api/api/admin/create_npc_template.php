@@ -34,14 +34,18 @@ try {
             physical_attack, magic_attack, physical_defense, magic_defense,
             accuracy, dodge, critical, critical_resistance,
             double_attack_rate, double_attack_resistance,
-            skeletal_mesh_path, anim_blueprint_path, mesh_scale, is_editable
+            skeletal_mesh_path, anim_blueprint_path, mesh_scale, is_editable,
+            is_attackable, interaction_radius, has_vendor, has_quest_dialog,
+            dialog_title, dialog_text, respawn_seconds, kill_exp
         ) VALUES (
             :npc_name, :level, :max_health, :max_mana,
             :strength, :dexterity, :vitality, :intelligence, :luck,
             :physical_attack, :magic_attack, :physical_defense, :magic_defense,
             :accuracy, :dodge, :critical, :critical_resistance,
             :double_attack_rate, :double_attack_resistance,
-            :skeletal_mesh_path, :anim_blueprint_path, :mesh_scale, :is_editable
+            :skeletal_mesh_path, :anim_blueprint_path, :mesh_scale, :is_editable,
+            :is_attackable, :interaction_radius, :has_vendor, :has_quest_dialog,
+            :dialog_title, :dialog_text, :respawn_seconds, :kill_exp
         )"
     );
     $meshScale = isset($data['mesh_scale']) ? (float)$data['mesh_scale'] : 1.0;
@@ -72,6 +76,14 @@ try {
         ':anim_blueprint_path' => $data['anim_blueprint_path'] ?? null,
         ':mesh_scale' => $meshScale,
         ':is_editable' => (int)($data['is_editable'] ?? 1),
+        ':is_attackable' => (int)($data['is_attackable'] ?? 1),
+        ':interaction_radius' => (float)($data['interaction_radius'] ?? 300),
+        ':has_vendor' => (int)($data['has_vendor'] ?? 0),
+        ':has_quest_dialog' => (int)($data['has_quest_dialog'] ?? 0),
+        ':dialog_title' => $data['dialog_title'] ?? null,
+        ':dialog_text' => $data['dialog_text'] ?? null,
+        ':respawn_seconds' => max(1, (int)($data['respawn_seconds'] ?? 30)),
+        ':kill_exp' => max(0, (int)($data['kill_exp'] ?? 0)),
     ]);
 
     echo json_encode([

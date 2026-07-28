@@ -63,6 +63,10 @@ public:
 
   /** Processa respawns pendentes; retorna IDs que voltaram a ficar vivos. */
   std::vector<uint32_t> tickRespawns(float deltaSeconds);
+  bool removeInstance(uint32_t npcInstanceId);
+  /** Atualiza transform em memória (e opcionalmente persiste no MySQL). */
+  bool setInstanceTransform(uint32_t npcInstanceId, float x, float y, float z, float yaw,
+                            bool persistToDb = false);
 
   NpcSpawnPayload toSpawnPayload(const NpcRuntimeInstance& inst) const;
   NpcStatePayload toStatePayload(const NpcRuntimeInstance& inst) const;

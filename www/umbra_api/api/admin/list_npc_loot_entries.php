@@ -29,11 +29,13 @@ if ($templateId <= 0) {
 try {
     $pdo = getConnection();
     $stmt = $pdo->prepare(
-        'SELECT loot_entry_id, npc_template_id, entry_kind, item_template_id,
-                drop_chance, min_qty, max_qty, enabled, sort_order
-         FROM npc_loot_entries
-         WHERE npc_template_id = :tid
-         ORDER BY sort_order ASC, loot_entry_id ASC'
+        'SELECT nle.loot_entry_id, nle.npc_template_id, nle.entry_kind, nle.item_template_id,
+                nle.drop_chance, nle.min_qty, nle.max_qty, nle.enabled, nle.sort_order,
+                COALESCE(it.item_name, CASE WHEN nle.entry_kind = 1 THEN \'Gold\' ELSE \'(item removido)\' END) AS item_name
+         FROM npc_loot_entries nle
+         LEFT JOIN item_templates it ON it.item_id = nle.item_template_id
+         WHERE nle.npc_template_id = :tid
+         ORDER BY nle.sort_order ASC, nle.loot_entry_id ASC'
     );
     $stmt->execute([':tid' => $templateId]);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);

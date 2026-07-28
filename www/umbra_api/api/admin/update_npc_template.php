@@ -32,7 +32,8 @@ $allowed = [
     'accuracy', 'dodge', 'critical', 'critical_resistance',
     'double_attack_rate', 'double_attack_resistance',
     'skeletal_mesh_path', 'anim_blueprint_path', 'mesh_scale', 'is_editable',
-    'kill_exp',
+    'kill_exp', 'is_attackable', 'interaction_radius', 'has_vendor', 'has_quest_dialog',
+    'dialog_title', 'dialog_text', 'respawn_seconds',
 ];
 $sets = [];
 $params = [':id' => $templateId];

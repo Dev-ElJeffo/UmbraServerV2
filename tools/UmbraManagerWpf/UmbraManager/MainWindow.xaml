@@ -182,6 +182,29 @@
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                         </ItemsControl>
+
+                        <Border Padding="12" CornerRadius="6" Margin="0,8,0,0"
+                                Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
+                            <StackPanel>
+                                <DockPanel Margin="0,0,0,8">
+                                    <TextBlock Text="Panorama do projeto" FontWeight="SemiBold"/>
+                                    <Button DockPanel.Dock="Right" Content="Atualizar panorama"
+                                            Command="{Binding RefreshProjectStateCommand}"
+                                            Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                </DockPanel>
+                                <TextBlock Text="{Binding ProjectStateText}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                                <UniformGrid Columns="4">
+                                    <TextBlock Text="{Binding SummaryItemCount, StringFormat=Itens: {0}}" Margin="0,0,8,4"/>
+                                    <TextBlock Text="{Binding SummaryNpcTemplateCount, StringFormat=NPC Templates: {0}}" Margin="0,0,8,4"/>
+                                    <TextBlock Text="{Binding SummaryNpcLootCount, StringFormat=NPC Loot: {0}}" Margin="0,0,8,4"/>
+                                    <TextBlock Text="{Binding SummaryExpZoneCount, StringFormat=EXP Zones: {0}}" Margin="0,0,8,4"/>
+                                    <TextBlock Text="{Binding SummaryGuildCount, StringFormat=Guilds: {0}}" Margin="0,0,8,4"/>
+                                    <TextBlock Text="{Binding SummaryPartyCount, StringFormat=Parties: {0}}" Margin="0,0,8,4"/>
+                                    <TextBlock Text="{Binding SummaryAuctionCount, StringFormat=Leilões ativos: {0}}" Margin="0,0,8,4"/>
+                                    <TextBlock Text="{Binding SummaryOpenShopCount, StringFormat=Lojas abertas: {0}}" Margin="0,0,8,4"/>
+                                </UniformGrid>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -369,6 +392,20 @@
                             <Button Content="Atualizar" Command="{Binding RefreshItemsCommand}" Margin="0,0,8,0"/>
                             <Button Content="Novo item" Command="{Binding NewItemCommand}" Margin="0,0,8,0"
                                     Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                <TextBox Width="200" Margin="0,0,8,0"
+                                         Text="{Binding ItemFilterText, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="Buscar nome/descrição"
+                                         materialDesign:HintAssist.IsFloating="True"/>
+                                <ComboBox Width="120" Margin="0,0,8,0"
+                                          ItemsSource="{Binding ItemTypes}"
+                                          SelectedValue="{Binding ItemFilterType}"
+                                          materialDesign:HintAssist.Hint="Tipo"
+                                          materialDesign:HintAssist.IsFloating="True"/>
+                                <ComboBox Width="120"
+                                          ItemsSource="{Binding ItemRarities}"
+                                          SelectedValue="{Binding ItemFilterRarity}"
+                                          materialDesign:HintAssist.Hint="Raridade"
+                                          materialDesign:HintAssist.IsFloating="True"/>
                             <TextBlock Text="{Binding Items.Count, StringFormat={}{0} itens}"
                                        VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0.7"/>
                         </StackPanel>
@@ -429,6 +466,8 @@
                                            FontSize="16" FontWeight="Bold" Margin="0,0,0,4"/>
                                 <TextBlock Text="{Binding ItemFormSubtitle}"
                                            FontSize="11" Opacity="0.7" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding ItemDesignerSummary}"
+                                           FontFamily="Consolas" FontSize="11" Margin="0,6,0,0" Opacity="0.8"/>
                             </StackPanel>
 
                             <!-- Botões em baixo -->
@@ -539,6 +578,10 @@
                                                  materialDesign:HintAssist.Hint="Peso (kg)"
                                                  materialDesign:HintAssist.IsFloating="True"/>
                                     </Grid>
+                                    <TextBox Text="{Binding NewItemUseCooldownMs, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="Cooldown de uso (ms)"
+                                             materialDesign:HintAssist.IsFloating="True"
+                                             Margin="0,0,0,10"/>
 
                                     <!-- Flags -->
                                     <StackPanel Orientation="Horizontal" Margin="0,4,0,16">
@@ -580,6 +623,9 @@
                                     <Button Content="Atualizar" Command="{Binding RefreshNpcTemplatesCommand}" Margin="0,0,8,0"/>
                                     <Button Content="Novo template" Command="{Binding NewNpcTemplateCommand}" Margin="0,0,8,0"
                                             Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                    <Button Content="Loot deste mob" Command="{Binding OpenNpcLootForSelectedTemplateCommand}" Margin="0,0,8,0"
+                                            Style="{StaticResource MaterialDesignOutlinedButton}"
+                                            ToolTip="Abre/carrega a tabela de loot do template selecionado"/>
                                     <TextBlock Text="{Binding NpcTemplates.Count, StringFormat={}{0} templates}"
                                                VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0.7"/>
                                 </StackPanel>
@@ -632,6 +678,8 @@
                                                    FontSize="16" FontWeight="Bold" Margin="0,0,0,4"/>
                                         <TextBlock FontSize="11" Opacity="0.7" TextWrapping="Wrap"
                                                    Text="Selecione um template na lista. Spawn grava em npc_instances e envia opcode 100 ao zone em execução (zone_N deve estar online)."/>
+                                        <TextBlock Text="{Binding NpcDesignerSummary}"
+                                                   FontFamily="Consolas" FontSize="11" Margin="0,6,0,0" Opacity="0.8"/>
                                     </StackPanel>
 
                                     <Grid DockPanel.Dock="Bottom" Margin="0,12,0,0">
@@ -655,10 +703,23 @@
                                                     HorizontalAlignment="Stretch" Height="36"
                                                     Style="{StaticResource MaterialDesignRaisedButton}"/>
                                         </Grid>
-                                        <Button Grid.Row="2" Content="Spawn na zone"
-                                                Command="{Binding SpawnNpcAsyncCommand}"
-                                                HorizontalAlignment="Stretch" Height="36"
-                                                Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                        <Grid Grid.Row="2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="8"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Button Grid.Column="0" Content="Criar nova instância"
+                                                    Command="{Binding SpawnNpcCommand}"
+                                                    HorizontalAlignment="Stretch" Height="36"
+                                                    Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                    ToolTip="Cria OUTRA cópia do TEMPLATE selecionado nas coords Zone/X/Y/Z. Não precisa selecionar instância."/>
+                                            <Button Grid.Column="2" Content="Atualizar posição"
+                                                    Command="{Binding UpdateNpcInstancePositionCommand}"
+                                                    HorizontalAlignment="Stretch" Height="36"
+                                                    Style="{StaticResource MaterialDesignRaisedButton}"
+                                                    ToolTip="Move a INSTÂNCIA já existente (#ID). Não cria cópia nova."/>
+                                        </Grid>
                                     </Grid>
 
                                     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
@@ -771,8 +832,54 @@
                                                      materialDesign:HintAssist.Hint="Anim Blueprint path"
                                                      materialDesign:HintAssist.IsFloating="True"
                                                      Margin="0,0,0,16"/>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcMeshScale, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Mesh scale" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcInteractionRadius, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Interaction radius" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcRespawnSeconds, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Respawn (s)" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcKillExp, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Kill EXP" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                                <CheckBox Content="Attackable" IsChecked="{Binding NewNpcIsAttackable}" Margin="0,0,16,0"/>
+                                                <CheckBox Content="Vendor" IsChecked="{Binding NewNpcHasVendor}" Margin="0,0,16,0"/>
+                                                <CheckBox Content="Quest dialog" IsChecked="{Binding NewNpcHasQuestDialog}"/>
+                                            </StackPanel>
+                                            <TextBox Text="{Binding NewNpcDialogTitle, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Título de diálogo"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,10"/>
+                                            <TextBox Text="{Binding NewNpcDialogText, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Texto de diálogo"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     AcceptsReturn="True" Height="72" TextWrapping="Wrap"
+                                                     VerticalScrollBarVisibility="Auto" Margin="0,0,0,16"/>
 
-                                            <TextBlock Text="Spawn (instância)" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                            <TextBlock Text="Spawn / posição da instância" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                            <TextBlock FontSize="11" Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,4"
+                                                       Text="1) Selecione o TEMPLATE na lista. 2) Ajuste Zone/X/Y/Z. 3) Criar nova instância = nova cópia. Atualizar posição = move a instância #ID (precisa selecionar instância)."/>
+                                            <TextBlock Text="{Binding SpawnTemplateLabel}" FontWeight="SemiBold"
+                                                       Foreground="#FFCE93D8" Margin="0,0,0,4" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding EditingNpcInstanceLabel}" FontWeight="SemiBold"
+                                                       Foreground="#FF80CBC4" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                                            <TextBox Text="{Binding EditingNpcInstanceId, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="ID da instância — só para Atualizar posição"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,10"/>
                                     <TextBox Text="{Binding SpawnZoneId, UpdateSourceTrigger=PropertyChanged}"
                                              materialDesign:HintAssist.Hint="Zone ID (0=zone_0, 1=zone_1)"
                                                      materialDesign:HintAssist.IsFloating="True"
@@ -815,6 +922,9 @@
                         <DockPanel Margin="8">
                             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                                 <Button Content="Atualizar instâncias" Command="{Binding RefreshNpcInstancesCommand}" Margin="0,0,8,0"/>
+                                <Button Content="Duplicar em nova posição" Command="{Binding DuplicateNpcInstanceCommand}" Margin="0,0,8,0"
+                                        Style="{StaticResource MaterialDesignOutlinedButton}"
+                                        ToolTip="Usa o template da instância selecionada e cria outra nas coords Zone/X/Y/Z do formulário Templates"/>
                                 <TextBox Width="80" Margin="0,0,8,0"
                                          Text="{Binding InstanceZoneFilter, UpdateSourceTrigger=PropertyChanged}"
                                          materialDesign:HintAssist.Hint="Filtro zone (0=todas)"
@@ -828,12 +938,21 @@
                                       AutoGenerateColumns="False" IsReadOnly="True">
                                 <DataGrid.ContextMenu>
                                     <ContextMenu>
-                                        <MenuItem Header="Preencher spawn (aba Templates)"
+                                        <MenuItem Header="Preencher spawn / editar posição (aba Templates)"
                                                   Command="{Binding PlacementTarget.DataContext.FillSpawnFromInstanceCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                        <MenuItem Header="Duplicar em nova posição"
+                                                  Command="{Binding PlacementTarget.DataContext.DuplicateNpcInstanceCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                        <MenuItem Header="Atualizar posição no mundo"
+                                                  Command="{Binding PlacementTarget.DataContext.UpdateNpcInstancePositionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                        <MenuItem Header="Despawar runtime"
+                                                  Command="{Binding PlacementTarget.DataContext.DespawnNpcInstanceCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                                   CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                         <Separator/>
                                         <MenuItem Header="Excluir instância"
-                                                  Command="{Binding PlacementTarget.DataContext.DeleteNpcInstanceAsyncCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  Command="{Binding PlacementTarget.DataContext.DeleteNpcInstanceCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                                   CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                     </ContextMenu>
                                 </DataGrid.ContextMenu>
@@ -848,6 +967,358 @@
                                     <DataGridTextColumn Header="HP" Binding="{Binding CurrentHealth}" Width="70"/>
                                     <DataGridCheckBoxColumn Header="Morto" Binding="{Binding IsDead}" Width="60"/>
                                     <DataGridTextColumn Header="Criado" Binding="{Binding CreatedAt}" Width="*"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </TabItem>
+
+                    <!-- Loot do mob (template selecionado) -->
+                    <TabItem Header="Loot do mob">
+                        <Grid Margin="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" MinWidth="420"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="420"/>
+                            </Grid.ColumnDefinitions>
+
+                            <DockPanel Grid.Column="0">
+                                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                                    <TextBlock Text="{Binding LootTargetLabel}" FontWeight="SemiBold" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button Content="Carregar loot" Command="{Binding RefreshNpcLootCommand}" Margin="0,0,8,0"/>
+                                        <Button Content="Usar template selecionado" Command="{Binding OpenNpcLootForSelectedTemplateCommand}" Margin="0,0,8,0"
+                                                Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                        <Button Content="Nova entrada" Command="{Binding NewNpcLootEntryCommand}" Margin="0,0,8,0"
+                                                Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                        <TextBlock Text="{Binding NpcLootEntries.Count, StringFormat={}{0} entradas}"
+                                                   VerticalAlignment="Center" Opacity="0.7"/>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <DataGrid ItemsSource="{Binding NpcLootEntries}" AutoGenerateColumns="False" IsReadOnly="True"
+                                          HeadersVisibility="Column" RowHeight="34">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="ID" Binding="{Binding LootEntryId}" Width="55"/>
+                                        <DataGridTextColumn Header="Tipo" Binding="{Binding EntryKindLabel}" Width="70"/>
+                                        <DataGridTextColumn Header="Item / Gold" Binding="{Binding ItemLabel}" Width="*"/>
+                                        <DataGridTextColumn Header="Chance" Binding="{Binding DropChanceLabel}" Width="80"/>
+                                        <DataGridTextColumn Header="Qtd" Binding="{Binding QuantityLabel}" Width="80"/>
+                                        <DataGridCheckBoxColumn Header="Ativo" Binding="{Binding Enabled}" Width="55"/>
+                                        <DataGridTextColumn Header="Ord" Binding="{Binding SortOrder}" Width="45"/>
+                                        <DataGridTemplateColumn Header="Ações" Width="150">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <Button Content="Editar" Margin="2" Padding="8,2" Height="26"
+                                                                Command="{Binding DataContext.EditNpcLootEntryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                CommandParameter="{Binding}"/>
+                                                        <Button Content="Excluir" Margin="2" Padding="8,2" Height="26"
+                                                                Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                                Command="{Binding DataContext.DeleteNpcLootEntryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                CommandParameter="{Binding}"/>
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </DockPanel>
+
+                            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch" Background="Transparent"
+                                          ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
+
+                            <Border Grid.Column="2" BorderBrush="Gray" BorderThickness="1" Padding="14" CornerRadius="4">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding LootFormTitle}" FontSize="16" FontWeight="Bold" Margin="0,0,0,4"/>
+                                        <TextBlock FontSize="11" Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,12"
+                                                   Text="Adiciona drops ao template do mob (npc_loot_entries). Chance 0.25 = 25%."/>
+
+                                        <TextBlock Text="Tipo de drop" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                        <ComboBox SelectedIndex="{Binding LootEntryKind, Mode=TwoWay}" Margin="0,0,0,12">
+                                            <ComboBoxItem Content="Item"/>
+                                            <ComboBoxItem Content="Gold"/>
+                                        </ComboBox>
+
+                                        <TextBlock Text="Escolher item" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                        <ComboBox ItemsSource="{Binding Items}"
+                                                  DisplayMemberPath="Name"
+                                                  SelectedValuePath="Id"
+                                                  SelectedValue="{Binding LootItemTemplateId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  IsEditable="True"
+                                                  StaysOpenOnEdit="True"
+                                                  IsTextSearchEnabled="True"
+                                                  Margin="0,0,0,8"
+                                                  materialDesign:HintAssist.Hint="Buscar item por nome"
+                                                  materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Text="{Binding LootItemTemplateId, UpdateSourceTrigger=PropertyChanged}"
+                                                 materialDesign:HintAssist.Hint="Item Template ID"
+                                                 materialDesign:HintAssist.IsFloating="True"
+                                                 Margin="0,0,0,12"/>
+
+                                        <TextBlock Text="Chance e quantidade" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                        <TextBox Text="{Binding LootDropChance, UpdateSourceTrigger=PropertyChanged}"
+                                                 materialDesign:HintAssist.Hint="Chance (0 a 1)"
+                                                 materialDesign:HintAssist.IsFloating="True"
+                                                 Margin="0,0,0,8"/>
+                                        <Grid Margin="0,0,0,8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="8"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBox Grid.Column="0" Text="{Binding LootMinQty, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Qtd mín."
+                                                     materialDesign:HintAssist.IsFloating="True"/>
+                                            <TextBox Grid.Column="2" Text="{Binding LootMaxQty, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Qtd máx."
+                                                     materialDesign:HintAssist.IsFloating="True"/>
+                                        </Grid>
+                                        <TextBox Text="{Binding LootSortOrder, UpdateSourceTrigger=PropertyChanged}"
+                                                 materialDesign:HintAssist.Hint="Ordem (sort)"
+                                                 materialDesign:HintAssist.IsFloating="True"
+                                                 Margin="0,0,0,8"/>
+                                        <CheckBox Content="Ativo" IsChecked="{Binding LootEnabled}" Margin="0,0,0,12"/>
+
+                                        <Button Content="Salvar loot" Command="{Binding SaveNpcLootEntryCommand}"
+                                                Height="36" Style="{StaticResource MaterialDesignRaisedButton}"
+                                                HorizontalAlignment="Stretch"/>
+                                        <Button Content="Limpar formulário" Command="{Binding NewNpcLootEntryCommand}"
+                                                Height="32" Margin="0,8,0,0"
+                                                Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                HorizontalAlignment="Stretch"/>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Border>
+                        </Grid>
+                    </TabItem>
+                </TabControl>
+            </TabItem>
+
+            <TabItem Header="Admin Hub">
+                <TabControl Margin="4">
+                    <TabItem Header="Player Inspector">
+                        <Grid Margin="8">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <TextBox Width="140" Margin="0,0,8,0"
+                                         Text="{Binding InspectPlayerId, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="Player ID"
+                                         materialDesign:HintAssist.IsFloating="True"/>
+                                <Button Content="Inspecionar" Command="{Binding InspectPlayerCommand}"/>
+                            </StackPanel>
+                            <Grid Grid.Row="1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="360"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Padding="12" CornerRadius="6"
+                                        Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding PlayerInspector.CharacterName}" FontSize="18" FontWeight="Bold"/>
+                                        <TextBlock Text="{Binding PlayerInspector.AccountName, StringFormat=Conta: {0}}" Margin="0,4,0,0"/>
+                                        <TextBlock Text="{Binding PlayerInspector.ClassName, StringFormat=Classe: {0}}" Margin="0,2,0,0"/>
+                                        <TextBlock Text="{Binding PlayerInspector.Level, StringFormat=Level: {0}}" Margin="0,2,0,0"/>
+                                        <TextBlock Text="{Binding PlayerInspector.ZoneId, StringFormat=Zone: {0}}" Margin="0,2,0,0"/>
+                                        <TextBlock Text="{Binding PlayerInspector.GuildName, StringFormat=Guild: {0}}" Margin="0,2,0,0"/>
+                                        <TextBlock Text="{Binding PlayerInspector.PartyLabel, StringFormat=Party: {0}}" Margin="0,2,0,0"/>
+                                        <TextBlock Text="{Binding PlayerInspector.Health, StringFormat=HP: {0}}" Margin="0,12,0,0"/>
+                                        <TextBlock Text="{Binding PlayerInspector.Mana, StringFormat=MP: {0}}" Margin="0,2,0,0"/>
+                                        <TextBlock Text="{Binding PlayerInspector.Gold, StringFormat=Gold: {0}}" Margin="0,2,0,0"/>
+                                        <TextBlock Text="{Binding PlayerInspector.InventoryCount, StringFormat=Inventário: {0}}" Margin="0,12,0,0"/>
+                                        <TextBlock Text="{Binding PlayerInspector.StorageCount, StringFormat=Storage: {0}}" Margin="0,2,0,0"/>
+                                        <TextBlock Text="{Binding PlayerInspector.ActiveAuctionCount, StringFormat=Leilões ativos: {0}}" Margin="0,2,0,0"/>
+                                        <TextBlock Text="{Binding PlayerInspector.OpenShopCount, StringFormat=Lojas abertas: {0}}" Margin="0,2,0,0"/>
+                                        <TextBlock Text="{Binding PlayerInspector.ActiveQuestCount, StringFormat=Quests ativas: {0}}" Margin="0,2,0,0"/>
+                                        <TextBlock Text="{Binding PlayerInspector.CompletedQuestCount, StringFormat=Quests concluídas: {0}}" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                </Border>
+                                <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                                              VerticalAlignment="Stretch" Background="Transparent"
+                                              ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
+                                <TabControl Grid.Column="2">
+                                    <TabItem Header="Inventário/Storage">
+                                        <ListBox ItemsSource="{Binding PlayerInspector.InventorySummary}" FontFamily="Consolas" FontSize="11"/>
+                                    </TabItem>
+                                    <TabItem Header="Social">
+                                        <ListBox ItemsSource="{Binding PlayerInspector.SocialSummary}" FontFamily="Consolas" FontSize="11"/>
+                                    </TabItem>
+                                    <TabItem Header="Quests">
+                                        <ListBox ItemsSource="{Binding PlayerInspector.QuestSummary}" FontFamily="Consolas" FontSize="11"/>
+                                    </TabItem>
+                                    <TabItem Header="Economia">
+                                        <ListBox ItemsSource="{Binding PlayerInspector.EconomySummary}" FontFamily="Consolas" FontSize="11"/>
+                                    </TabItem>
+                                </TabControl>
+                            </Grid>
+                        </Grid>
+                    </TabItem>
+
+                    <TabItem Header="NPC Loot">
+                        <Grid Margin="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="360"/>
+                            </Grid.ColumnDefinitions>
+                            <DockPanel Grid.Column="0">
+                                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                                    <TextBox Width="120" Margin="0,0,8,0"
+                                             Text="{Binding SelectedLootNpcTemplateId, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="NPC Template ID"
+                                             materialDesign:HintAssist.IsFloating="True"/>
+                                    <Button Content="Carregar loot" Command="{Binding RefreshNpcLootCommand}" Margin="0,0,8,0"/>
+                                    <Button Content="Novo loot" Command="{Binding NewNpcLootEntryCommand}"
+                                            Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                </StackPanel>
+                                <DataGrid ItemsSource="{Binding NpcLootEntries}" AutoGenerateColumns="False" IsReadOnly="True">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="ID" Binding="{Binding LootEntryId}" Width="60"/>
+                                        <DataGridTextColumn Header="Tipo" Binding="{Binding EntryKindLabel}" Width="80"/>
+                                        <DataGridTextColumn Header="Item" Binding="{Binding ItemLabel}" Width="*"/>
+                                        <DataGridTextColumn Header="Chance" Binding="{Binding DropChanceLabel}" Width="80"/>
+                                        <DataGridTextColumn Header="Qtd" Binding="{Binding QuantityLabel}" Width="80"/>
+                                        <DataGridCheckBoxColumn Header="Ativo" Binding="{Binding Enabled}" Width="60"/>
+                                        <DataGridTextColumn Header="Sort" Binding="{Binding SortOrder}" Width="60"/>
+                                        <DataGridTemplateColumn Header="Ações" Width="160">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <Button Content="Editar" Margin="2"
+                                                                Command="{Binding DataContext.EditNpcLootEntryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                CommandParameter="{Binding}"/>
+                                                        <Button Content="Excluir" Margin="2"
+                                                                Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                                Command="{Binding DataContext.DeleteNpcLootEntryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                CommandParameter="{Binding}"/>
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </DockPanel>
+                            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch" Background="Transparent"
+                                          ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
+                            <Border Grid.Column="2" Padding="12" CornerRadius="6"
+                                    Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding LootFormTitle}" FontSize="16" FontWeight="Bold" Margin="0,0,0,8"/>
+                                    <ComboBox SelectedValue="{Binding LootEntryKind}" SelectedValuePath="Tag">
+                                        <ComboBoxItem Content="Item" Tag="0"/>
+                                        <ComboBoxItem Content="Gold" Tag="1"/>
+                                    </ComboBox>
+                                    <TextBox Margin="0,8,0,0" Text="{Binding LootItemTemplateId, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="Item Template ID"
+                                             materialDesign:HintAssist.IsFloating="True"/>
+                                    <TextBox Margin="0,8,0,0" Text="{Binding LootDropChance, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="Chance (0..1)"
+                                             materialDesign:HintAssist.IsFloating="True"/>
+                                    <TextBox Margin="0,8,0,0" Text="{Binding LootMinQty, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="Qtd mín."
+                                             materialDesign:HintAssist.IsFloating="True"/>
+                                    <TextBox Margin="0,8,0,0" Text="{Binding LootMaxQty, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="Qtd máx."
+                                             materialDesign:HintAssist.IsFloating="True"/>
+                                    <TextBox Margin="0,8,0,0" Text="{Binding LootSortOrder, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="Sort order"
+                                             materialDesign:HintAssist.IsFloating="True"/>
+                                    <CheckBox Margin="0,8,0,0" Content="Ativo" IsChecked="{Binding LootEnabled}"/>
+                                    <Button Margin="0,12,0,0" Content="Salvar loot" Command="{Binding SaveNpcLootEntryCommand}"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </TabItem>
+
+                    <TabItem Header="EXP Zones">
+                        <Grid Margin="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="360"/>
+                            </Grid.ColumnDefinitions>
+                            <DockPanel Grid.Column="0">
+                                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                                    <Button Content="Atualizar" Command="{Binding RefreshExpZonesCommand}" Margin="0,0,8,0"/>
+                                    <Button Content="Nova zone" Command="{Binding NewExpZoneCommand}"
+                                            Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                </StackPanel>
+                                <DataGrid ItemsSource="{Binding ExpZones}" AutoGenerateColumns="False" IsReadOnly="True">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="ID" Binding="{Binding ExpZoneId}" Width="60"/>
+                                        <DataGridTextColumn Header="Zone" Binding="{Binding ZoneId}" Width="60"/>
+                                        <DataGridTextColumn Header="Nome" Binding="{Binding Name}" Width="180"/>
+                                        <DataGridTextColumn Header="Resumo" Binding="{Binding Summary}" Width="*"/>
+                                        <DataGridTemplateColumn Header="Editar" Width="90">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <Button Content="Editar"
+                                                            Command="{Binding DataContext.EditExpZoneCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}"/>
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </DockPanel>
+                            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch" Background="Transparent"
+                                          ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
+                            <Border Grid.Column="2" Padding="12" CornerRadius="6"
+                                    Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding ExpZoneFormTitle}" FontSize="16" FontWeight="Bold" Margin="0,0,0,8"/>
+                                        <TextBox Text="{Binding ExpZoneZoneId, UpdateSourceTrigger=PropertyChanged}"
+                                                 materialDesign:HintAssist.Hint="Zone ID"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Margin="0,8,0,0" Text="{Binding ExpZoneName, UpdateSourceTrigger=PropertyChanged}"
+                                                 materialDesign:HintAssist.Hint="Nome"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Margin="0,8,0,0" Text="{Binding ExpZoneCenterX, UpdateSourceTrigger=PropertyChanged}"
+                                                 materialDesign:HintAssist.Hint="Center X"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Margin="0,8,0,0" Text="{Binding ExpZoneCenterY, UpdateSourceTrigger=PropertyChanged}"
+                                                 materialDesign:HintAssist.Hint="Center Y"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Margin="0,8,0,0" Text="{Binding ExpZoneCenterZ, UpdateSourceTrigger=PropertyChanged}"
+                                                 materialDesign:HintAssist.Hint="Center Z"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Margin="0,8,0,0" Text="{Binding ExpZoneRadius, UpdateSourceTrigger=PropertyChanged}"
+                                                 materialDesign:HintAssist.Hint="Radius"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Margin="0,8,0,0" Text="{Binding ExpZoneExpPerTick, UpdateSourceTrigger=PropertyChanged}"
+                                                 materialDesign:HintAssist.Hint="EXP por tick"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Margin="0,8,0,0" Text="{Binding ExpZoneTickIntervalSec, UpdateSourceTrigger=PropertyChanged}"
+                                                 materialDesign:HintAssist.Hint="Intervalo tick (s)"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <CheckBox Margin="0,8,0,0" Content="Ativa" IsChecked="{Binding ExpZoneEnabled}"/>
+                                        <Button Margin="0,12,0,0" Content="Salvar EXP zone" Command="{Binding SaveExpZoneCommand}"/>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Border>
+                        </Grid>
+                    </TabItem>
+
+                    <TabItem Header="Refinement">
+                        <DockPanel Margin="8">
+                            <Button DockPanel.Dock="Top" Content="Atualizar configuração" Command="{Binding RefreshRefinementConfigsCommand}"
+                                    Margin="0,0,0,8" Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                            <DataGrid ItemsSource="{Binding RefinementConfigs}" AutoGenerateColumns="False" IsReadOnly="True">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Nível" Binding="{Binding RefinementLevel}" Width="70"/>
+                                    <DataGridTextColumn Header="Sucesso %" Binding="{Binding SuccessPercentage}" Width="90"/>
+                                    <DataGridTextColumn Header="Item" Binding="{Binding RequiredItemName}" Width="220"/>
+                                    <DataGridTextColumn Header="Qtd" Binding="{Binding RequiredItemQuantity}" Width="60"/>
+                                    <DataGridTextColumn Header="Bonus %" Binding="{Binding BonusPercentage}" Width="90"/>
+                                    <DataGridTextColumn Header="Multiplier" Binding="{Binding StatBonusMultiplier}" Width="90"/>
                                 </DataGrid.Columns>
                             </DataGrid>
                         </DockPanel>
@@ -870,18 +1341,62 @@
 
             <!-- GM Console -->
             <TabItem Header="GM Console">
-                <DockPanel Margin="8">
-                    <ListBox DockPanel.Dock="Bottom" Height="200" ItemsSource="{Binding GmOutput}" FontFamily="Consolas" FontSize="11"/>
-                    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
-                        <ComboBox Width="120" ItemsSource="{Binding Definitions}" DisplayMemberPath="Id"
-                                  SelectedValue="{Binding SelectedGmService}" SelectedValuePath="Id" Margin="0,0,8,0"/>
-                        <TextBox x:Name="GmInputBox" Width="400"
-                                 Text="{Binding GmInput, UpdateSourceTrigger=PropertyChanged}"
-                                 materialDesign:HintAssist.Hint="comando arg=valor (Tab autocomplete, ↑↓ histórico)"
-                                 KeyDown="GmInput_KeyDown"/>
-                        <Button Content="Enviar" Command="{Binding SendGmCommand}" Margin="8,0,0,0"/>
-                    </StackPanel>
-                </DockPanel>
+                <Grid Margin="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="420"/>
+                        <ColumnDefinition Width="8"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Padding="10" CornerRadius="6"
+                            Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Top" Text="Catálogo de comandos"
+                                       FontWeight="SemiBold" Margin="0,0,0,8"/>
+                            <TextBlock DockPanel.Dock="Bottom" Text="{Binding GmCommandHelp}"
+                                       TextWrapping="Wrap" Margin="0,8,0,0" FontSize="11" Opacity="0.8"/>
+                            <DataGrid ItemsSource="{Binding GmCommands}" SelectedItem="{Binding SelectedGmCommandDefinition}"
+                                      AutoGenerateColumns="False" IsReadOnly="True">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Comando" Binding="{Binding Name}" Width="160"/>
+                                    <DataGridTextColumn Header="Escopo" Binding="{Binding ScopeLabel}" Width="80"/>
+                                    <DataGridCheckBoxColumn Header="!" Binding="{Binding IsDestructive}" Width="35"/>
+                                    <DataGridTemplateColumn Header="Usar" Width="70">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Button Content="Usar" Padding="6,2"
+                                                        Command="{Binding DataContext.UseGmCommandCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                        CommandParameter="{Binding}"/>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </Border>
+
+                    <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Stretch" Background="Transparent"
+                                  ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
+
+                    <DockPanel Grid.Column="2">
+                        <ListBox DockPanel.Dock="Bottom" Height="260" ItemsSource="{Binding GmOutput}" FontFamily="Consolas" FontSize="11"/>
+                        <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,8">
+                            <StackPanel Orientation="Horizontal">
+                                <ComboBox Width="150" ItemsSource="{Binding Definitions}" DisplayMemberPath="Id"
+                                          SelectedValue="{Binding SelectedGmService}" SelectedValuePath="Id" Margin="0,0,8,0"/>
+                                <Button Content="Usar comando selecionado" Command="{Binding UseGmCommandCommand}"
+                                        CommandParameter="{Binding SelectedGmCommandDefinition}" Margin="0,0,8,0"
+                                        Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                <Button Content="Enviar" Command="{Binding SendGmCommand}"/>
+                            </StackPanel>
+                            <TextBox x:Name="GmInputBox" Margin="0,8,0,0"
+                                     Text="{Binding GmInput, UpdateSourceTrigger=PropertyChanged}"
+                                     materialDesign:HintAssist.Hint="comando arg=valor, suporta aspas e JSON (Tab autocomplete, ↑↓ histórico)"
+                                     KeyDown="GmInput_KeyDown"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Grid>
             </TabItem>
 
             <!-- Scheduler -->

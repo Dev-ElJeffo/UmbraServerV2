@@ -40,7 +40,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [
         "ping", "stats", "players", "kick_player", "teleport", "broadcast",
         "reload_config", "shutdown", "set_log_level", "zone_info", "force_save_positions",
-        "spawn_npc_instance", "reload_npc_instances", "list_npcs"
+        "spawn_npc_instance", "reload_npc_instances", "list_npcs",
+        "sessions_count", "clients", "kick_client", "auth_pool_status",
+        "time_info", "events", "channels", "recent_messages", "despawn_npc_instance",
+        "move_npc_instance"
     ];
 
     [ObservableProperty] private string _statusText = "Pronto";
@@ -76,6 +79,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private int _editingItemId; // 0 = modo "novo", >0 = editando
 
     [ObservableProperty] private int _editingNpcTemplateId;
+    [ObservableProperty] private long _editingNpcInstanceId;
     [ObservableProperty] private string _newNpcName = "";
     [ObservableProperty] private int _newNpcLevel = 1;
     [ObservableProperty] private int _newNpcMaxHealth = 5000;
@@ -108,9 +112,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public string ItemFormTitle => EditingItemId > 0 ? $"Editar item #{EditingItemId}" : "Novo item";
     public string ItemFormSubtitle => EditingItemId > 0
-        ? "Os campos abaixo refletem o item selecionado. Concluir gravará um novo registro pois o backend cria por nome."
+        ? "Os campos abaixo refletem o item selecionado. Concluir atualizará o template existente no backend admin."
         : "Preencha os campos para criar um novo template em item_templates.";
-    public string ItemSaveButtonText => EditingItemId > 0 ? "Salvar (criar cópia)" : "Criar item";
+    public string ItemSaveButtonText => EditingItemId > 0 ? "Salvar item" : "Criar item";
 
     partial void OnEditingItemIdChanged(int value)
     {
@@ -122,16 +126,60 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public string NpcFormTitle => EditingNpcTemplateId > 0 ? $"Editar NPC template #{EditingNpcTemplateId}" : "Novo template NPC";
     public string NpcSaveButtonText => EditingNpcTemplateId > 0 ? "Salvar template" : "Criar template";
 
+    partial void OnSelectedNpcTemplateChanged(NpcTemplateRow? value)
+    {
+        if (value == null)
+        {
+            OnPropertyChanged(nameof(SpawnTemplateLabel));
+            return;
+        }
+        LoadNpcTemplateFromRow(value);
+        SelectedLootNpcTemplateId = value.Id;
+        SelectedLootNpcTemplateName = value.Name;
+        OnPropertyChanged(nameof(LootTargetLabel));
+        OnPropertyChanged(nameof(SpawnTemplateLabel));
+    }
+
     partial void OnEditingNpcTemplateIdChanged(int value)
     {
         OnPropertyChanged(nameof(NpcFormTitle));
         OnPropertyChanged(nameof(NpcSaveButtonText));
+        OnPropertyChanged(nameof(SpawnTemplateLabel));
     }
 
-    partial void OnSelectedNpcTemplateChanged(NpcTemplateRow? value)
+    partial void OnSelectedNpcInstanceChanged(NpcInstanceRow? value)
     {
-        if (value != null)
-            LoadNpcTemplateFromRow(value);
+        if (value == null) return;
+        EditingNpcInstanceId = value.InstanceId;
+        SpawnZoneId = value.ZoneId;
+        SpawnPosX = value.PosX;
+        SpawnPosY = value.PosY;
+        SpawnPosZ = value.PosZ;
+        SpawnYaw = value.Yaw;
+        StatusText = $"Instância #{value.InstanceId} selecionada — altere X/Y/Z e clique Atualizar posição.";
+        OnPropertyChanged(nameof(EditingNpcInstanceLabel));
+    }
+
+    partial void OnEditingNpcInstanceIdChanged(long value) =>
+        OnPropertyChanged(nameof(EditingNpcInstanceLabel));
+
+    public string EditingNpcInstanceLabel =>
+        EditingNpcInstanceId > 0
+            ? $"Instância em edição: #{EditingNpcInstanceId} (só para Atualizar posição)"
+            : "Nenhuma instância — OK para Criar nova instância a partir do template";
+
+    public string SpawnTemplateLabel
+    {
+        get
+        {
+            var id = ResolveNpcTemplateIdForSpawn();
+            if (id <= 0)
+                return "Template para criar: (nenhum — selecione na lista à esquerda)";
+            var name = SelectedNpcTemplate?.Id == id
+                ? SelectedNpcTemplate.Name
+                : (NpcTemplates.FirstOrDefault(t => t.Id == id)?.Name ?? NewNpcName);
+            return $"Template para criar: #{id} {name}";
+        }
     }
 
     public IReadOnlyList<string> ItemTypes { get; } = new[] { "weapon", "armor", "consumable", "material", "quest", "misc" };
@@ -165,6 +213,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             NewItemSubtype = ItemSubtypes.FirstOrDefault() ?? "";
         else if (string.IsNullOrEmpty(NewItemSubtype))
             NewItemSubtype = ItemSubtypes.FirstOrDefault() ?? "";
+        OnPropertyChanged(nameof(ItemDesignerSummary));
     }
 
     public Dictionary<string, ObservableCollection<string>> LogLines { get; } = new();
@@ -294,6 +343,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         await RefreshItemsAsync();
         await RefreshNpcTemplatesAsync();
         await RefreshNpcInstancesAsync();
+        await RefreshExpZonesAsync();
+        await RefreshRefinementConfigsAsync();
+        await RefreshProjectStateAsync();
     }
 
     private void OnAdminResponse(string serviceId, string cmd, JsonElement json)
@@ -409,8 +461,23 @@ public partial class MainViewModel : ObservableObject, IDisposable
         };
     }
 
+    private static double TryGetDoubleProp(JsonElement obj, string prop)
+    {
+        if (!obj.TryGetProperty(prop, out var v)) return 0;
+        return v.ValueKind switch
+        {
+            JsonValueKind.Number => v.GetDouble(),
+            JsonValueKind.String => double.TryParse(v.GetString(), out var d) ? d : 0,
+            _ => 0
+        };
+    }
+
     private int ResolveNpcTemplateIdForSpawn() =>
-        SelectedNpcTemplate?.Id ?? EditingNpcTemplateId;
+        SelectedNpcTemplate?.Id > 0
+            ? SelectedNpcTemplate.Id
+            : (EditingNpcTemplateId > 0
+                ? EditingNpcTemplateId
+                : SelectedNpcInstance?.TemplateId ?? 0);
 
     private static int ParseZoneIdFromService(string zoneService)
     {
@@ -719,15 +786,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (string.IsNullOrWhiteSpace(GmInput)) return;
         GmHistory.Add(GmInput);
         GmHistoryIndex = GmHistory.Count;
-        var parts = GmInput.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 0) return;
-        var cmd = parts[0];
-        var args = new JsonObject();
-        for (int i = 1; i < parts.Length; i++)
-        {
-            var eq = parts[i].IndexOf('=');
-            if (eq > 0) args[parts[i][..eq]] = parts[i][(eq + 1)..];
-        }
+        var (cmd, args) = GmCommandLineParser.Parse(GmInput);
+        if (string.IsNullOrWhiteSpace(cmd)) return;
+        var meta = GmCommands.FirstOrDefault(c => string.Equals(c.Name, cmd, StringComparison.OrdinalIgnoreCase));
+        if (meta?.IsDestructive == true &&
+            MessageBox.Show($"Executar comando destrutivo '{cmd}' em {SelectedGmService}?", "Confirmar comando",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            return;
         AppendGm($"> [{SelectedGmService}] {GmInput}");
         Audit.Log(AppConfig.Instance.AdminUsername, "gm", $"{SelectedGmService} {GmInput}");
         _lastUserCmd.Add((SelectedGmService, cmd));
@@ -813,7 +878,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     [RelayCommand] private async Task RefreshItemsAsync()
     {
-        var (ok, err, data) = await Php.ListItemsAsync();
+        var (ok, err, data) = await Php.ListItemsAsync(ItemFilterType, ItemFilterRarity, ItemFilterText);
         if (!ok) { ItemsJson = err; return; }
         ItemsJson = data!.RootElement.GetRawText();
         Items.Clear();
@@ -843,6 +908,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     Weight = it.TryGetProperty("weight", out var w) && w.ValueKind == JsonValueKind.Number ? w.GetDouble() : 0,
                     Tradeable = TryGetBoolProp(it, "tradeable"),
                     CanBeRefined = TryGetBoolProp(it, "can_be_refined"),
+                    UseCooldownMs = TryGetIntProp(it, "use_cooldown_ms"),
                     IconPath = TryGetStringProp(it, "icon_path"),
                     Description = TryGetStringProp(it, "item_description"),
                     StatsJson = statsRaw
@@ -891,15 +957,29 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["weight"] = NewItemWeight,
             ["can_be_refined"] = NewItemCanBeRefined,
             ["tradeable"] = NewItemTradeable,
+            ["use_cooldown_ms"] = NewItemUseCooldownMs,
             ["item_category"] = string.IsNullOrWhiteSpace(NewItemCategory) ? "misc" : NewItemCategory,
             ["stats"] = stats ?? new Dictionary<string, object>()
         };
 
-        var (ok, err, _) = await Php.CreateItemAsync(payload);
-        if (!ok) { MessageBox.Show(err, "Erro ao criar item"); return; }
-        Audit.Log(AppConfig.Instance.AdminUsername, "create_item", NewItemName);
-        StatusText = $"Item '{NewItemName}' criado com sucesso.";
-        NewItem(); // limpa form e volta ao modo "novo"
+        bool ok;
+        string err;
+        if (EditingItemId > 0)
+        {
+            payload["item_id"] = EditingItemId;
+            (ok, err, _) = await Php.UpdateItemAsync(payload);
+            if (!ok) { MessageBox.Show(err, "Erro ao salvar item"); return; }
+            Audit.Log(AppConfig.Instance.AdminUsername, "update_item", $"{EditingItemId}:{NewItemName}");
+            StatusText = $"Item '{NewItemName}' atualizado com sucesso.";
+        }
+        else
+        {
+            (ok, err, _) = await Php.CreateItemAsync(payload);
+            if (!ok) { MessageBox.Show(err, "Erro ao criar item"); return; }
+            Audit.Log(AppConfig.Instance.AdminUsername, "create_item", NewItemName);
+            StatusText = $"Item '{NewItemName}' criado com sucesso.";
+            NewItem(); // limpa form e volta ao modo "novo"
+        }
         await RefreshItemsAsync();
     }
 
@@ -921,6 +1001,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewItemWeight = item.Weight;
         NewItemTradeable = item.Tradeable;
         NewItemCanBeRefined = item.CanBeRefined;
+        NewItemUseCooldownMs = item.UseCooldownMs <= 0 ? 5000 : item.UseCooldownMs;
         NewItemStatsJson = string.IsNullOrEmpty(item.StatsJson) ? "{}" : item.StatsJson;
     }
 
@@ -941,6 +1022,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewItemWeight = 0.0;
         NewItemTradeable = true;
         NewItemCanBeRefined = false;
+        NewItemUseCooldownMs = 5000;
         NewItemStatsJson = "{}";
     }
 
@@ -989,7 +1071,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     DoubleAttackResistance = TryGetIntProp(t, "double_attack_resistance"),
                     SkeletalMeshPath = TryGetStringProp(t, "skeletal_mesh_path"),
                     AnimBlueprintPath = TryGetStringProp(t, "anim_blueprint_path"),
+                    MeshScale = TryGetFloatProp(t, "mesh_scale"),
                     IsEditable = TryGetBoolProp(t, "is_editable"),
+                    IsAttackable = TryGetBoolProp(t, "is_attackable"),
+                    InteractionRadius = TryGetFloatProp(t, "interaction_radius"),
+                    HasVendor = TryGetBoolProp(t, "has_vendor"),
+                    HasQuestDialog = TryGetBoolProp(t, "has_quest_dialog"),
+                    DialogTitle = TryGetStringProp(t, "dialog_title"),
+                    DialogText = TryGetStringProp(t, "dialog_text"),
+                    RespawnSeconds = TryGetIntProp(t, "respawn_seconds"),
+                    KillExp = TryGetIntProp(t, "kill_exp"),
                 });
             }
         }
@@ -1063,12 +1154,126 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand] private void FillSpawnFromInstance(NpcInstanceRow? row)
     {
         if (row == null) return;
-        SpawnZoneId = row.ZoneId;
-        SpawnPosX = row.PosX;
-        SpawnPosY = row.PosY;
-        SpawnPosZ = row.PosZ;
-        SpawnYaw = row.Yaw;
-        StatusText = $"Spawn preenchido da instância #{row.InstanceId}";
+        SelectedNpcInstance = row;
+    }
+
+    [RelayCommand] private async Task UpdateNpcInstancePositionAsync(NpcInstanceRow? row = null)
+    {
+        // Garante que o TextBox com foco commitou o valor digitado
+        if (System.Windows.Input.Keyboard.FocusedElement is System.Windows.Controls.TextBox tb)
+            tb.GetBindingExpression(System.Windows.Controls.TextBox.TextProperty)?.UpdateSource();
+
+        if (row != null)
+            SelectedNpcInstance = row;
+
+        var instanceId = EditingNpcInstanceId > 0
+            ? EditingNpcInstanceId
+            : SelectedNpcInstance?.InstanceId ?? 0;
+        if (instanceId <= 0)
+        {
+            MessageBox.Show(
+                "Nenhuma instância selecionada.\n\n" +
+                "1) Aba NPCs → Instâncias no mundo\n" +
+                "2) Clique na linha do Warrior Goblin\n" +
+                "3) Volte em Templates, altere X/Y/Z\n" +
+                "4) Clique em Atualizar posição (não em Salvar template)",
+                "Nenhuma instância selecionada");
+            return;
+        }
+
+        var effectiveZone = SpawnZoneId;
+        var x = SpawnPosX;
+        var y = SpawnPosY;
+        var z = SpawnPosZ;
+        var yaw = SpawnYaw;
+
+        StatusText = $"Gravando posição #{instanceId} → ({x:F1},{y:F1},{z:F1}) zone={effectiveZone}...";
+        var (ok, err, data) = await Php.UpdateNpcInstanceAsync(instanceId, effectiveZone, x, y, z, yaw);
+        data?.Dispose();
+        if (!ok)
+        {
+            StatusText = $"Erro MySQL ao atualizar posição: {err}";
+            MessageBox.Show(
+                $"Falha ao gravar no MySQL:\n{err}\n\n" +
+                "Verifique WAMP e se update_npc_instance.php está em www/umbra_api/api/admin/.",
+                "Erro ao atualizar posição");
+            return;
+        }
+
+        Audit.Log(AppConfig.Instance.AdminUsername, "update_npc_instance",
+            $"{instanceId} zone={effectiveZone} ({x:F1},{y:F1},{z:F1})");
+
+        var zoneServiceId = $"zone_{effectiveZone}";
+        var onlineZones = GetAuthenticatedZoneServices();
+        var moved = false;
+        string? moveMsg = null;
+
+        if (onlineZones.Contains(zoneServiceId, StringComparer.OrdinalIgnoreCase))
+        {
+            var zoneArgs = new JsonObject
+            {
+                ["npc_instance_id"] = instanceId,
+                ["pos_x"] = x,
+                ["pos_y"] = y,
+                ["pos_z"] = z,
+                ["yaw"] = yaw,
+            };
+            var (zoneOk, zoneResp) = await AdminHub.SendCommandAndWaitAsync(zoneServiceId, "move_npc_instance", zoneArgs, 5000);
+            if (zoneOk && zoneResp != null &&
+                zoneResp.Value.TryGetProperty("success", out var okEl) && okEl.GetBoolean() &&
+                zoneResp.Value.TryGetProperty("data", out var zdata) &&
+                zdata.TryGetProperty("moved", out var movedEl))
+            {
+                moved = movedEl.GetBoolean();
+                moveMsg = zdata.TryGetProperty("message", out var m) ? m.GetString() : null;
+                if (!moved && string.IsNullOrEmpty(moveMsg))
+                    moveMsg = "zone retornou moved=false";
+            }
+            else if (zoneOk && zoneResp != null)
+            {
+                moveMsg = zoneResp.Value.TryGetProperty("error", out var e)
+                    ? e.GetString()
+                    : "resposta inesperada do zone (comando move_npc_instance ausente? reinicie o zone_server)";
+            }
+            else
+            {
+                moveMsg = $"{zoneServiceId} não respondeu ao move_npc_instance";
+            }
+        }
+        else
+        {
+            moveMsg = $"{zoneServiceId} offline — MySQL atualizado; reinicie o zone ou suba o admin TCP";
+        }
+
+        await RefreshNpcInstancesAsync();
+        var refreshed = NpcInstances.FirstOrDefault(i => i.InstanceId == instanceId);
+        var dbConfirm = refreshed != null
+            ? $"DB agora: ({refreshed.PosX:F1}, {refreshed.PosY:F1}, {refreshed.PosZ:F1})"
+            : "DB: instância não apareceu no refresh";
+
+        if (moved)
+        {
+            StatusText = $"Instância #{instanceId} movida. {dbConfirm}";
+            MessageBox.Show(
+                $"Posição da instância #{instanceId} atualizada.\n" +
+                $"Enviado: ({x:F1}, {y:F1}, {z:F1}) zone={effectiveZone}\n{dbConfirm}\n\n" +
+                "Runtime zone notificado (opcode 100).",
+                "Posição atualizada",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        else
+        {
+            StatusText = $"MySQL OK #{instanceId}. Runtime: {moveMsg}. {dbConfirm}";
+            MessageBox.Show(
+                $"MySQL gravou a posição da instância #{instanceId}.\n" +
+                $"Enviado: ({x:F1}, {y:F1}, {z:F1})\n{dbConfirm}\n\n" +
+                $"Runtime: {moveMsg}\n\n" +
+                "Se o goblin não se moveu no PIE, reinicie o zone_server (build com move_npc_instance).",
+                "Posição no banco (runtime pendente)",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
     }
 
     [RelayCommand] private async Task DeleteNpcInstanceAsync(NpcInstanceRow? row)
@@ -1077,6 +1282,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (MessageBox.Show($"Excluir instância NPC #{row.InstanceId} ({row.TemplateLabel})?", "Confirmar",
                 MessageBoxButton.YesNo) != MessageBoxResult.Yes)
             return;
+
+        var zoneServiceId = $"zone_{row.ZoneId}";
+        if (GetAuthenticatedZoneServices().Contains(zoneServiceId, StringComparer.OrdinalIgnoreCase))
+        {
+            var zoneArgs = new JsonObject { ["npc_instance_id"] = row.InstanceId };
+            await AdminHub.SendCommandAsync(zoneServiceId, "despawn_npc_instance", zoneArgs);
+        }
 
         var (ok, err, _) = await Php.DeleteNpcInstanceAsync(row.InstanceId);
         if (!ok)
@@ -1116,7 +1328,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["double_attack_resistance"] = NewNpcDoubleAttackResistance,
             ["skeletal_mesh_path"] = NewNpcSkeletalMeshPath,
             ["anim_blueprint_path"] = NewNpcAnimBlueprintPath,
+            ["mesh_scale"] = NewNpcMeshScale,
             ["is_editable"] = 1,
+            ["is_attackable"] = NewNpcIsAttackable ? 1 : 0,
+            ["interaction_radius"] = NewNpcInteractionRadius,
+            ["has_vendor"] = NewNpcHasVendor ? 1 : 0,
+            ["has_quest_dialog"] = NewNpcHasQuestDialog ? 1 : 0,
+            ["dialog_title"] = NewNpcDialogTitle,
+            ["dialog_text"] = NewNpcDialogText,
+            ["respawn_seconds"] = NewNpcRespawnSeconds,
+            ["kill_exp"] = NewNpcKillExp,
         };
     }
 
@@ -1138,6 +1359,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
             if (!ok) { MessageBox.Show(err, "Erro ao salvar template"); return; }
             Audit.Log(AppConfig.Instance.AdminUsername, "update_npc_template", EditingNpcTemplateId.ToString());
             StatusText = $"Template NPC '{NewNpcName}' atualizado.";
+            if (EditingNpcInstanceId > 0 &&
+                MessageBox.Show(
+                    $"Template salvo.\n\nTambém atualizar a posição da instância #{EditingNpcInstanceId} " +
+                    $"para ({SpawnPosX:F1}, {SpawnPosY:F1}, {SpawnPosZ:F1})?",
+                    "Atualizar posição da instância?",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question) == MessageBoxResult.Yes)
+            {
+                await UpdateNpcInstancePositionAsync();
+                return;
+            }
         }
         else
         {
@@ -1180,11 +1412,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcDoubleAttackResistance = row.DoubleAttackResistance;
         NewNpcSkeletalMeshPath = row.SkeletalMeshPath ?? "";
         NewNpcAnimBlueprintPath = row.AnimBlueprintPath ?? "";
+        NewNpcMeshScale = row.MeshScale <= 0 ? 1f : row.MeshScale;
+        NewNpcIsAttackable = row.IsAttackable;
+        NewNpcInteractionRadius = row.InteractionRadius <= 0 ? 300f : row.InteractionRadius;
+        NewNpcHasVendor = row.HasVendor;
+        NewNpcHasQuestDialog = row.HasQuestDialog;
+        NewNpcDialogTitle = row.DialogTitle ?? "";
+        NewNpcDialogText = row.DialogText ?? "";
+        NewNpcRespawnSeconds = row.RespawnSeconds <= 0 ? 30 : row.RespawnSeconds;
+        NewNpcKillExp = row.KillExp;
     }
 
     [RelayCommand] private void NewNpcTemplate()
     {
         EditingNpcTemplateId = 0;
+        EditingNpcInstanceId = 0;
         NewNpcName = "";
         NewNpcLevel = 1;
         NewNpcMaxHealth = 5000;
@@ -1206,26 +1448,53 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcDoubleAttackResistance = 5;
         NewNpcSkeletalMeshPath = "";
         NewNpcAnimBlueprintPath = "";
+        NewNpcMeshScale = 1f;
+        NewNpcIsAttackable = true;
+        NewNpcInteractionRadius = 300f;
+        NewNpcHasVendor = false;
+        NewNpcHasQuestDialog = false;
+        NewNpcDialogTitle = "";
+        NewNpcDialogText = "";
+        NewNpcRespawnSeconds = 30;
+        NewNpcKillExp = 0;
     }
 
     [RelayCommand] private async Task SpawnNpcAsync()
     {
+        if (System.Windows.Input.Keyboard.FocusedElement is System.Windows.Controls.TextBox tb)
+            tb.GetBindingExpression(System.Windows.Controls.TextBox.TextProperty)?.UpdateSource();
+
         var templateId = ResolveNpcTemplateIdForSpawn();
         if (templateId <= 0)
         {
-            StatusText = "Spawn NPC: selecione um template na lista (coluna ID) antes de spawnar.";
-            MessageBox.Show("Selecione um template na lista ou clique em Editar antes de spawnar.", "Validação");
+            StatusText = "Criar instância: selecione um template na lista antes.";
+            MessageBox.Show(
+                "Selecione um template na aba Templates (ex.: Warrior Goblin).\n\n" +
+                "Depois informe Zone/X/Y/Z e clique em Criar nova instância.",
+                "Validação");
             return;
         }
 
-        StatusText = $"Spawnando NPC template #{templateId} na zone {SpawnZoneId}...";
-
         var effectiveZone = ResolveEffectiveSpawnZoneId();
         if (effectiveZone != SpawnZoneId)
-        {
             SpawnZoneId = effectiveZone;
-            StatusText = $"Zone ajustada para {effectiveZone} (player/zone online). Spawnando template #{templateId}...";
-        }
+
+        var x = SpawnPosX;
+        var y = SpawnPosY;
+        var z = SpawnPosZ;
+        var yaw = SpawnYaw;
+
+        if (MessageBox.Show(
+                $"Criar NOVA instância do template #{templateId}?\n\n" +
+                $"Zone: {effectiveZone}\n" +
+                $"Posição: ({x:F1}, {y:F1}, {z:F1}) yaw={yaw:F1}\n\n" +
+                "Isso NÃO move a instância já existente — cria outra cópia no mundo.",
+                "Criar nova instância",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question) != MessageBoxResult.Yes)
+            return;
+
+        StatusText = $"Criando instância template #{templateId} na zone {effectiveZone}...";
 
         var zoneServiceId = $"zone_{effectiveZone}";
         var onlineZones = GetAuthenticatedZoneServices();
@@ -1233,7 +1502,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             MessageBox.Show(
                 "Nenhum zone_server com admin conectado.\n\n" +
-                "Inicie zone_0 ou zone_1 na aba Servers e faça login no UmbraManager.",
+                "Inicie zone_0 na aba Servers para o NPC aparecer no PIE.",
                 "Zone offline",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
@@ -1257,34 +1526,40 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             ["npc_template_id"] = templateId,
             ["zone_id"] = effectiveZone,
-            ["pos_x"] = SpawnPosX,
-            ["pos_y"] = SpawnPosY,
-            ["pos_z"] = SpawnPosZ,
-            ["yaw"] = SpawnYaw,
+            ["pos_x"] = x,
+            ["pos_y"] = y,
+            ["pos_z"] = z,
+            ["yaw"] = yaw,
         };
 
         var (ok, err, data) = await Php.SpawnNpcAsync(payload);
         if (!ok)
         {
-            StatusText = $"Spawn NPC falhou: {err}";
-            MessageBox.Show(err, "Erro ao spawnar NPC");
+            StatusText = $"Criar instância falhou: {err}";
+            MessageBox.Show(err, "Erro ao criar instância");
             return;
         }
 
         int instanceId = 0;
         if (data != null && data.RootElement.TryGetProperty("npc_instance_id", out var idEl))
-            instanceId = idEl.GetInt32();
+        {
+            instanceId = idEl.ValueKind == JsonValueKind.Number
+                ? idEl.GetInt32()
+                : (int.TryParse(idEl.GetString(), out var parsed) ? parsed : 0);
+        }
         data?.Dispose();
 
         if (instanceId <= 0)
         {
-            StatusText = "Spawn retornou sucesso mas sem npc_instance_id.";
-            MessageBox.Show("A API não retornou npc_instance_id. Verifique logs PHP/MySQL.", "Spawn NPC");
+            StatusText = "API retornou sucesso sem npc_instance_id.";
+            MessageBox.Show("A API não retornou npc_instance_id. Verifique logs PHP/MySQL.", "Criar instância");
             return;
         }
 
+        EditingNpcInstanceId = instanceId;
         Audit.Log(AppConfig.Instance.AdminUsername, "spawn_npc", $"{templateId} zone={effectiveZone} instance={instanceId}");
         await RefreshNpcInstancesAsync();
+        SelectedNpcInstance = NpcInstances.FirstOrDefault(i => i.InstanceId == instanceId);
 
         var zoneArgs = new JsonObject { ["npc_instance_id"] = instanceId };
         var (zoneOk, zoneResp) = await AdminHub.SendCommandAndWaitAsync(zoneServiceId, "spawn_npc_instance", zoneArgs, 6000);
@@ -1293,11 +1568,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             if (spawned)
             {
-                StatusText = $"NPC #{instanceId} spawnado — enviado ao {zoneServiceId} (opcode 100).";
+                StatusText = $"Nova instância #{instanceId} criada e enviada ao {zoneServiceId}.";
                 MessageBox.Show(
-                    $"NPC spawnado (instance #{instanceId}) na zone {effectiveZone}.\n\n" +
-                    "O dummy deve aparecer no PIE imediatamente (sem reiniciar o zone).",
-                    "Spawn OK",
+                    $"Nova instância #{instanceId} criada.\n" +
+                    $"Template #{templateId} em ({x:F1}, {y:F1}, {z:F1}) zone={effectiveZone}.\n\n" +
+                    "Deve aparecer no PIE sem reiniciar o zone.",
+                    "Instância criada",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
                 return;
@@ -1305,18 +1581,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
             if (spawnMsg?.Contains("CombatCoreEngine", StringComparison.OrdinalIgnoreCase) == true)
             {
-                StatusText = $"MySQL OK #{instanceId}; zone sem CombatCoreEngine (MySQL?).";
+                StatusText = $"MySQL OK #{instanceId}; zone sem CombatCoreEngine.";
                 MessageBox.Show(
-                    $"Instância #{instanceId} gravada no MySQL, mas o zone não tem CombatCoreEngine.\n\n" +
-                    $"{spawnMsg}\n\nVerifique conexão MySQL em logs/zone_server.log.",
-                    "Spawn parcial — MySQL zone",
+                    $"Instância #{instanceId} gravada no MySQL, mas o zone não tem CombatCoreEngine.\n\n{spawnMsg}",
+                    "Instância no banco",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
                 return;
             }
         }
 
-        // Fallback: recarrega instâncias faltantes do MySQL e broadcast opcode 100
         if (onlineZones.Contains(zoneServiceId, StringComparer.OrdinalIgnoreCase))
         {
             var (reloadOk, reloadResp) = await AdminHub.SendCommandAndWaitAsync(zoneServiceId, "reload_npc_instances", null, 6000);
@@ -1325,11 +1599,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 reloadResp.Value.TryGetProperty("data", out var reloadData) &&
                 reloadData.TryGetProperty("loaded", out var loadedEl) && loadedEl.GetInt32() > 0)
             {
-                StatusText = $"NPC #{instanceId} carregado via reload_npc_instances ({loadedEl.GetInt32()} inst.).";
+                StatusText = $"Instância #{instanceId} carregada via reload ({loadedEl.GetInt32()}).";
                 MessageBox.Show(
-                    $"spawn_npc_instance falhou; reload_npc_instances carregou {loadedEl.GetInt32()} instância(s).\n\n" +
-                    "O dummy deve aparecer no PIE se zone_id e posição estiverem corretos.",
-                    "Spawn OK (reload)",
+                    $"Nova instância #{instanceId} no MySQL; reload carregou {loadedEl.GetInt32()} NPC(s) no zone.",
+                    "Instância criada (reload)",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
                 return;
@@ -1345,35 +1618,81 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 StatusText = $"MySQL OK #{instanceId}; zone: {zoneErr}";
                 MessageBox.Show(
                     $"Instância #{instanceId} gravada no MySQL, mas o zone retornou erro:\n{zoneErr}",
-                    "Spawn parcial",
+                    "Instância parcial",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
                 return;
             }
 
-            StatusText = $"MySQL OK #{instanceId}; zone: {spawnMsg ?? "Falha no zone"}";
+            StatusText = $"MySQL OK #{instanceId}; zone: {spawnMsg ?? "falha"}";
             MessageBox.Show(
-                $"Instância #{instanceId} gravada no MySQL (zone_id={effectiveZone}), mas o zone não spawnou:\n{spawnMsg}\n\n" +
-                $"Servidor admin: {zoneServiceId} (zone_id={serverZoneId}).\n" +
-                "O zone_id do spawn deve ser o mesmo do zone_server em execução (ex.: zone_0 → Zone ID 0).",
-                "Spawn parcial",
+                $"Instância #{instanceId} no MySQL (zone_id={effectiveZone}), mas o zone não spawnou:\n{spawnMsg}\n\n" +
+                $"Servidor: {zoneServiceId} (zone_id={serverZoneId}).",
+                "Instância parcial",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
             return;
         }
 
         var onlineZonesList = onlineZones.Count > 0 ? string.Join(", ", onlineZones) : "(nenhuma)";
-        StatusText = $"MySQL OK #{instanceId}; {zoneServiceId} sem resposta admin.";
+        StatusText = $"MySQL OK #{instanceId}; {zoneServiceId} sem resposta.";
         MessageBox.Show(
             $"Instância #{instanceId} gravada no MySQL (zone_id={effectiveZone}).\n\n" +
-            $"{zoneServiceId} não respondeu ao comando spawn_npc_instance.\n" +
-            $"Zones admin online: {onlineZonesList}\n\n" +
-            "Inicie zone_0 pelo Manager (Admin TCP = OK) e use Zone ID 0 no spawn.",
-            "Spawn no banco (zone não notificado)",
+            $"{zoneServiceId} não respondeu ao spawn_npc_instance.\n" +
+            $"Zones admin online: {onlineZonesList}",
+            "Instância no banco",
             MessageBoxButton.OK,
             MessageBoxImage.Warning);
     }
 
+    /// <summary>Duplica o template da instância selecionada nas coords atuais do formulário.</summary>
+    [RelayCommand] private async Task DuplicateNpcInstanceAsync(NpcInstanceRow? row)
+    {
+        row ??= SelectedNpcInstance;
+        if (row == null)
+        {
+            MessageBox.Show(
+                "Selecione uma instância na aba Instâncias no mundo.\n\n" +
+                "Depois ajuste X/Y/Z (ou Copiar posição do player) e use Duplicar.",
+                "Duplicar instância");
+            return;
+        }
+
+        if (SelectedNpcTemplate == null || SelectedNpcTemplate.Id != row.TemplateId)
+        {
+            var tpl = NpcTemplates.FirstOrDefault(t => t.Id == row.TemplateId);
+            if (tpl != null)
+                SelectedNpcTemplate = tpl;
+            else
+                EditingNpcTemplateId = row.TemplateId;
+        }
+
+        var samePos = Math.Abs(SpawnPosX - row.PosX) < 0.01f
+                      && Math.Abs(SpawnPosY - row.PosY) < 0.01f
+                      && Math.Abs(SpawnPosZ - row.PosZ) < 0.01f;
+        if (samePos)
+        {
+            var r = MessageBox.Show(
+                $"As coordenadas do formulário são as mesmas da instância #{row.InstanceId}.\n\n" +
+                "Deseja copiar a posição do player online antes de duplicar?\n\n" +
+                "Sim = copiar player e criar\nNão = criar mesmo assim nestas coords\nCancelar = abortar",
+                "Mesma posição",
+                MessageBoxButton.YesNoCancel,
+                MessageBoxImage.Question);
+            if (r == MessageBoxResult.Cancel) return;
+            if (r == MessageBoxResult.Yes)
+            {
+                if (Players.Count == 0)
+                {
+                    MessageBox.Show("Nenhum player online para copiar a posição.", "Duplicar");
+                    return;
+                }
+                CopySpawnFromPlayer();
+            }
+        }
+
+        await SpawnNpcAsync();
+    }
     private static bool TryParseSpawnZoneResponse(JsonElement? zoneResp, out bool spawned, out string? message, out int serverZoneId)
     {
         spawned = false;
@@ -1468,7 +1787,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         var parts = GmInput.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var prefix = parts.Length > 0 ? parts[0] : GmInput.Trim();
-        var match = GmKnownCommands.FirstOrDefault(c => c.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        var match = GmCommands
+            .Where(c => c.AppliesTo(SelectedGmService))
+            .Select(c => c.Name)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(c => c.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            ?? GmKnownCommands.FirstOrDefault(c => c.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
         if (match != null) GmInput = match + (parts.Length > 1 ? " " + string.Join(' ', parts.Skip(1)) : " ");
     }
 

@@ -252,6 +252,46 @@ std::vector<uint32_t> NpcManager::tickRespawns(float deltaSeconds) {
   return respawned;
 }
 
+bool NpcManager::removeInstance(uint32_t npcInstanceId) {
+  std::lock_guard<std::mutex> lock(mu_);
+  auto it = indexById_.find(npcInstanceId);
+  if (it == indexById_.end()) {
+    return false;
+  }
+
+  const size_t idx = it->second;
+  instances_.erase(instances_.begin() + static_cast<long long>(idx));
+  indexById_.erase(it);
+  for (size_t i = idx; i < instances_.size(); ++i) {
+    indexById_[instances_[i].npcInstanceId] = i;
+  }
+  return true;
+}
+
+bool NpcManager::setInstanceTransform(uint32_t npcInstanceId, float x, float y, float z, float yaw,
+                                      bool persistToDb) {
+  {
+    std::lock_guard<std::mutex> lock(mu_);
+    auto it = indexById_.find(npcInstanceId);
+    if (it == indexById_.end()) {
+      return false;
+    }
+    NpcRuntimeInstance& inst = instances_[it->second];
+    inst.x = x;
+    inst.y = y;
+    inst.z = z;
+    inst.yaw = yaw;
+  }
+
+  if (persistToDb) {
+    persistNpcSql(
+        "UPDATE npc_instances SET pos_x = " + std::to_string(x) + ", pos_y = " + std::to_string(y) +
+        ", pos_z = " + std::to_string(z) + ", yaw = " + std::to_string(yaw) +
+        " WHERE npc_instance_id = " + std::to_string(npcInstanceId));
+  }
+  return true;
+}
+
 NpcSpawnPayload NpcManager::toSpawnPayload(const NpcRuntimeInstance& inst) const {
   NpcSpawnPayload p;
   p.npcId = inst.npcInstanceId;

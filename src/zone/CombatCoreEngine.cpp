@@ -1339,6 +1339,40 @@ bool CombatCoreEngine::spawnNpcInstance(uint32_t npcInstanceId) {
   return false;
 }
 
+bool CombatCoreEngine::despawnNpcInstance(uint32_t npcInstanceId, uint8_t reason) {
+  if (!npcManager_ || npcInstanceId == 0) return false;
+  if (!npcManager_->findInstance(npcInstanceId)) return false;
+  broadcastNpcDespawnToAll(npcInstanceId, reason);
+  return npcManager_->removeInstance(npcInstanceId);
+}
+
+bool CombatCoreEngine::moveNpcInstance(uint32_t npcInstanceId, float x, float y, float z, float yaw) {
+  if (!npcManager_ || npcInstanceId == 0) return false;
+
+  if (!npcManager_->findInstance(npcInstanceId)) {
+    if (!npcManager_->loadInstanceById(npcInstanceId)) {
+      return false;
+    }
+  }
+
+  if (!npcManager_->setInstanceTransform(npcInstanceId, x, y, z, yaw, true)) {
+    return false;
+  }
+
+  if (const NpcRuntimeInstance* inst = npcManager_->findInstance(npcInstanceId)) {
+    if (inst->isDead) {
+      Core::Logger::getInstance().warn("[CombatCoreEngine] move: NPC {} está morto — posição atualizada, sem broadcast spawn",
+                                       npcInstanceId);
+      return true;
+    }
+    broadcastNpcSpawnToAll(*inst);
+    Core::Logger::getInstance().info("[CombatCoreEngine] move NPC {} -> ({:.1f},{:.1f},{:.1f}) yaw={:.1f}",
+                                     npcInstanceId, x, y, z, yaw);
+    return true;
+  }
+  return false;
+}
+
 size_t CombatCoreEngine::reloadMissingInstancesFromDatabase() {
   if (!npcManager_) return 0;
   const size_t before = npcManager_->getAllInstances().size();

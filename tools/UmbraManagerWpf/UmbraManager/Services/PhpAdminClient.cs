@@ -40,8 +40,20 @@ public sealed class PhpAdminClient
     public async Task<(bool Ok, string Error, JsonDocument? Data)> UnbanAccountAsync(int accountId, CancellationToken ct = default) =>
         await PostAsync("/admin/unban_account.php", new { admin_username = _adminUsername, target_user_id = accountId }, ct);
 
-    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListItemsAsync(CancellationToken ct = default) =>
-        await PostAsync("/admin/list_items.php", new { admin_username = _adminUsername }, ct);
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListItemsAsync(
+        string? type = null,
+        string? rarity = null,
+        string? search = null,
+        string? equipmentSlot = null,
+        CancellationToken ct = default)
+    {
+        var body = new Dictionary<string, object?> { ["admin_username"] = _adminUsername };
+        if (!string.IsNullOrWhiteSpace(type)) body["type"] = type;
+        if (!string.IsNullOrWhiteSpace(rarity)) body["rarity"] = rarity;
+        if (!string.IsNullOrWhiteSpace(search)) body["search"] = search;
+        if (!string.IsNullOrWhiteSpace(equipmentSlot)) body["equipment_slot"] = equipmentSlot;
+        return await PostAsync("/admin/list_items.php", body, ct);
+    }
 
     public async Task<(bool Ok, string Error, JsonDocument? Data)> DeleteItemAsync(int itemId, CancellationToken ct = default) =>
         await PostAsync("/admin/delete_item.php", new { admin_username = _adminUsername, item_id = itemId }, ct);
@@ -51,6 +63,13 @@ public sealed class PhpAdminClient
         var dict = JsonSerializer.SerializeToElement(item).Deserialize<Dictionary<string, object>>() ?? new();
         dict["admin_username"] = _adminUsername;
         return await PostAsync("/admin/create_item.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpdateItemAsync(object item, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(item).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/update_item.php", dict, ct);
     }
 
     public async Task<(bool Ok, string Error, JsonDocument? Data)> ListNpcTemplatesAsync(CancellationToken ct = default) =>
@@ -87,6 +106,64 @@ public sealed class PhpAdminClient
 
     public async Task<(bool Ok, string Error, JsonDocument? Data)> DeleteNpcInstanceAsync(long instanceId, CancellationToken ct = default) =>
         await PostAsync("/admin/delete_npc_instance.php", new { admin_username = _adminUsername, npc_instance_id = instanceId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpdateNpcInstanceAsync(
+        long instanceId,
+        int zoneId,
+        float posX,
+        float posY,
+        float posZ,
+        float yaw,
+        CancellationToken ct = default) =>
+        await PostAsync("/admin/update_npc_instance.php", new
+        {
+            admin_username = _adminUsername,
+            npc_instance_id = instanceId,
+            zone_id = zoneId,
+            pos_x = posX,
+            pos_y = posY,
+            pos_z = posZ,
+            yaw,
+        }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListNpcLootEntriesAsync(int npcTemplateId, CancellationToken ct = default) =>
+        await PostAsync("/admin/list_npc_loot_entries.php", new { admin_username = _adminUsername, npc_template_id = npcTemplateId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> CreateNpcLootEntryAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/create_npc_loot_entry.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpdateNpcLootEntryAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/update_npc_loot_entry.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> DeleteNpcLootEntryAsync(int lootEntryId, CancellationToken ct = default) =>
+        await PostAsync("/admin/delete_npc_loot_entry.php", new { admin_username = _adminUsername, loot_entry_id = lootEntryId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListExpZonesAsync(CancellationToken ct = default) =>
+        await PostAsync("/admin/list_exp_zones.php", new { admin_username = _adminUsername }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpsertExpZoneAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/upsert_exp_zone.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> GetRefinementConfigAsync(CancellationToken ct = default) =>
+        await PostAsync("/admin/get_refinement_config.php", new { admin_username = _adminUsername }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> GetPlayerInspectorAsync(int playerId, CancellationToken ct = default) =>
+        await PostAsync("/admin/player_inspector.php", new { admin_username = _adminUsername, player_id = playerId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> GetProjectStateSummaryAsync(CancellationToken ct = default) =>
+        await PostAsync("/admin/project_state_summary.php", new { admin_username = _adminUsername }, ct);
 
     private async Task<(bool Ok, string Error, JsonDocument? Data)> PostAsync(string path, object body, CancellationToken ct)
     {
