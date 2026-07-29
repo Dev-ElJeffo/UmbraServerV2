@@ -28,7 +28,9 @@ try {
                 double_attack_rate, double_attack_resistance,
                 skeletal_mesh_path, anim_blueprint_path, mesh_scale, is_editable,
                 is_attackable, interaction_radius, has_vendor, has_quest_dialog,
-                dialog_title, dialog_text, respawn_seconds, kill_exp
+                dialog_title, dialog_text, respawn_seconds, kill_exp,
+                aggro_radius, leash_radius, attack_range, attack_cooldown_ms,
+                move_speed, roam_radius, is_hostile
          FROM npc_templates
          ORDER BY npc_template_id ASC"
     );

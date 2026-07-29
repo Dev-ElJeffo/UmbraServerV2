@@ -645,7 +645,7 @@
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                         </DataGridTextColumn>
-                                        <DataGridTextColumn Header="Nome" Binding="{Binding Name}" Width="180">
+                                        <DataGridTextColumn Header="Nome" Binding="{Binding Name}" Width="160">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="FontWeight" Value="SemiBold"/>
@@ -653,6 +653,11 @@
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                         </DataGridTextColumn>
+                                        <DataGridTextColumn Header="Lv" Binding="{Binding Level}" Width="40"/>
+                                        <DataGridTextColumn Header="Roam" Binding="{Binding RoamRadius, StringFormat=F0}" Width="55"/>
+                                        <DataGridTextColumn Header="Aggro" Binding="{Binding AggroRadius, StringFormat=F0}" Width="55"/>
+                                        <DataGridTextColumn Header="AtkR" Binding="{Binding AttackRange, StringFormat=F0}" Width="50"/>
+                                        <DataGridCheckBoxColumn Header="Hostil" Binding="{Binding IsHostile}" Width="55" IsReadOnly="True"/>
                                         <DataGridTextColumn Header="Resumo" Binding="{Binding Summary}" Width="*"/>
                                         <DataGridTemplateColumn Header="Ações" Width="100" MinWidth="100">
                                             <DataGridTemplateColumn.CellTemplate>
@@ -854,10 +859,47 @@
                                                 <TextBox Grid.Column="2" Text="{Binding NewNpcKillExp, UpdateSourceTrigger=PropertyChanged}"
                                                          materialDesign:HintAssist.Hint="Kill EXP" materialDesign:HintAssist.IsFloating="True"/>
                                             </Grid>
+                                            <TextBlock Text="AI / combate do mob" FontWeight="SemiBold" Margin="0,0,0,4" Opacity="0.85"/>
+                                            <TextBlock FontSize="11" Opacity="0.65" TextWrapping="Wrap" Margin="0,0,0,8"
+                                                       Text="Roam = área de passeio em torno do spawn. Aggro = raio que detecta o player. Leash = distância máxima do home (0 = aggro×2). Hostil = pode atacar."/>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcRoamRadius, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Raio de roam (0 = parado)" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcAggroRadius, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Raio de aggro (0 = passivo)" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcLeashRadius, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Leash / volta ao home (0 = auto)" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcMoveSpeed, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Velocidade de movimento" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <Grid Margin="0,0,0,10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcAttackRange, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Alcance de ataque" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcAttackCooldownMs, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Cooldownown do ataque (ms)" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
                                             <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                                <CheckBox Content="Attackable" IsChecked="{Binding NewNpcIsAttackable}" Margin="0,0,16,0"/>
+                                                <CheckBox Content="Atacável" IsChecked="{Binding NewNpcIsAttackable}" Margin="0,0,16,0"/>
+                                                <CheckBox Content="Hostil" IsChecked="{Binding NewNpcIsHostile}" Margin="0,0,16,0"/>
                                                 <CheckBox Content="Vendor" IsChecked="{Binding NewNpcHasVendor}" Margin="0,0,16,0"/>
-                                                <CheckBox Content="Quest dialog" IsChecked="{Binding NewNpcHasQuestDialog}"/>
+                                                <CheckBox Content="Diálogo de quest" IsChecked="{Binding NewNpcHasQuestDialog}"/>
                                             </StackPanel>
                                             <TextBox Text="{Binding NewNpcDialogTitle, UpdateSourceTrigger=PropertyChanged}"
                                                      materialDesign:HintAssist.Hint="Título de diálogo"

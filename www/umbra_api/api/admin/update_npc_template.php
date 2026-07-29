@@ -34,6 +34,8 @@ $allowed = [
     'skeletal_mesh_path', 'anim_blueprint_path', 'mesh_scale', 'is_editable',
     'kill_exp', 'is_attackable', 'interaction_radius', 'has_vendor', 'has_quest_dialog',
     'dialog_title', 'dialog_text', 'respawn_seconds',
+    'aggro_radius', 'leash_radius', 'attack_range', 'attack_cooldown_ms',
+    'move_speed', 'roam_radius', 'is_hostile',
 ];
 $sets = [];
 $params = [':id' => $templateId];

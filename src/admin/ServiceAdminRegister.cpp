@@ -143,7 +143,7 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
     return d;
   });
 
-  registry.registerCommand("reload_npc_instances", [&server](const nlohmann::json&) {
+  registry.registerCommand("reload_npc_instances", [&server](const nlohmann::json& args) {
     nlohmann::json d;
     auto* engine = server.getCombatCoreEngine();
     if (!engine) {
@@ -151,9 +151,19 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
       d["message"] = "CombatCoreEngine não inicializado";
       return d;
     }
-    const size_t loaded = engine->reloadMissingInstancesFromDatabase();
-    d["loaded"] = loaded;
-    d["clients_notified"] = loaded > 0;
+    // default: full reload (pos/home/roam). args.reload_missing_only=true → comportamento antigo.
+    const bool missingOnly = args.value("reload_missing_only", false);
+    if (missingOnly) {
+      const size_t loaded = engine->reloadMissingInstancesFromDatabase();
+      d["loaded"] = loaded;
+      d["mode"] = "missing_only";
+      d["clients_notified"] = loaded > 0;
+      return d;
+    }
+    const size_t spawned = engine->reloadAllNpcInstancesFromDatabase();
+    d["loaded"] = spawned;
+    d["mode"] = "full_reload";
+    d["clients_notified"] = spawned > 0;
     return d;
   });
 

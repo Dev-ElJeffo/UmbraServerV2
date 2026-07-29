@@ -2,6 +2,7 @@
 
 #include "zone/MovementProtocol.hpp"
 #include "zone/NpcManager.hpp"
+#include "zone/NpcAiSystem.hpp"
 #include "zone/CharacterStateLoader.hpp"
 #include "zone/ReactionEngine.hpp"
 #include "zone/QuestProgressService.hpp"
@@ -124,6 +125,8 @@ public:
   bool moveNpcInstance(uint32_t npcInstanceId, float x, float y, float z, float yaw);
   /** Sincroniza instâncias novas do DB e broadcast spawn para cada uma adicionada. */
   size_t reloadMissingInstancesFromDatabase();
+  /** Despawn todos → reload MySQL → spawn todos (corrige pos/home/roam em runtime). */
+  size_t reloadAllNpcInstancesFromDatabase();
 
   void broadcastNpcSpawnToAll(const NpcRuntimeInstance& inst);
   void broadcastNpcDespawnToAll(uint32_t npcInstanceId, uint8_t reason = 0);
@@ -135,6 +138,10 @@ public:
   /** Aplica só a resolução de hit (após castTimeMs). Não revalida CD/mana nem rebroadcast 97. */
   void finalizeSkillCastHit(uint32_t sourcePlayerId, const SkillCastPayload& payload);
   void processBasicAttack(uint32_t sourcePlayerId, const BasicAttackPayload& payload);
+  /** Basic attack autoritativo do mob (NPC → player). */
+  void processNpcBasicAttack(uint32_t npcInstanceId, uint32_t targetPlayerId);
+  /** Broadcast opcode 102 (HP + posição) — usado pelo NpcAiSystem. */
+  void broadcastNpcStatePublic(const NpcStatePayload& payload) { broadcastNpcState(payload); }
   void cancelPendingSkillHit(uint32_t sourcePlayerId);
   /** Aplica AGORA todos os hits pendentes do jogador (animation cancel de combo).
    *  Mana/CD já foram cobrados no cast; commitar evita perder dano do cast anterior. */
@@ -160,6 +167,8 @@ public:
 
   /** Recarrega reações armadas quando jogador entra na zone. */
   void onPlayerJoinedZone(uint32_t playerId);
+  /** Equip/unequip: recarrega stats do MySQL preservando HP/MP em memória. */
+  void onPlayerEquipmentOrStatsChanged(uint32_t playerId);
   /** Se o jogador entrou já morto no DB/cache, força isDead + notify (sem reload de reações). */
   void syncJoinDeathState(uint32_t playerId);
 
@@ -178,6 +187,12 @@ private:
   bool tryGetPlayerPosition(uint32_t playerId, float& outX, float& outY, float& outZ) const;
   bool tryGetTargetPosition(uint8_t targetType, uint32_t targetId, float& outX, float& outY,
                             float& outZ) const;
+  /**
+   * Corrige targetType quando player_id e npc_instance_id colidem.
+   * Se existir NPC vivo com o mesmo id e o caster estiver mais perto dele (ou o
+   * "player" for stub em 0,0,0), reinterpreta como Npc.
+   */
+  void disambiguateTargetType(uint32_t sourcePlayerId, uint8_t& targetType, uint32_t targetId) const;
   bool validateSkillRange(uint32_t sourcePlayerId, const Combat::SkillData& skill,
                           const SkillCastPayload& payload,
                           SkillCastRejectReason* outFailReason = nullptr) const;
@@ -245,6 +260,7 @@ private:
   MovementServer* movementServer_ = nullptr;
   std::unique_ptr<Combat::SkillService> skillService_;
   std::unique_ptr<NpcManager> npcManager_;
+  std::unique_ptr<NpcAiSystem> npcAi_;
   std::unique_ptr<CharacterStateLoader> stateLoader_;
   std::unique_ptr<ReactionEngine> reactionEngine_;
   std::unique_ptr<QuestProgressService> questProgressService_;

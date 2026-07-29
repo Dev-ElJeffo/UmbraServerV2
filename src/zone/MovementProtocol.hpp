@@ -1835,6 +1835,8 @@ struct BasicAttackBroadcastPayload {
   uint32_t targetId = 0;
   uint32_t hitWindowMs = 300;
   std::string castAnimPath;
+  /** 1 = player (default legado), 2 = NPC. Byte opcional no fim do frame. */
+  uint8_t sourceType = static_cast<uint8_t>(CombatTargetType::Player);
 };
 
 struct NpcSpawnPayload {
@@ -2021,6 +2023,7 @@ inline std::vector<uint8_t> encodeBasicAttackBroadcast(const BasicAttackBroadcas
   writeU32(p.targetId);
   writeU32(p.hitWindowMs);
   appendStringField(data, p.castAnimPath, 255);
+  data.push_back(p.sourceType == 0 ? static_cast<uint8_t>(CombatTargetType::Player) : p.sourceType);
   return data;
 }
 
@@ -2037,7 +2040,13 @@ inline bool decodeBasicAttackBroadcast(const std::vector<uint8_t>& data, BasicAt
   p.classId = readU32();
   p.targetId = readU32();
   p.hitWindowMs = readU32();
-  return readStringField(data, off, p.castAnimPath, 255);
+  if (!readStringField(data, off, p.castAnimPath, 255)) return false;
+  // Compat: frames antigos sem sourceType → Player.
+  p.sourceType = (off < data.size())
+                     ? data[off]
+                     : static_cast<uint8_t>(CombatTargetType::Player);
+  if (p.sourceType == 0) p.sourceType = static_cast<uint8_t>(CombatTargetType::Player);
+  return true;
 }
 
 inline std::vector<uint8_t> encodeNpcSpawnNotify(const NpcSpawnPayload& p) {

@@ -5,6 +5,7 @@ add_library(umbra_zone STATIC
   EntitySystem.cpp
   ZoneOrchestrator.cpp
   NpcManager.cpp
+  NpcAiSystem.cpp
   CombatCoreEngine.cpp
   CharacterStateLoader.cpp
   ReactionEngine.cpp
@@ -18,6 +19,7 @@ add_library(umbra_zone STATIC
   ZoneOrchestrator.hpp
   ZoneCombatService.hpp
   NpcManager.hpp
+  NpcAiSystem.hpp
   CombatCoreEngine.hpp
   CharacterStateLoader.hpp
   ReactionEngine.hpp

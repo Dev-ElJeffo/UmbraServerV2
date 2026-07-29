@@ -72,18 +72,23 @@ try {
     $z = array_key_exists('pos_z', $data) ? (float)$data['pos_z'] : (float)$current['pos_z'];
     $yaw = array_key_exists('yaw', $data) ? (float)$data['yaw'] : (float)$current['yaw'];
 
+    // PDO com ATTR_EMULATE_PREPARES=false não permite reutilizar o mesmo named param.
     $stmt = $pdo->prepare(
         'UPDATE npc_instances
-         SET zone_id = :zone_id, pos_x = :x, pos_y = :y, pos_z = :z, yaw = :yaw
+         SET zone_id = :zone_id, pos_x = :pos_x, pos_y = :pos_y, pos_z = :pos_z, yaw = :yaw,
+             home_x = :home_x, home_y = :home_y, home_z = :home_z
          WHERE npc_instance_id = :id
          LIMIT 1'
     );
     $stmt->execute([
         ':zone_id' => $zoneId,
-        ':x' => $x,
-        ':y' => $y,
-        ':z' => $z,
+        ':pos_x' => $x,
+        ':pos_y' => $y,
+        ':pos_z' => $z,
         ':yaw' => $yaw,
+        ':home_x' => $x,
+        ':home_y' => $y,
+        ':home_z' => $z,
         ':id' => $instanceId,
     ]);
 

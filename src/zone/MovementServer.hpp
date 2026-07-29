@@ -713,6 +713,21 @@ public:
             senderPlayerId = cidIt->second;
             payload.playerId = senderPlayerId;
           }
+          // Equip/load: invalida maxHealth stale no CharacterStateLoader (cura “HP cheio”).
+          if (combatCoreEngine_ && senderPlayerId > 0) {
+            combatCoreEngine_->onPlayerEquipmentOrStatsChanged(senderPlayerId);
+            if (auto* loader = combatCoreEngine_->getCharacterStateLoader()) {
+              if (payload.maxHealth > 0 || payload.maxMana > 0) {
+                loader->patchCachedMaxVitals(senderPlayerId, payload.maxHealth, payload.maxMana);
+              }
+              if (payload.currentHealth >= 0) {
+                loader->patchCachedHealth(senderPlayerId, payload.currentHealth);
+              }
+              if (payload.currentMana >= 0) {
+                loader->patchCachedMana(senderPlayerId, payload.currentMana);
+              }
+            }
+          }
           std::lock_guard<std::mutex> lock(mu_);
           auto outMsg = encodePlayerVitalsUpdate(MovementMsgType::PlayerVitalsUpdate, payload);
 
@@ -939,7 +954,17 @@ public:
       if (msgType == MovementMsgType::PartyStatsRefresh) {
         uint32_t partyId;
         if (decodePartyStatsRefresh(data, partyId)) {
-          Umbra::Core::Logger::getInstance().info("Received PartyStatsRefresh from client {}: partyId={}", cid, partyId);
+          uint32_t senderPlayerId = 0;
+          auto cidIt = clientIdToPlayerId_.find(cid);
+          if (cidIt != clientIdToPlayerId_.end()) {
+            senderPlayerId = cidIt->second;
+          }
+          if (combatCoreEngine_ && senderPlayerId > 0) {
+            combatCoreEngine_->onPlayerEquipmentOrStatsChanged(senderPlayerId);
+          }
+          Umbra::Core::Logger::getInstance().info(
+              "Received PartyStatsRefresh from client {}: partyId={} player={}", cid, partyId,
+              senderPlayerId);
           std::lock_guard<std::mutex> lock(mu_);
           auto msg = encodePartyStatsRefresh(partyId);
           ws_.broadcastBinary(msg);

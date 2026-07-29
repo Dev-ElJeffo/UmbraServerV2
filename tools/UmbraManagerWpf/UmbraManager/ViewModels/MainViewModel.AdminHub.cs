@@ -32,6 +32,13 @@ public partial class MainViewModel
     [ObservableProperty] private string _newNpcDialogText = "";
     [ObservableProperty] private int _newNpcRespawnSeconds = 30;
     [ObservableProperty] private int _newNpcKillExp = 0;
+    [ObservableProperty] private float _newNpcAggroRadius = 0f;
+    [ObservableProperty] private float _newNpcLeashRadius = 0f;
+    [ObservableProperty] private float _newNpcAttackRange = 150f;
+    [ObservableProperty] private int _newNpcAttackCooldownMs = 1500;
+    [ObservableProperty] private float _newNpcMoveSpeed = 200f;
+    [ObservableProperty] private float _newNpcRoamRadius = 800f;
+    [ObservableProperty] private bool _newNpcIsHostile = true;
 
     [ObservableProperty] private int _selectedLootNpcTemplateId;
     [ObservableProperty] private string _selectedLootNpcTemplateName = "";
@@ -84,7 +91,8 @@ public partial class MainViewModel
         $"{NewItemType}/{NewItemSubtype} | {NewItemRarity} | Slot {NewItemSlot} | Lv {NewItemRequiredLevel} | CD {NewItemUseCooldownMs}ms";
 
     public string NpcDesignerSummary =>
-        $"Lv {NewNpcLevel} | HP {NewNpcMaxHealth} | Vendor {(NewNpcHasVendor ? "Sim" : "Nao")} | Quest {(NewNpcHasQuestDialog ? "Sim" : "Nao")} | Resp {NewNpcRespawnSeconds}s";
+        $"Lv {NewNpcLevel} | HP {NewNpcMaxHealth} | Roam {NewNpcRoamRadius:0} | Aggro {NewNpcAggroRadius:0} | " +
+        $"AtkR {NewNpcAttackRange:0} | Vel {NewNpcMoveSpeed:0} | Hostil {(NewNpcIsHostile ? "Sim" : "Nao")} | Resp {NewNpcRespawnSeconds}s";
 
     partial void OnSelectedGmCommandDefinitionChanged(GmCommandDefinition? value)
     {
@@ -108,6 +116,13 @@ public partial class MainViewModel
     partial void OnNewNpcHasVendorChanged(bool value) => OnPropertyChanged(nameof(NpcDesignerSummary));
     partial void OnNewNpcHasQuestDialogChanged(bool value) => OnPropertyChanged(nameof(NpcDesignerSummary));
     partial void OnNewNpcRespawnSecondsChanged(int value) => OnPropertyChanged(nameof(NpcDesignerSummary));
+    partial void OnNewNpcRoamRadiusChanged(float value) => OnPropertyChanged(nameof(NpcDesignerSummary));
+    partial void OnNewNpcAggroRadiusChanged(float value) => OnPropertyChanged(nameof(NpcDesignerSummary));
+    partial void OnNewNpcLeashRadiusChanged(float value) => OnPropertyChanged(nameof(NpcDesignerSummary));
+    partial void OnNewNpcAttackRangeChanged(float value) => OnPropertyChanged(nameof(NpcDesignerSummary));
+    partial void OnNewNpcAttackCooldownMsChanged(int value) => OnPropertyChanged(nameof(NpcDesignerSummary));
+    partial void OnNewNpcMoveSpeedChanged(float value) => OnPropertyChanged(nameof(NpcDesignerSummary));
+    partial void OnNewNpcIsHostileChanged(bool value) => OnPropertyChanged(nameof(NpcDesignerSummary));
 
     [RelayCommand]
     private void UseGmCommand(GmCommandDefinition? command)

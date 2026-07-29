@@ -61,17 +61,21 @@ try {
         exit;
     }
 
+    // PDO com ATTR_EMULATE_PREPARES=false não permite reutilizar o mesmo named param.
     $stmt = $pdo->prepare(
-        'INSERT INTO npc_instances (npc_template_id, zone_id, pos_x, pos_y, pos_z, yaw, current_health, current_mana, is_dead)
-         VALUES (:template_id, :zone_id, :x, :y, :z, :yaw, :hp, :mp, 0)'
+        'INSERT INTO npc_instances (npc_template_id, zone_id, pos_x, pos_y, pos_z, yaw, home_x, home_y, home_z, current_health, current_mana, is_dead)
+         VALUES (:template_id, :zone_id, :pos_x, :pos_y, :pos_z, :yaw, :home_x, :home_y, :home_z, :hp, :mp, 0)'
     );
     $stmt->execute([
         ':template_id' => $templateId,
         ':zone_id' => $zoneId,
-        ':x' => $x,
-        ':y' => $y,
-        ':z' => $z,
+        ':pos_x' => $x,
+        ':pos_y' => $y,
+        ':pos_z' => $z,
         ':yaw' => $yaw,
+        ':home_x' => $x,
+        ':home_y' => $y,
+        ':home_z' => $z,
         ':hp' => (int)$tpl['max_health'],
         ':mp' => (int)$tpl['max_mana'],
     ]);

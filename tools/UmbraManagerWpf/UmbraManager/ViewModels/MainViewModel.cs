@@ -1081,6 +1081,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     DialogText = TryGetStringProp(t, "dialog_text"),
                     RespawnSeconds = TryGetIntProp(t, "respawn_seconds"),
                     KillExp = TryGetIntProp(t, "kill_exp"),
+                    AggroRadius = TryGetFloatProp(t, "aggro_radius"),
+                    LeashRadius = TryGetFloatProp(t, "leash_radius"),
+                    AttackRange = TryGetFloatProp(t, "attack_range") is float ar && ar > 0 ? ar : 150f,
+                    AttackCooldownMs = TryGetIntProp(t, "attack_cooldown_ms") is int cd && cd > 0 ? cd : 1500,
+                    MoveSpeed = TryGetFloatProp(t, "move_speed") is float ms && ms > 0 ? ms : 200f,
+                    RoamRadius = TryGetFloatProp(t, "roam_radius"),
+                    IsHostile = !t.TryGetProperty("is_hostile", out _) || TryGetBoolProp(t, "is_hostile"),
                 });
             }
         }
@@ -1181,7 +1188,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var effectiveZone = SpawnZoneId;
+        var effectiveZone = ResolveEffectiveSpawnZoneId();
+        if (effectiveZone > 0)
+            SpawnZoneId = effectiveZone;
+        else
+            effectiveZone = SpawnZoneId > 0 ? SpawnZoneId : 1;
+
         var x = SpawnPosX;
         var y = SpawnPosY;
         var z = SpawnPosZ;
@@ -1208,7 +1220,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var moved = false;
         string? moveMsg = null;
 
-        if (onlineZones.Contains(zoneServiceId, StringComparer.OrdinalIgnoreCase))
+        async Task<(bool movedOk, string? msg)> TryMoveOnZoneAsync(string serviceId)
         {
             var zoneArgs = new JsonObject
             {
@@ -1218,29 +1230,51 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 ["pos_z"] = z,
                 ["yaw"] = yaw,
             };
-            var (zoneOk, zoneResp) = await AdminHub.SendCommandAndWaitAsync(zoneServiceId, "move_npc_instance", zoneArgs, 5000);
+            var (zoneOk, zoneResp) = await AdminHub.SendCommandAndWaitAsync(serviceId, "move_npc_instance", zoneArgs, 5000);
             if (zoneOk && zoneResp != null &&
                 zoneResp.Value.TryGetProperty("success", out var okEl) && okEl.GetBoolean() &&
                 zoneResp.Value.TryGetProperty("data", out var zdata) &&
-                zdata.TryGetProperty("moved", out var movedEl))
+                zdata.TryGetProperty("moved", out var movedEl) && movedEl.GetBoolean())
             {
-                moved = movedEl.GetBoolean();
-                moveMsg = zdata.TryGetProperty("message", out var m) ? m.GetString() : null;
-                if (!moved && string.IsNullOrEmpty(moveMsg))
-                    moveMsg = "zone retornou moved=false";
+                var m = zdata.TryGetProperty("message", out var msgEl) ? msgEl.GetString() : null;
+                return (true, m);
             }
-            else if (zoneOk && zoneResp != null)
+            if (zoneOk && zoneResp != null)
             {
-                moveMsg = zoneResp.Value.TryGetProperty("error", out var e)
+                var m = zoneResp.Value.TryGetProperty("error", out var e)
                     ? e.GetString()
-                    : "resposta inesperada do zone (comando move_npc_instance ausente? reinicie o zone_server)";
+                    : (zoneResp.Value.TryGetProperty("data", out var d2) && d2.TryGetProperty("message", out var m2)
+                        ? m2.GetString()
+                        : "zone retornou moved=false");
+                return (false, m);
             }
-            else
+            return (false, $"{serviceId} não respondeu ao move_npc_instance");
+        }
+
+        if (onlineZones.Contains(zoneServiceId, StringComparer.OrdinalIgnoreCase))
+        {
+            (moved, moveMsg) = await TryMoveOnZoneAsync(zoneServiceId);
+        }
+
+        // Fallback: instâncias com zone_id=0 / zone errada — tenta qualquer zone online.
+        if (!moved)
+        {
+            foreach (var svc in onlineZones)
             {
-                moveMsg = $"{zoneServiceId} não respondeu ao move_npc_instance";
+                if (svc.Equals(zoneServiceId, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!svc.StartsWith("zone_", StringComparison.OrdinalIgnoreCase)) continue;
+                var (okMove, msg) = await TryMoveOnZoneAsync(svc);
+                if (okMove)
+                {
+                    moved = true;
+                    moveMsg = $"{msg} (via {svc})";
+                    break;
+                }
+                moveMsg ??= msg;
             }
         }
-        else
+
+        if (!moved && onlineZones.Count == 0)
         {
             moveMsg = $"{zoneServiceId} offline — MySQL atualizado; reinicie o zone ou suba o admin TCP";
         }
@@ -1338,6 +1372,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["dialog_text"] = NewNpcDialogText,
             ["respawn_seconds"] = NewNpcRespawnSeconds,
             ["kill_exp"] = NewNpcKillExp,
+            ["aggro_radius"] = NewNpcAggroRadius,
+            ["leash_radius"] = NewNpcLeashRadius,
+            ["attack_range"] = NewNpcAttackRange,
+            ["attack_cooldown_ms"] = NewNpcAttackCooldownMs,
+            ["move_speed"] = NewNpcMoveSpeed,
+            ["roam_radius"] = NewNpcRoamRadius,
+            ["is_hostile"] = NewNpcIsHostile ? 1 : 0,
         };
     }
 
@@ -1421,6 +1462,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcDialogText = row.DialogText ?? "";
         NewNpcRespawnSeconds = row.RespawnSeconds <= 0 ? 30 : row.RespawnSeconds;
         NewNpcKillExp = row.KillExp;
+        NewNpcAggroRadius = row.AggroRadius;
+        NewNpcLeashRadius = row.LeashRadius;
+        NewNpcAttackRange = row.AttackRange <= 0 ? 150f : row.AttackRange;
+        NewNpcAttackCooldownMs = row.AttackCooldownMs <= 0 ? 1500 : row.AttackCooldownMs;
+        NewNpcMoveSpeed = row.MoveSpeed <= 0 ? 200f : row.MoveSpeed;
+        NewNpcRoamRadius = row.RoamRadius;
+        NewNpcIsHostile = row.IsHostile;
     }
 
     [RelayCommand] private void NewNpcTemplate()
@@ -1457,6 +1505,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcDialogText = "";
         NewNpcRespawnSeconds = 30;
         NewNpcKillExp = 0;
+        NewNpcAggroRadius = 0f;
+        NewNpcLeashRadius = 0f;
+        NewNpcAttackRange = 150f;
+        NewNpcAttackCooldownMs = 1500;
+        NewNpcMoveSpeed = 200f;
+        NewNpcRoamRadius = 800f;
+        NewNpcIsHostile = true;
     }
 
     [RelayCommand] private async Task SpawnNpcAsync()

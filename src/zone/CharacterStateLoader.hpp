@@ -49,15 +49,25 @@ public:
   /** Invalida o cache de um jogador (ex.: troca de equipamento). */
   void invalidate(uint32_t playerId);
 
+  /**
+   * Recarrega stats/gear do MySQL preservando HP/MP atuais em memória.
+   * Usado no equip/unequip para não deixar maxHealth stale (cura “HP cheio”).
+   */
+  bool reloadStatsPreservingVitals(uint32_t playerId);
+
   /** Atualiza só o vital no cache (sem invalidate/reload). No-op se não houver entrada. */
   void patchCachedMana(uint32_t playerId, int32_t newMana);
   void patchCachedHealth(uint32_t playerId, int32_t newHealth);
+  /** Atualiza max HP/MP no cache (ex.: payload de equip). */
+  void patchCachedMaxVitals(uint32_t playerId, int32_t maxHealth, int32_t maxMana);
 
   /** Lê estado do cache sem ir ao DB (ignora TTL). Retorna false se não houver entrada. */
   bool tryGetCachedState(uint32_t playerId, Combat::CharacterState& out) const;
 
   /** Constrói um defensor a partir de uma instância de NPC (stats do template). */
   static Combat::CharacterState makeNpcDefenderState(const NpcRuntimeInstance& inst);
+  /** Constrói um atacante NPC com stats ofensivos do template. */
+  static Combat::CharacterState makeNpcAttackerState(const NpcRuntimeInstance& inst);
 
 private:
   bool loadPlayerStateFromDb(uint32_t playerId, Combat::CharacterState& out);

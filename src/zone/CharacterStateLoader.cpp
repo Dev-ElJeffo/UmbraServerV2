@@ -106,6 +106,58 @@ void CharacterStateLoader::invalidate(uint32_t playerId) {
   cache_.erase(playerId);
 }
 
+bool CharacterStateLoader::reloadStatsPreservingVitals(uint32_t playerId) {
+  if (playerId == 0) return false;
+
+  int32_t preservedHp = -1;
+  int32_t preservedMp = -1;
+  {
+    std::lock_guard<std::mutex> lock(cacheMu_);
+    auto it = cache_.find(playerId);
+    if (it != cache_.end()) {
+      preservedHp = it->second.state.buffedStats.currentHealth;
+      preservedMp = it->second.state.buffedStats.currentMana;
+      cache_.erase(it);
+    }
+  }
+
+  Combat::CharacterState fresh;
+  if (!loadPlayerStateFromDb(playerId, fresh)) {
+    return false;
+  }
+
+  const int32_t newMaxHp = std::max(1, fresh.buffedStats.maxHealth);
+  const int32_t newMaxMp = std::max(1, fresh.buffedStats.maxMana);
+  if (preservedHp >= 0) {
+    fresh.buffedStats.currentHealth = std::min(preservedHp, newMaxHp);
+    fresh.baseStats.currentHealth = fresh.buffedStats.currentHealth;
+  } else {
+    fresh.buffedStats.currentHealth = std::min(fresh.buffedStats.currentHealth, newMaxHp);
+    fresh.baseStats.currentHealth = fresh.buffedStats.currentHealth;
+  }
+  if (preservedMp >= 0) {
+    fresh.buffedStats.currentMana = std::min(preservedMp, newMaxMp);
+    fresh.baseStats.currentMana = fresh.buffedStats.currentMana;
+  } else {
+    fresh.buffedStats.currentMana = std::min(fresh.buffedStats.currentMana, newMaxMp);
+    fresh.baseStats.currentMana = fresh.buffedStats.currentMana;
+  }
+  fresh.isAlive = fresh.buffedStats.currentHealth > 0;
+
+  {
+    std::lock_guard<std::mutex> lock(cacheMu_);
+    CachedState entry;
+    entry.state = fresh;
+    entry.expiresAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(kCacheTtlMs);
+    cache_[playerId] = std::move(entry);
+  }
+
+  Core::Logger::getInstance().info(
+      "[CharacterStateLoader] reloadStatsPreservingVitals player={} HP={}/{} MP={}/{}",
+      playerId, fresh.buffedStats.currentHealth, newMaxHp, fresh.buffedStats.currentMana, newMaxMp);
+  return true;
+}
+
 void CharacterStateLoader::patchCachedMana(uint32_t playerId, int32_t newMana) {
   std::lock_guard<std::mutex> lock(cacheMu_);
   auto it = cache_.find(playerId);
@@ -125,6 +177,27 @@ void CharacterStateLoader::patchCachedHealth(uint32_t playerId, int32_t newHealt
   // Sem isso: morte deixa isAlive=false no load e respawn/patch de HP não reabilitava skills
   // (CANNOT_CAST "Personagem não pode usar skills").
   it->second.state.isAlive = (newHealth > 0);
+  it->second.expiresAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(kCacheTtlMs);
+}
+
+void CharacterStateLoader::patchCachedMaxVitals(uint32_t playerId, int32_t maxHealth, int32_t maxMana) {
+  std::lock_guard<std::mutex> lock(cacheMu_);
+  auto it = cache_.find(playerId);
+  if (it == cache_.end()) return;
+  if (maxHealth > 0) {
+    it->second.state.baseStats.maxHealth = maxHealth;
+    it->second.state.buffedStats.maxHealth = maxHealth;
+    it->second.state.buffedStats.currentHealth =
+        std::min(it->second.state.buffedStats.currentHealth, maxHealth);
+    it->second.state.baseStats.currentHealth = it->second.state.buffedStats.currentHealth;
+  }
+  if (maxMana > 0) {
+    it->second.state.baseStats.maxMana = maxMana;
+    it->second.state.buffedStats.maxMana = maxMana;
+    it->second.state.buffedStats.currentMana =
+        std::min(it->second.state.buffedStats.currentMana, maxMana);
+    it->second.state.baseStats.currentMana = it->second.state.buffedStats.currentMana;
+  }
   it->second.expiresAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(kCacheTtlMs);
 }
 
@@ -510,7 +583,7 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
 
 Combat::CharacterState CharacterStateLoader::makeNpcDefenderState(const NpcRuntimeInstance& inst) {
   Combat::CharacterState s;
-  s.playerId = 0;
+  s.playerId = inst.npcInstanceId;
   s.level = static_cast<int32_t>(inst.level);
   s.isAlive = !inst.isDead && inst.currentHealth > 0;
 
@@ -520,11 +593,23 @@ Combat::CharacterState CharacterStateLoader::makeNpcDefenderState(const NpcRunti
   stats.maxMana = std::max(1, inst.maxMana);
   stats.currentMana = inst.currentMana;
   stats.physicalDefense = inst.physicalDefense;
-  stats.magicDefense = inst.physicalDefense;  // NPC template não separa def mágica; usa física
-  stats.criticalResistance = 0;
-  stats.dodge = 0;
+  stats.magicDefense = (inst.magicDefense > 0) ? inst.magicDefense : inst.physicalDefense;
+  stats.criticalResistance = inst.criticalResistance;
+  stats.dodge = inst.dodge;
+  stats.doubleAttackResistance = inst.doubleAttackResistance;
   s.baseStats = stats;
   s.buffedStats = stats;
+  return s;
+}
+
+Combat::CharacterState CharacterStateLoader::makeNpcAttackerState(const NpcRuntimeInstance& inst) {
+  Combat::CharacterState s = makeNpcDefenderState(inst);
+  s.baseStats.physicalAttack = inst.physicalAttack;
+  s.baseStats.magicAttack = inst.magicAttack;
+  s.baseStats.accuracy = inst.accuracy;
+  s.baseStats.criticalChance = inst.critical;
+  s.baseStats.doubleAttackRate = inst.doubleAttackRate;
+  s.buffedStats = s.baseStats;
   return s;
 }
 

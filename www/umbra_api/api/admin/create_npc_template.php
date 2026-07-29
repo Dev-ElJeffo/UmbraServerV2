@@ -36,7 +36,9 @@ try {
             double_attack_rate, double_attack_resistance,
             skeletal_mesh_path, anim_blueprint_path, mesh_scale, is_editable,
             is_attackable, interaction_radius, has_vendor, has_quest_dialog,
-            dialog_title, dialog_text, respawn_seconds, kill_exp
+            dialog_title, dialog_text, respawn_seconds, kill_exp,
+            aggro_radius, leash_radius, attack_range, attack_cooldown_ms,
+            move_speed, roam_radius, is_hostile
         ) VALUES (
             :npc_name, :level, :max_health, :max_mana,
             :strength, :dexterity, :vitality, :intelligence, :luck,
@@ -45,7 +47,9 @@ try {
             :double_attack_rate, :double_attack_resistance,
             :skeletal_mesh_path, :anim_blueprint_path, :mesh_scale, :is_editable,
             :is_attackable, :interaction_radius, :has_vendor, :has_quest_dialog,
-            :dialog_title, :dialog_text, :respawn_seconds, :kill_exp
+            :dialog_title, :dialog_text, :respawn_seconds, :kill_exp,
+            :aggro_radius, :leash_radius, :attack_range, :attack_cooldown_ms,
+            :move_speed, :roam_radius, :is_hostile
         )"
     );
     $meshScale = isset($data['mesh_scale']) ? (float)$data['mesh_scale'] : 1.0;
@@ -84,6 +88,13 @@ try {
         ':dialog_text' => $data['dialog_text'] ?? null,
         ':respawn_seconds' => max(1, (int)($data['respawn_seconds'] ?? 30)),
         ':kill_exp' => max(0, (int)($data['kill_exp'] ?? 0)),
+        ':aggro_radius' => (float)($data['aggro_radius'] ?? 0),
+        ':leash_radius' => (float)($data['leash_radius'] ?? 0),
+        ':attack_range' => (float)($data['attack_range'] ?? 150),
+        ':attack_cooldown_ms' => max(1, (int)($data['attack_cooldown_ms'] ?? 1500)),
+        ':move_speed' => (float)($data['move_speed'] ?? 200),
+        ':roam_radius' => (float)($data['roam_radius'] ?? 0),
+        ':is_hostile' => (int)($data['is_hostile'] ?? 1),
     ]);
 
     echo json_encode([

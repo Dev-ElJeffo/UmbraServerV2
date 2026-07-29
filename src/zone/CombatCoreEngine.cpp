@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <unordered_set>
@@ -94,6 +95,8 @@ bool CombatCoreEngine::initialize(uint32_t zoneId,
   if (npcManager_) {
     npcManager_->setAsyncDbWrite([this](std::string sql) { enqueueDbWrite(std::move(sql)); });
   }
+
+  npcAi_ = std::make_unique<NpcAiSystem>(npcManager_.get(), movementServer_, this);
 
   if (!workerRunning_.exchange(true)) {
     combatWorker_ = std::thread([this]() { combatWorkerLoop(); });
@@ -447,6 +450,10 @@ void CombatCoreEngine::tick(float deltaSeconds) {
   tickPlayerDots();
   tickNpcBuffExpirations();
   tickBuffExpirations();
+
+  if (npcAi_) {
+    npcAi_->tick(deltaSeconds);
+  }
 }
 
 void CombatCoreEngine::cancelPendingSkillHit(uint32_t sourcePlayerId) {
@@ -1355,7 +1362,7 @@ bool CombatCoreEngine::moveNpcInstance(uint32_t npcInstanceId, float x, float y,
     }
   }
 
-  if (!npcManager_->setInstanceTransform(npcInstanceId, x, y, z, yaw, true)) {
+  if (!npcManager_->setInstanceTransform(npcInstanceId, x, y, z, yaw, true, true)) {
     return false;
   }
 
@@ -1382,6 +1389,34 @@ size_t CombatCoreEngine::reloadMissingInstancesFromDatabase() {
     broadcastNpcSpawnToAll(all[i]);
   }
   return all.size() - before;
+}
+
+size_t CombatCoreEngine::reloadAllNpcInstancesFromDatabase() {
+  if (!npcManager_) return 0;
+
+  std::vector<uint32_t> oldIds;
+  oldIds.reserve(npcManager_->getAllInstances().size());
+  for (const auto& inst : npcManager_->getAllInstances()) {
+    oldIds.push_back(inst.npcInstanceId);
+  }
+  for (uint32_t id : oldIds) {
+    broadcastNpcDespawnToAll(id, 0);
+  }
+
+  if (!npcManager_->reloadFromDatabase()) {
+    return 0;
+  }
+
+  size_t spawned = 0;
+  for (const auto& inst : npcManager_->getAllInstances()) {
+    if (inst.isDead) continue;
+    broadcastNpcSpawnToAll(inst);
+    ++spawned;
+  }
+  Core::Logger::getInstance().info(
+      "[CombatCoreEngine] reloadAllNpcInstances: despawned={} spawned_alive={}", oldIds.size(),
+      spawned);
+  return spawned;
 }
 
 void CombatCoreEngine::broadcastNpcSpawnToAll(const NpcRuntimeInstance& inst) {
@@ -1425,6 +1460,10 @@ void CombatCoreEngine::handleNpcDamageResult(uint32_t npcInstanceId, int32_t app
     }
     broadcastNpcDespawnToAll(npcInstanceId, 1);
     return;
+  }
+  // Aggro por dano: hostil passa a perseguir o atacante.
+  if (killerPlayerId > 0 && npcManager_) {
+    npcManager_->setAggroTarget(npcInstanceId, killerPlayerId);
   }
   if (const NpcRuntimeInstance* inst = npcManager_->findInstance(npcInstanceId)) {
     broadcastNpcState(npcManager_->toStatePayload(*inst));
@@ -1878,6 +1917,40 @@ bool CombatCoreEngine::tryGetTargetPosition(uint8_t targetType, uint32_t targetI
   return false;
 }
 
+void CombatCoreEngine::disambiguateTargetType(uint32_t sourcePlayerId, uint8_t& targetType,
+                                              uint32_t targetId) const {
+  if (targetId == 0 || !npcManager_) return;
+  if (targetType != static_cast<uint8_t>(CombatTargetType::Player)) return;
+
+  const NpcRuntimeInstance* npc = npcManager_->findInstance(targetId);
+  if (!npc || npc->isDead) return;
+
+  float sx = 0.f, sy = 0.f, sz = 0.f;
+  if (!tryGetPlayerPosition(sourcePlayerId, sx, sy, sz)) return;
+
+  float px = 0.f, py = 0.f, pz = 0.f;
+  const bool havePlayer = tryGetPlayerPosition(targetId, px, py, pz);
+  const float distNpc = std::sqrt(distanceSquared2D(sx, sy, npc->x, npc->y));
+
+  bool preferNpc = !havePlayer;
+  if (havePlayer) {
+    const bool stubOrigin =
+        (std::fabs(px) < 1.f && std::fabs(py) < 1.f && std::fabs(pz) < 1.f);
+    const float distPlayer = std::sqrt(distanceSquared2D(sx, sy, px, py));
+    // Stub offline-ish em origem, ou caster claramente mais perto do NPC.
+    if (stubOrigin || distNpc + 100.f < distPlayer) {
+      preferNpc = true;
+    }
+  }
+
+  if (preferNpc) {
+    Core::Logger::getInstance().info(
+        "[CombatCoreEngine] disambiguateTarget id={} Player->Npc (caster near npc dist={:.1f})",
+        targetId, distNpc);
+    targetType = static_cast<uint8_t>(CombatTargetType::Npc);
+  }
+}
+
 bool CombatCoreEngine::validateSkillRange(uint32_t sourcePlayerId, const Combat::SkillData& skill,
                                           const SkillCastPayload& payload,
                                           SkillCastRejectReason* outFailReason) const {
@@ -1934,11 +2007,26 @@ bool CombatCoreEngine::validateSkillRange(uint32_t sourcePlayerId, const Combat:
     }
   }
 
-  const float maxR = effectiveMaxRange(static_cast<float>(skill.rangeMax));
-  if (!isInRange3D(sx, sy, sz, tx, ty, tz, maxR)) {
+  const bool useXy =
+      (payload.targetType == static_cast<uint8_t>(CombatTargetType::Npc));
+  float npcMoveSpeed = 200.f;
+  if (useXy && npcManager_) {
+    if (const NpcRuntimeInstance* npc = npcManager_->findInstance(payload.targetId)) {
+      npcMoveSpeed = npc->moveSpeed;
+    }
+  }
+  const float maxR =
+      useXy ? effectiveMaxRangeVsNpc(static_cast<float>(skill.rangeMax), npcMoveSpeed)
+            : effectiveMaxRange(static_cast<float>(skill.rangeMax));
+  const float distXy = std::sqrt(distanceSquared2D(sx, sy, tx, ty));
+  const bool inRange =
+      useXy ? isInRange2D(sx, sy, tx, ty, maxR) : isInRange3D(sx, sy, sz, tx, ty, tz, maxR);
+  if (!inRange) {
     Core::Logger::getInstance().info(
-        "[CombatCoreEngine] RANGE_EXCEEDED skill={} player={} max={:.1f}", skill.skillId,
-        sourcePlayerId, maxR);
+        "[CombatCoreEngine] RANGE_EXCEEDED skill={} player={} targetType={} target={} "
+        "src=({:.1f},{:.1f}) tgt=({:.1f},{:.1f}) distXY={:.1f} max={:.1f} mode={} distM={:.1f}",
+        skill.skillId, sourcePlayerId, static_cast<int>(payload.targetType), payload.targetId, sx,
+        sy, tx, ty, distXy, maxR, useXy ? "xy" : "3d", distXy / 100.f);
     return fail(SkillCastRejectReason::RangeExceeded);
   }
   return true;
@@ -1965,11 +2053,25 @@ bool CombatCoreEngine::validateBasicAttackRange(uint32_t sourcePlayerId, uint8_t
   float tx = 0.f, ty = 0.f, tz = 0.f;
   if (!tryGetPlayerPosition(sourcePlayerId, sx, sy, sz)) return false;
   if (!tryGetTargetPosition(targetType, targetId, tx, ty, tz)) return false;
-  const float maxR = effectiveMaxRange(static_cast<float>(rangeMax));
-  if (!isInRange3D(sx, sy, sz, tx, ty, tz, maxR)) {
+  const bool useXy = (targetType == static_cast<uint8_t>(CombatTargetType::Npc));
+  float npcMoveSpeed = 200.f;
+  if (useXy && npcManager_) {
+    if (const NpcRuntimeInstance* npc = npcManager_->findInstance(targetId)) {
+      npcMoveSpeed = npc->moveSpeed;
+    }
+  }
+  const float maxR =
+      useXy ? effectiveMaxRangeVsNpc(static_cast<float>(rangeMax), npcMoveSpeed)
+            : effectiveMaxRange(static_cast<float>(rangeMax));
+  const float distXy = std::sqrt(distanceSquared2D(sx, sy, tx, ty));
+  const bool inRange =
+      useXy ? isInRange2D(sx, sy, tx, ty, maxR) : isInRange3D(sx, sy, sz, tx, ty, tz, maxR);
+  if (!inRange) {
     Core::Logger::getInstance().info(
-        "[CombatCoreEngine] RANGE_EXCEEDED basic_attack player={} target={} max={:.1f}",
-        sourcePlayerId, targetId, maxR);
+        "[CombatCoreEngine] RANGE_EXCEEDED basic_attack player={} targetType={} target={} "
+        "src=({:.1f},{:.1f}) tgt=({:.1f},{:.1f}) distXY={:.1f} max={:.1f} mode={}",
+        sourcePlayerId, static_cast<int>(targetType), targetId, sx, sy, tx, ty, distXy, maxR,
+        useXy ? "xy" : "3d");
     return false;
   }
   return true;
@@ -2311,6 +2413,20 @@ void CombatCoreEngine::broadcastSkillCast(const SkillCastBroadcastPayload& paylo
 
 void CombatCoreEngine::broadcastBasicAttack(const BasicAttackBroadcastPayload& payload) {
   if (!movementServer_) return;
+  if (payload.sourceType == static_cast<uint8_t>(CombatTargetType::Npc)) {
+    if (npcManager_) {
+      if (const NpcRuntimeInstance* inst = npcManager_->findInstance(payload.sourcePlayerId)) {
+        movementServer_->broadcastNearWorldXY(inst->x, inst->y, encodeBasicAttackBroadcast(payload));
+        return;
+      }
+    }
+    if (payload.targetId > 0) {
+      movementServer_->broadcastNearPlayer(payload.targetId, encodeBasicAttackBroadcast(payload));
+      return;
+    }
+    movementServer_->broadcastToAll(encodeBasicAttackBroadcast(payload));
+    return;
+  }
   movementServer_->broadcastNearPlayer(payload.sourcePlayerId, encodeBasicAttackBroadcast(payload));
 }
 
@@ -2347,7 +2463,9 @@ void CombatCoreEngine::broadcastNpcCombatEvent(const NpcCombatEventPayload& payl
 
 void CombatCoreEngine::broadcastNpcState(const NpcStatePayload& payload) {
   if (!movementServer_) return;
-  movementServer_->broadcastNearWorldXY(payload.x, payload.y, encodeNpcStateUpdate(payload));
+  // Sempre zone-wide: AOI só na pos do NPC deixava "fantasma" no cliente quando o mob
+  // voltava ao home (>radius) e o player não recebia mais o opcode 102.
+  movementServer_->broadcastToAll(encodeNpcStateUpdate(payload));
 }
 
 void CombatCoreEngine::finalizeSkillCastHit(uint32_t sourcePlayerId, const SkillCastPayload& payload) {
@@ -2358,8 +2476,12 @@ void CombatCoreEngine::finalizeSkillCastHit(uint32_t sourcePlayerId, const Skill
   processSkillCast(sourcePlayerId, payload);
 }
 
-void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCastPayload& payload) {
+void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCastPayload& payloadIn) {
   if (!skillService_ || !movementServer_) return;
+
+  SkillCastPayload payload = payloadIn;
+  disambiguateTargetType(sourcePlayerId, payload.targetType, payload.targetId);
+
   const bool hitOnly = g_skillCastHitOnly;
 
   // #region agent log
@@ -2411,7 +2533,7 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   // #region agent log
   const int64_t a0 = agentNowMs();
   // #endregion
-  const bool haveSource = stateLoader_ && stateLoader_->getCachedOrWarm(sourcePlayerId, sourceState);
+  bool haveSource = stateLoader_ && stateLoader_->getCachedOrWarm(sourcePlayerId, sourceState);
   // #region agent log
   phaseLog.tLoad = agentNowMs() - a0;
   // #endregion
@@ -2424,7 +2546,23 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   if (!hitOnly) {
   SkillCastRejectReason rangeFail = SkillCastRejectReason::Unknown;
   if (!validateSkillRange(sourcePlayerId, *skill, payload, &rangeFail)) {
-    sendSkillCastRejected(sourcePlayerId, payload.skillId, rangeFail);
+    std::string rangeMsg;
+    if (rangeFail == SkillCastRejectReason::RangeExceeded) {
+      float sx = 0.f, sy = 0.f, sz = 0.f, tx = 0.f, ty = 0.f, tz = 0.f;
+      if (tryGetPlayerPosition(sourcePlayerId, sx, sy, sz) &&
+          tryGetTargetPosition(payload.targetType, payload.targetId, tx, ty, tz)) {
+        const float distM = std::sqrt(distanceSquared2D(sx, sy, tx, ty)) / 100.f;
+        const float maxM =
+            (payload.targetType == static_cast<uint8_t>(CombatTargetType::Npc)
+                 ? effectiveMaxRangeVsNpc(static_cast<float>(skill->rangeMax))
+                 : effectiveMaxRange(static_cast<float>(skill->rangeMax))) /
+            100.f;
+        char buf[96];
+        std::snprintf(buf, sizeof(buf), "Alvo muito distante (%.0fm, alcance %.0fm)", distM, maxM);
+        rangeMsg = buf;
+      }
+    }
+    sendSkillCastRejected(sourcePlayerId, payload.skillId, rangeFail, rangeMsg);
     return;
   }
 
@@ -2458,12 +2596,20 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
                               skillHasEffectType(*skill, Combat::EffectType::HOT);
   if (isHealPrecheck && skill->target == Combat::TargetType::SELF && haveSource &&
       sourceState.buffedStats.currentHealth >= sourceState.buffedStats.maxHealth) {
-    Core::Logger::getInstance().info(
-        "[CombatCoreEngine] HEAL rejeitado player={} skill={} motivo=HP_cheio", sourcePlayerId,
-        payload.skillId);
-    sendSkillCastRejected(sourcePlayerId, payload.skillId, SkillCastRejectReason::CannotCast,
-                          "HP cheio");
-    return;
+    // Possível cache stale pós-equip: recarrega stats e reavalia uma vez.
+    if (stateLoader_ && stateLoader_->reloadStatsPreservingVitals(sourcePlayerId) &&
+        stateLoader_->tryGetCachedState(sourcePlayerId, sourceState)) {
+      haveSource = true;
+    }
+    if (haveSource &&
+        sourceState.buffedStats.currentHealth >= sourceState.buffedStats.maxHealth) {
+      Core::Logger::getInstance().info(
+          "[CombatCoreEngine] HEAL rejeitado player={} skill={} motivo=HP_cheio", sourcePlayerId,
+          payload.skillId);
+      sendSkillCastRejected(sourcePlayerId, payload.skillId, SkillCastRejectReason::CannotCast,
+                            "HP cheio");
+      return;
+    }
   }
 
   skillService_->startCooldown(sourcePlayerId, payload.skillId, skill->cooldownMs);
@@ -2814,8 +2960,11 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
       delta, isCrit ? 1 : 0);
 }
 
-void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAttackPayload& payload) {
+void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAttackPayload& payloadIn) {
   if (!movementServer_) return;
+
+  BasicAttackPayload payload = payloadIn;
+  disambiguateTargetType(sourcePlayerId, payload.targetType, payload.targetId);
 
   Combat::CharacterState attacker;
   const bool haveAttacker = stateLoader_ && stateLoader_->getCachedOrWarm(sourcePlayerId, attacker);
@@ -2836,6 +2985,14 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
 
   if (!validateBasicAttackRange(sourcePlayerId, payload.targetType, payload.targetId,
                                 basic.rangeMax)) {
+    // Não reenviar opcode 100 (Destroy no cliente). Só 102 para corrigir XY sem sumir.
+    if (payload.targetType == static_cast<uint8_t>(CombatTargetType::Npc) && npcManager_) {
+      if (const NpcRuntimeInstance* inst = npcManager_->findInstance(payload.targetId)) {
+        if (!inst->isDead) {
+          broadcastNpcState(npcManager_->toStatePayload(*inst));
+        }
+      }
+    }
     return;
   }
 
@@ -2981,6 +3138,14 @@ void CombatCoreEngine::onPlayerJoinedZone(uint32_t playerId) {
                                    playerId);
 }
 
+void CombatCoreEngine::onPlayerEquipmentOrStatsChanged(uint32_t playerId) {
+  if (playerId == 0 || !stateLoader_) return;
+  if (!stateLoader_->reloadStatsPreservingVitals(playerId)) {
+    stateLoader_->invalidate(playerId);
+    stateLoader_->requestWarm(playerId);
+  }
+}
+
 void CombatCoreEngine::syncJoinDeathState(uint32_t playerId) {
   if (playerId == 0 || !stateLoader_ || !movementServer_) return;
   Combat::CharacterState st;
@@ -3036,6 +3201,85 @@ int32_t CombatCoreEngine::computeDoubleBonus(const Combat::CharacterState& attac
   }
 
   return std::max(1, firstHitAbs * kDoubleAttackDamagePercent / 100);
+}
+
+void CombatCoreEngine::processNpcBasicAttack(uint32_t npcInstanceId, uint32_t targetPlayerId) {
+  if (!movementServer_ || !npcManager_ || npcInstanceId == 0 || targetPlayerId == 0) return;
+
+  const NpcRuntimeInstance* inst = npcManager_->findInstance(npcInstanceId);
+  if (!inst || inst->isDead || !inst->isHostile) return;
+
+  float px = 0.f, py = 0.f, pz = 0.f;
+  if (!tryGetPlayerPosition(targetPlayerId, px, py, pz)) return;
+
+  // Melee do mob: range curto (sem margem grande de cápsula/AI — senão “bate de longe”).
+  const float attackR = std::max(50.f, inst->attackRange) * 1.15f;
+  if (!isInRange2D(inst->x, inst->y, px, py, attackR)) {
+    return;
+  }
+
+  Combat::CharacterState attacker = CharacterStateLoader::makeNpcAttackerState(*inst);
+  Combat::CharacterState defender;
+  if (!stateLoader_ ||
+      (!stateLoader_->getCachedOrWarm(targetPlayerId, defender) &&
+       !stateLoader_->loadPlayerState(targetPlayerId, defender))) {
+    return;
+  }
+  if (!defender.isAlive || defender.buffedStats.currentHealth <= 0) return;
+
+  BasicAttackBroadcastPayload atkBroadcast;
+  atkBroadcast.sourcePlayerId = npcInstanceId;
+  atkBroadcast.classId = 0;
+  atkBroadcast.targetId = targetPlayerId;
+  atkBroadcast.hitWindowMs = 300;
+  atkBroadcast.castAnimPath = "";
+  atkBroadcast.sourceType = static_cast<uint8_t>(CombatTargetType::Npc);
+  broadcastBasicAttack(atkBroadcast);
+
+  Combat::SkillData synthetic;
+  synthetic.element = Combat::Element::PHYSICAL;
+  synthetic.scalingStat = Combat::ScalingStat::PHYS_ATK;
+  synthetic.powerCoef = 100;
+  synthetic.canCrit = true;
+  synthetic.ignoresDefense = false;
+
+  const int32_t hitChance =
+      Combat::CombatCalculator::getInstance().calculateHitChance(attacker, defender);
+  if (!Combat::CombatCalculator::getInstance().rollHit(hitChance)) {
+    CombatEventPayload combat;
+    combat.targetId = targetPlayerId;
+    combat.sourceId = npcInstanceId;
+    combat.delta = 0;
+    combat.reason = static_cast<uint8_t>(CombatReason::Miss);
+    combat.isCrit = 0;
+    movementServer_->broadcastNearPlayer(targetPlayerId, encodeCombatEventNotify(combat));
+    return;
+  }
+
+  const Combat::DamageBreakdown bd =
+      Combat::CombatCalculator::getInstance().calculatePhysicalDamage(attacker, defender, synthetic,
+                                                                      /*rank*/ 1, true);
+  const int32_t delta = -bd.finalDamage;
+  const bool isCrit = (bd.critMultiplier != 100);
+
+  int32_t doubleBonus = 0;
+  bool isDouble = false;
+  if (delta < 0) {
+    doubleBonus = computeDoubleBonus(attacker, defender, true, std::abs(delta));
+    isDouble = doubleBonus > 0;
+  }
+  const int32_t totalDelta = delta - doubleBonus;
+
+  // Evita ReactionEngine tratar npcId como player source.
+  const bool prevReaction = inReactionDispatch_;
+  inReactionDispatch_ = true;
+  applyPlayerDamage(npcInstanceId, targetPlayerId, totalDelta,
+                    static_cast<uint8_t>(CombatReason::Damage), isCrit, isDouble);
+  inReactionDispatch_ = prevReaction;
+
+  Core::Logger::getInstance().debug(
+      "[CombatCoreEngine] NpcBasicAttack npc={} -> player={} dmg={} crit={}",
+      npcInstanceId, targetPlayerId, std::abs(totalDelta), isCrit ? 1 : 0);
 }
 
 }  // namespace Zone

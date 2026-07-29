@@ -34,5 +34,14 @@ public sealed class NpcTemplateRow
     public string DialogText { get; set; } = "";
     public int RespawnSeconds { get; set; } = 30;
     public int KillExp { get; set; }
-    public string Summary => $"Lv {Level} | HP {MaxHealth} | PA {PhysicalAttack} | Resp {RespawnSeconds}s | Vendor {(HasVendor ? "Sim" : "Nao")}";
+    public float AggroRadius { get; set; }
+    public float LeashRadius { get; set; }
+    public float AttackRange { get; set; } = 150f;
+    public int AttackCooldownMs { get; set; } = 1500;
+    public float MoveSpeed { get; set; } = 200f;
+    public float RoamRadius { get; set; }
+    public bool IsHostile { get; set; } = true;
+    public string Summary =>
+        $"Lv {Level} | HP {MaxHealth} | PA {PhysicalAttack} | Roam {RoamRadius:0} | Aggro {AggroRadius:0} | " +
+        $"AtkR {AttackRange:0} | Hostil {(IsHostile ? "Sim" : "Nao")} | Resp {RespawnSeconds}s";
 }
