@@ -1290,6 +1290,17 @@ public:
     return players_.size();
   }
 
+  /** True se o player tem sessão TCP mapeada (client↔player) nesta zone. */
+  bool isPlayerConnected(uint32_t playerId) const {
+    if (playerId == 0) return false;
+    std::lock_guard<std::mutex> lock(mu_);
+    for (const auto& [cid, pid] : clientIdToPlayerId_) {
+      (void)cid;
+      if (pid == playerId) return true;
+    }
+    return false;
+  }
+
   bool kickPlayer(uint32_t playerId) {
     uint32_t cid = 0;
     {

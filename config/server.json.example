@@ -18,6 +18,9 @@
   "chat": { "port": 8083 },
   "gateway": { "port": 9000 },
   "logging": { "level": "DEBUG", "file": "logs/umbra_server.log" },
+  "party": {
+    "share_radius_uu": 5000
+  },
   "admin": {
     "enabled": true,
     "shared_secret": "CHANGE_ME_HEX_64",

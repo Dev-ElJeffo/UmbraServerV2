@@ -146,6 +146,67 @@ public sealed class PhpAdminClient
     public async Task<(bool Ok, string Error, JsonDocument? Data)> DeleteNpcLootEntryAsync(int lootEntryId, CancellationToken ct = default) =>
         await PostAsync("/admin/delete_npc_loot_entry.php", new { admin_username = _adminUsername, loot_entry_id = lootEntryId }, ct);
 
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> EnsureNpcVendorAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/ensure_npc_vendor.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListNpcVendorStockAsync(int npcTemplateId, CancellationToken ct = default) =>
+        await PostAsync("/admin/list_npc_vendor_stock.php", new { admin_username = _adminUsername, npc_template_id = npcTemplateId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> CreateNpcVendorStockAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/create_npc_vendor_stock.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpdateNpcVendorStockAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/update_npc_vendor_stock.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> DeleteNpcVendorStockAsync(int stockId, CancellationToken ct = default) =>
+        await PostAsync("/admin/delete_npc_vendor_stock.php", new { admin_username = _adminUsername, stock_id = stockId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListNpcQuestOffersAsync(int npcTemplateId, CancellationToken ct = default) =>
+        await PostAsync("/admin/list_npc_quest_offers.php", new { admin_username = _adminUsername, npc_template_id = npcTemplateId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> GetQuestAdminAsync(int questId, CancellationToken ct = default) =>
+        await PostAsync("/admin/get_quest_admin.php", new { admin_username = _adminUsername, quest_id = questId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> CreateQuestAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/create_quest.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpdateQuestAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/update_quest.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> DeleteQuestAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/delete_quest.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> LinkNpcQuestOfferAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/link_npc_quest_offer.php", dict, ct);
+    }
+
     public async Task<(bool Ok, string Error, JsonDocument? Data)> ListExpZonesAsync(CancellationToken ct = default) =>
         await PostAsync("/admin/list_exp_zones.php", new { admin_username = _adminUsername }, ct);
 

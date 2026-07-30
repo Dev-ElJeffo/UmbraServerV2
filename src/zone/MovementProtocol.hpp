@@ -1839,6 +1839,16 @@ struct BasicAttackBroadcastPayload {
   uint8_t sourceType = static_cast<uint8_t>(CombatTargetType::Player);
 };
 
+struct NpcHandAttachOffset {
+  float x = 0.f;
+  float y = 0.f;
+  float z = 0.f;
+  float pitch = 0.f;
+  float yaw = 0.f;
+  float roll = 0.f;
+  float scale = 1.f;
+};
+
 struct NpcSpawnPayload {
   uint32_t npcId = 0;
   uint32_t templateId = 0;
@@ -1856,6 +1866,10 @@ struct NpcSpawnPayload {
   float interactionRadius = 300.f;
   uint32_t vendorId = 0;
   float meshScale = 1.f;
+  std::string rightHandMeshPath;
+  std::string leftHandMeshPath;
+  NpcHandAttachOffset rightHandOffset;
+  NpcHandAttachOffset leftHandOffset;
 };
 
 struct NpcDespawnPayload {
@@ -2083,6 +2097,19 @@ inline std::vector<uint8_t> encodeNpcSpawnNotify(const NpcSpawnPayload& p) {
   writeF32(p.interactionRadius);
   writeU32(p.vendorId);
   writeF32(p.meshScale);
+  appendStringField(data, p.rightHandMeshPath, 255);
+  appendStringField(data, p.leftHandMeshPath, 255);
+  auto writeHand = [&](const NpcHandAttachOffset& h) {
+    writeF32(h.x);
+    writeF32(h.y);
+    writeF32(h.z);
+    writeF32(h.pitch);
+    writeF32(h.yaw);
+    writeF32(h.roll);
+    writeF32(h.scale);
+  };
+  writeHand(p.rightHandOffset);
+  writeHand(p.leftHandOffset);
   return data;
 }
 
@@ -2125,6 +2152,25 @@ inline bool decodeNpcSpawnNotify(const std::vector<uint8_t>& data, NpcSpawnPaylo
     if (off + 4 <= data.size()) {
       p.meshScale = readF32();
     }
+    if (off < data.size()) {
+      if (!readStringField(data, off, p.rightHandMeshPath, 255)) return false;
+    }
+    if (off < data.size()) {
+      if (!readStringField(data, off, p.leftHandMeshPath, 255)) return false;
+    }
+    auto readHand = [&](NpcHandAttachOffset& h) {
+      if (off + 28 > data.size()) return;
+      h.x = readF32();
+      h.y = readF32();
+      h.z = readF32();
+      h.pitch = readF32();
+      h.yaw = readF32();
+      h.roll = readF32();
+      h.scale = readF32();
+      if (h.scale <= 0.01f) h.scale = 1.f;
+    };
+    readHand(p.rightHandOffset);
+    readHand(p.leftHandOffset);
   }
   return true;
 }

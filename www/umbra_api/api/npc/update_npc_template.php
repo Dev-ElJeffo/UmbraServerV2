@@ -36,6 +36,11 @@ try {
         'accuracy', 'dodge', 'critical', 'critical_resistance',
         'double_attack_rate', 'double_attack_resistance',
         'skeletal_mesh_path', 'anim_blueprint_path', 'mesh_scale', 'is_editable',
+        'right_hand_mesh_path', 'left_hand_mesh_path',
+        'right_hand_rel_x', 'right_hand_rel_y', 'right_hand_rel_z',
+        'right_hand_rel_pitch', 'right_hand_rel_yaw', 'right_hand_rel_roll', 'right_hand_rel_scale',
+        'left_hand_rel_x', 'left_hand_rel_y', 'left_hand_rel_z',
+        'left_hand_rel_pitch', 'left_hand_rel_yaw', 'left_hand_rel_roll', 'left_hand_rel_scale',
         'kill_exp',
     ];
     $sets = [];

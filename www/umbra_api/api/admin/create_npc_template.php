@@ -38,7 +38,12 @@ try {
             is_attackable, interaction_radius, has_vendor, has_quest_dialog,
             dialog_title, dialog_text, respawn_seconds, kill_exp,
             aggro_radius, leash_radius, attack_range, attack_cooldown_ms,
-            move_speed, roam_radius, is_hostile
+            move_speed, roam_radius, is_hostile,
+            right_hand_mesh_path, left_hand_mesh_path,
+            right_hand_rel_x, right_hand_rel_y, right_hand_rel_z,
+            right_hand_rel_pitch, right_hand_rel_yaw, right_hand_rel_roll, right_hand_rel_scale,
+            left_hand_rel_x, left_hand_rel_y, left_hand_rel_z,
+            left_hand_rel_pitch, left_hand_rel_yaw, left_hand_rel_roll, left_hand_rel_scale
         ) VALUES (
             :npc_name, :level, :max_health, :max_mana,
             :strength, :dexterity, :vitality, :intelligence, :luck,
@@ -49,12 +54,27 @@ try {
             :is_attackable, :interaction_radius, :has_vendor, :has_quest_dialog,
             :dialog_title, :dialog_text, :respawn_seconds, :kill_exp,
             :aggro_radius, :leash_radius, :attack_range, :attack_cooldown_ms,
-            :move_speed, :roam_radius, :is_hostile
+            :move_speed, :roam_radius, :is_hostile,
+            :right_hand_mesh_path, :left_hand_mesh_path,
+            :right_hand_rel_x, :right_hand_rel_y, :right_hand_rel_z,
+            :right_hand_rel_pitch, :right_hand_rel_yaw, :right_hand_rel_roll, :right_hand_rel_scale,
+            :left_hand_rel_x, :left_hand_rel_y, :left_hand_rel_z,
+            :left_hand_rel_pitch, :left_hand_rel_yaw, :left_hand_rel_roll, :left_hand_rel_scale
         )"
     );
     $meshScale = isset($data['mesh_scale']) ? (float)$data['mesh_scale'] : 1.0;
     if ($meshScale <= 0.01) {
         $meshScale = 1.0;
+    }
+    $rightHand = trim((string)($data['right_hand_mesh_path'] ?? ''));
+    $leftHand = trim((string)($data['left_hand_mesh_path'] ?? ''));
+    $rhScale = isset($data['right_hand_rel_scale']) ? (float)$data['right_hand_rel_scale'] : 1.0;
+    if ($rhScale <= 0.01) {
+        $rhScale = 1.0;
+    }
+    $lhScale = isset($data['left_hand_rel_scale']) ? (float)$data['left_hand_rel_scale'] : 1.0;
+    if ($lhScale <= 0.01) {
+        $lhScale = 1.0;
     }
     $stmt->execute([
         ':npc_name' => $npcName,
@@ -95,6 +115,22 @@ try {
         ':move_speed' => (float)($data['move_speed'] ?? 200),
         ':roam_radius' => (float)($data['roam_radius'] ?? 0),
         ':is_hostile' => (int)($data['is_hostile'] ?? 1),
+        ':right_hand_mesh_path' => $rightHand !== '' ? $rightHand : null,
+        ':left_hand_mesh_path' => $leftHand !== '' ? $leftHand : null,
+        ':right_hand_rel_x' => (float)($data['right_hand_rel_x'] ?? 0),
+        ':right_hand_rel_y' => (float)($data['right_hand_rel_y'] ?? 0),
+        ':right_hand_rel_z' => (float)($data['right_hand_rel_z'] ?? 0),
+        ':right_hand_rel_pitch' => (float)($data['right_hand_rel_pitch'] ?? 0),
+        ':right_hand_rel_yaw' => (float)($data['right_hand_rel_yaw'] ?? 0),
+        ':right_hand_rel_roll' => (float)($data['right_hand_rel_roll'] ?? 0),
+        ':right_hand_rel_scale' => $rhScale,
+        ':left_hand_rel_x' => (float)($data['left_hand_rel_x'] ?? 0),
+        ':left_hand_rel_y' => (float)($data['left_hand_rel_y'] ?? 0),
+        ':left_hand_rel_z' => (float)($data['left_hand_rel_z'] ?? 0),
+        ':left_hand_rel_pitch' => (float)($data['left_hand_rel_pitch'] ?? 0),
+        ':left_hand_rel_yaw' => (float)($data['left_hand_rel_yaw'] ?? 0),
+        ':left_hand_rel_roll' => (float)($data['left_hand_rel_roll'] ?? 0),
+        ':left_hand_rel_scale' => $lhScale,
     ]);
 
     echo json_encode([

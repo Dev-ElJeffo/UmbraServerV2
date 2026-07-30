@@ -1,5 +1,6 @@
 #include "zone/LootService.hpp"
 #include "zone/MovementServer.hpp"
+#include "zone/PartyShare.hpp"
 #include "core/Logger.hpp"
 #include <algorithm>
 #include <chrono>
@@ -152,9 +153,28 @@ void LootService::onNpcKilled(uint32_t killerPlayerId, uint32_t npcInstanceId, u
   }
 
   if (killExp > 0 && experienceService_) {
-    auto grant = experienceService_->grantExperience(
-        killerPlayerId, killExp, "npc_kill:" + std::to_string(npcTemplateId));
-    broadcastExpForGrant(killerPlayerId, grant);
+    auto recipients = collectPartyShareRecipients(killerPlayerId, shareRadiusUu_, movementServer_,
+                                                  resolvePartyMembers_);
+    if (recipients.empty()) {
+      recipients.push_back(killerPlayerId);
+    }
+    const size_t n = recipients.size();
+    const int64_t per = killExp / static_cast<int64_t>(n);
+    int64_t remainder = killExp - per * static_cast<int64_t>(n);
+    const std::string source = "npc_kill:" + std::to_string(npcTemplateId);
+    for (uint32_t pid : recipients) {
+      int64_t amount = per;
+      if (pid == killerPlayerId && remainder != 0) {
+        amount += remainder;
+        remainder = 0;
+      }
+      if (amount <= 0) continue;
+      auto grant = experienceService_->grantExperience(pid, amount, source);
+      broadcastExpForGrant(pid, grant);
+    }
+    Core::Logger::getInstance().info(
+        "[LootService] exp share killer={} npcTpl={} total={} recipients={} per={} radius={:.0f}",
+        killerPlayerId, npcTemplateId, killExp, n, per, shareRadiusUu_);
   }
 
   auto slots = rollSlots(npcTemplateId);

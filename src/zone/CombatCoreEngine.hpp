@@ -133,6 +133,7 @@ public:
 
   const NpcManager* getNpcManager() const { return npcManager_.get(); }
   CharacterStateLoader* getCharacterStateLoader() { return stateLoader_.get(); }
+  QuestProgressService* getQuestProgressService() { return questProgressService_.get(); }
 
   void processSkillCast(uint32_t sourcePlayerId, const SkillCastPayload& payload);
   /** Aplica só a resolução de hit (após castTimeMs). Não revalida CD/mana nem rebroadcast 97. */

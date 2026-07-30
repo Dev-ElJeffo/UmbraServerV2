@@ -608,7 +608,7 @@
 
             <!-- NPCs -->
             <TabItem Header="NPCs">
-                <TabControl Margin="4">
+                <TabControl Margin="4" SelectedIndex="{Binding NpcSubTabIndex, Mode=TwoWay}">
                     <!-- Templates -->
                     <TabItem Header="Templates">
                         <Grid Margin="8">
@@ -626,6 +626,12 @@
                                     <Button Content="Loot deste mob" Command="{Binding OpenNpcLootForSelectedTemplateCommand}" Margin="0,0,8,0"
                                             Style="{StaticResource MaterialDesignOutlinedButton}"
                                             ToolTip="Abre/carrega a tabela de loot do template selecionado"/>
+                                    <Button Content="Vendor (venda)" Command="{Binding OpenVendorStockForSelectedTemplateCommand}" Margin="0,0,8,0"
+                                            Style="{StaticResource MaterialDesignOutlinedButton}"
+                                            ToolTip="Abre a aba de estoque de venda do template selecionado"/>
+                                    <Button Content="Quests do NPC" Command="{Binding OpenNpcQuestsForSelectedTemplateCommand}" Margin="0,0,8,0"
+                                            Style="{StaticResource MaterialDesignOutlinedButton}"
+                                            ToolTip="Abre a aba de quests do template selecionado"/>
                                     <TextBlock Text="{Binding NpcTemplates.Count, StringFormat={}{0} templates}"
                                                VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0.7"/>
                                 </StackPanel>
@@ -836,7 +842,77 @@
                                             <TextBox Text="{Binding NewNpcAnimBlueprintPath, UpdateSourceTrigger=PropertyChanged}"
                                                      materialDesign:HintAssist.Hint="Anim Blueprint path"
                                                      materialDesign:HintAssist.IsFloating="True"
-                                                     Margin="0,0,0,16"/>
+                                                     Margin="0,0,0,10"/>
+                                            <TextBox Text="{Binding NewNpcRightHandMeshPath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Mesh mão direita (HandGrip_R)"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,6"/>
+                                            <TextBlock FontSize="11" Opacity="0.65" Margin="0,0,0,4" TextWrapping="Wrap"
+                                                       Text="Offset R: colar Relative Loc/Rot/Scale do Details do soquete (Rot = X/Y/Z do UE). Depois zerar o socket no SK."/>
+                                            <Grid Margin="0,0,0,6">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="6"/>
+                                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="6"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcRightHandRelX, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="R Loc X" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcRightHandRelY, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="R Loc Y" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="4" Text="{Binding NewNpcRightHandRelZ, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="R Loc Z" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <Grid Margin="0,0,0,6">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="6"/>
+                                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="6"/>
+                                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="6"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcRightHandRelRotX, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="R Rot X" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcRightHandRelRotY, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="R Rot Y" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="4" Text="{Binding NewNpcRightHandRelRotZ, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="R Rot Z" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="6" Text="{Binding NewNpcRightHandRelScale, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="R Scale" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <TextBox Text="{Binding NewNpcLeftHandMeshPath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Mesh mão esquerda (HandGrip_L)"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,6"/>
+                                            <TextBlock FontSize="11" Opacity="0.65" Margin="0,0,0,4" TextWrapping="Wrap"
+                                                       Text="Offset L: colar Relative Loc/Rot/Scale do Details (Rot = X/Y/Z do UE). Depois zerar o socket no SK."/>
+                                            <Grid Margin="0,0,0,6">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="6"/>
+                                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="6"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcLeftHandRelX, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="L Loc X" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcLeftHandRelY, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="L Loc Y" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="4" Text="{Binding NewNpcLeftHandRelZ, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="L Loc Z" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
+                                            <Grid Margin="0,0,0,16">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="6"/>
+                                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="6"/>
+                                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="6"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcLeftHandRelRotX, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="L Rot X" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcLeftHandRelRotY, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="L Rot Y" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="4" Text="{Binding NewNpcLeftHandRelRotZ, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="L Rot Z" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="6" Text="{Binding NewNpcLeftHandRelScale, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="L Scale" materialDesign:HintAssist.IsFloating="True"/>
+                                            </Grid>
                                             <Grid Margin="0,0,0,10">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*"/>
@@ -1127,6 +1203,370 @@
                                                 Height="36" Style="{StaticResource MaterialDesignRaisedButton}"
                                                 HorizontalAlignment="Stretch"/>
                                         <Button Content="Limpar formulário" Command="{Binding NewNpcLootEntryCommand}"
+                                                Height="32" Margin="0,8,0,0"
+                                                Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                HorizontalAlignment="Stretch"/>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Border>
+                        </Grid>
+                    </TabItem>
+
+                    <!-- Vendor (venda) -->
+                    <TabItem Header="Vendor (venda)">
+                        <Grid Margin="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" MinWidth="420"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="420"/>
+                            </Grid.ColumnDefinitions>
+
+                            <DockPanel Grid.Column="0">
+                                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                                    <TextBlock Text="{Binding VendorTargetLabel}" FontWeight="SemiBold" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding VendorTabHint}" Margin="0,0,0,8" TextWrapping="Wrap" Opacity="0.8" FontSize="12"/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button Content="Carregar estoque" Command="{Binding RefreshVendorStockCommand}" Margin="0,0,8,0"/>
+                                        <Button Content="Ensure vendor" Command="{Binding EnsureNpcVendorCommand}" Margin="0,0,8,0"
+                                                Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                        <Button Content="Novo item" Command="{Binding NewVendorStockEntryCommand}" Margin="0,0,8,0"
+                                                Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                                        <TextBlock Text="{Binding VendorStockEntries.Count, StringFormat={}{0} itens}"
+                                                   VerticalAlignment="Center" Opacity="0.7"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBox Width="180" Margin="0,0,8,0"
+                                                 Text="{Binding VendorDisplayName, UpdateSourceTrigger=PropertyChanged}"
+                                                 materialDesign:HintAssist.Hint="Nome da loja"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Width="100" Margin="0,0,8,0"
+                                                 Text="{Binding VendorSellRatePercent, UpdateSourceTrigger=PropertyChanged}"
+                                                 materialDesign:HintAssist.Hint="Sell % (buyback)"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <DataGrid ItemsSource="{Binding VendorStockEntries}" AutoGenerateColumns="False" IsReadOnly="True"
+                                          HeadersVisibility="Column" RowHeight="34">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="ID" Binding="{Binding StockId}" Width="55"/>
+                                        <DataGridTextColumn Header="Item" Binding="{Binding ItemLabel}" Width="*"/>
+                                        <DataGridTextColumn Header="Preço" Binding="{Binding BuyPriceGold}" Width="70"/>
+                                        <DataGridTextColumn Header="Estoque" Binding="{Binding StockQtyLabel}" Width="70"/>
+                                        <DataGridTextColumn Header="Max/tx" Binding="{Binding MaxBuyPerTx}" Width="60"/>
+                                        <DataGridCheckBoxColumn Header="Ativo" Binding="{Binding IsActive}" Width="55"/>
+                                        <DataGridTextColumn Header="Ord" Binding="{Binding SortOrder}" Width="45"/>
+                                        <DataGridTemplateColumn Header="Ações" Width="150">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <Button Content="Editar" Margin="2" Padding="8,2" Height="26"
+                                                                Command="{Binding DataContext.EditVendorStockEntryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                CommandParameter="{Binding}"/>
+                                                        <Button Content="Excluir" Margin="2" Padding="8,2" Height="26"
+                                                                Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                                Command="{Binding DataContext.DeleteVendorStockEntryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                CommandParameter="{Binding}"/>
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </DockPanel>
+
+                            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch" Background="Transparent"
+                                          ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
+
+                            <Border Grid.Column="2" BorderBrush="Gray" BorderThickness="1" Padding="14" CornerRadius="4">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding VendorFormTitle}" FontSize="16" FontWeight="Bold" Margin="0,0,0,4"/>
+                                        <TextBlock FontSize="11" Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,12"
+                                                   Text="Itens vendidos por este NPC (npc_vendor_stock). Qty -1 = estoque infinito."/>
+
+                                        <TextBlock Text="Escolher item" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                        <ComboBox ItemsSource="{Binding Items}"
+                                                  DisplayMemberPath="Name"
+                                                  SelectedValuePath="Id"
+                                                  SelectedValue="{Binding VendorStockItemTemplateId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  IsEditable="True"
+                                                  StaysOpenOnEdit="True"
+                                                  IsTextSearchEnabled="True"
+                                                  Margin="0,0,0,8"
+                                                  materialDesign:HintAssist.Hint="Item"/>
+                                        <TextBox Text="{Binding VendorStockItemTemplateId, UpdateSourceTrigger=PropertyChanged}"
+                                                 Margin="0,0,0,8"
+                                                 materialDesign:HintAssist.Hint="Item Template ID"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+
+                                        <TextBox Text="{Binding VendorStockBuyPrice, UpdateSourceTrigger=PropertyChanged}"
+                                                 Margin="0,0,0,8"
+                                                 materialDesign:HintAssist.Hint="Preço (gold)"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Text="{Binding VendorStockQty, UpdateSourceTrigger=PropertyChanged}"
+                                                 Margin="0,0,0,8"
+                                                 materialDesign:HintAssist.Hint="Estoque (-1 = ∞)"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Text="{Binding VendorStockMaxBuy, UpdateSourceTrigger=PropertyChanged}"
+                                                 Margin="0,0,0,8"
+                                                 materialDesign:HintAssist.Hint="Máx por compra"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Text="{Binding VendorStockSortOrder, UpdateSourceTrigger=PropertyChanged}"
+                                                 Margin="0,0,0,8"
+                                                 materialDesign:HintAssist.Hint="Ordem"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <CheckBox Content="Ativo" IsChecked="{Binding VendorStockIsActive}" Margin="0,0,0,12"/>
+
+                                        <Button Content="Salvar estoque" Command="{Binding SaveVendorStockEntryCommand}"
+                                                Height="36" Style="{StaticResource MaterialDesignRaisedButton}"
+                                                HorizontalAlignment="Stretch"/>
+                                        <Button Content="Limpar formulário" Command="{Binding NewVendorStockEntryCommand}"
+                                                Height="32" Margin="0,8,0,0"
+                                                Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                HorizontalAlignment="Stretch"/>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Border>
+                        </Grid>
+                    </TabItem>
+
+                    <!-- Quests do NPC -->
+                    <TabItem Header="Quests do NPC">
+                        <Grid Margin="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" MinWidth="380"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="480"/>
+                            </Grid.ColumnDefinitions>
+
+                            <DockPanel Grid.Column="0">
+                                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                                    <TextBlock Text="{Binding QuestTargetLabel}" FontWeight="SemiBold" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding QuestTabHint}" Margin="0,0,0,8" TextWrapping="Wrap" Opacity="0.8" FontSize="12"/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button Content="Carregar quests" Command="{Binding RefreshNpcQuestOffersCommand}" Margin="0,0,8,0"/>
+                                        <Button Content="Nova quest" Command="{Binding NewNpcQuestCommand}" Margin="0,0,8,0"
+                                                Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                IsEnabled="{Binding CanEditNpcQuests}"/>
+                                        <TextBlock Text="{Binding NpcQuestOffers.Count, StringFormat={}{0} offers}"
+                                                   VerticalAlignment="Center" Opacity="0.7"/>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <DataGrid ItemsSource="{Binding NpcQuestOffers}" AutoGenerateColumns="False" IsReadOnly="True"
+                                          HeadersVisibility="Column" RowHeight="34">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Offer" Binding="{Binding OfferId}" Width="55"/>
+                                        <DataGridTextColumn Header="Quest" Binding="{Binding QuestId}" Width="55"/>
+                                        <DataGridTextColumn Header="Key" Binding="{Binding QuestKey}" Width="140"/>
+                                        <DataGridTextColumn Header="Título" Binding="{Binding Title}" Width="*"/>
+                                        <DataGridTextColumn Header="Lv" Binding="{Binding MinLevel}" Width="40"/>
+                                        <DataGridCheckBoxColumn Header="Ativa" Binding="{Binding IsActive}" Width="50"/>
+                                        <DataGridTemplateColumn Header="Ações" Width="220">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <Button Content="Editar" Margin="2" Padding="6,2" Height="26"
+                                                                Command="{Binding DataContext.EditNpcQuestOfferCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                CommandParameter="{Binding}"/>
+                                                        <Button Content="Unlink" Margin="2" Padding="6,2" Height="26"
+                                                                Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                                Command="{Binding DataContext.DeleteNpcQuestOfferCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                CommandParameter="{Binding}"/>
+                                                        <Button Content="Apagar" Margin="2" Padding="6,2" Height="26"
+                                                                Style="{StaticResource MaterialDesignOutlinedButton}"
+                                                                Command="{Binding DataContext.DeleteNpcQuestCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                CommandParameter="{Binding}"/>
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </DockPanel>
+
+                            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch" Background="Transparent"
+                                          ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
+
+                            <Border Grid.Column="2" BorderBrush="Gray" BorderThickness="1" Padding="14" CornerRadius="4">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding QuestFormTitle}" FontSize="16" FontWeight="Bold" Margin="0,0,0,4"/>
+                                        <TextBlock FontSize="11" Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,12"
+                                                   Text="Cria/edita quest + offer neste NPC. Objetivos: talk/kill/collect/deliver (+ JSON para reach_area)."/>
+
+                                        <TextBox Text="{Binding QuestKey, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"
+                                                 materialDesign:HintAssist.Hint="quest_key (único)"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Text="{Binding QuestTitle, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"
+                                                 materialDesign:HintAssist.Hint="Título"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Text="{Binding QuestDescription, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"
+                                                 AcceptsReturn="True" Height="48" TextWrapping="Wrap"
+                                                 VerticalScrollBarVisibility="Auto"
+                                                 materialDesign:HintAssist.Hint="Descrição"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Text="{Binding QuestOfferText, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"
+                                                 AcceptsReturn="True" Height="48" TextWrapping="Wrap"
+                                                 materialDesign:HintAssist.Hint="Texto de oferta"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <TextBox Text="{Binding QuestTurnInText, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"
+                                                 AcceptsReturn="True" Height="48" TextWrapping="Wrap"
+                                                 materialDesign:HintAssist.Hint="Texto de entrega"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                            <TextBox Width="80" Margin="0,0,8,0"
+                                                     Text="{Binding QuestMinLevel, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Min Lv"
+                                                     materialDesign:HintAssist.IsFloating="True"/>
+                                            <TextBox Width="100" Margin="0,0,8,0"
+                                                     Text="{Binding QuestTurnInNpcTemplateId, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Turn-in template"
+                                                     materialDesign:HintAssist.IsFloating="True"/>
+                                            <TextBox Width="70"
+                                                     Text="{Binding QuestOfferSortOrder, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Ord"
+                                                     materialDesign:HintAssist.IsFloating="True"/>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                            <CheckBox Content="Repeatable" IsChecked="{Binding QuestRepeatable}" Margin="0,0,16,0"/>
+                                            <CheckBox Content="Ativa" IsChecked="{Binding QuestIsActive}"/>
+                                        </StackPanel>
+
+                                        <DockPanel Margin="0,0,0,6">
+                                            <TextBlock Text="Objetivos" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                            <Button DockPanel.Dock="Right" Content="+ Objetivo" Command="{Binding AddQuestObjectiveCommand}"
+                                                    Style="{StaticResource MaterialDesignOutlinedButton}" Height="28" Padding="8,0"/>
+                                        </DockPanel>
+                                        <DataGrid ItemsSource="{Binding QuestObjectives}"
+                                                  SelectedItem="{Binding SelectedQuestObjective}"
+                                                  AutoGenerateColumns="False" CanUserAddRows="False"
+                                                  HeadersVisibility="Column" MinHeight="100" MaxHeight="180" Margin="0,0,0,8"
+                                                  x:Name="QuestObjectivesGrid">
+                                            <DataGrid.Columns>
+                                                <DataGridTemplateColumn Header="Tipo" Width="110">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <ComboBox ItemsSource="{Binding DataContext.QuestObjectiveTypes, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                      SelectedItem="{Binding ObjectiveType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                      IsEditable="False"
+                                                                      VerticalAlignment="Center"
+                                                                      Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="Descrição" Width="*">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <TextBox Text="{Binding Description, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     BorderThickness="0"
+                                                                     Background="Transparent"
+                                                                     VerticalAlignment="Center"
+                                                                     Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="Alvo ID" Width="70">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <TextBox Text="{Binding TargetId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     BorderThickness="0" Background="Transparent"
+                                                                     VerticalAlignment="Center" Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="Qtd" Width="50">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <TextBox Text="{Binding RequiredCount, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     BorderThickness="0" Background="Transparent"
+                                                                     VerticalAlignment="Center" Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="" Width="60">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <Button Content="X" Padding="6,0" Height="24"
+                                                                    Command="{Binding DataContext.RemoveQuestObjectiveCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    CommandParameter="{Binding}"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+                                        <TextBox Text="{Binding SelectedQuestObjective.ParamsJson, UpdateSourceTrigger=PropertyChanged}"
+                                                 Margin="0,0,0,12" AcceptsReturn="True" Height="40" FontFamily="Consolas" FontSize="11"
+                                                 materialDesign:HintAssist.Hint="Params JSON (reach_area / use_item_at)"
+                                                 materialDesign:HintAssist.IsFloating="True"/>
+
+                                        <DockPanel Margin="0,0,0,6">
+                                            <TextBlock Text="Recompensas" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                            <Button DockPanel.Dock="Right" Content="+ Reward" Command="{Binding AddQuestRewardCommand}"
+                                                    Style="{StaticResource MaterialDesignOutlinedButton}" Height="28" Padding="8,0"/>
+                                        </DockPanel>
+                                        <DataGrid ItemsSource="{Binding QuestRewards}"
+                                                  SelectedItem="{Binding SelectedQuestReward}"
+                                                  AutoGenerateColumns="False" CanUserAddRows="False"
+                                                  HeadersVisibility="Column" MinHeight="80" MaxHeight="150" Margin="0,0,0,12">
+                                            <DataGrid.Columns>
+                                                <DataGridTemplateColumn Header="Tipo" Width="110">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <ComboBox ItemsSource="{Binding DataContext.QuestRewardTypes, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                      SelectedItem="{Binding RewardType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                      IsEditable="False"
+                                                                      VerticalAlignment="Center"
+                                                                      Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="Amount" Width="70">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <TextBox Text="{Binding Amount, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     BorderThickness="0" Background="Transparent"
+                                                                     VerticalAlignment="Center" Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="Item ID" Width="70">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <TextBox Text="{Binding ItemTemplateId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     BorderThickness="0" Background="Transparent"
+                                                                     VerticalAlignment="Center" Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="Qty" Width="50">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <TextBox Text="{Binding Quantity, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     BorderThickness="0" Background="Transparent"
+                                                                     VerticalAlignment="Center" Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="" Width="60">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <Button Content="X" Padding="6,0" Height="24"
+                                                                    Command="{Binding DataContext.RemoveQuestRewardCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    CommandParameter="{Binding}"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+
+                                        <Button Content="Salvar quest" Command="{Binding SaveNpcQuestCommand}"
+                                                Height="36" Style="{StaticResource MaterialDesignRaisedButton}"
+                                                HorizontalAlignment="Stretch"/>
+                                        <Button Content="Limpar formulário" Command="{Binding NewNpcQuestCommand}"
                                                 Height="32" Margin="0,8,0,0"
                                                 Style="{StaticResource MaterialDesignOutlinedButton}"
                                                 HorizontalAlignment="Stretch"/>

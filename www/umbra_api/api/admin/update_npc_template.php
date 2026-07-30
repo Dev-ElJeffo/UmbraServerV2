@@ -36,6 +36,11 @@ $allowed = [
     'dialog_title', 'dialog_text', 'respawn_seconds',
     'aggro_radius', 'leash_radius', 'attack_range', 'attack_cooldown_ms',
     'move_speed', 'roam_radius', 'is_hostile',
+    'right_hand_mesh_path', 'left_hand_mesh_path',
+    'right_hand_rel_x', 'right_hand_rel_y', 'right_hand_rel_z',
+    'right_hand_rel_pitch', 'right_hand_rel_yaw', 'right_hand_rel_roll', 'right_hand_rel_scale',
+    'left_hand_rel_x', 'left_hand_rel_y', 'left_hand_rel_z',
+    'left_hand_rel_pitch', 'left_hand_rel_yaw', 'left_hand_rel_roll', 'left_hand_rel_scale',
 ];
 $sets = [];
 $params = [':id' => $templateId];

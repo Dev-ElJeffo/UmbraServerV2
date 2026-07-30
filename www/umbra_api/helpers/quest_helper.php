@@ -51,9 +51,10 @@ function questPlayerCompletedQuest(PDO $pdo, int $player_id, int $quest_id): boo
 
 function questResolveAvailability(PDO $pdo, int $player_id, array $questRow, ?array $playerQuestRow): string
 {
-    if ($playerQuestRow) {
+    if ($playerQuestRow && in_array((string)$playerQuestRow['status'], ['active', 'ready'], true)) {
         return (string)$playerQuestRow['status'];
     }
+    // completed/failed/null: não bloquear se repeatable — permite nova run.
     if (!empty($questRow['prerequisite_quest_id'])) {
         if (!questPlayerCompletedQuest($pdo, $player_id, (int)$questRow['prerequisite_quest_id'])) {
             return 'locked';
@@ -241,12 +242,112 @@ function questRefreshPlayerQuestProgress(PDO $pdo, int $player_id, int $player_q
 
 function questAllObjectivesComplete(PDO $pdo, int $player_quest_id): bool
 {
+    // Se a quest tem objetivos definidos mas o player não tem linhas de progresso
+    // (ex.: CASCADE após editar quest no Manager), NÃO considerar completa.
     $stmt = $pdo->prepare('
-        SELECT COUNT(*) FROM player_quest_objectives
-        WHERE player_quest_id = ? AND is_completed = 0
+        SELECT
+            (SELECT COUNT(*)
+             FROM quest_objectives qo
+             INNER JOIN player_quests pq ON pq.quest_id = qo.quest_id
+             WHERE pq.player_quest_id = ?) AS need_count,
+            (SELECT COUNT(*)
+             FROM player_quest_objectives
+             WHERE player_quest_id = ?) AS have_count,
+            (SELECT COUNT(*)
+             FROM player_quest_objectives
+             WHERE player_quest_id = ? AND is_completed = 0) AS incomplete_count
     ');
-    $stmt->execute([$player_quest_id]);
-    return (int)$stmt->fetchColumn() === 0;
+    $stmt->execute([$player_quest_id, $player_quest_id, $player_quest_id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $need = (int)($row['need_count'] ?? 0);
+    $have = (int)($row['have_count'] ?? 0);
+    $incomplete = (int)($row['incomplete_count'] ?? 0);
+    if ($need > 0 && $have < $need) {
+        return false;
+    }
+    return $incomplete === 0;
+}
+
+/**
+ * Recria player_quest_objectives após REPLACE de objetivos no admin,
+ * e volta quests órfãs (ready sem progresso) para active.
+ */
+function questResyncPlayerObjectivesForQuest(PDO $pdo, int $quest_id): void
+{
+    $objStmt = $pdo->prepare('
+        SELECT objective_id, objective_type, params_json
+        FROM quest_objectives
+        WHERE quest_id = ?
+        ORDER BY sort_order ASC, objective_id ASC
+    ');
+    $objStmt->execute([$quest_id]);
+    $objectives = $objStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $pqStmt = $pdo->prepare("
+        SELECT player_quest_id, player_id, status
+        FROM player_quests
+        WHERE quest_id = ? AND status IN ('active', 'ready')
+    ");
+    $pqStmt->execute([$quest_id]);
+    $players = $pqStmt->fetchAll(PDO::FETCH_ASSOC);
+    if (empty($players)) {
+        return;
+    }
+
+    $ins = $pdo->prepare('
+        INSERT INTO player_quest_objectives (player_quest_id, objective_id, current_count, is_completed)
+        VALUES (?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE objective_id = VALUES(objective_id)
+    ');
+    // Unique is (player_quest_id, objective_id) — ON DUPLICATE keeps existing counts.
+
+    foreach ($players as $pq) {
+        $playerQuestId = (int)$pq['player_quest_id'];
+        $playerId = (int)$pq['player_id'];
+
+        // Remove progresso de objetivos que não existem mais nesta quest.
+        $pdo->prepare('
+            DELETE pqo FROM player_quest_objectives pqo
+            LEFT JOIN quest_objectives qo ON qo.objective_id = pqo.objective_id AND qo.quest_id = ?
+            WHERE pqo.player_quest_id = ? AND qo.objective_id IS NULL
+        ')->execute([$quest_id, $playerQuestId]);
+
+        foreach ($objectives as $obj) {
+            $objectiveId = (int)$obj['objective_id'];
+            $exists = $pdo->prepare('
+                SELECT 1 FROM player_quest_objectives
+                WHERE player_quest_id = ? AND objective_id = ? LIMIT 1
+            ');
+            $exists->execute([$playerQuestId, $objectiveId]);
+            if ($exists->fetchColumn()) {
+                continue;
+            }
+            $params = questDecodeParams($obj['params_json'] ?? null);
+            $initial = 0;
+            $done = 0;
+            if (($obj['objective_type'] ?? '') === 'talk') {
+                $initial = 1;
+                $done = 1;
+            } elseif (($obj['objective_type'] ?? '') === 'collect') {
+                $itemId = (int)($params['item_template_id'] ?? 0);
+                $required = max(1, (int)($params['required_count'] ?? 1));
+                $have = $itemId > 0 ? questCountPlayerItem($pdo, $playerId, $itemId) : 0;
+                $initial = min($have, $required);
+                $done = $have >= $required ? 1 : 0;
+            }
+            $ins->execute([$playerQuestId, $objectiveId, $initial, $done]);
+        }
+
+        questRefreshPlayerQuestProgress($pdo, $playerId, $playerQuestId);
+
+        // Se ficou "ready" sem completar de verdade, volta para active.
+        if (!questAllObjectivesComplete($pdo, $playerQuestId)) {
+            $pdo->prepare("
+                UPDATE player_quests SET status = 'active'
+                WHERE player_quest_id = ? AND status = 'ready'
+            ")->execute([$playerQuestId]);
+        }
+    }
 }
 
 function questPromoteToReadyIfComplete(PDO $pdo, int $player_quest_id): void
@@ -422,9 +523,15 @@ function questResolveTurnInNpcLabel(PDO $pdo, int $npc_template_id): string
 function questBuildDetailPayload(PDO $pdo, int $player_id, array $questRow, ?array $playerQuestRow): array
 {
     $quest_id = (int)$questRow['quest_id'];
-    $status = $playerQuestRow ? (string)$playerQuestRow['status'] : questResolveAvailability($pdo, $player_id, $questRow, $playerQuestRow);
+    $status = questResolveAvailability($pdo, $player_id, $questRow, $playerQuestRow);
+    // Reoferta de repeatable: não mostrar progresso/id da run completed antiga.
+    $progressRow = $playerQuestRow;
+    if ($status === 'available' && $playerQuestRow
+        && in_array((string)$playerQuestRow['status'], ['completed', 'failed'], true)) {
+        $progressRow = null;
+    }
     $objectives = questLoadObjectives($pdo, $quest_id);
-    $progressMap = $playerQuestRow ? questLoadPlayerObjectiveMap($pdo, (int)$playerQuestRow['player_quest_id']) : [];
+    $progressMap = $progressRow ? questLoadPlayerObjectiveMap($pdo, (int)$progressRow['player_quest_id']) : [];
     $objOut = [];
     $seenObjectiveIds = [];
     foreach ($objectives as $obj) {
@@ -451,7 +558,7 @@ function questBuildDetailPayload(PDO $pdo, int $player_id, array $questRow, ?arr
         'min_level' => (int)$questRow['min_level'],
         'repeatable' => !empty($questRow['repeatable']),
         'status' => $status,
-        'player_quest_id' => $playerQuestRow ? (int)$playerQuestRow['player_quest_id'] : 0,
+        'player_quest_id' => $progressRow ? (int)$progressRow['player_quest_id'] : 0,
         'objectives' => $objOut,
         'rewards' => $rewards,
         'reward_choices' => $choices,

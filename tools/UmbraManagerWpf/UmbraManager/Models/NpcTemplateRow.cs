@@ -24,11 +24,29 @@ public sealed class NpcTemplateRow
     public int DoubleAttackResistance { get; set; }
     public string SkeletalMeshPath { get; set; } = "";
     public string AnimBlueprintPath { get; set; } = "";
+    public string RightHandMeshPath { get; set; } = "";
+    public string LeftHandMeshPath { get; set; } = "";
+    public float RightHandRelX { get; set; }
+    public float RightHandRelY { get; set; }
+    public float RightHandRelZ { get; set; }
+    /** Relative Rotation X/Y/Z do Details UE (= Roll/Pitch/Yaw). */
+    public float RightHandRelRotX { get; set; }
+    public float RightHandRelRotY { get; set; }
+    public float RightHandRelRotZ { get; set; }
+    public float RightHandRelScale { get; set; } = 1f;
+    public float LeftHandRelX { get; set; }
+    public float LeftHandRelY { get; set; }
+    public float LeftHandRelZ { get; set; }
+    public float LeftHandRelRotX { get; set; }
+    public float LeftHandRelRotY { get; set; }
+    public float LeftHandRelRotZ { get; set; }
+    public float LeftHandRelScale { get; set; } = 1f;
     public float MeshScale { get; set; } = 1f;
     public bool IsEditable { get; set; } = true;
     public bool IsAttackable { get; set; } = true;
     public float InteractionRadius { get; set; } = 300f;
     public bool HasVendor { get; set; }
+    public int VendorId { get; set; }
     public bool HasQuestDialog { get; set; }
     public string DialogTitle { get; set; } = "";
     public string DialogText { get; set; } = "";

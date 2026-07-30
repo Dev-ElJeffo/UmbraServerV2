@@ -113,8 +113,6 @@ public partial class MainViewModel
     partial void OnNewItemUseCooldownMsChanged(int value) => OnPropertyChanged(nameof(ItemDesignerSummary));
     partial void OnNewNpcLevelChanged(int value) => OnPropertyChanged(nameof(NpcDesignerSummary));
     partial void OnNewNpcMaxHealthChanged(int value) => OnPropertyChanged(nameof(NpcDesignerSummary));
-    partial void OnNewNpcHasVendorChanged(bool value) => OnPropertyChanged(nameof(NpcDesignerSummary));
-    partial void OnNewNpcHasQuestDialogChanged(bool value) => OnPropertyChanged(nameof(NpcDesignerSummary));
     partial void OnNewNpcRespawnSecondsChanged(int value) => OnPropertyChanged(nameof(NpcDesignerSummary));
     partial void OnNewNpcRoamRadiusChanged(float value) => OnPropertyChanged(nameof(NpcDesignerSummary));
     partial void OnNewNpcAggroRadiusChanged(float value) => OnPropertyChanged(nameof(NpcDesignerSummary));
@@ -229,6 +227,8 @@ public partial class MainViewModel
     [RelayCommand]
     private async Task OpenNpcLootForSelectedTemplateAsync()
     {
+        NpcSubTabIndex = 2; // Loot do mob
+
         if (SelectedNpcTemplate == null && EditingNpcTemplateId <= 0)
         {
             MessageBox.Show("Selecione um template NPC na aba Templates.", "Loot NPC");

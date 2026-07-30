@@ -4,6 +4,7 @@
 #include "zone/ExperienceService.hpp"
 #include "database/MySQLConnector.hpp"
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <random>
@@ -60,10 +61,15 @@ public:
   LootService(uint32_t zoneId, std::shared_ptr<Database::MySQLConnector> db,
               MovementServer* movementServer, ExperienceService* experienceService);
 
+  void setResolvePartyMembers(std::function<std::vector<uint32_t>(uint32_t)> cb) {
+    resolvePartyMembers_ = std::move(cb);
+  }
+  void setShareRadiusUu(float radiusUu) { shareRadiusUu_ = radiusUu; }
+
   void loadFromDatabase();
   void tick(float deltaSeconds);
 
-  /** Chamado no kill do NPC (killer autoritativo). Concede EXP e abre loot se houver drops. */
+  /** Chamado no kill do NPC (killer autoritativo). Concede EXP (party share) e abre loot se houver drops. */
   void onNpcKilled(uint32_t killerPlayerId, uint32_t npcInstanceId, uint32_t npcTemplateId,
                     uint32_t zoneId, float x, float y, float z);
 
@@ -92,6 +98,8 @@ private:
   std::shared_ptr<Database::MySQLConnector> db_;
   MovementServer* movementServer_ = nullptr;
   ExperienceService* experienceService_ = nullptr;
+  std::function<std::vector<uint32_t>(uint32_t)> resolvePartyMembers_;
+  float shareRadiusUu_ = 5000.f;
 
   std::mutex mu_;
   std::unordered_map<uint32_t, NpcLootTableDef> tablesByTemplate_;

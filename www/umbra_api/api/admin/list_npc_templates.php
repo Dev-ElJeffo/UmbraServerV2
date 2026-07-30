@@ -21,18 +21,25 @@ requireAdminAuth($data);
 try {
     $pdo = getConnection();
     $stmt = $pdo->query(
-        "SELECT npc_template_id, npc_name, level, max_health, max_mana,
-                strength, dexterity, vitality, intelligence, luck,
-                physical_attack, magic_attack, physical_defense, magic_defense,
-                accuracy, dodge, critical, critical_resistance,
-                double_attack_rate, double_attack_resistance,
-                skeletal_mesh_path, anim_blueprint_path, mesh_scale, is_editable,
-                is_attackable, interaction_radius, has_vendor, has_quest_dialog,
-                dialog_title, dialog_text, respawn_seconds, kill_exp,
-                aggro_radius, leash_radius, attack_range, attack_cooldown_ms,
-                move_speed, roam_radius, is_hostile
-         FROM npc_templates
-         ORDER BY npc_template_id ASC"
+        "SELECT t.npc_template_id, t.npc_name, t.level, t.max_health, t.max_mana,
+                t.strength, t.dexterity, t.vitality, t.intelligence, t.luck,
+                t.physical_attack, t.magic_attack, t.physical_defense, t.magic_defense,
+                t.accuracy, t.dodge, t.critical, t.critical_resistance,
+                t.double_attack_rate, t.double_attack_resistance,
+                t.skeletal_mesh_path, t.anim_blueprint_path, t.mesh_scale, t.is_editable,
+                t.is_attackable, t.interaction_radius, t.has_vendor, t.has_quest_dialog,
+                t.dialog_title, t.dialog_text, t.respawn_seconds, t.kill_exp,
+                t.aggro_radius, t.leash_radius, t.attack_range, t.attack_cooldown_ms,
+                t.move_speed, t.roam_radius, t.is_hostile,
+                t.right_hand_mesh_path, t.left_hand_mesh_path,
+                t.right_hand_rel_x, t.right_hand_rel_y, t.right_hand_rel_z,
+                t.right_hand_rel_pitch, t.right_hand_rel_yaw, t.right_hand_rel_roll, t.right_hand_rel_scale,
+                t.left_hand_rel_x, t.left_hand_rel_y, t.left_hand_rel_z,
+                t.left_hand_rel_pitch, t.left_hand_rel_yaw, t.left_hand_rel_roll, t.left_hand_rel_scale,
+                v.vendor_id
+         FROM npc_templates t
+         LEFT JOIN npc_vendors v ON v.npc_template_id = t.npc_template_id
+         ORDER BY t.npc_template_id ASC"
     );
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 

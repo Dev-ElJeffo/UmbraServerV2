@@ -1919,36 +1919,58 @@ bool CombatCoreEngine::tryGetTargetPosition(uint8_t targetType, uint32_t targetI
 
 void CombatCoreEngine::disambiguateTargetType(uint32_t sourcePlayerId, uint8_t& targetType,
                                               uint32_t targetId) const {
-  if (targetId == 0 || !npcManager_) return;
-  if (targetType != static_cast<uint8_t>(CombatTargetType::Player)) return;
-
-  const NpcRuntimeInstance* npc = npcManager_->findInstance(targetId);
-  if (!npc || npc->isDead) return;
+  if (targetId == 0 || !npcManager_ || !movementServer_) return;
+  const bool asPlayer = (targetType == static_cast<uint8_t>(CombatTargetType::Player));
+  const bool asNpc = (targetType == static_cast<uint8_t>(CombatTargetType::Npc));
+  if (!asPlayer && !asNpc) return;
 
   float sx = 0.f, sy = 0.f, sz = 0.f;
   if (!tryGetPlayerPosition(sourcePlayerId, sx, sy, sz)) return;
 
   float px = 0.f, py = 0.f, pz = 0.f;
   const bool havePlayer = tryGetPlayerPosition(targetId, px, py, pz);
-  const float distNpc = std::sqrt(distanceSquared2D(sx, sy, npc->x, npc->y));
+  const bool playerConnected = movementServer_->isPlayerConnected(targetId);
+  const bool stubOrigin =
+      havePlayer && (std::fabs(px) < 1.f && std::fabs(py) < 1.f && std::fabs(pz) < 1.f);
+  const bool playerOnlineValid = playerConnected && havePlayer && !stubOrigin;
 
-  bool preferNpc = !havePlayer;
-  if (havePlayer) {
-    const bool stubOrigin =
-        (std::fabs(px) < 1.f && std::fabs(py) < 1.f && std::fabs(pz) < 1.f);
-    const float distPlayer = std::sqrt(distanceSquared2D(sx, sy, px, py));
-    // Stub offline-ish em origem, ou caster claramente mais perto do NPC.
-    if (stubOrigin || distNpc + 100.f < distPlayer) {
-      preferNpc = true;
+  const NpcRuntimeInstance* npc = npcManager_->findInstance(targetId);
+  const bool aliveNpc = (npc != nullptr && !npc->isDead);
+  const float distNpc =
+      aliveNpc ? std::sqrt(distanceSquared2D(sx, sy, npc->x, npc->y)) : 1.0e30f;
+  const float distPlayer =
+      havePlayer ? std::sqrt(distanceSquared2D(sx, sy, px, py)) : 1.0e30f;
+
+  // Defesa: cliente pode mandar Npc por colisão de ID em PvP. Reescreve para
+  // Player se online com pos válida e (NPC ausente OU player claramente mais perto).
+  // Mantém Npc quando o NPC está tão perto ou mais perto (PvE real no homônimo).
+  if (asNpc && playerOnlineValid) {
+    if (!aliveNpc || distPlayer + 200.f < distNpc) {
+      Core::Logger::getInstance().info(
+          "[CombatCoreEngine] disambiguateTarget id={} Npc->Player "
+          "(playerOnline=1 haveNpc={} distP={:.1f} distN={:.1f} "
+          "src=({:.0f},{:.0f},{:.0f}) tgt=({:.0f},{:.0f},{:.0f}))",
+          targetId, aliveNpc, distPlayer, distNpc, sx, sy, sz, px, py, pz);
+      targetType = static_cast<uint8_t>(CombatTargetType::Player);
     }
+    return;
   }
 
-  if (preferNpc) {
-    Core::Logger::getInstance().info(
-        "[CombatCoreEngine] disambiguateTarget id={} Player->Npc (caster near npc dist={:.1f})",
-        targetId, distNpc);
-    targetType = static_cast<uint8_t>(CombatTargetType::Npc);
+  if (!asPlayer || !aliveNpc) return;
+
+  // Player online com pos válida: nunca Player→Npc (IDs colidem com npc_instance).
+  if (playerOnlineValid) {
+    return;
   }
+
+  // Só reescreve se offline / sem entry / stub (0,0,0) e existe NPC vivo com esse id.
+  Core::Logger::getInstance().info(
+      "[CombatCoreEngine] disambiguateTarget id={} Player->Npc "
+      "(playerOnline={} havePlayer={} stub={} distP={:.1f} distN={:.1f} "
+      "src=({:.0f},{:.0f},{:.0f}) tgt=({:.0f},{:.0f},{:.0f}))",
+      targetId, playerConnected, havePlayer, stubOrigin, distPlayer, distNpc, sx, sy, sz, px, py,
+      pz);
+  targetType = static_cast<uint8_t>(CombatTargetType::Npc);
 }
 
 bool CombatCoreEngine::validateSkillRange(uint32_t sourcePlayerId, const Combat::SkillData& skill,
@@ -2007,26 +2029,32 @@ bool CombatCoreEngine::validateSkillRange(uint32_t sourcePlayerId, const Combat:
     }
   }
 
-  const bool useXy =
+  const bool isNpcTarget =
       (payload.targetType == static_cast<uint8_t>(CombatTargetType::Npc));
+  const bool isPlayerTarget =
+      (payload.targetType == static_cast<uint8_t>(CombatTargetType::Player));
+  // PvP e PvE usam XY (toast/reject já mostravam só XY); 3D só para ponto de área no chão.
+  const bool useXy = isNpcTarget || isPlayerTarget;
   float npcMoveSpeed = 200.f;
-  if (useXy && npcManager_) {
+  if (isNpcTarget && npcManager_) {
     if (const NpcRuntimeInstance* npc = npcManager_->findInstance(payload.targetId)) {
       npcMoveSpeed = npc->moveSpeed;
     }
   }
   const float maxR =
-      useXy ? effectiveMaxRangeVsNpc(static_cast<float>(skill.rangeMax), npcMoveSpeed)
-            : effectiveMaxRange(static_cast<float>(skill.rangeMax));
+      isNpcTarget ? effectiveMaxRangeVsNpc(static_cast<float>(skill.rangeMax), npcMoveSpeed)
+                   : effectiveMaxRange(static_cast<float>(skill.rangeMax));
   const float distXy = std::sqrt(distanceSquared2D(sx, sy, tx, ty));
+  const float dist3D = std::sqrt(distanceSquared3D(sx, sy, sz, tx, ty, tz));
   const bool inRange =
       useXy ? isInRange2D(sx, sy, tx, ty, maxR) : isInRange3D(sx, sy, sz, tx, ty, tz, maxR);
   if (!inRange) {
     Core::Logger::getInstance().info(
         "[CombatCoreEngine] RANGE_EXCEEDED skill={} player={} targetType={} target={} "
-        "src=({:.1f},{:.1f}) tgt=({:.1f},{:.1f}) distXY={:.1f} max={:.1f} mode={} distM={:.1f}",
+        "src=({:.1f},{:.1f},{:.1f}) tgt=({:.1f},{:.1f},{:.1f}) distXY={:.1f} dist3D={:.1f} "
+        "max={:.1f} mode={} distM={:.1f}",
         skill.skillId, sourcePlayerId, static_cast<int>(payload.targetType), payload.targetId, sx,
-        sy, tx, ty, distXy, maxR, useXy ? "xy" : "3d", distXy / 100.f);
+        sy, sz, tx, ty, tz, distXy, dist3D, maxR, useXy ? "xy" : "3d", distXy / 100.f);
     return fail(SkillCastRejectReason::RangeExceeded);
   }
   return true;
@@ -2053,25 +2081,29 @@ bool CombatCoreEngine::validateBasicAttackRange(uint32_t sourcePlayerId, uint8_t
   float tx = 0.f, ty = 0.f, tz = 0.f;
   if (!tryGetPlayerPosition(sourcePlayerId, sx, sy, sz)) return false;
   if (!tryGetTargetPosition(targetType, targetId, tx, ty, tz)) return false;
-  const bool useXy = (targetType == static_cast<uint8_t>(CombatTargetType::Npc));
+  const bool isNpcTarget = (targetType == static_cast<uint8_t>(CombatTargetType::Npc));
+  const bool isPlayerTarget = (targetType == static_cast<uint8_t>(CombatTargetType::Player));
+  const bool useXy = isNpcTarget || isPlayerTarget;
   float npcMoveSpeed = 200.f;
-  if (useXy && npcManager_) {
+  if (isNpcTarget && npcManager_) {
     if (const NpcRuntimeInstance* npc = npcManager_->findInstance(targetId)) {
       npcMoveSpeed = npc->moveSpeed;
     }
   }
   const float maxR =
-      useXy ? effectiveMaxRangeVsNpc(static_cast<float>(rangeMax), npcMoveSpeed)
-            : effectiveMaxRange(static_cast<float>(rangeMax));
+      isNpcTarget ? effectiveMaxRangeVsNpc(static_cast<float>(rangeMax), npcMoveSpeed)
+                   : effectiveMaxRange(static_cast<float>(rangeMax));
   const float distXy = std::sqrt(distanceSquared2D(sx, sy, tx, ty));
+  const float dist3D = std::sqrt(distanceSquared3D(sx, sy, sz, tx, ty, tz));
   const bool inRange =
       useXy ? isInRange2D(sx, sy, tx, ty, maxR) : isInRange3D(sx, sy, sz, tx, ty, tz, maxR);
   if (!inRange) {
     Core::Logger::getInstance().info(
         "[CombatCoreEngine] RANGE_EXCEEDED basic_attack player={} targetType={} target={} "
-        "src=({:.1f},{:.1f}) tgt=({:.1f},{:.1f}) distXY={:.1f} max={:.1f} mode={}",
-        sourcePlayerId, static_cast<int>(targetType), targetId, sx, sy, tx, ty, distXy, maxR,
-        useXy ? "xy" : "3d");
+        "src=({:.1f},{:.1f},{:.1f}) tgt=({:.1f},{:.1f},{:.1f}) distXY={:.1f} dist3D={:.1f} "
+        "max={:.1f} mode={}",
+        sourcePlayerId, static_cast<int>(targetType), targetId, sx, sy, sz, tx, ty, tz, distXy,
+        dist3D, maxR, useXy ? "xy" : "3d");
     return false;
   }
   return true;

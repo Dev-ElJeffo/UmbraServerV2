@@ -170,18 +170,32 @@ bool ZoneServer::start() {
           });
       movementServer_->setCombatCoreEngine(combatCoreEngine_.get());
 
+      const float partyShareRadius = static_cast<float>(
+          configManager.get<int>("party.share_radius_uu", 5000));
+      auto partyCb = [db = config_.dbConnector.get()](uint32_t playerId) {
+        return resolvePartyMembers(db, playerId);
+      };
+
       experienceService_ = std::make_unique<ExperienceService>(config_.dbConnector);
       experienceService_->setStateLoader(combatCoreEngine_->getCharacterStateLoader());
       expZoneManager_ = std::make_unique<ExpZoneManager>(
           config_.zoneId, config_.dbConnector, experienceService_.get(), movementServer_.get());
       lootService_ = std::make_unique<LootService>(
           config_.zoneId, config_.dbConnector, movementServer_.get(), experienceService_.get());
+      lootService_->setShareRadiusUu(partyShareRadius);
+      lootService_->setResolvePartyMembers(partyCb);
       lootService_->loadFromDatabase();
       combatCoreEngine_->setLootService(lootService_.get());
+      if (auto* questProgress = combatCoreEngine_->getQuestProgressService()) {
+        questProgress->setMovementServer(movementServer_.get());
+        questProgress->setResolvePartyMembers(partyCb);
+        questProgress->setShareRadiusUu(partyShareRadius);
+      }
       movementServer_->setLootService(lootService_.get());
       Core::Logger::getInstance().info(
-          "ExperienceService, ExpZoneManager and LootService initialized for zone {}",
-          config_.zoneId);
+          "ExperienceService, ExpZoneManager and LootService initialized for zone {} "
+          "(party.share_radius_uu={})",
+          config_.zoneId, partyShareRadius);
     } else {
       combatCoreEngine_.reset();
       Core::Logger::getInstance().warn("CombatCoreEngine failed to initialize");

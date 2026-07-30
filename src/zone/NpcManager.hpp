@@ -50,6 +50,10 @@ struct NpcRuntimeInstance {
   std::string npcName;
   std::string skeletalMeshPath;
   std::string animBlueprintPath;
+  std::string rightHandMeshPath;
+  std::string leftHandMeshPath;
+  NpcHandAttachOffset rightHandOffset;
+  NpcHandAttachOffset leftHandOffset;
   float meshScale = 1.f;
   bool isAttackable = true;
   bool isHostile = true;

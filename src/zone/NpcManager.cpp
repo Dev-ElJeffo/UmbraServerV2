@@ -8,7 +8,7 @@ namespace Umbra {
 namespace Zone {
 
 namespace {
-constexpr size_t kMinRowFields = 48;
+constexpr size_t kMinRowFields = 64;
 
 std::chrono::system_clock::time_point respawnTimeFromUnix(uint64_t unixTs) {
   if (unixTs == 0) {
@@ -59,7 +59,14 @@ const char* NpcManager::kInstanceSelectSql =
     "COALESCE(nt.is_hostile, 1) AS is_hostile, "
     "ni.home_x, ni.home_y, ni.home_z, "
     "ni.roam_radius AS inst_roam, ni.aggro_radius AS inst_aggro, "
-    "ni.leash_radius AS inst_leash, ni.move_speed AS inst_move_speed "
+    "ni.leash_radius AS inst_leash, ni.move_speed AS inst_move_speed, "
+    "nt.right_hand_mesh_path, nt.left_hand_mesh_path, "
+    "COALESCE(nt.right_hand_rel_x, 0), COALESCE(nt.right_hand_rel_y, 0), COALESCE(nt.right_hand_rel_z, 0), "
+    "COALESCE(nt.right_hand_rel_pitch, 0), COALESCE(nt.right_hand_rel_yaw, 0), COALESCE(nt.right_hand_rel_roll, 0), "
+    "COALESCE(nt.right_hand_rel_scale, 1), "
+    "COALESCE(nt.left_hand_rel_x, 0), COALESCE(nt.left_hand_rel_y, 0), COALESCE(nt.left_hand_rel_z, 0), "
+    "COALESCE(nt.left_hand_rel_pitch, 0), COALESCE(nt.left_hand_rel_yaw, 0), COALESCE(nt.left_hand_rel_roll, 0), "
+    "COALESCE(nt.left_hand_rel_scale, 1) "
     "FROM npc_instances ni "
     "JOIN npc_templates nt ON nt.npc_template_id = ni.npc_template_id "
     "LEFT JOIN npc_vendors nv ON nv.npc_template_id = nt.npc_template_id ";
@@ -237,6 +244,29 @@ void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
     inst.moveSpeed = parseOptionalFloat(row[47], ov) ? ov : tplMove;
     if (inst.moveSpeed <= 0.f) inst.moveSpeed = 200.f;
     if (inst.attackRange <= 0.f) inst.attackRange = 150.f;
+
+    inst.rightHandMeshPath = row.size() > 48 ? row[48] : "";
+    inst.leftHandMeshPath = row.size() > 49 ? row[49] : "";
+    if (row.size() > 56) {
+      inst.rightHandOffset.x = parseFloatOr(row[50], 0.f);
+      inst.rightHandOffset.y = parseFloatOr(row[51], 0.f);
+      inst.rightHandOffset.z = parseFloatOr(row[52], 0.f);
+      inst.rightHandOffset.pitch = parseFloatOr(row[53], 0.f);
+      inst.rightHandOffset.yaw = parseFloatOr(row[54], 0.f);
+      inst.rightHandOffset.roll = parseFloatOr(row[55], 0.f);
+      inst.rightHandOffset.scale = parseFloatOr(row[56], 1.f);
+      if (inst.rightHandOffset.scale <= 0.01f) inst.rightHandOffset.scale = 1.f;
+    }
+    if (row.size() > 63) {
+      inst.leftHandOffset.x = parseFloatOr(row[57], 0.f);
+      inst.leftHandOffset.y = parseFloatOr(row[58], 0.f);
+      inst.leftHandOffset.z = parseFloatOr(row[59], 0.f);
+      inst.leftHandOffset.pitch = parseFloatOr(row[60], 0.f);
+      inst.leftHandOffset.yaw = parseFloatOr(row[61], 0.f);
+      inst.leftHandOffset.roll = parseFloatOr(row[62], 0.f);
+      inst.leftHandOffset.scale = parseFloatOr(row[63], 1.f);
+      if (inst.leftHandOffset.scale <= 0.01f) inst.leftHandOffset.scale = 1.f;
+    }
 
     inst.lastBroadcastX = inst.x;
     inst.lastBroadcastY = inst.y;
@@ -466,6 +496,10 @@ NpcSpawnPayload NpcManager::toSpawnPayload(const NpcRuntimeInstance& inst) const
   p.npcName = inst.npcName;
   p.skeletalMeshPath = inst.skeletalMeshPath;
   p.animBlueprintPath = inst.animBlueprintPath;
+  p.rightHandMeshPath = inst.rightHandMeshPath;
+  p.leftHandMeshPath = inst.leftHandMeshPath;
+  p.rightHandOffset = inst.rightHandOffset;
+  p.leftHandOffset = inst.leftHandOffset;
   p.flags = 0;
   if (inst.isAttackable) p.flags |= 0x01;
   if (inst.hasVendor) p.flags |= 0x02;

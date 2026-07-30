@@ -101,6 +101,22 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private int _newNpcDoubleAttackResistance = 5;
     [ObservableProperty] private string _newNpcSkeletalMeshPath = "";
     [ObservableProperty] private string _newNpcAnimBlueprintPath = "";
+    [ObservableProperty] private string _newNpcRightHandMeshPath = "";
+    [ObservableProperty] private string _newNpcLeftHandMeshPath = "";
+    [ObservableProperty] private float _newNpcRightHandRelX;
+    [ObservableProperty] private float _newNpcRightHandRelY;
+    [ObservableProperty] private float _newNpcRightHandRelZ;
+    [ObservableProperty] private float _newNpcRightHandRelRotX;
+    [ObservableProperty] private float _newNpcRightHandRelRotY;
+    [ObservableProperty] private float _newNpcRightHandRelRotZ;
+    [ObservableProperty] private float _newNpcRightHandRelScale = 1f;
+    [ObservableProperty] private float _newNpcLeftHandRelX;
+    [ObservableProperty] private float _newNpcLeftHandRelY;
+    [ObservableProperty] private float _newNpcLeftHandRelZ;
+    [ObservableProperty] private float _newNpcLeftHandRelRotX;
+    [ObservableProperty] private float _newNpcLeftHandRelRotY;
+    [ObservableProperty] private float _newNpcLeftHandRelRotZ;
+    [ObservableProperty] private float _newNpcLeftHandRelScale = 1f;
     [ObservableProperty] private int _spawnZoneId = 0;
     [ObservableProperty] private float _spawnPosX = 1000;
     [ObservableProperty] private float _spawnPosY = 0;
@@ -138,6 +154,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         SelectedLootNpcTemplateName = value.Name;
         OnPropertyChanged(nameof(LootTargetLabel));
         OnPropertyChanged(nameof(SpawnTemplateLabel));
+        OnPropertyChanged(nameof(VendorTargetLabel));
+        OnPropertyChanged(nameof(QuestTargetLabel));
+        OnPropertyChanged(nameof(CanEditNpcVendorStock));
+        OnPropertyChanged(nameof(CanEditNpcQuests));
+        _ = RefreshVendorAndQuestsForSelectedTemplateAsync();
     }
 
     partial void OnEditingNpcTemplateIdChanged(int value)
@@ -145,6 +166,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(NpcFormTitle));
         OnPropertyChanged(nameof(NpcSaveButtonText));
         OnPropertyChanged(nameof(SpawnTemplateLabel));
+        OnPropertyChanged(nameof(VendorTargetLabel));
+        OnPropertyChanged(nameof(QuestTargetLabel));
+        OnPropertyChanged(nameof(CanEditNpcVendorStock));
+        OnPropertyChanged(nameof(CanEditNpcQuests));
+        OnPropertyChanged(nameof(VendorTabHint));
+        OnPropertyChanged(nameof(QuestTabHint));
     }
 
     partial void OnSelectedNpcInstanceChanged(NpcInstanceRow? value)
@@ -1071,11 +1098,29 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     DoubleAttackResistance = TryGetIntProp(t, "double_attack_resistance"),
                     SkeletalMeshPath = TryGetStringProp(t, "skeletal_mesh_path"),
                     AnimBlueprintPath = TryGetStringProp(t, "anim_blueprint_path"),
+                    RightHandMeshPath = TryGetStringProp(t, "right_hand_mesh_path"),
+                    LeftHandMeshPath = TryGetStringProp(t, "left_hand_mesh_path"),
+                    RightHandRelX = TryGetFloatProp(t, "right_hand_rel_x"),
+                    RightHandRelY = TryGetFloatProp(t, "right_hand_rel_y"),
+                    RightHandRelZ = TryGetFloatProp(t, "right_hand_rel_z"),
+                    // DB pitch/yaw/roll ↔ UI Rot Y/Z/X (Details UE: X=Roll, Y=Pitch, Z=Yaw)
+                    RightHandRelRotX = TryGetFloatProp(t, "right_hand_rel_roll"),
+                    RightHandRelRotY = TryGetFloatProp(t, "right_hand_rel_pitch"),
+                    RightHandRelRotZ = TryGetFloatProp(t, "right_hand_rel_yaw"),
+                    RightHandRelScale = TryGetFloatProp(t, "right_hand_rel_scale") is float rhs && rhs > 0.01f ? rhs : 1f,
+                    LeftHandRelX = TryGetFloatProp(t, "left_hand_rel_x"),
+                    LeftHandRelY = TryGetFloatProp(t, "left_hand_rel_y"),
+                    LeftHandRelZ = TryGetFloatProp(t, "left_hand_rel_z"),
+                    LeftHandRelRotX = TryGetFloatProp(t, "left_hand_rel_roll"),
+                    LeftHandRelRotY = TryGetFloatProp(t, "left_hand_rel_pitch"),
+                    LeftHandRelRotZ = TryGetFloatProp(t, "left_hand_rel_yaw"),
+                    LeftHandRelScale = TryGetFloatProp(t, "left_hand_rel_scale") is float lhs && lhs > 0.01f ? lhs : 1f,
                     MeshScale = TryGetFloatProp(t, "mesh_scale"),
                     IsEditable = TryGetBoolProp(t, "is_editable"),
                     IsAttackable = TryGetBoolProp(t, "is_attackable"),
                     InteractionRadius = TryGetFloatProp(t, "interaction_radius"),
                     HasVendor = TryGetBoolProp(t, "has_vendor"),
+                    VendorId = TryGetIntProp(t, "vendor_id"),
                     HasQuestDialog = TryGetBoolProp(t, "has_quest_dialog"),
                     DialogTitle = TryGetStringProp(t, "dialog_title"),
                     DialogText = TryGetStringProp(t, "dialog_text"),
@@ -1362,6 +1407,22 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["double_attack_resistance"] = NewNpcDoubleAttackResistance,
             ["skeletal_mesh_path"] = NewNpcSkeletalMeshPath,
             ["anim_blueprint_path"] = NewNpcAnimBlueprintPath,
+            ["right_hand_mesh_path"] = NewNpcRightHandMeshPath,
+            ["left_hand_mesh_path"] = NewNpcLeftHandMeshPath,
+            ["right_hand_rel_x"] = NewNpcRightHandRelX,
+            ["right_hand_rel_y"] = NewNpcRightHandRelY,
+            ["right_hand_rel_z"] = NewNpcRightHandRelZ,
+            ["right_hand_rel_pitch"] = NewNpcRightHandRelRotY,
+            ["right_hand_rel_yaw"] = NewNpcRightHandRelRotZ,
+            ["right_hand_rel_roll"] = NewNpcRightHandRelRotX,
+            ["right_hand_rel_scale"] = NewNpcRightHandRelScale <= 0.01f ? 1f : NewNpcRightHandRelScale,
+            ["left_hand_rel_x"] = NewNpcLeftHandRelX,
+            ["left_hand_rel_y"] = NewNpcLeftHandRelY,
+            ["left_hand_rel_z"] = NewNpcLeftHandRelZ,
+            ["left_hand_rel_pitch"] = NewNpcLeftHandRelRotY,
+            ["left_hand_rel_yaw"] = NewNpcLeftHandRelRotZ,
+            ["left_hand_rel_roll"] = NewNpcLeftHandRelRotX,
+            ["left_hand_rel_scale"] = NewNpcLeftHandRelScale <= 0.01f ? 1f : NewNpcLeftHandRelScale,
             ["mesh_scale"] = NewNpcMeshScale,
             ["is_editable"] = 1,
             ["is_attackable"] = NewNpcIsAttackable ? 1 : 0,
@@ -1393,6 +1454,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var payload = BuildNpcTemplatePayload();
         bool ok;
         string err;
+        int savedTemplateId = EditingNpcTemplateId;
         if (EditingNpcTemplateId > 0)
         {
             payload["npc_template_id"] = EditingNpcTemplateId;
@@ -1400,6 +1462,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
             if (!ok) { MessageBox.Show(err, "Erro ao salvar template"); return; }
             Audit.Log(AppConfig.Instance.AdminUsername, "update_npc_template", EditingNpcTemplateId.ToString());
             StatusText = $"Template NPC '{NewNpcName}' atualizado.";
+            if (NewNpcHasVendor)
+            {
+                SelectedVendorNpcTemplateId = EditingNpcTemplateId;
+                SelectedVendorNpcTemplateName = NewNpcName;
+                await EnsureVendorInternalAsync(showErrors: false);
+            }
             if (EditingNpcInstanceId > 0 &&
                 MessageBox.Show(
                     $"Template salvo.\n\nTambém atualizar a posição da instância #{EditingNpcInstanceId} " +
@@ -1409,18 +1477,68 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     MessageBoxImage.Question) == MessageBoxResult.Yes)
             {
                 await UpdateNpcInstancePositionAsync();
-                return;
             }
+            await ReloadZoneNpcInstancesAfterTemplateSaveAsync();
         }
         else
         {
-            (ok, err, _) = await Php.CreateNpcTemplateAsync(payload);
+            JsonDocument? created = null;
+            (ok, err, created) = await Php.CreateNpcTemplateAsync(payload);
             if (!ok) { MessageBox.Show(err, "Erro ao criar template"); return; }
+            if (created!.RootElement.TryGetProperty("npc_template_id", out var idEl) && idEl.ValueKind == System.Text.Json.JsonValueKind.Number)
+                savedTemplateId = idEl.GetInt32();
+            created.Dispose();
             Audit.Log(AppConfig.Instance.AdminUsername, "create_npc_template", NewNpcName);
             StatusText = $"Template NPC '{NewNpcName}' criado.";
-            NewNpcTemplate();
+            if (NewNpcHasVendor && savedTemplateId > 0)
+            {
+                SelectedVendorNpcTemplateId = savedTemplateId;
+                SelectedVendorNpcTemplateName = NewNpcName;
+                EditingNpcTemplateId = savedTemplateId;
+                await EnsureVendorInternalAsync(showErrors: false);
+            }
+            if (savedTemplateId <= 0)
+                NewNpcTemplate();
         }
         await RefreshNpcTemplatesAsync();
+        if (savedTemplateId > 0)
+        {
+            var row = NpcTemplates.FirstOrDefault(t => t.Id == savedTemplateId);
+            if (row != null)
+                SelectedNpcTemplate = row;
+        }
+    }
+
+    private async Task ReloadZoneNpcInstancesAfterTemplateSaveAsync()
+    {
+        var zones = GetAuthenticatedZoneServices();
+        if (zones.Count == 0)
+        {
+            StatusText += " (offsets no MySQL; reinicie a zone ou conecte admin para reload)";
+            return;
+        }
+
+        var reloaded = 0;
+        foreach (var zoneServiceId in zones)
+        {
+            var (reloadOk, reloadResp) = await AdminHub.SendCommandAndWaitAsync(
+                zoneServiceId, "reload_npc_instances", null, 8000);
+            if (!reloadOk || reloadResp == null) continue;
+            if (!reloadResp.Value.TryGetProperty("success", out var okEl) || !okEl.GetBoolean()) continue;
+            if (reloadResp.Value.TryGetProperty("data", out var data) &&
+                data.TryGetProperty("loaded", out var loadedEl))
+            {
+                reloaded += loadedEl.GetInt32();
+            }
+            else
+            {
+                ++reloaded;
+            }
+        }
+
+        StatusText += reloaded > 0
+            ? $" Zone reload OK ({reloaded} NPC(s))."
+            : " Zone reload enviado.";
     }
 
     [RelayCommand] private void EditNpcTemplate(NpcTemplateRow? row)
@@ -1453,6 +1571,22 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcDoubleAttackResistance = row.DoubleAttackResistance;
         NewNpcSkeletalMeshPath = row.SkeletalMeshPath ?? "";
         NewNpcAnimBlueprintPath = row.AnimBlueprintPath ?? "";
+        NewNpcRightHandMeshPath = row.RightHandMeshPath ?? "";
+        NewNpcLeftHandMeshPath = row.LeftHandMeshPath ?? "";
+        NewNpcRightHandRelX = row.RightHandRelX;
+        NewNpcRightHandRelY = row.RightHandRelY;
+        NewNpcRightHandRelZ = row.RightHandRelZ;
+        NewNpcRightHandRelRotX = row.RightHandRelRotX;
+        NewNpcRightHandRelRotY = row.RightHandRelRotY;
+        NewNpcRightHandRelRotZ = row.RightHandRelRotZ;
+        NewNpcRightHandRelScale = row.RightHandRelScale <= 0.01f ? 1f : row.RightHandRelScale;
+        NewNpcLeftHandRelX = row.LeftHandRelX;
+        NewNpcLeftHandRelY = row.LeftHandRelY;
+        NewNpcLeftHandRelZ = row.LeftHandRelZ;
+        NewNpcLeftHandRelRotX = row.LeftHandRelRotX;
+        NewNpcLeftHandRelRotY = row.LeftHandRelRotY;
+        NewNpcLeftHandRelRotZ = row.LeftHandRelRotZ;
+        NewNpcLeftHandRelScale = row.LeftHandRelScale <= 0.01f ? 1f : row.LeftHandRelScale;
         NewNpcMeshScale = row.MeshScale <= 0 ? 1f : row.MeshScale;
         NewNpcIsAttackable = row.IsAttackable;
         NewNpcInteractionRadius = row.InteractionRadius <= 0 ? 300f : row.InteractionRadius;
@@ -1496,6 +1630,22 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcDoubleAttackResistance = 5;
         NewNpcSkeletalMeshPath = "";
         NewNpcAnimBlueprintPath = "";
+        NewNpcRightHandMeshPath = "";
+        NewNpcLeftHandMeshPath = "";
+        NewNpcRightHandRelX = 0f;
+        NewNpcRightHandRelY = 0f;
+        NewNpcRightHandRelZ = 0f;
+        NewNpcRightHandRelRotX = 0f;
+        NewNpcRightHandRelRotY = 0f;
+        NewNpcRightHandRelRotZ = 0f;
+        NewNpcRightHandRelScale = 1f;
+        NewNpcLeftHandRelX = 0f;
+        NewNpcLeftHandRelY = 0f;
+        NewNpcLeftHandRelZ = 0f;
+        NewNpcLeftHandRelRotX = 0f;
+        NewNpcLeftHandRelRotY = 0f;
+        NewNpcLeftHandRelRotZ = 0f;
+        NewNpcLeftHandRelScale = 1f;
         NewNpcMeshScale = 1f;
         NewNpcIsAttackable = true;
         NewNpcInteractionRadius = 300f;
