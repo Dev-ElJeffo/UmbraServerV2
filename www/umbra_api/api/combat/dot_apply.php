@@ -68,12 +68,33 @@ if ($target_player_id <= 0 || $tick_value <= 0 || $tick_interval_ms < 100 || $ti
     exit;
 }
 
+$account_id = $validation['payload']['account_id'] ?? null;
+if (!$account_id) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'Account ID não encontrado no token']);
+    exit;
+}
+
+if ($source_player_id <= 0) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'source_player_id inválido']);
+    exit;
+}
+
 if ($source_skill_id <= 0) {
     $source_skill_id = 1;
 }
 
 try {
     $pdo = getConnection();
+
+    $owner_stmt = $pdo->prepare('SELECT id FROM players WHERE id = :pid AND account_id = :aid LIMIT 1');
+    $owner_stmt->execute(['pid' => $source_player_id, 'aid' => (int)$account_id]);
+    if (!$owner_stmt->fetch()) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Acesso negado: personagem de origem não pertence à sua conta']);
+        exit;
+    }
 
     $targetCheck = $pdo->prepare('SELECT id FROM players WHERE id = :pid LIMIT 1');
     $targetCheck->execute(['pid' => $target_player_id]);
