@@ -53,6 +53,11 @@ public:
 
   void processSkillCast(uint32_t sourcePlayerId, const SkillCastPayload& payload);
   void processBasicAttack(uint32_t sourcePlayerId, const BasicAttackPayload& payload);
+  /**
+   * Valida ForeignVitalsNotify (opcode 88): apenas o source pode propagar e os vitals
+   * vêm do DB (apply_vitals.php), nunca do payload do cliente.
+   */
+  bool resolveForeignVitalsFromDb(uint32_t senderPlayerId, PlayerVitalsPayload& inOut);
 
 private:
   bool loadBasicAttacks();
@@ -60,7 +65,8 @@ private:
   uint8_t loadSkillRank(uint32_t playerId, uint32_t skillId);
   bool applyPlayerDamage(uint32_t sourcePlayerId, uint32_t targetPlayerId, int32_t delta, uint8_t reason,
                          bool isCrit = false);
-  void deductPlayerMana(uint32_t playerId, int32_t cost);
+  /** Debita mana apos leitura fresca do DB; retorna false se insuficiente. */
+  bool tryDeductPlayerMana(uint32_t playerId, int32_t cost);
   /** Le vitals atuais do DB e envia opcode 87 (sem floating text) ao jogador e AOI. */
   void broadcastPlayerVitals(uint32_t playerId);
 
