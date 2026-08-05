@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Net;
+using System.Runtime.InteropServices;
 using UmbraManager.Models;
 
 namespace UmbraManager.Services;
@@ -36,71 +38,50 @@ public sealed class ProcessManagerService
 
   /// <summary>
   /// Detecta processos que já estavam rodando antes do manager iniciar.
-  /// Faz match pelo nome do executável (auth_server, world_server, etc).
-  /// Para múltiplas zonas, faz match pelo argumento (zone id) na linha de comando.
+  /// Match por nome do exe; zonas por argumento na command line; fallback pela AdminPort.
   /// </summary>
   public void RefreshExternalProcesses(IEnumerable<ServiceDefinition> defs)
+  {
+    try
+    {
+      RefreshExternalProcessesCore(defs);
+    }
+    catch
+    {
+      // Nunca derruba o poll por falha de enum/WMI/porta
+    }
+  }
+
+  private void RefreshExternalProcessesCore(IEnumerable<ServiceDefinition> defs)
   {
     foreach (var def in defs)
     {
       // Remove entrada de processo gerenciado que já terminou
       if (_processes.TryGetValue(def.Id, out var staleEntry))
       {
-        if (staleEntry.Process is { HasExited: true })
+        if (staleEntry.Process != null)
+        {
+          if (IsProcessAlive(staleEntry.Process))
+            continue;
           _processes.TryRemove(def.Id, out _);
-        else if (staleEntry.Process is { HasExited: false })
-          continue;
+        }
         else if (staleEntry.ExternalPid > 0 && IsPidAlive(staleEntry.ExternalPid))
+        {
           continue;
+        }
       }
 
-      // Cooldown: ignora detecção por alguns segundos após Stop manual,
-      // para evitar redetectar o mesmo PID enquanto ele está terminando.
+      // Cooldown: ignora detecção por alguns segundos após Stop manual
       if (_recentlyStopped.TryGetValue(def.Id, out var stoppedAt)
           && (DateTime.UtcNow - stoppedAt) < StopCooldown)
       {
         continue;
       }
 
-      var processName = Path.GetFileNameWithoutExtension(def.Executable);
-      Process[] matches;
-      try { matches = Process.GetProcessesByName(processName); }
-      catch { continue; }
+      var matchPid = FindMatchingPid(def);
 
-      Process? match = null;
-      var liveMatches = new List<Process>();
-      foreach (var p in matches)
+      if (matchPid <= 0)
       {
-        try
-        {
-          if (p.HasExited) continue;
-          liveMatches.Add(p);
-          if (string.IsNullOrEmpty(def.Arguments))
-          {
-            match = p;
-            break;
-          }
-          var cmd = TryGetCommandLine(p.Id);
-          if (MatchesDefinition(def, cmd))
-          {
-            match = p;
-            break;
-          }
-        }
-        catch { /* access denied: ignora */ }
-      }
-
-      // WMI indisponível: único zone_server = zone 0
-      if (match == null && def.IsZone && def.Arguments.Trim() == "0" && liveMatches.Count == 1)
-      {
-        var cmd = TryGetCommandLine(liveMatches[0].Id);
-        if (cmd == null || MatchesZoneProcess(cmd, 0, def.Executable))
-          match = liveMatches[0];
-      }
-
-      if (match == null)
-      {
-        // Limpa link externo se o processo tinha sumido e nem foi spawnado pelo manager
         if (_processes.TryGetValue(def.Id, out var e) && e.Process == null && e.ExternalPid > 0)
         {
           if (!IsPidAlive(e.ExternalPid))
@@ -113,23 +94,136 @@ public sealed class ProcessManagerService
       }
 
       // Já existe entry spawnada? não sobrescreve
-      if (_processes.TryGetValue(def.Id, out var existing) && existing.Process is { HasExited: false })
+      if (_processes.TryGetValue(def.Id, out var existing) && existing.Process != null && IsProcessAlive(existing.Process))
+        continue;
+
+      // Já linkado ao mesmo PID externo
+      if (_processes.TryGetValue(def.Id, out var linked)
+          && linked.Process == null
+          && linked.ExternalPid == matchPid)
         continue;
 
       _processes[def.Id] = new ProcessEntry
       {
         Definition = def,
         Process = null,
-        ExternalPid = match.Id
+        ExternalPid = matchPid
       };
       ServiceStateChanged?.Invoke(def.Id, true);
+    }
+  }
+
+  private int FindMatchingPid(ServiceDefinition def)
+  {
+    var processName = Path.GetFileNameWithoutExtension(def.Executable);
+    Process[] matches;
+    try { matches = Process.GetProcessesByName(processName); }
+    catch { matches = []; }
+
+    var liveMatches = new List<Process>();
+    foreach (var p in matches)
+    {
+      try
+      {
+        if (p.Id <= 0) continue;
+        // Não usar HasExited como gate: pode lançar Access Denied e descartar o processo vivo
+        liveMatches.Add(p);
+      }
+      catch
+      {
+        try { p.Dispose(); } catch { /* ignore */ }
+      }
+    }
+
+    // Preferir processos cujo path está sob BuildDirectory
+    var preferred = liveMatches
+        .OrderByDescending(p => PathBelongsToBuildDir(TryGetProcessPath(p)))
+        .ToList();
+
+    Process? match = null;
+    foreach (var p in preferred)
+    {
+      try
+      {
+        if (string.IsNullOrEmpty(def.Arguments))
+        {
+          match = p;
+          break;
+        }
+        var cmd = TryGetCommandLine(p.Id);
+        if (MatchesDefinition(def, cmd))
+        {
+          match = p;
+          break;
+        }
+      }
+      catch { /* access denied: tenta próximo */ }
+    }
+
+    // WMI indisponível: único zone_server = zone 0
+    if (match == null && def.IsZone && def.Arguments.Trim() == "0" && liveMatches.Count == 1)
+    {
+      var cmd = TryGetCommandLine(liveMatches[0].Id);
+      if (cmd == null || MatchesZoneProcess(cmd, 0, def.Executable))
+        match = liveMatches[0];
+    }
+
+    // Preferir path do build quando vários sem argumentos (auth/world/etc)
+    if (match == null && string.IsNullOrEmpty(def.Arguments) && preferred.Count > 0)
+      match = preferred[0];
+
+    if (match != null)
+    {
+      var pid = match.Id;
+      DisposeAll(matches);
+      return pid;
+    }
+
+    DisposeAll(matches);
+
+    // Fallback: PID dono da porta admin (LISTEN)
+    if (def.AdminPort > 0)
+    {
+      var portPid = TryGetListeningPid(def.AdminPort);
+      if (portPid > 0 && IsPidAlive(portPid))
+        return portPid;
+    }
+
+    return 0;
+  }
+
+  private bool PathBelongsToBuildDir(string? path)
+  {
+    if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(_workingDirectory))
+      return false;
+    try
+    {
+      var full = Path.GetFullPath(path);
+      var root = Path.GetFullPath(_workingDirectory)
+          .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+      return full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+             || string.Equals(Path.GetDirectoryName(full), root, StringComparison.OrdinalIgnoreCase);
+    }
+    catch { return false; }
+  }
+
+  private static string? TryGetProcessPath(Process p)
+  {
+    try { return p.MainModule?.FileName; }
+    catch { return null; }
+  }
+
+  private static void DisposeAll(Process[] processes)
+  {
+    foreach (var p in processes)
+    {
+      try { p.Dispose(); } catch { /* ignore */ }
     }
   }
 
   public bool StartService(ServiceDefinition def, out string? error)
   {
     error = null;
-    // Limpa cooldown de stop ao iniciar manualmente
     _recentlyStopped.TryRemove(def.Id, out _);
     if (IsRunning(def.Id))
     {
@@ -139,15 +233,14 @@ public sealed class ProcessManagerService
 
     if (def.IsZone)
     {
-      var existing = FindMatchingProcess(def);
-      if (existing != null)
+      var existingPid = FindMatchingPid(def);
+      if (existingPid > 0)
       {
-        // Adota processo externo já rodando (ex.: zone_server.exe manual) em vez de falhar
         _processes[def.Id] = new ProcessEntry
         {
           Definition = def,
           Process = null,
-          ExternalPid = existing.Id,
+          ExternalPid = existingPid,
           AutoRestart = AppConfig.Instance.AutoRestartOnCrash
         };
         ServiceStateChanged?.Invoke(def.Id, true);
@@ -163,7 +256,6 @@ public sealed class ProcessManagerService
     }
 
     // Sem redirect de stdout/stderr: evita deadlock com logs DEBUG no console.
-    // Saída dos servidores vem via LogTailer (logs/*.log no CWD do exe).
     var psi = new ProcessStartInfo
     {
       FileName = exePath,
@@ -212,7 +304,7 @@ public sealed class ProcessManagerService
 
     try
     {
-      if (hadEntry && entry!.Process is { HasExited: false })
+      if (hadEntry && entry!.Process != null && IsProcessAlive(entry.Process))
       {
         entry.Process.Kill(entireProcessTree: true);
         entry.Process.WaitForExit(graceMs);
@@ -223,9 +315,6 @@ public sealed class ProcessManagerService
       }
       else
       {
-        // Sem entry: tenta matar qualquer processo correspondente à definição.
-        // Útil quando o usuário clicou Stop logo depois de o manager reabrir
-        // e ainda nem detectou o serviço como externo.
         var def = entry?.Definition;
         if (def != null) TryKillByDefinition(def, graceMs);
       }
@@ -237,9 +326,6 @@ public sealed class ProcessManagerService
     ServiceStateChanged?.Invoke(serviceId, false);
   }
 
-  /// <summary>
-  /// Versão que também tenta matar por definição quando não há entry registrada.
-  /// </summary>
   public void StopServiceByDefinition(ServiceDefinition def, int graceMs = 3000)
   {
     if (_processes.ContainsKey(def.Id))
@@ -257,7 +343,7 @@ public sealed class ProcessManagerService
     try
     {
       var p = Process.GetProcessById(pid);
-      if (!p.HasExited)
+      if (IsProcessAlive(p))
       {
         p.Kill(entireProcessTree: true);
         p.WaitForExit(graceMs);
@@ -277,7 +363,7 @@ public sealed class ProcessManagerService
     {
       try
       {
-        if (p.HasExited) continue;
+        if (!IsProcessAlive(p)) continue;
         if (!string.IsNullOrEmpty(def.Arguments))
         {
           var cmd = TryGetCommandLine(p.Id);
@@ -288,41 +374,7 @@ public sealed class ProcessManagerService
       }
       catch { /* ignore */ }
     }
-  }
-
-  private static Process? FindMatchingProcess(ServiceDefinition def)
-  {
-    var processName = Path.GetFileNameWithoutExtension(def.Executable);
-    Process[] matches;
-    try { matches = Process.GetProcessesByName(processName); }
-    catch { return null; }
-
-    var live = new List<Process>();
-    foreach (var p in matches)
-    {
-      try { if (!p.HasExited) live.Add(p); }
-      catch { /* ignore */ }
-    }
-
-    // WMI indisponível: único zone_server vivo = zone 0
-    if (def.IsZone && def.Arguments.Trim() == "0" && live.Count == 1)
-    {
-      var cmd = TryGetCommandLine(live[0].Id);
-      if (cmd == null || MatchesZoneProcess(cmd, 0, def.Executable))
-        return live[0];
-    }
-
-    foreach (var p in live)
-    {
-      try
-      {
-        if (string.IsNullOrEmpty(def.Arguments)) return p;
-        var cmd = TryGetCommandLine(p.Id);
-        if (MatchesDefinition(def, cmd)) return p;
-      }
-      catch { /* ignore */ }
-    }
-    return null;
+    DisposeAll(candidates);
   }
 
   /// <summary>
@@ -362,15 +414,13 @@ public sealed class ProcessManagerService
   public void RestartService(ServiceDefinition def)
   {
     StopService(def.Id);
-    Task.Delay(800).ContinueWith(t => { StartService(def, out _); });
+    Task.Delay(800).ContinueWith(_ => { StartService(def, out string? _); });
   }
 
   public void StartAll(IEnumerable<ServiceDefinition> defs)
   {
     foreach (var d in defs)
-    {
-      _ = StartService(d, out _);
-    }
+      _ = StartService(d, out string? _);
   }
 
   public void StopAll()
@@ -391,30 +441,158 @@ public sealed class ProcessManagerService
     if (!_processes.TryRemove(serviceId, out var entry)) return;
     if (entry.AutoRestart && exitCode != 0)
     {
-      Task.Delay(2000).ContinueWith(t => { StartService(entry.Definition, out _); });
+      Task.Delay(2000).ContinueWith(_ => { StartService(entry.Definition, out string? _); });
+    }
+  }
+
+  private static bool IsProcessAlive(Process p)
+  {
+    try
+    {
+      if (p.Id <= 0) return false;
+      return !p.HasExited;
+    }
+    catch
+    {
+      // Access denied / disposed: se ainda temos Id, assume vivo
+      try { return p.Id > 0; }
+      catch { return false; }
     }
   }
 
   private static bool IsPidAlive(int pid)
   {
-    try { return !Process.GetProcessById(pid).HasExited; }
+    if (pid <= 0) return false;
+    try
+    {
+      using var p = Process.GetProcessById(pid);
+      return IsProcessAlive(p);
+    }
     catch { return false; }
   }
 
+  private static bool _wmiUnavailable;
+
   private static string? TryGetCommandLine(int pid)
+  {
+    if (_wmiUnavailable || pid <= 0) return null;
+    try
+    {
+      // Reflection: evita FileNotFound em JIT quando System.Management.dll não está no dist
+      var searcherType = Type.GetType(
+          "System.Management.ManagementObjectSearcher, System.Management, Version=9.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+          throwOnError: false);
+      searcherType ??= Type.GetType(
+          "System.Management.ManagementObjectSearcher, System.Management",
+          throwOnError: false);
+      if (searcherType == null)
+      {
+        _wmiUnavailable = true;
+        return null;
+      }
+
+      using var searcher = (IDisposable?)Activator.CreateInstance(
+          searcherType,
+          $"SELECT CommandLine FROM Win32_Process WHERE ProcessId = {pid}");
+      if (searcher == null) return null;
+
+      var getMethod = searcherType.GetMethod("Get", Type.EmptyTypes);
+      if (getMethod == null) return null;
+      if (getMethod.Invoke(searcher, null) is not System.Collections.IEnumerable results)
+        return null;
+
+      foreach (var obj in results)
+      {
+        try
+        {
+          var prop = obj?.GetType().GetProperty("Item") ?? obj?.GetType().GetProperty("Properties");
+          // ManagementBaseObject indexer: obj["CommandLine"]
+          if (obj is System.Collections.IDictionary dict && dict.Contains("CommandLine"))
+            return dict["CommandLine"]?.ToString();
+
+          var indexer = obj?.GetType().GetProperty("Item", [typeof(string)]);
+          if (indexer != null)
+            return indexer.GetValue(obj, ["CommandLine"])?.ToString();
+        }
+        catch { /* next */ }
+      }
+    }
+    catch (FileNotFoundException)
+    {
+      _wmiUnavailable = true;
+    }
+    catch (TypeLoadException)
+    {
+      _wmiUnavailable = true;
+    }
+    catch
+    {
+      /* WMI pode falhar sem permissão */
+    }
+    return null;
+  }
+
+  /// <summary>PID que está em LISTEN na porta TCP local (IPv4).</summary>
+  private static int TryGetListeningPid(ushort port)
   {
     try
     {
-      using var searcher = new System.Management.ManagementObjectSearcher(
-          $"SELECT CommandLine FROM Win32_Process WHERE ProcessId = {pid}");
-      foreach (var obj in searcher.Get())
+      var size = 0;
+      GetExtendedTcpTable(IntPtr.Zero, ref size, true, AfInet, TcpTableClass.TcpTableOwnerPidListener, 0);
+      if (size <= 0) return 0;
+
+      var buffer = Marshal.AllocHGlobal(size);
+      try
       {
-        return obj["CommandLine"]?.ToString();
+        var ret = GetExtendedTcpTable(buffer, ref size, true, AfInet, TcpTableClass.TcpTableOwnerPidListener, 0);
+        if (ret != 0) return 0;
+
+        var numEntries = Marshal.ReadInt32(buffer);
+        var rowPtr = IntPtr.Add(buffer, 4);
+        var rowSize = Marshal.SizeOf<MibTcpRowOwnerPid>();
+        for (var i = 0; i < numEntries; i++)
+        {
+          var row = Marshal.PtrToStructure<MibTcpRowOwnerPid>(IntPtr.Add(rowPtr, i * rowSize));
+          var localPort = (ushort)IPAddress.NetworkToHostOrder((short)row.localPort);
+          if (localPort == port && row.owningPid > 0)
+            return row.owningPid;
+        }
+      }
+      finally
+      {
+        Marshal.FreeHGlobal(buffer);
       }
     }
-    catch { /* WMI pode falhar sem permissão */ }
-    return null;
+    catch { /* ignore */ }
+    return 0;
   }
+
+  private const int AfInet = 2;
+
+  private enum TcpTableClass
+  {
+    TcpTableOwnerPidListener = 3,
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct MibTcpRowOwnerPid
+  {
+    public uint state;
+    public uint localAddr;
+    public uint localPort;
+    public uint remoteAddr;
+    public uint remotePort;
+    public int owningPid;
+  }
+
+  [DllImport("iphlpapi.dll", SetLastError = true)]
+  private static extern uint GetExtendedTcpTable(
+      IntPtr pTcpTable,
+      ref int dwOutBufLen,
+      bool sort,
+      int ipVersion,
+      TcpTableClass tblClass,
+      uint reserved);
 
   private sealed class ProcessEntry
   {

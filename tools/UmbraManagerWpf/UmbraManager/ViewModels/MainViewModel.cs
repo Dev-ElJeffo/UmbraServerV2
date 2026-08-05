@@ -567,30 +567,41 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private async Task PollStatsAsync()
     {
-        ProcessManager.RefreshExternalProcesses(Definitions);
-        await AdminHub.ReconnectMissingAsync(ProcessManager.IsRunning);
-        foreach (var def in Definitions)
+        try
         {
-            if (!ProcessManager.IsRunning(def.Id)) continue;
-            await AdminHub.SendCommandAsync(def.Id, "stats");
-            if (def.IsZone) await AdminHub.SendCommandAsync(def.Id, "zone_info");
-        }
-        RefreshServerRows();
-        ActiveZones = Zones.Count(z => z.Online);
-        var connected = Definitions.Count(d => AdminHub.GetClient(d.Id)?.IsAuthenticated == true);
-        StatusText = $"Poll {DateTime.Now:HH:mm:ss} | Players {TotalPlayers} | Admin {connected}/{Definitions.Count}";
+            try { ProcessManager.RefreshExternalProcesses(Definitions); }
+            catch (Exception ex) { StatusText = $"Detecção PID: {ex.Message}"; }
 
-        // Atualiza countdown das tarefas agendadas
-        foreach (var task in ScheduledTasks)
+            await AdminHub.ReconnectMissingAsync();
+            foreach (var def in Definitions)
+            {
+                // Stats via canal admin autenticado (não depende de PID detectado)
+                if (AdminHub.GetClient(def.Id)?.IsAuthenticated != true) continue;
+                await AdminHub.SendCommandAsync(def.Id, "stats");
+                if (def.IsZone) await AdminHub.SendCommandAsync(def.Id, "zone_info");
+            }
+            RefreshServerRows();
+            ActiveZones = Zones.Count(z => z.Online);
+            var connected = Definitions.Count(d => AdminHub.GetClient(d.Id)?.IsAuthenticated == true);
+            StatusText = $"Poll {DateTime.Now:HH:mm:ss} | Players {TotalPlayers} | Admin {connected}/{Definitions.Count}";
+
+            foreach (var task in ScheduledTasks)
+            {
+                var nr = Scheduler.GetNextRun(task.Id);
+                if (nr.HasValue && nr.Value != task.NextRun) task.NextRun = nr.Value;
+            }
+        }
+        catch (Exception ex)
         {
-            var nr = Scheduler.GetNextRun(task.Id);
-            if (nr.HasValue && nr.Value != task.NextRun) task.NextRun = nr.Value;
+            try { RefreshServerRows(); } catch { /* ignore */ }
+            StatusText = $"Poll erro: {ex.Message}";
         }
     }
 
     private async Task PollPlayersAsync()
     {
-        foreach (var def in Definitions.Where(d => d.IsZone && ProcessManager.IsRunning(d.Id)))
+        foreach (var def in Definitions.Where(d =>
+                     d.IsZone && AdminHub.GetClient(d.Id)?.IsAuthenticated == true))
             await AdminHub.SendCommandAsync(def.Id, "players");
 
         // Atualiza Zones in-place: 1 entry por zona em Definitions, sem duplicar
@@ -603,15 +614,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 Zones.Add(zone);
             }
             var client = AdminHub.GetClient(def.Id);
-            var processRunning = ProcessManager.IsRunning(def.Id);
+            var authenticated = client?.IsAuthenticated == true;
             zone.ZoneId = int.TryParse(def.Arguments, out var zid) ? zid : 0;
             zone.ZoneName = def.DisplayName;
             zone.Port = def.GamePort;
             zone.AdminPort = def.AdminPort;
-            // Online só se o processo estiver vivo E o admin client autenticado.
-            // Isso evita "Online fantasma" quando o admin TCP demora a notar que
-            // o servidor caiu.
-            zone.Online = processRunning && client?.IsAuthenticated == true;
+            // Online = canal admin autenticado (processo pode ainda não ter sido detectado)
+            zone.Online = authenticated;
             zone.PlayersOnline = zone.Online && _playersByZone.TryGetValue(def.Id, out var pl) ? pl.Count : 0;
         }
 
@@ -626,28 +635,31 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void RefreshServerRows()
     {
-        ProcessManager.RefreshExternalProcesses(Definitions);
+        try { ProcessManager.RefreshExternalProcesses(Definitions); }
+        catch { /* PID opcional; admin continua */ }
         var onlineCount = 0;
         var adminCount = 0;
         foreach (var row in Servers)
         {
             var running = ProcessManager.IsRunning(row.Definition.Id);
             var external = ProcessManager.IsExternal(row.Definition.Id);
-            row.Status = running ? (external ? "Running (ext)" : "Running") : "Stopped";
-            row.Pid = ProcessManager.GetPid(row.Definition.Id);
-
             var client = AdminHub.GetClient(row.Definition.Id);
             var authenticated = client?.IsAuthenticated == true;
-            if (running) onlineCount++;
+
+            row.Status = authenticated
+                ? (running ? (external ? "Running (ext)" : "Running") : "Admin OK")
+                : (running ? (external ? "Running (ext)" : "Running") : "Stopped");
+            row.Pid = ProcessManager.GetPid(row.Definition.Id);
+
+            if (authenticated) onlineCount++;
             if (authenticated) adminCount++;
 
-            var adminState = !running ? "off"
-                : authenticated ? "OK"
+            var adminState = authenticated ? "OK"
                 : !string.IsNullOrEmpty(client?.LastError) ? client.LastError!
                 : "off";
             row.AdminState = adminState;
-            row.Stats = running ? GetServiceStat(row.Definition.Id) : "-";
-            if (!running)
+            row.Stats = authenticated || running ? GetServiceStat(row.Definition.Id) : "-";
+            if (!authenticated && !running)
                 _serviceStats.Remove(row.Definition.Id);
 
             var card = DashboardCards.FirstOrDefault(c => c.ServiceId == row.Definition.Id);
@@ -658,10 +670,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 card.Pid = row.Pid;
                 card.GamePort = row.Definition.GamePort;
                 card.AdminPort = row.Definition.AdminPort;
-                card.IsOnline = running && authenticated;
+                card.IsOnline = authenticated;
                 card.IsExternal = external;
-                // CPU/RAM/uptime são preenchidos em OnAdminResponse(stats)
-                if (!card.IsOnline)
+                // Zera métricas só quando admin caiu (stats vêm do canal admin)
+                if (!authenticated)
                 {
                     card.CpuPct = 0;
                     card.MemMb = 0;

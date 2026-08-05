@@ -14,6 +14,8 @@ public partial class MainViewModel
     public ObservableCollection<NpcQuestOfferRow> NpcQuestOffers { get; } = new();
     public ObservableCollection<QuestObjectiveRow> QuestObjectives { get; } = new();
     public ObservableCollection<QuestRewardRow> QuestRewards { get; } = new();
+    public ObservableCollection<QuestAcceptGrantRow> QuestAcceptGrants { get; } = new();
+    public ObservableCollection<QuestStartRequirementRow> QuestStartRequirements { get; } = new();
 
     public IReadOnlyList<string> QuestObjectiveTypes { get; } =
         new List<string> { "talk", "kill", "collect", "deliver", "reach_area", "use_item_at" };
@@ -48,6 +50,7 @@ public partial class MainViewModel
     [ObservableProperty] private string _questOfferText = "";
     [ObservableProperty] private string _questTurnInText = "";
     [ObservableProperty] private int _questMinLevel = 1;
+    [ObservableProperty] private int _questPrerequisiteQuestId;
     [ObservableProperty] private bool _questRepeatable;
     [ObservableProperty] private bool _questIsActive = true;
     [ObservableProperty] private int _questTurnInNpcTemplateId;
@@ -55,6 +58,8 @@ public partial class MainViewModel
 
     [ObservableProperty] private QuestObjectiveRow? _selectedQuestObjective;
     [ObservableProperty] private QuestRewardRow? _selectedQuestReward;
+    [ObservableProperty] private QuestAcceptGrantRow? _selectedQuestAcceptGrant;
+    [ObservableProperty] private QuestStartRequirementRow? _selectedQuestStartRequirement;
 
     public string VendorFormTitle =>
         EditingVendorStockId > 0 ? $"Editar estoque #{EditingVendorStockId}" : "Novo item de venda";
@@ -530,6 +535,7 @@ public partial class MainViewModel
             QuestOfferText = TryGetStringProp(q, "offer_text");
             QuestTurnInText = TryGetStringProp(q, "turn_in_text");
             QuestMinLevel = Math.Max(1, TryGetIntProp(q, "min_level"));
+            QuestPrerequisiteQuestId = TryGetIntProp(q, "prerequisite_quest_id");
             QuestRepeatable = TryGetBoolProp(q, "repeatable");
             QuestIsActive = TryGetBoolProp(q, "is_active");
             QuestTurnInNpcTemplateId = TryGetIntProp(q, "turn_in_npc_template_id");
@@ -609,6 +615,46 @@ public partial class MainViewModel
             }
         }
 
+        QuestAcceptGrants.Clear();
+        if (data.RootElement.TryGetProperty("accept_grants", out var grants))
+        {
+            foreach (var g in grants.EnumerateArray())
+            {
+                var itemId = TryGetIntProp(g, "item_template_id");
+                var itemName = TryGetStringProp(g, "item_name");
+                if (string.IsNullOrWhiteSpace(itemName) && itemId > 0)
+                    itemName = Items.FirstOrDefault(i => i.Id == itemId)?.Name ?? "";
+                QuestAcceptGrants.Add(new QuestAcceptGrantRow
+                {
+                    GrantId = TryGetIntProp(g, "grant_id"),
+                    SortOrder = TryGetIntProp(g, "sort_order"),
+                    ItemTemplateId = itemId,
+                    ItemName = itemName,
+                    Quantity = Math.Max(1, TryGetIntProp(g, "quantity")),
+                });
+            }
+        }
+
+        QuestStartRequirements.Clear();
+        if (data.RootElement.TryGetProperty("start_requirements", out var reqs))
+        {
+            foreach (var r in reqs.EnumerateArray())
+            {
+                var itemId = TryGetIntProp(r, "item_template_id");
+                var itemName = TryGetStringProp(r, "item_name");
+                if (string.IsNullOrWhiteSpace(itemName) && itemId > 0)
+                    itemName = Items.FirstOrDefault(i => i.Id == itemId)?.Name ?? "";
+                QuestStartRequirements.Add(new QuestStartRequirementRow
+                {
+                    RequirementId = TryGetIntProp(r, "requirement_id"),
+                    SortOrder = TryGetIntProp(r, "sort_order"),
+                    ItemTemplateId = itemId,
+                    ItemName = itemName,
+                    Quantity = Math.Max(1, TryGetIntProp(r, "quantity")),
+                });
+            }
+        }
+
         data.Dispose();
         StatusText = $"Quest #{EditingQuestId} carregada para edição.";
     }
@@ -624,14 +670,19 @@ public partial class MainViewModel
         QuestOfferText = "";
         QuestTurnInText = "";
         QuestMinLevel = 1;
+        QuestPrerequisiteQuestId = 0;
         QuestRepeatable = false;
         QuestIsActive = true;
         QuestTurnInNpcTemplateId = ResolveVendorQuestTemplateId();
         QuestOfferSortOrder = NpcQuestOffers.Count;
         QuestObjectives.Clear();
         QuestRewards.Clear();
+        QuestAcceptGrants.Clear();
+        QuestStartRequirements.Clear();
         SelectedQuestObjective = null;
         SelectedQuestReward = null;
+        SelectedQuestAcceptGrant = null;
+        SelectedQuestStartRequirement = null;
     }
 
     [RelayCommand]
@@ -676,6 +727,44 @@ public partial class MainViewModel
         QuestRewards.Remove(row);
         if (SelectedQuestReward == row)
             SelectedQuestReward = null;
+    }
+
+    [RelayCommand]
+    private void AddQuestAcceptGrant()
+    {
+        QuestAcceptGrants.Add(new QuestAcceptGrantRow
+        {
+            SortOrder = QuestAcceptGrants.Count,
+            Quantity = 1,
+        });
+    }
+
+    [RelayCommand]
+    private void RemoveQuestAcceptGrant(QuestAcceptGrantRow? row)
+    {
+        if (row == null) return;
+        QuestAcceptGrants.Remove(row);
+        if (SelectedQuestAcceptGrant == row)
+            SelectedQuestAcceptGrant = null;
+    }
+
+    [RelayCommand]
+    private void AddQuestStartRequirement()
+    {
+        QuestStartRequirements.Add(new QuestStartRequirementRow
+        {
+            SortOrder = QuestStartRequirements.Count,
+            Quantity = 1,
+        });
+    }
+
+    [RelayCommand]
+    private void RemoveQuestStartRequirement(QuestStartRequirementRow? row)
+    {
+        if (row == null) return;
+        QuestStartRequirements.Remove(row);
+        if (SelectedQuestStartRequirement == row)
+            SelectedQuestStartRequirement = null;
     }
 
     private static Dictionary<string, object?> BuildObjectiveParams(QuestObjectiveRow o)
@@ -733,6 +822,12 @@ public partial class MainViewModel
             return;
         }
 
+        if (QuestPrerequisiteQuestId > 0 && EditingQuestId > 0 && QuestPrerequisiteQuestId == EditingQuestId)
+        {
+            MessageBox.Show("A quest não pode ser pré-requisito de si mesma.", "Quests");
+            return;
+        }
+
         var objectives = QuestObjectives.Select((o, i) => (object)new Dictionary<string, object?>
         {
             ["sort_order"] = o.SortOrder >= 0 ? o.SortOrder : i,
@@ -750,7 +845,26 @@ public partial class MainViewModel
             ["quantity"] = r.Quantity < 1 ? 1 : r.Quantity,
         }).ToList();
 
+        var acceptGrants = QuestAcceptGrants
+            .Where(g => g.ItemTemplateId > 0)
+            .Select((g, i) => (object)new Dictionary<string, object?>
+            {
+                ["sort_order"] = g.SortOrder >= 0 ? g.SortOrder : i,
+                ["item_template_id"] = g.ItemTemplateId,
+                ["quantity"] = g.Quantity < 1 ? 1 : g.Quantity,
+            }).ToList();
+
+        var startReqs = QuestStartRequirements
+            .Where(r => r.ItemTemplateId > 0)
+            .Select((r, i) => (object)new Dictionary<string, object?>
+            {
+                ["sort_order"] = r.SortOrder >= 0 ? r.SortOrder : i,
+                ["item_template_id"] = r.ItemTemplateId,
+                ["quantity"] = r.Quantity < 1 ? 1 : r.Quantity,
+            }).ToList();
+
         var turnIn = QuestTurnInNpcTemplateId > 0 ? QuestTurnInNpcTemplateId : templateId;
+        object? prereqPayload = QuestPrerequisiteQuestId > 0 ? QuestPrerequisiteQuestId : null;
 
         bool ok;
         string err;
@@ -765,11 +879,14 @@ public partial class MainViewModel
                 ["offer_text"] = QuestOfferText,
                 ["turn_in_text"] = QuestTurnInText,
                 ["min_level"] = QuestMinLevel < 1 ? 1 : QuestMinLevel,
+                ["prerequisite_quest_id"] = prereqPayload,
                 ["repeatable"] = QuestRepeatable ? 1 : 0,
                 ["is_active"] = QuestIsActive ? 1 : 0,
                 ["turn_in_npc_template_id"] = turnIn,
                 ["objectives"] = objectives,
                 ["rewards"] = rewards,
+                ["accept_grants"] = acceptGrants,
+                ["start_requirements"] = startReqs,
             };
             (ok, err, _) = await Php.UpdateQuestAsync(payload);
         }
@@ -783,6 +900,7 @@ public partial class MainViewModel
                 ["offer_text"] = QuestOfferText,
                 ["turn_in_text"] = QuestTurnInText,
                 ["min_level"] = QuestMinLevel < 1 ? 1 : QuestMinLevel,
+                ["prerequisite_quest_id"] = prereqPayload,
                 ["repeatable"] = QuestRepeatable ? 1 : 0,
                 ["is_active"] = QuestIsActive ? 1 : 0,
                 ["turn_in_npc_template_id"] = turnIn,
@@ -791,6 +909,8 @@ public partial class MainViewModel
                 ["is_quest_giver"] = 1,
                 ["objectives"] = objectives,
                 ["rewards"] = rewards,
+                ["accept_grants"] = acceptGrants,
+                ["start_requirements"] = startReqs,
             };
             (ok, err, _) = await Php.CreateQuestAsync(payload);
         }

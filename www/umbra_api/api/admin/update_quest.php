@@ -121,6 +121,18 @@ try {
         }
         adminQuestReplaceRewards($pdo, $questId, $data['rewards']);
     }
+    if (array_key_exists('accept_grants', $data)) {
+        if (!is_array($data['accept_grants'])) {
+            throw new InvalidArgumentException('accept_grants deve ser array');
+        }
+        adminQuestReplaceAcceptGrants($pdo, $questId, $data['accept_grants']);
+    }
+    if (array_key_exists('start_requirements', $data)) {
+        if (!is_array($data['start_requirements'])) {
+            throw new InvalidArgumentException('start_requirements deve ser array');
+        }
+        adminQuestReplaceStartRequirements($pdo, $questId, $data['start_requirements']);
+    }
 
     $pdo->commit();
 

@@ -39,13 +39,30 @@ mysql -u root -p umbra_eternum < www/umbra_api/scripts/create_quest_system_table
 |--------|--------|
 | `quests` | Definição da missão |
 | `quest_objectives` | Objetivos (`talk`, `kill`, `collect`, `deliver`, `reach_area`, `use_item_at`) |
-| `quest_rewards` | Recompensas fixas |
+| `quest_rewards` | Recompensas fixas (turn-in) |
 | `quest_reward_choices` | Recompensas com escolha no turn-in |
+| `quest_accept_grants` | Itens concedidos **ao aceitar** |
+| `quest_start_requirements` | Itens necessários no inventário **para poder aceitar** |
 | `npc_quest_offers` | NPC → quest |
 | `player_quests` | Estado por jogador |
 | `player_quest_objectives` | Progresso por objetivo |
 
+Schema adicional (rodar uma vez):
+
+```bash
+mysql -u root -p umbra_eternum < www/umbra_api/scripts/add_quest_accept_grants_and_start_reqs.sql
+```
+
 Seed: 3 quests em `npc_merchant_01` (matar `dummy_treino`, entregar poção, santuário com escolha).
+
+### Item no aceite + requisito para iniciar
+
+1. Quest A: no Manager, seção **Itens ao aceitar** → `item_template_id` + qty.
+2. Aceitar A → PHP `questAccept` chama `questGrantItemToPlayer` (inventário cheio = falha e rollback).
+3. Abandonar A → remove do inventário as quantidades concedidas no accept.
+4. Quest B: seção **Itens para iniciar** → posse (`questCountPlayerItem`); **não consome** no accept da B.
+5. Ofertas/detalhe expõem `accept_grants` e `start_requirements`; status fica `locked` se faltar item.
+6. UI UE (`FUmbraQuestDetail`): arrays Blueprint `AcceptGrants` / `StartRequirements`; presenter mostra “Recebe ao aceitar” / “Necessário para iniciar”.
 
 ---
 

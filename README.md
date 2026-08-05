@@ -494,6 +494,61 @@ cmake --build build --config Release --target zone_server
 
 ---
 
+## UmbraManager (WPF)
+
+Aplicativo desktop Windows (WPF / .NET 8) para administracao e operacao da stack: Dashboard de servicos, GM Console, NPCs, itens, quests, loot, EXP zones e canal admin TCP.
+
+Codigo-fonte: [`tools/UmbraManagerWpf/UmbraManager/`](tools/UmbraManagerWpf/UmbraManager/). Detalhes das abas: [`tools/UmbraManagerWpf/UmbraManager/README.md`](tools/UmbraManagerWpf/UmbraManager/README.md).
+
+### Pre-requisitos
+
+- Windows
+- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- Stack C++/PHP/MySQL ja configurada (`config/server.json`, portas admin em `admin.*`)
+
+### Compilacao (Release)
+
+```bash
+cd tools/UmbraManagerWpf/UmbraManager
+dotnet build UmbraManager.csproj -c Release
+```
+
+Saida: `tools/UmbraManagerWpf/UmbraManager/bin/Release/net8.0-windows/`
+
+### Copiar para dist
+
+Feche o UmbraManager se estiver aberto (o exe/dll ficam travados no Windows). Em PowerShell, a partir da raiz do repo:
+
+```powershell
+$src = "tools/UmbraManagerWpf/UmbraManager/bin/Release/net8.0-windows"
+$dst = "dist/UmbraManager"
+Copy-Item "$src\UmbraManager.exe","$src\UmbraManager.dll","$src\UmbraManager.pdb" -Destination $dst -Force
+Copy-Item "$src\UmbraManager.deps.json","$src\UmbraManager.runtimeconfig.json" -Destination $dst -Force
+Copy-Item "$src\System.Management.dll","$src\System.CodeDom.dll" -Destination $dst -Force
+# Runtime Windows do System.Management (obrigatorio para poll/WMI)
+New-Item -ItemType Directory -Force -Path "$dst\runtimes\win\lib\net8.0" | Out-Null
+Copy-Item "$src\runtimes\win\lib\net8.0\System.Management.dll" -Destination "$dst\runtimes\win\lib\net8.0" -Force
+```
+
+### Configuracao
+
+Edite `dist/UmbraManager/config/manager.json` (modelo em `manager.json.example`):
+
+| Campo | Descricao |
+|---|---|
+| `project_root` | Caminho absoluto do repositorio (ex.: `D:/UmbraServerV2`) |
+| `build_dir` | Relativo aos exes da stack (padrao `build/bin/Release`) |
+| `config_path` | Relativo ao `server.json` (padrao `config/server.json`) |
+| `admin_secret` | Deve ser igual a `admin.shared_secret` em `server.json` |
+| `php_api_base` | Base da API admin PHP (ex.: `http://localhost/umbra_api/api`) |
+| `zone_instances` | Lista de zone ids gerenciados (ex.: `[0]`) |
+
+### Executar
+
+Abra `dist/UmbraManager/UmbraManager.exe` (ou o exe em `bin/Release/net8.0-windows`). Com a stack e o canal admin (portas 9100+) ativos, o Dashboard deve marcar Auth/World/Gateway/Zone como online.
+
+---
+
 ## Roadmap
 
 ### Completo

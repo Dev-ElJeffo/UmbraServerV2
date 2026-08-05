@@ -108,3 +108,49 @@ function adminQuestReplaceRewards(PDO $pdo, int $questId, array $rewards): void
         ]);
     }
 }
+
+function adminQuestReplaceItemQtyList(PDO $pdo, int $questId, string $table, string $idCol, array $rows): void
+{
+    $allowed = ['quest_accept_grants' => true, 'quest_start_requirements' => true];
+    if (!isset($allowed[$table])) {
+        throw new InvalidArgumentException("tabela inválida: {$table}");
+    }
+    $pdo->prepare("DELETE FROM {$table} WHERE quest_id = :id")->execute([':id' => $questId]);
+    if (empty($rows)) {
+        return;
+    }
+    $ins = $pdo->prepare(
+        "INSERT INTO {$table} (quest_id, item_template_id, quantity, sort_order)
+         VALUES (:qid, :item, :qty, :sort)"
+    );
+    foreach ($rows as $i => $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $itemId = (int)($row['item_template_id'] ?? 0);
+        if ($itemId <= 0) {
+            throw new InvalidArgumentException('item_template_id obrigatório');
+        }
+        $qty = (int)($row['quantity'] ?? 1);
+        if ($qty < 1) {
+            $qty = 1;
+        }
+        $sort = isset($row['sort_order']) ? (int)$row['sort_order'] : (int)$i;
+        $ins->execute([
+            ':qid' => $questId,
+            ':item' => $itemId,
+            ':qty' => $qty,
+            ':sort' => $sort,
+        ]);
+    }
+}
+
+function adminQuestReplaceAcceptGrants(PDO $pdo, int $questId, array $rows): void
+{
+    adminQuestReplaceItemQtyList($pdo, $questId, 'quest_accept_grants', 'grant_id', $rows);
+}
+
+function adminQuestReplaceStartRequirements(PDO $pdo, int $questId, array $rows): void
+{
+    adminQuestReplaceItemQtyList($pdo, $questId, 'quest_start_requirements', 'requirement_id', $rows);
+}

@@ -69,6 +69,16 @@ function questResolveAvailability(PDO $pdo, int $player_id, array $questRow, ?ar
     if ($playerLevel < (int)$questRow['min_level']) {
         return 'locked';
     }
+    foreach (questLoadStartRequirements($pdo, (int)$questRow['quest_id']) as $req) {
+        $itemId = (int)($req['item_template_id'] ?? 0);
+        $need = max(1, (int)($req['quantity'] ?? 1));
+        if ($itemId <= 0) {
+            continue;
+        }
+        if (questCountPlayerItem($pdo, $player_id, $itemId) < $need) {
+            return 'locked';
+        }
+    }
     return 'available';
 }
 
@@ -112,6 +122,88 @@ function questLoadRewardChoices(PDO $pdo, int $quest_id): array
     ');
     $stmt->execute([$quest_id]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function questLoadAcceptGrants(PDO $pdo, int $quest_id): array
+{
+    $stmt = $pdo->prepare('
+        SELECT g.grant_id, g.quest_id, g.item_template_id, g.quantity, g.sort_order,
+               it.item_name, it.icon_path
+        FROM quest_accept_grants g
+        LEFT JOIN item_templates it ON it.item_id = g.item_template_id
+        WHERE g.quest_id = ?
+        ORDER BY g.sort_order ASC, g.grant_id ASC
+    ');
+    $stmt->execute([$quest_id]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function questLoadStartRequirements(PDO $pdo, int $quest_id): array
+{
+    $stmt = $pdo->prepare('
+        SELECT r.requirement_id, r.quest_id, r.item_template_id, r.quantity, r.sort_order,
+               it.item_name, it.icon_path
+        FROM quest_start_requirements r
+        LEFT JOIN item_templates it ON it.item_id = r.item_template_id
+        WHERE r.quest_id = ?
+        ORDER BY r.sort_order ASC, r.requirement_id ASC
+    ');
+    $stmt->execute([$quest_id]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function questFormatItemQtyRow(array $row, string $idKey): array
+{
+    return [
+        $idKey => (int)($row[$idKey] ?? 0),
+        'item_template_id' => (int)($row['item_template_id'] ?? 0),
+        'item_name' => $row['item_name'] ?? '',
+        'icon_path' => $row['icon_path'] ?? '',
+        'quantity' => max(1, (int)($row['quantity'] ?? 1)),
+        'sort_order' => (int)($row['sort_order'] ?? 0),
+    ];
+}
+
+function questPlayerMeetsStartRequirements(PDO $pdo, int $player_id, int $quest_id): bool
+{
+    foreach (questLoadStartRequirements($pdo, $quest_id) as $req) {
+        $itemId = (int)($req['item_template_id'] ?? 0);
+        $need = max(1, (int)($req['quantity'] ?? 1));
+        if ($itemId <= 0) {
+            continue;
+        }
+        if (questCountPlayerItem($pdo, $player_id, $itemId) < $need) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function questApplyAcceptGrants(PDO $pdo, int $player_id, int $quest_id): void
+{
+    foreach (questLoadAcceptGrants($pdo, $quest_id) as $grant) {
+        $itemId = (int)($grant['item_template_id'] ?? 0);
+        $qty = max(1, (int)($grant['quantity'] ?? 1));
+        if ($itemId <= 0) {
+            continue;
+        }
+        if (!questGrantItemToPlayer($pdo, $player_id, $itemId, $qty)) {
+            throw new RuntimeException('Inventário cheio ou item inválido ao conceder item de aceite.');
+        }
+    }
+}
+
+function questRevokeAcceptGrants(PDO $pdo, int $player_id, int $quest_id): void
+{
+    foreach (questLoadAcceptGrants($pdo, $quest_id) as $grant) {
+        $itemId = (int)($grant['item_template_id'] ?? 0);
+        $qty = max(1, (int)($grant['quantity'] ?? 1));
+        if ($itemId <= 0) {
+            continue;
+        }
+        // Best-effort: remove até a quantidade concedida (não falha o abandon).
+        questRemoveDeliverItems($pdo, $player_id, $itemId, min($qty, questCountPlayerItem($pdo, $player_id, $itemId)));
+    }
 }
 
 function questCountPlayerItem(PDO $pdo, int $player_id, int $item_template_id): int
@@ -544,6 +636,14 @@ function questBuildDetailPayload(PDO $pdo, int $player_id, array $questRow, ?arr
     }
     $rewards = array_map('questFormatRewardRow', questLoadRewards($pdo, $quest_id));
     $choices = array_map('questFormatRewardRow', questLoadRewardChoices($pdo, $quest_id));
+    $acceptGrants = array_map(
+        static fn(array $row) => questFormatItemQtyRow($row, 'grant_id'),
+        questLoadAcceptGrants($pdo, $quest_id)
+    );
+    $startReqs = array_map(
+        static fn(array $row) => questFormatItemQtyRow($row, 'requirement_id'),
+        questLoadStartRequirements($pdo, $quest_id)
+    );
     $turnInTemplateId = (int)($questRow['turn_in_npc_template_id'] ?? 0);
     $turnInNpcName = questResolveTurnInNpcLabel($pdo, $turnInTemplateId);
     return [
@@ -562,6 +662,8 @@ function questBuildDetailPayload(PDO $pdo, int $player_id, array $questRow, ?arr
         'objectives' => $objOut,
         'rewards' => $rewards,
         'reward_choices' => $choices,
+        'accept_grants' => $acceptGrants,
+        'start_requirements' => $startReqs,
     ];
 }
 
@@ -613,6 +715,9 @@ function questAccept(PDO $pdo, int $player_id, int $quest_id, int $npc_template_
     if ($avail !== 'available') {
         return ['ok' => false, 'message' => 'Quest indisponível (' . $avail . ').'];
     }
+    if (!questPlayerMeetsStartRequirements($pdo, $player_id, $quest_id)) {
+        return ['ok' => false, 'message' => 'Você não possui o item necessário para iniciar esta quest.'];
+    }
     if ($npc_template_id > 0) {
         $offerStmt = $pdo->prepare('SELECT 1 FROM npc_quest_offers WHERE npc_template_id = ? AND quest_id = ? LIMIT 1');
         $offerStmt->execute([$npc_template_id, $quest_id]);
@@ -622,6 +727,9 @@ function questAccept(PDO $pdo, int $player_id, int $quest_id, int $npc_template_
     }
     try {
         $pdo->beginTransaction();
+        if (!questPlayerMeetsStartRequirements($pdo, $player_id, $quest_id)) {
+            throw new RuntimeException('Você não possui o item necessário para iniciar esta quest.');
+        }
         $pdo->prepare('INSERT INTO player_quests (player_id, quest_id, status) VALUES (?, ?, \'active\')')
             ->execute([$player_id, $quest_id]);
         $player_quest_id = (int)$pdo->lastInsertId();
@@ -644,6 +752,24 @@ function questAccept(PDO $pdo, int $player_id, int $quest_id, int $npc_template_
                 VALUES (?, ?, ?, ?)
             ')->execute([$player_quest_id, (int)$obj['objective_id'], $initial, $done]);
         }
+        questApplyAcceptGrants($pdo, $player_id, $quest_id);
+        // Re-sincroniza collect após grants (item concedido pode completar objetivo).
+        foreach (questLoadObjectives($pdo, $quest_id) as $obj) {
+            if ($obj['objective_type'] !== 'collect') {
+                continue;
+            }
+            $params = questDecodeParams($obj['params_json'] ?? null);
+            $itemId = (int)($params['item_template_id'] ?? 0);
+            $required = max(1, (int)($params['required_count'] ?? 1));
+            $have = $itemId > 0 ? questCountPlayerItem($pdo, $player_id, $itemId) : 0;
+            $initial = min($have, $required);
+            $done = $have >= $required ? 1 : 0;
+            $pdo->prepare('
+                UPDATE player_quest_objectives
+                SET current_count = ?, is_completed = ?
+                WHERE player_quest_id = ? AND objective_id = ?
+            ')->execute([$initial, $done, $player_quest_id, (int)$obj['objective_id']]);
+        }
         questRefreshPlayerQuestProgress($pdo, $player_id, $player_quest_id);
         $pdo->commit();
         $pq = questGetPlayerQuestRow($pdo, $player_id, $quest_id);
@@ -653,7 +779,8 @@ function questAccept(PDO $pdo, int $player_id, int $quest_id, int $npc_template_
             $pdo->rollBack();
         }
         error_log('questAccept: ' . $e->getMessage());
-        return ['ok' => false, 'message' => 'Falha ao aceitar quest.'];
+        $msg = $e instanceof RuntimeException ? $e->getMessage() : 'Falha ao aceitar quest.';
+        return ['ok' => false, 'message' => $msg];
     }
 }
 
@@ -663,8 +790,19 @@ function questAbandon(PDO $pdo, int $player_id, int $quest_id): array
     if (!$pq || !in_array($pq['status'], ['active', 'ready'], true)) {
         return ['ok' => false, 'message' => 'Quest não está ativa.'];
     }
-    $pdo->prepare('DELETE FROM player_quests WHERE player_quest_id = ?')->execute([(int)$pq['player_quest_id']]);
-    return ['ok' => true, 'quest_id' => $quest_id];
+    try {
+        $pdo->beginTransaction();
+        questRevokeAcceptGrants($pdo, $player_id, $quest_id);
+        $pdo->prepare('DELETE FROM player_quests WHERE player_quest_id = ?')->execute([(int)$pq['player_quest_id']]);
+        $pdo->commit();
+        return ['ok' => true, 'quest_id' => $quest_id];
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        error_log('questAbandon: ' . $e->getMessage());
+        return ['ok' => false, 'message' => 'Falha ao abandonar quest.'];
+    }
 }
 
 function questReportProgress(PDO $pdo, int $player_id, int $quest_id, string $objective_type, ?array $client_pos, int $zone_id = 0, int $item_template_id = 0): array

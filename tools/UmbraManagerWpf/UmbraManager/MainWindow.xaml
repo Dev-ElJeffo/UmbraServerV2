@@ -1422,6 +1422,10 @@
                                                      Text="{Binding QuestMinLevel, UpdateSourceTrigger=PropertyChanged}"
                                                      materialDesign:HintAssist.Hint="Min Lv"
                                                      materialDesign:HintAssist.IsFloating="True"/>
+                                            <TextBox Width="110" Margin="0,0,8,0"
+                                                     Text="{Binding QuestPrerequisiteQuestId, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Pré-req quest ID"
+                                                     materialDesign:HintAssist.IsFloating="True"/>
                                             <TextBox Width="100" Margin="0,0,8,0"
                                                      Text="{Binding QuestTurnInNpcTemplateId, UpdateSourceTrigger=PropertyChanged}"
                                                      materialDesign:HintAssist.Hint="Turn-in template"
@@ -1431,6 +1435,8 @@
                                                      materialDesign:HintAssist.Hint="Ord"
                                                      materialDesign:HintAssist.IsFloating="True"/>
                                         </StackPanel>
+                                        <TextBlock FontSize="11" Opacity="0.65" TextWrapping="Wrap" Margin="0,0,0,8"
+                                                   Text="Pré-req quest ID: 0 = sem pré-requisito. O jogador precisa ter completado essa quest para aceitar esta."/>
                                         <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                                             <CheckBox Content="Repeatable" IsChecked="{Binding QuestRepeatable}" Margin="0,0,16,0"/>
                                             <CheckBox Content="Ativa" IsChecked="{Binding QuestIsActive}"/>
@@ -1556,6 +1562,88 @@
                                                         <DataTemplate>
                                                             <Button Content="X" Padding="6,0" Height="24"
                                                                     Command="{Binding DataContext.RemoveQuestRewardCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    CommandParameter="{Binding}"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+
+                                        <TextBlock FontSize="11" Opacity="0.65" TextWrapping="Wrap" Margin="0,0,0,6"
+                                                   Text="Itens ao aceitar: concedidos no inventário ao Accept. Itens para iniciar: posse obrigatória (não consome)."/>
+                                        <DockPanel Margin="0,0,0,6">
+                                            <TextBlock Text="Itens ao aceitar" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                            <Button DockPanel.Dock="Right" Content="+ Grant" Command="{Binding AddQuestAcceptGrantCommand}"
+                                                    Style="{StaticResource MaterialDesignOutlinedButton}" Height="28" Padding="8,0"/>
+                                        </DockPanel>
+                                        <DataGrid ItemsSource="{Binding QuestAcceptGrants}"
+                                                  SelectedItem="{Binding SelectedQuestAcceptGrant}"
+                                                  AutoGenerateColumns="False" CanUserAddRows="False"
+                                                  HeadersVisibility="Column" MinHeight="60" MaxHeight="120" Margin="0,0,0,12">
+                                            <DataGrid.Columns>
+                                                <DataGridTemplateColumn Header="Item ID" Width="*">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <TextBox Text="{Binding ItemTemplateId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     BorderThickness="0" Background="Transparent"
+                                                                     VerticalAlignment="Center" Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="Qty" Width="50">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <TextBox Text="{Binding Quantity, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     BorderThickness="0" Background="Transparent"
+                                                                     VerticalAlignment="Center" Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="" Width="60">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <Button Content="X" Padding="6,0" Height="24"
+                                                                    Command="{Binding DataContext.RemoveQuestAcceptGrantCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    CommandParameter="{Binding}"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+
+                                        <DockPanel Margin="0,0,0,6">
+                                            <TextBlock Text="Itens para iniciar" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                            <Button DockPanel.Dock="Right" Content="+ Req" Command="{Binding AddQuestStartRequirementCommand}"
+                                                    Style="{StaticResource MaterialDesignOutlinedButton}" Height="28" Padding="8,0"/>
+                                        </DockPanel>
+                                        <DataGrid ItemsSource="{Binding QuestStartRequirements}"
+                                                  SelectedItem="{Binding SelectedQuestStartRequirement}"
+                                                  AutoGenerateColumns="False" CanUserAddRows="False"
+                                                  HeadersVisibility="Column" MinHeight="60" MaxHeight="120" Margin="0,0,0,12">
+                                            <DataGrid.Columns>
+                                                <DataGridTemplateColumn Header="Item ID" Width="*">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <TextBox Text="{Binding ItemTemplateId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     BorderThickness="0" Background="Transparent"
+                                                                     VerticalAlignment="Center" Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="Qty" Width="50">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <TextBox Text="{Binding Quantity, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     BorderThickness="0" Background="Transparent"
+                                                                     VerticalAlignment="Center" Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="" Width="60">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <Button Content="X" Padding="6,0" Height="24"
+                                                                    Command="{Binding DataContext.RemoveQuestStartRequirementCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                     CommandParameter="{Binding}"/>
                                                         </DataTemplate>
                                                     </DataGridTemplateColumn.CellTemplate>

@@ -83,6 +83,11 @@
     "max_inventory_slots": 50
   },
 
+  "party": {
+    "share_radius_uu": 5000
+  },
+
+
   "admin": {
     "enabled": true,
     "shared_secret": "umbra_dev_admin_secret_change_in_production",

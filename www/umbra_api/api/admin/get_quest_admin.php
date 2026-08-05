@@ -69,6 +69,26 @@ try {
     $rew->execute([':id' => $questId]);
     $rewards = $rew->fetchAll(PDO::FETCH_ASSOC);
 
+    $grants = $pdo->prepare(
+        'SELECT g.grant_id, g.quest_id, g.item_template_id, g.quantity, g.sort_order,
+                COALESCE(it.item_name, \'\') AS item_name
+         FROM quest_accept_grants g
+         LEFT JOIN item_templates it ON it.item_id = g.item_template_id
+         WHERE g.quest_id = :id
+         ORDER BY g.sort_order ASC, g.grant_id ASC'
+    );
+    $grants->execute([':id' => $questId]);
+
+    $reqs = $pdo->prepare(
+        'SELECT r.requirement_id, r.quest_id, r.item_template_id, r.quantity, r.sort_order,
+                COALESCE(it.item_name, \'\') AS item_name
+         FROM quest_start_requirements r
+         LEFT JOIN item_templates it ON it.item_id = r.item_template_id
+         WHERE r.quest_id = :id
+         ORDER BY r.sort_order ASC, r.requirement_id ASC'
+    );
+    $reqs->execute([':id' => $questId]);
+
     $offers = $pdo->prepare(
         'SELECT offer_id, npc_template_id, quest_id, sort_order, is_quest_giver
          FROM npc_quest_offers WHERE quest_id = :id ORDER BY sort_order ASC'
@@ -80,6 +100,8 @@ try {
         'quest' => $quest,
         'objectives' => $objectives,
         'rewards' => $rewards,
+        'accept_grants' => $grants->fetchAll(PDO::FETCH_ASSOC),
+        'start_requirements' => $reqs->fetchAll(PDO::FETCH_ASSOC),
         'offers' => $offers->fetchAll(PDO::FETCH_ASSOC),
     ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
