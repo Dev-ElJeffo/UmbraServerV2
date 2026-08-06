@@ -21,6 +21,9 @@ public sealed class AppConfig
     public bool AutoRestartOnCrash { get; private set; }
     public List<int> ZoneInstances { get; private set; } = [0];
     public string AdminUsername { get; set; } = "";
+    public string AdminPassword { get; set; } = "";
+    public string AdminToken { get; set; } = "";
+    public string AdminRole { get; set; } = "super";
 
     private JsonDocument? _serverJson;
 

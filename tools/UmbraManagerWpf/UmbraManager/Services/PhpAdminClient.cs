@@ -9,20 +9,25 @@ public sealed class PhpAdminClient
     private readonly HttpClient _http = new();
     private string _baseUrl = "";
     private string _adminUsername = "";
+    private string _adminToken = "";
 
-    public void Configure(string baseUrl, string adminUsername)
+    public void Configure(string baseUrl, string adminUsername, string? adminToken = null)
     {
         _baseUrl = baseUrl.TrimEnd('/');
         _adminUsername = adminUsername;
+        _adminToken = adminToken ?? "";
     }
 
-    public async Task<(bool Ok, string Error, JsonDocument? Data)> VerifyAdminAsync(CancellationToken ct = default)
+    public void SetToken(string token) => _adminToken = token ?? "";
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> VerifyAdminAsync(string? password = null, CancellationToken ct = default)
     {
-        // Endpoint leve dedicado ao login (verify_admin.php é apenas helper PHP)
-        var result = await PostAsync("/admin/verify_admin_login.php", new { admin_username = _adminUsername }, ct);
+        object body = string.IsNullOrEmpty(password)
+            ? new { admin_username = _adminUsername }
+            : new { admin_username = _adminUsername, password };
+        var result = await PostAsync("/admin/verify_admin_login.php", body, ct);
         if (result.Ok) return result;
 
-        // Fallback: WAMP antigo sem verify_admin_login.php — list_accounts também chama verifyAdmin()
         if (result.Error.Contains("404", StringComparison.OrdinalIgnoreCase)
             || result.Error.Contains("HTML", StringComparison.OrdinalIgnoreCase))
         {
@@ -220,6 +225,24 @@ public sealed class PhpAdminClient
     public async Task<(bool Ok, string Error, JsonDocument? Data)> GetRefinementConfigAsync(CancellationToken ct = default) =>
         await PostAsync("/admin/get_refinement_config.php", new { admin_username = _adminUsername }, ct);
 
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpsertRefinementConfigAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/upsert_refinement_config.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> GetGameRatesAsync(CancellationToken ct = default) =>
+        await PostAsync("/admin/get_game_rates.php", new { admin_username = _adminUsername }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> SetGameRatesAsync(double expMultiplier, double dropMultiplier, CancellationToken ct = default) =>
+        await PostAsync("/admin/set_game_rates.php", new
+        {
+            admin_username = _adminUsername,
+            exp_multiplier = expMultiplier,
+            drop_multiplier = dropMultiplier,
+        }, ct);
+
     public async Task<(bool Ok, string Error, JsonDocument? Data)> GetPlayerInspectorAsync(int playerId, CancellationToken ct = default) =>
         await PostAsync("/admin/player_inspector.php", new { admin_username = _adminUsername, player_id = playerId }, ct);
 
@@ -231,7 +254,12 @@ public sealed class PhpAdminClient
         var url = _baseUrl + path;
         try
         {
-            var resp = await _http.PostAsJsonAsync(url, body, ct);
+            using var req = new HttpRequestMessage(HttpMethod.Post, url);
+            req.Content = JsonContent.Create(body);
+            if (!string.IsNullOrWhiteSpace(_adminToken))
+                req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + _adminToken);
+
+            var resp = await _http.SendAsync(req, ct);
             var text = (await resp.Content.ReadAsStringAsync(ct)).TrimStart();
 
             if (text.Length == 0)

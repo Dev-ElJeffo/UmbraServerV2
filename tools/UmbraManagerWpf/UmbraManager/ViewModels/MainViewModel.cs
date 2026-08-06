@@ -26,6 +26,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<ZoneInfo> Zones { get; } = new();
     public ObservableCollection<PlayerInfo> Players { get; } = new();
     public ObservableCollection<string> GmOutput { get; } = new();
+    [ObservableProperty] private string _gmOutputText = "";
     public ObservableCollection<string> AllLogs { get; } = new();
     public ObservableCollection<ScheduledTaskItem> ScheduledTasks { get; } = new();
     public ObservableCollection<ISeries> CpuChartSeries { get; } = new();
@@ -36,15 +37,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<NpcInstanceRow> NpcInstances { get; } = new();
     public ObservableCollection<LogTabViewModel> LogTabs { get; } = new();
 
-    public static readonly string[] GmKnownCommands =
-    [
-        "ping", "stats", "players", "kick_player", "teleport", "broadcast",
-        "reload_config", "shutdown", "set_log_level", "zone_info", "force_save_positions",
-        "spawn_npc_instance", "reload_npc_instances", "list_npcs",
-        "sessions_count", "clients", "kick_client", "auth_pool_status",
-        "time_info", "events", "channels", "recent_messages", "despawn_npc_instance",
-        "move_npc_instance"
-    ];
+    [ObservableProperty] private PlayerInfo? _selectedPlayer;
+    [ObservableProperty] private string _auditFilter = "";
+    public ObservableCollection<AuditLogRow> AuditLogs { get; } = new();
+
+    [ObservableProperty] private Visibility _tabVisibilityOps = Visibility.Visible;
+    [ObservableProperty] private Visibility _tabVisibilityContent = Visibility.Visible;
+    [ObservableProperty] private Visibility _tabVisibilitySuper = Visibility.Visible;
 
     [ObservableProperty] private string _statusText = "Pronto";
     [ObservableProperty] private int _totalPlayers;
@@ -258,46 +257,68 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public IReadOnlyList<ServiceDefinition> Definitions { get; }
 
     public MainViewModel()
+        : this(
+            AppConfig.Instance,
+            new AdminChannelHub(AppConfig.Instance.AdminSecret),
+            new ProcessManagerService(AppConfig.Instance.BuildDirectory),
+            new LogTailerService(),
+            new MetricsStore(),
+            new AuditLogService(),
+            new SchedulerService(),
+            new PhpAdminClient())
     {
-        AppConfig.Instance.Load();
-        Definitions = AppConfig.Instance.GetServiceDefinitions().ToList();
+    }
+
+    public MainViewModel(
+        AppConfig config,
+        AdminChannelHub adminHub,
+        ProcessManagerService processManager,
+        LogTailerService logTailer,
+        MetricsStore metrics,
+        AuditLogService audit,
+        SchedulerService scheduler,
+        PhpAdminClient php)
+    {
+        if (string.IsNullOrEmpty(config.ManagerConfigPath))
+            config.Load();
+        Definitions = config.GetServiceDefinitions().ToList();
 
         if (Definitions.Count == 0)
         {
-            var msg = string.IsNullOrEmpty(AppConfig.Instance.ManagerConfigPath)
+            var msg = string.IsNullOrEmpty(config.ManagerConfigPath)
                 ? "Nenhum config/manager.json encontrado.\n\nProcurado a partir de:\n" +
                   AppContext.BaseDirectory +
                   "\n\nCopie config/manager.json (ou .example) para uma das pastas pai, ou para a pasta do exe."
-                : $"manager.json carregado: {AppConfig.Instance.ManagerConfigPath}\n" +
-                  $"server.json: {AppConfig.Instance.AbsolutePath(AppConfig.Instance.ConfigPath)}\n\n" +
+                : $"manager.json carregado: {config.ManagerConfigPath}\n" +
+                  $"server.json: {config.AbsolutePath(config.ConfigPath)}\n\n" +
                   "Mas nenhum serviço foi reconhecido. Verifique se server.json contém os blocos auth/world/zone/chat/gateway.";
             StatusText = "Sem serviços — abra o Config para mais detalhes.";
             ConfigStatus = msg;
         }
         else
         {
-            StatusText = $"Carregado: {AppConfig.Instance.ManagerConfigPath}";
+            StatusText = $"Carregado: {config.ManagerConfigPath}";
         }
 
-        AdminHub = new AdminChannelHub(AppConfig.Instance.AdminSecret);
-        ProcessManager = new ProcessManagerService(AppConfig.Instance.BuildDirectory);
-        LogTailer = new LogTailerService();
-        Metrics = new MetricsStore();
-        Audit = new AuditLogService();
-        Scheduler = new SchedulerService();
-        Php = new PhpAdminClient();
-        Php.Configure(AppConfig.Instance.PhpApiBase, AppConfig.Instance.AdminUsername);
+        AdminHub = adminHub;
+        ProcessManager = processManager;
+        LogTailer = logTailer;
+        Metrics = metrics;
+        Audit = audit;
+        Scheduler = scheduler;
+        Php = php;
+        Php.Configure(config.PhpApiBase, config.AdminUsername, config.AdminToken);
 
         foreach (var def in Definitions)
         {
-            Servers.Add(new ServerRow { Definition = def, AutoRestart = AppConfig.Instance.AutoRestartOnCrash });
+            Servers.Add(new ServerRow { Definition = def, AutoRestart = config.AutoRestartOnCrash });
             LogLines[def.Id] = new ObservableCollection<string>();
             LogTabs.Add(new LogTabViewModel { ServiceId = def.Id, DisplayName = def.DisplayName });
             DashboardCards.Add(new DashboardCard { ServiceId = def.Id, DisplayName = def.DisplayName });
             var logCandidates = new[]
             {
-                Path.Combine(AppConfig.Instance.BuildDirectory, "logs", def.LogFile),
-                Path.Combine(AppConfig.Instance.AbsolutePath(AppConfig.Instance.LogDir), def.LogFile),
+                Path.Combine(config.BuildDirectory, "logs", def.LogFile),
+                Path.Combine(config.AbsolutePath(config.LogDir), def.LogFile),
             };
             var logPath = logCandidates.FirstOrDefault(File.Exists) ?? logCandidates[0];
             LogTailer.WatchLog(def.Id, logPath);
@@ -372,6 +393,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         await RefreshNpcInstancesAsync();
         await RefreshExpZonesAsync();
         await RefreshRefinementConfigsAsync();
+        await RefreshGameRatesAsync();
         await RefreshProjectStateAsync();
     }
 
@@ -421,7 +443,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
             // Resposta de comando enviado pelo GM Console: mostra o JSON
             _lastUserCmd.Remove((serviceId, cmd));
             AppendGm($"[{serviceId}] {cmd} OK:");
-            AppendGm(PrettyJson(data));
+            var pretty = PrettyJson(data);
+            if (pretty.Length > 12000)
+                pretty = pretty[..12000] + $"\n… (truncado, total {pretty.Length} chars — use Copiar se necessário)";
+            AppendGm(pretty);
         });
     }
 
@@ -707,6 +732,33 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         GmOutput.Add(line);
         while (GmOutput.Count > 2000) GmOutput.RemoveAt(0);
+        // Mantém buffer + texto unificado para TextBox selecionável
+        const int maxChars = 200_000;
+        var next = string.IsNullOrEmpty(GmOutputText) ? line : GmOutputText + "\n" + line;
+        if (next.Length > maxChars)
+            next = next[(next.Length - maxChars)..];
+        GmOutputText = next;
+    }
+
+    [RelayCommand]
+    private void ClearGmOutput()
+    {
+        GmOutput.Clear();
+        GmOutputText = "";
+    }
+
+    [RelayCommand]
+    private void CopyGmOutput()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(GmOutputText))
+                Clipboard.SetText(GmOutputText);
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Copiar GM: {ex.Message}";
+        }
     }
 
     private void UpdateCpuChart(string serviceId, double cpu)
@@ -2008,8 +2060,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             .Where(c => c.AppliesTo(SelectedGmService))
             .Select(c => c.Name)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault(c => c.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            ?? GmKnownCommands.FirstOrDefault(c => c.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(c => c.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
         if (match != null) GmInput = match + (parts.Length > 1 ? " " + string.Join(' ', parts.Skip(1)) : " ");
     }
 

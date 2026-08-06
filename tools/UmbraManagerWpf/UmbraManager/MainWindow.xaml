@@ -1,8 +1,9 @@
-﻿<Window x:Class="UmbraManager.MainWindow"
+<Window x:Class="UmbraManager.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
+        xmlns:views="clr-namespace:UmbraManager.Views"
         Title="UmbraManager — UmbraEternum"
         Height="800" Width="1280"
         Background="{DynamicResource MaterialDesign.Brush.Background}">
@@ -19,28 +20,28 @@
                         <!-- Linha de KPIs no topo -->
                         <UniformGrid Columns="4" Margin="0,0,0,16">
                             <Border Margin="0,0,8,0" Padding="14,10" CornerRadius="6"
-                                    Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
+                                    Background="#FF252526">
                                 <StackPanel>
                                     <TextBlock Text="Players online" FontSize="11" Opacity="0.7"/>
                                     <TextBlock Text="{Binding TotalPlayers}" FontSize="28" FontWeight="Bold"/>
                                 </StackPanel>
                             </Border>
                             <Border Margin="4,0,4,0" Padding="14,10" CornerRadius="6"
-                                    Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
+                                    Background="#FF252526">
                                 <StackPanel>
                                     <TextBlock Text="Zones ativas" FontSize="11" Opacity="0.7"/>
                                     <TextBlock Text="{Binding ActiveZones}" FontSize="28" FontWeight="Bold"/>
                                 </StackPanel>
                             </Border>
                             <Border Margin="4,0,4,0" Padding="14,10" CornerRadius="6"
-                                    Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
+                                    Background="#FF252526">
                                 <StackPanel>
                                     <TextBlock Text="Serviços online" FontSize="11" Opacity="0.7"/>
                                     <TextBlock Text="{Binding OnlineServiceCount}" FontSize="28" FontWeight="Bold"/>
                                 </StackPanel>
                             </Border>
                             <Border Margin="8,0,0,0" Padding="14,10" CornerRadius="6"
-                                    Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
+                                    Background="#FF252526">
                                 <StackPanel>
                                     <TextBlock Text="Admin conectados" FontSize="11" Opacity="0.7"/>
                                     <TextBlock Text="{Binding AdminConnectedSummary}" FontSize="28" FontWeight="Bold"/>
@@ -50,7 +51,7 @@
 
                         <!-- Gráfico CPU -->
                         <Border Padding="10" CornerRadius="6"
-                                Background="{DynamicResource MaterialDesign.Brush.Card.Background}"
+                                Background="#FF252526"
                                 Margin="0,0,0,16">
                             <StackPanel>
                                 <TextBlock Text="CPU últimos minutos" FontWeight="SemiBold" Margin="0,0,0,6"/>
@@ -65,7 +66,7 @@
                                 <DataTemplate>
                                     <Border Margin="0,0,10,10" Padding="12" CornerRadius="6"
                                             Width="320" BorderThickness="2"
-                                            Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
+                                            Background="#FF252526">
                                         <Border.Style>
                                             <Style TargetType="Border">
                                                 <Setter Property="BorderBrush" Value="#444"/>
@@ -183,8 +184,7 @@
                             </ItemsControl.ItemsPanel>
                         </ItemsControl>
 
-                        <Border Padding="12" CornerRadius="6" Margin="0,8,0,0"
-                                Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
+                        <Border Style="{StaticResource ManagerEditorCard}" Margin="0,8,0,0">
                             <StackPanel>
                                 <DockPanel Margin="0,0,0,8">
                                     <TextBlock Text="Panorama do projeto" FontWeight="SemiBold"/>
@@ -210,14 +210,13 @@
             </TabItem>
 
             <!-- Servers -->
-            <TabItem Header="Servers">
+            <TabItem Header="Servers" Visibility="{Binding TabVisibilityOps}">
                 <DockPanel Margin="8">
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                        <Button Content="Start All" Command="{Binding StartAllCommand}" Margin="0,0,8,0" Style="{StaticResource MaterialDesignRaisedButton}"/>
-                        <Button Content="Stop All" Command="{Binding StopAllCommand}" Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                        <Button Content="Start All" Command="{Binding StartAllCommand}" Margin="0,0,8,0" Style="{StaticResource ManagerActionButton}"/>
+                        <Button Content="Stop All" Command="{Binding StopAllCommand}" Style="{StaticResource ManagerActionOutlinedButton}"/>
                     </StackPanel>
-                    <DataGrid ItemsSource="{Binding Servers}" AutoGenerateColumns="False" IsReadOnly="True"
-                              RowHeight="36">
+                    <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding Servers}" IsReadOnly="True">
                         <DataGrid.Columns>
                             <DataGridTemplateColumn Header="" Width="30">
                                 <DataGridTemplateColumn.CellTemplate>
@@ -249,15 +248,13 @@
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                            <Button Content="Start" Margin="2" Padding="8,3" Height="28"
+                                            <Button Content="Start" Style="{StaticResource ManagerActionButton}"
                                                     Command="{Binding DataContext.StartServiceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}"/>
-                                            <Button Content="Stop" Margin="2" Padding="8,3" Height="28"
-                                                    Style="{StaticResource MaterialDesignOutlinedButton}"
+                                            <Button Content="Stop" Style="{StaticResource ManagerActionOutlinedButton}"
                                                     Command="{Binding DataContext.StopServiceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}"/>
-                                            <Button Content="Restart" Margin="2" Padding="8,3" Height="28"
-                                                    Style="{StaticResource MaterialDesignOutlinedButton}"
+                                            <Button Content="Restart" Style="{StaticResource ManagerActionOutlinedButton}"
                                                     Command="{Binding DataContext.RestartServiceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}"/>
                                         </StackPanel>
@@ -270,8 +267,8 @@
             </TabItem>
 
             <!-- Zones -->
-            <TabItem Header="Zones">
-                <DataGrid ItemsSource="{Binding Zones}" AutoGenerateColumns="False" IsReadOnly="True" Margin="8">
+            <TabItem Header="Zones" Visibility="{Binding TabVisibilityOps}">
+                <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding Zones}" IsReadOnly="True" Margin="8">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Zone ID" Binding="{Binding ZoneId}"/>
                         <DataGridTextColumn Header="Nome" Binding="{Binding ZoneName}"/>
@@ -284,45 +281,78 @@
             </TabItem>
 
             <!-- Players -->
-            <TabItem Header="Players">
-                <DataGrid ItemsSource="{Binding Players}" AutoGenerateColumns="False" IsReadOnly="True" Margin="8">
-                    <DataGrid.ContextMenu>
-                        <ContextMenu>
-                            <MenuItem Header="Kick"
-                                      Command="{Binding PlacementTarget.DataContext.KickPlayerCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                      CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
-                            <MenuItem Header="Teleport"
-                                      Command="{Binding PlacementTarget.DataContext.TeleportPlayerCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                      CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
-                            <MenuItem Header="Broadcast"
-                                      Command="{Binding PlacementTarget.DataContext.BroadcastToZoneCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                      CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
-                        </ContextMenu>
-                    </DataGrid.ContextMenu>
-                    <DataGrid.Columns>
-                        <DataGridTextColumn Header="ID" Binding="{Binding PlayerId}"/>
-                        <DataGridTextColumn Header="Nome" Binding="{Binding Name}"/>
-                        <DataGridTextColumn Header="Zone" Binding="{Binding ZoneService}"/>
-                        <DataGridTextColumn Header="X" Binding="{Binding X, StringFormat=F1}"/>
-                        <DataGridTextColumn Header="Y" Binding="{Binding Y, StringFormat=F1}"/>
-                        <DataGridTextColumn Header="Z" Binding="{Binding Z, StringFormat=F1}"/>
-                        <DataGridCheckBoxColumn Header="Morto" Binding="{Binding IsDead}"/>
-                    </DataGrid.Columns>
-                </DataGrid>
+            <TabItem Header="Players" Visibility="{Binding TabVisibilityOps}">
+                <DockPanel Margin="8">
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <TextBlock Text="{Binding Players.Count, StringFormat={}{0} online}"
+                                   VerticalAlignment="Center" Margin="0,0,12,0" Opacity="0.8"/>
+                        <Button Content="Kick" Style="{StaticResource ManagerActionButton}"
+                                Command="{Binding KickPlayerCommand}" CommandParameter="{Binding SelectedPlayer}"/>
+                        <Button Content="Teleport" Style="{StaticResource ManagerActionOutlinedButton}"
+                                Command="{Binding TeleportPlayerCommand}" CommandParameter="{Binding SelectedPlayer}"/>
+                        <Button Content="Broadcast" Style="{StaticResource ManagerActionOutlinedButton}"
+                                Command="{Binding BroadcastToZoneCommand}" CommandParameter="{Binding SelectedPlayer}"/>
+                    </WrapPanel>
+                    <DataGrid Style="{StaticResource ManagerDataGrid}"
+                              ItemsSource="{Binding Players}"
+                              SelectedItem="{Binding SelectedPlayer}"
+                              IsReadOnly="True">
+                        <DataGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Kick"
+                                          Command="{Binding PlacementTarget.DataContext.KickPlayerCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="Teleport"
+                                          Command="{Binding PlacementTarget.DataContext.TeleportPlayerCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="Broadcast"
+                                          Command="{Binding PlacementTarget.DataContext.BroadcastToZoneCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="ID" Binding="{Binding PlayerId}" Width="70"/>
+                            <DataGridTextColumn Header="Nome" Binding="{Binding Name}" Width="*"/>
+                            <DataGridTextColumn Header="Zone" Binding="{Binding ZoneService}" Width="120"/>
+                            <DataGridTextColumn Header="X" Binding="{Binding X, StringFormat=F1}" Width="80"/>
+                            <DataGridTextColumn Header="Y" Binding="{Binding Y, StringFormat=F1}" Width="80"/>
+                            <DataGridTextColumn Header="Z" Binding="{Binding Z, StringFormat=F1}" Width="80"/>
+                            <DataGridCheckBoxColumn Header="Morto" Binding="{Binding IsDead}" Width="60"/>
+                            <DataGridTemplateColumn Header="Ações" Width="280" MinWidth="260">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button Content="Kick" Style="{StaticResource ManagerActionButton}"
+                                                    Command="{Binding DataContext.KickPlayerCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"/>
+                                            <Button Content="Teleport" Style="{StaticResource ManagerActionOutlinedButton}"
+                                                    Command="{Binding DataContext.TeleportPlayerCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"/>
+                                            <Button Content="Broadcast" Style="{StaticResource ManagerActionOutlinedButton}"
+                                                    Command="{Binding DataContext.BroadcastToZoneCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
             </TabItem>
 
             <!-- Logs -->
-            <TabItem Header="Logs">
+            <TabItem Header="Logs" Visibility="{Binding TabVisibilityOps}">
                 <DockPanel Margin="8">
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                        <ComboBox Width="120" Margin="0,0,8,0"
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <ComboBox Width="120" Margin="0,0,8,4"
                                   Text="{Binding LogFilter, UpdateSourceTrigger=PropertyChanged}"
                                   materialDesign:HintAssist.Hint="Nível (ALL/DEBUG...)"/>
-                        <TextBox Width="200" Margin="0,0,8,0"
+                        <TextBox Width="200" Margin="0,0,8,4"
                                  Text="{Binding LogSearch, UpdateSourceTrigger=PropertyChanged}"
                                  materialDesign:HintAssist.Hint="Buscar texto"/>
-                        <Button Content="Exportar tudo" Command="{Binding ExportLogsCommand}" CommandParameter="{x:Null}" Margin="0,0,8,0"/>
-                    </StackPanel>
+                        <Button Content="Exportar tudo" Command="{Binding ExportLogsCommand}" CommandParameter="{x:Null}"
+                                Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,8,4"/>
+                    </WrapPanel>
                     <TabControl ItemsSource="{Binding LogTabs}">
                         <TabControl.ItemTemplate>
                             <DataTemplate>
@@ -346,11 +376,13 @@
             <!-- Accounts -->
             <TabItem Header="Accounts">
                 <DockPanel Margin="8">
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                        <Button Content="Atualizar" Command="{Binding RefreshAccountsCommand}" Margin="0,0,8,0"/>
-                        <TextBox Width="220" Text="{Binding BanReason}" materialDesign:HintAssist.Hint="Motivo do ban"/>
-                    </StackPanel>
-                    <DataGrid ItemsSource="{Binding Accounts}" AutoGenerateColumns="False" IsReadOnly="True">
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <Button Content="Atualizar" Command="{Binding RefreshAccountsCommand}"
+                                Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,8,4"/>
+                        <TextBox Width="220" Margin="0,0,8,4" Text="{Binding BanReason}"
+                                 materialDesign:HintAssist.Hint="Motivo do ban"/>
+                    </WrapPanel>
+                    <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding Accounts}" IsReadOnly="True">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="60"/>
                             <DataGridTextColumn Header="Username" Binding="{Binding Username}" Width="*"/>
@@ -362,10 +394,10 @@
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <StackPanel Orientation="Horizontal">
-                                            <Button Content="Ban" Margin="2" Padding="6,2"
+                                            <Button Content="Ban" Style="{StaticResource ManagerActionButton}"
                                                     Command="{Binding DataContext.BanAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}"/>
-                                            <Button Content="Unban" Margin="2" Padding="6,2"
+                                            <Button Content="Unban" Style="{StaticResource ManagerActionOutlinedButton}"
                                                     Command="{Binding DataContext.UnbanAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}"/>
                                         </StackPanel>
@@ -378,236 +410,12 @@
             </TabItem>
 
             <!-- Items -->
-            <TabItem Header="Items">
-                <Grid Margin="8">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" MinWidth="500"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="460"/>
-                    </Grid.ColumnDefinitions>
-
-                    <!-- Lista -->
-                    <DockPanel Grid.Column="0">
-                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                            <Button Content="Atualizar" Command="{Binding RefreshItemsCommand}" Margin="0,0,8,0"/>
-                            <Button Content="Novo item" Command="{Binding NewItemCommand}" Margin="0,0,8,0"
-                                    Style="{StaticResource MaterialDesignOutlinedButton}"/>
-                                <TextBox Width="200" Margin="0,0,8,0"
-                                         Text="{Binding ItemFilterText, UpdateSourceTrigger=PropertyChanged}"
-                                         materialDesign:HintAssist.Hint="Buscar nome/descrição"
-                                         materialDesign:HintAssist.IsFloating="True"/>
-                                <ComboBox Width="120" Margin="0,0,8,0"
-                                          ItemsSource="{Binding ItemTypes}"
-                                          SelectedValue="{Binding ItemFilterType}"
-                                          materialDesign:HintAssist.Hint="Tipo"
-                                          materialDesign:HintAssist.IsFloating="True"/>
-                                <ComboBox Width="120"
-                                          ItemsSource="{Binding ItemRarities}"
-                                          SelectedValue="{Binding ItemFilterRarity}"
-                                          materialDesign:HintAssist.Hint="Raridade"
-                                          materialDesign:HintAssist.IsFloating="True"/>
-                            <TextBlock Text="{Binding Items.Count, StringFormat={}{0} itens}"
-                                       VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0.7"/>
-                        </StackPanel>
-
-                        <DataGrid ItemsSource="{Binding Items}" AutoGenerateColumns="False" IsReadOnly="True"
-                                  HeadersVisibility="Column" RowHeight="34"
-                                  HorizontalScrollBarVisibility="Auto"
-                                  CanUserResizeColumns="True">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="55"/>
-                                <DataGridTextColumn Header="Nome" Binding="{Binding Name}" Width="220">
-                                    <DataGridTextColumn.ElementStyle>
-                                        <Style TargetType="TextBlock">
-                                            <Setter Property="FontWeight" Value="SemiBold"/>
-                                            <Setter Property="VerticalAlignment" Value="Center"/>
-                                        </Style>
-                                    </DataGridTextColumn.ElementStyle>
-                                </DataGridTextColumn>
-                                <DataGridTextColumn Header="Tipo" Binding="{Binding Type}" Width="90"/>
-                                <DataGridTextColumn Header="Subtipo" Binding="{Binding Subtype}" Width="90"/>
-                                <DataGridTextColumn Header="Slot" Binding="{Binding EquipmentSlot}" Width="90"/>
-                                <DataGridTextColumn Header="Raridade" Binding="{Binding Rarity}" Width="90"/>
-                                <DataGridTextColumn Header="Lv" Binding="{Binding RequiredLevel}" Width="50"/>
-                                <DataGridTextColumn Header="Stack" Binding="{Binding MaxStackSize}" Width="60"/>
-                                <DataGridTextColumn Header="Valor" Binding="{Binding Value}" Width="80"/>
-                                <DataGridCheckBoxColumn Header="Trade" Binding="{Binding Tradeable}" Width="55"/>
-                                <DataGridCheckBoxColumn Header="Refin" Binding="{Binding CanBeRefined}" Width="55"/>
-                                <DataGridTemplateColumn Header="Ações" Width="180" MinWidth="180">
-                                    <DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                                <Button Content="Editar" Padding="8,2" Margin="0,0,4,0" Height="26"
-                                                        Command="{Binding DataContext.EditItemCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                        CommandParameter="{Binding}"/>
-                                                <Button Content="Excluir" Padding="8,2" Height="26"
-                                                        Style="{StaticResource MaterialDesignOutlinedButton}"
-                                                        Command="{Binding DataContext.DeleteItemCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                        CommandParameter="{Binding}"/>
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </DataGridTemplateColumn.CellTemplate>
-                                </DataGridTemplateColumn>
-                            </DataGrid.Columns>
-                        </DataGrid>
-                    </DockPanel>
-
-                    <!-- Splitter -->
-                    <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
-                                  VerticalAlignment="Stretch" Background="Transparent"
-                                  ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
-
-                    <!-- Formulário criar/editar -->
-                    <Border Grid.Column="2" BorderBrush="Gray" BorderThickness="1" Padding="14" CornerRadius="4">
-                        <DockPanel>
-                            <!-- Cabeçalho -->
-                            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
-                                <TextBlock Text="{Binding ItemFormTitle}"
-                                           FontSize="16" FontWeight="Bold" Margin="0,0,0,4"/>
-                                <TextBlock Text="{Binding ItemFormSubtitle}"
-                                           FontSize="11" Opacity="0.7" TextWrapping="Wrap"/>
-                                <TextBlock Text="{Binding ItemDesignerSummary}"
-                                           FontFamily="Consolas" FontSize="11" Margin="0,6,0,0" Opacity="0.8"/>
-                            </StackPanel>
-
-                            <!-- Botões em baixo -->
-                            <Grid DockPanel.Dock="Bottom" Margin="0,12,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="8"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <Button Grid.Column="0" Content="Limpar" Command="{Binding NewItemCommand}"
-                                        Style="{StaticResource MaterialDesignOutlinedButton}"
-                                        HorizontalAlignment="Stretch" Height="36"/>
-                                <Button Grid.Column="2"
-                                        Content="{Binding ItemSaveButtonText}"
-                                        Command="{Binding CreateItemCommand}"
-                                        HorizontalAlignment="Stretch" Height="36"
-                                        Style="{StaticResource MaterialDesignRaisedButton}"/>
-                            </Grid>
-
-                            <!-- Form scrollável -->
-                            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
-                                <StackPanel>
-                                    <!-- Bloco básico -->
-                                    <TextBlock Text="Identificação" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
-                                    <TextBox Text="{Binding NewItemName, UpdateSourceTrigger=PropertyChanged}"
-                                             materialDesign:HintAssist.Hint="Nome (obrigatório)"
-                                             materialDesign:HintAssist.IsFloating="True"
-                                             Margin="0,0,0,10"/>
-                                    <TextBox Text="{Binding NewItemDescription, UpdateSourceTrigger=PropertyChanged}"
-                                             materialDesign:HintAssist.Hint="Descrição"
-                                             materialDesign:HintAssist.IsFloating="True"
-                                             AcceptsReturn="True" Height="64" TextWrapping="Wrap"
-                                             VerticalScrollBarVisibility="Auto" Margin="0,0,0,10"/>
-                                    <TextBox Text="{Binding NewItemIconPath, UpdateSourceTrigger=PropertyChanged}"
-                                             materialDesign:HintAssist.Hint="Icon path (ex: /Game/UI/Icons/Items/ICO_Sword)"
-                                             materialDesign:HintAssist.IsFloating="True"
-                                             Margin="0,0,0,16"/>
-
-                                    <!-- Bloco classificação -->
-                                    <TextBlock Text="Classificação" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
-                                    <Grid Margin="0,0,0,10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="8"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <ComboBox Grid.Column="0" ItemsSource="{Binding ItemTypes}"
-                                                  SelectedValue="{Binding NewItemType}"
-                                                  materialDesign:HintAssist.Hint="Tipo"
-                                                  materialDesign:HintAssist.IsFloating="True"/>
-                                        <ComboBox Grid.Column="2"
-                                                  IsEditable="True"
-                                                  ItemsSource="{Binding ItemSubtypes}"
-                                                  Text="{Binding NewItemSubtype, UpdateSourceTrigger=PropertyChanged}"
-                                                  materialDesign:HintAssist.Hint="Subtipo"
-                                                  materialDesign:HintAssist.IsFloating="True"/>
-                                    </Grid>
-                                    <Grid Margin="0,0,0,10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="8"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <ComboBox Grid.Column="0" ItemsSource="{Binding ItemRarities}"
-                                                  SelectedValue="{Binding NewItemRarity}"
-                                                  materialDesign:HintAssist.Hint="Raridade"
-                                                  materialDesign:HintAssist.IsFloating="True"/>
-                                        <ComboBox Grid.Column="2" ItemsSource="{Binding ItemCategories}"
-                                                  SelectedValue="{Binding NewItemCategory}"
-                                                  materialDesign:HintAssist.Hint="Categoria"
-                                                  materialDesign:HintAssist.IsFloating="True"/>
-                                    </Grid>
-                                    <ComboBox ItemsSource="{Binding ItemEquipmentSlots}"
-                                              SelectedValue="{Binding NewItemSlot}"
-                                              materialDesign:HintAssist.Hint="Slot equipamento"
-                                              materialDesign:HintAssist.IsFloating="True"
-                                              Margin="0,0,0,16"/>
-
-                                    <!-- Bloco numérico -->
-                                    <TextBlock Text="Atributos" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
-                                    <Grid Margin="0,0,0,10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="8"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBox Grid.Column="0"
-                                                 Text="{Binding NewItemRequiredLevel, UpdateSourceTrigger=PropertyChanged}"
-                                                 materialDesign:HintAssist.Hint="Nível requerido"
-                                                 materialDesign:HintAssist.IsFloating="True"/>
-                                        <TextBox Grid.Column="2"
-                                                 Text="{Binding NewItemMaxStack, UpdateSourceTrigger=PropertyChanged}"
-                                                 materialDesign:HintAssist.Hint="Stack máximo"
-                                                 materialDesign:HintAssist.IsFloating="True"/>
-                                    </Grid>
-                                    <Grid Margin="0,0,0,10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="8"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBox Grid.Column="0"
-                                                 Text="{Binding NewItemValue, UpdateSourceTrigger=PropertyChanged}"
-                                                 materialDesign:HintAssist.Hint="Valor (gold)"
-                                                 materialDesign:HintAssist.IsFloating="True"/>
-                                        <TextBox Grid.Column="2"
-                                                 Text="{Binding NewItemWeight, UpdateSourceTrigger=PropertyChanged}"
-                                                 materialDesign:HintAssist.Hint="Peso (kg)"
-                                                 materialDesign:HintAssist.IsFloating="True"/>
-                                    </Grid>
-                                    <TextBox Text="{Binding NewItemUseCooldownMs, UpdateSourceTrigger=PropertyChanged}"
-                                             materialDesign:HintAssist.Hint="Cooldown de uso (ms)"
-                                             materialDesign:HintAssist.IsFloating="True"
-                                             Margin="0,0,0,10"/>
-
-                                    <!-- Flags -->
-                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,16">
-                                        <CheckBox Content="Negociável" IsChecked="{Binding NewItemTradeable}" Margin="0,0,16,0"/>
-                                        <CheckBox Content="Refinável"  IsChecked="{Binding NewItemCanBeRefined}"/>
-                                    </StackPanel>
-
-                                    <!-- Stats JSON -->
-                                    <TextBlock Text="Stats (JSON)" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
-                                    <TextBox Text="{Binding NewItemStatsJson, UpdateSourceTrigger=PropertyChanged}"
-                                             FontFamily="Consolas" FontSize="11"
-                                             AcceptsReturn="True" TextWrapping="Wrap"
-                                             Height="140" VerticalScrollBarVisibility="Auto"
-                                             materialDesign:HintAssist.Hint="{}{&quot;strength&quot;:10,&quot;physical_attack&quot;:50}"
-                                             materialDesign:HintAssist.IsFloating="True"/>
-                                    <TextBlock FontSize="10" Opacity="0.6" TextWrapping="Wrap" Margin="0,4,0,0"
-                                               Text="Chaves aceitas: strength, dexterity, intelligence, vitality, physical_attack, magic_attack, physical_defense, magic_defense, accuracy, dodge, critical, resistance, double_attack_rate, double_attack_resistance, health_bonus, mana_bonus, movement"/>
-                                </StackPanel>
-                            </ScrollViewer>
-                        </DockPanel>
-                    </Border>
-                </Grid>
+            <TabItem Header="Items" Visibility="{Binding TabVisibilityContent}">
+                <views:ItemsEditorView/>
             </TabItem>
 
             <!-- NPCs -->
-            <TabItem Header="NPCs">
+            <TabItem Header="NPCs" Visibility="{Binding TabVisibilityContent}">
                 <TabControl Margin="4" SelectedIndex="{Binding NpcSubTabIndex, Mode=TwoWay}">
                     <!-- Templates -->
                     <TabItem Header="Templates">
@@ -619,29 +427,26 @@
                             </Grid.ColumnDefinitions>
 
                             <DockPanel Grid.Column="0">
-                                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                                    <Button Content="Atualizar" Command="{Binding RefreshNpcTemplatesCommand}" Margin="0,0,8,0"/>
-                                    <Button Content="Novo template" Command="{Binding NewNpcTemplateCommand}" Margin="0,0,8,0"
-                                            Style="{StaticResource MaterialDesignOutlinedButton}"/>
-                                    <Button Content="Loot deste mob" Command="{Binding OpenNpcLootForSelectedTemplateCommand}" Margin="0,0,8,0"
-                                            Style="{StaticResource MaterialDesignOutlinedButton}"
+                                <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                                    <Button Content="Atualizar" Command="{Binding RefreshNpcTemplatesCommand}"
+                                            Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,8,4"/>
+                                    <Button Content="Novo template" Command="{Binding NewNpcTemplateCommand}"
+                                            Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,8,4"/>
+                                    <Button Content="Loot deste mob" Command="{Binding OpenNpcLootForSelectedTemplateCommand}"
+                                            Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,8,4"
                                             ToolTip="Abre/carrega a tabela de loot do template selecionado"/>
-                                    <Button Content="Vendor (venda)" Command="{Binding OpenVendorStockForSelectedTemplateCommand}" Margin="0,0,8,0"
-                                            Style="{StaticResource MaterialDesignOutlinedButton}"
+                                    <Button Content="Vendor (venda)" Command="{Binding OpenVendorStockForSelectedTemplateCommand}"
+                                            Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,8,4"
                                             ToolTip="Abre a aba de estoque de venda do template selecionado"/>
-                                    <Button Content="Quests do NPC" Command="{Binding OpenNpcQuestsForSelectedTemplateCommand}" Margin="0,0,8,0"
-                                            Style="{StaticResource MaterialDesignOutlinedButton}"
+                                    <Button Content="Quests do NPC" Command="{Binding OpenNpcQuestsForSelectedTemplateCommand}"
+                                            Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,8,4"
                                             ToolTip="Abre a aba de quests do template selecionado"/>
                                     <TextBlock Text="{Binding NpcTemplates.Count, StringFormat={}{0} templates}"
-                                               VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0.7"/>
-                                </StackPanel>
+                                               VerticalAlignment="Center" Margin="8,0,0,4" Opacity="0.7"/>
+                                </WrapPanel>
 
-                                <DataGrid ItemsSource="{Binding NpcTemplates}"
-                                          SelectedItem="{Binding SelectedNpcTemplate}"
-                                          AutoGenerateColumns="False" IsReadOnly="True"
-                                          HeadersVisibility="Column" RowHeight="34"
-                                          HorizontalScrollBarVisibility="Auto"
-                                          CanUserResizeColumns="True">
+                                <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding NpcTemplates}"
+                                          SelectedItem="{Binding SelectedNpcTemplate}" IsReadOnly="True">
                                     <DataGrid.Columns>
                                         <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="55">
                                             <DataGridTextColumn.ElementStyle>
@@ -668,7 +473,7 @@
                                         <DataGridTemplateColumn Header="Ações" Width="100" MinWidth="100">
                                             <DataGridTemplateColumn.CellTemplate>
                                                 <DataTemplate>
-                                                    <Button Content="Editar" Padding="8,2" Height="26"
+                                                    <Button Content="Editar" Style="{StaticResource ManagerActionButton}"
                                                             Command="{Binding DataContext.EditNpcTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                             CommandParameter="{Binding}"/>
                                                 </DataTemplate>
@@ -682,11 +487,10 @@
                                           VerticalAlignment="Stretch" Background="Transparent"
                                           ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
 
-                            <Border Grid.Column="2" BorderBrush="Gray" BorderThickness="1" Padding="14" CornerRadius="4">
+                            <Border Grid.Column="2" Style="{StaticResource ManagerEditorCard}">
                                 <DockPanel>
                                     <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
-                                        <TextBlock Text="{Binding NpcFormTitle}"
-                                                   FontSize="16" FontWeight="Bold" Margin="0,0,0,4"/>
+                                        <TextBlock Text="{Binding NpcFormTitle}" Style="{StaticResource ManagerEditorTitle}"/>
                                         <TextBlock FontSize="11" Opacity="0.7" TextWrapping="Wrap"
                                                    Text="Selecione um template na lista. Spawn grava em npc_instances e envia opcode 100 ao zone em execução (zone_N deve estar online)."/>
                                         <TextBlock Text="{Binding NpcDesignerSummary}"
@@ -729,7 +533,7 @@
                                                     Command="{Binding UpdateNpcInstancePositionCommand}"
                                                     HorizontalAlignment="Stretch" Height="36"
                                                     Style="{StaticResource MaterialDesignRaisedButton}"
-                                                    ToolTip="Move a INSTÂNCIA já existente (#ID). Não cria cópia nova."/>
+                                                    ToolTip="Move a INSTÃNCIA já existente (#ID). Não cria cópia nova."/>
                                         </Grid>
                                     </Grid>
 
@@ -1038,22 +842,22 @@
                     <!-- Instâncias no mundo -->
                     <TabItem Header="Instâncias no mundo">
                         <DockPanel Margin="8">
-                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                                <Button Content="Atualizar instâncias" Command="{Binding RefreshNpcInstancesCommand}" Margin="0,0,8,0"/>
-                                <Button Content="Duplicar em nova posição" Command="{Binding DuplicateNpcInstanceCommand}" Margin="0,0,8,0"
-                                        Style="{StaticResource MaterialDesignOutlinedButton}"
+                            <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                                <Button Content="Atualizar instâncias" Command="{Binding RefreshNpcInstancesCommand}"
+                                        Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,8,4"/>
+                                <Button Content="Duplicar em nova posição" Command="{Binding DuplicateNpcInstanceCommand}"
+                                        Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,8,4"
                                         ToolTip="Usa o template da instância selecionada e cria outra nas coords Zone/X/Y/Z do formulário Templates"/>
-                                <TextBox Width="80" Margin="0,0,8,0"
+                                <TextBox Width="80" Margin="0,0,8,4"
                                          Text="{Binding InstanceZoneFilter, UpdateSourceTrigger=PropertyChanged}"
                                          materialDesign:HintAssist.Hint="Filtro zone (0=todas)"
                                          materialDesign:HintAssist.IsFloating="True"/>
                                 <TextBlock Text="{Binding NpcInstances.Count, StringFormat={}{0} instância(s)}"
-                                           VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0.7"/>
-                            </StackPanel>
+                                           VerticalAlignment="Center" Margin="8,0,0,4" Opacity="0.7"/>
+                            </WrapPanel>
 
-                            <DataGrid ItemsSource="{Binding NpcInstances}"
-                                      SelectedItem="{Binding SelectedNpcInstance}"
-                                      AutoGenerateColumns="False" IsReadOnly="True">
+                            <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding NpcInstances}"
+                                      SelectedItem="{Binding SelectedNpcInstance}" IsReadOnly="True">
                                 <DataGrid.ContextMenu>
                                     <ContextMenu>
                                         <MenuItem Header="Preencher spawn / editar posição (aba Templates)"
@@ -1092,124 +896,7 @@
 
                     <!-- Loot do mob (template selecionado) -->
                     <TabItem Header="Loot do mob">
-                        <Grid Margin="8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" MinWidth="420"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="420"/>
-                            </Grid.ColumnDefinitions>
-
-                            <DockPanel Grid.Column="0">
-                                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-                                    <TextBlock Text="{Binding LootTargetLabel}" FontWeight="SemiBold" Margin="0,0,0,8" TextWrapping="Wrap"/>
-                                    <StackPanel Orientation="Horizontal">
-                                        <Button Content="Carregar loot" Command="{Binding RefreshNpcLootCommand}" Margin="0,0,8,0"/>
-                                        <Button Content="Usar template selecionado" Command="{Binding OpenNpcLootForSelectedTemplateCommand}" Margin="0,0,8,0"
-                                                Style="{StaticResource MaterialDesignOutlinedButton}"/>
-                                        <Button Content="Nova entrada" Command="{Binding NewNpcLootEntryCommand}" Margin="0,0,8,0"
-                                                Style="{StaticResource MaterialDesignOutlinedButton}"/>
-                                        <TextBlock Text="{Binding NpcLootEntries.Count, StringFormat={}{0} entradas}"
-                                                   VerticalAlignment="Center" Opacity="0.7"/>
-                                    </StackPanel>
-                                </StackPanel>
-
-                                <DataGrid ItemsSource="{Binding NpcLootEntries}" AutoGenerateColumns="False" IsReadOnly="True"
-                                          HeadersVisibility="Column" RowHeight="34">
-                                    <DataGrid.Columns>
-                                        <DataGridTextColumn Header="ID" Binding="{Binding LootEntryId}" Width="55"/>
-                                        <DataGridTextColumn Header="Tipo" Binding="{Binding EntryKindLabel}" Width="70"/>
-                                        <DataGridTextColumn Header="Item / Gold" Binding="{Binding ItemLabel}" Width="*"/>
-                                        <DataGridTextColumn Header="Chance" Binding="{Binding DropChanceLabel}" Width="80"/>
-                                        <DataGridTextColumn Header="Qtd" Binding="{Binding QuantityLabel}" Width="80"/>
-                                        <DataGridCheckBoxColumn Header="Ativo" Binding="{Binding Enabled}" Width="55"/>
-                                        <DataGridTextColumn Header="Ord" Binding="{Binding SortOrder}" Width="45"/>
-                                        <DataGridTemplateColumn Header="Ações" Width="150">
-                                            <DataGridTemplateColumn.CellTemplate>
-                                                <DataTemplate>
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <Button Content="Editar" Margin="2" Padding="8,2" Height="26"
-                                                                Command="{Binding DataContext.EditNpcLootEntryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                                CommandParameter="{Binding}"/>
-                                                        <Button Content="Excluir" Margin="2" Padding="8,2" Height="26"
-                                                                Style="{StaticResource MaterialDesignOutlinedButton}"
-                                                                Command="{Binding DataContext.DeleteNpcLootEntryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                                CommandParameter="{Binding}"/>
-                                                    </StackPanel>
-                                                </DataTemplate>
-                                            </DataGridTemplateColumn.CellTemplate>
-                                        </DataGridTemplateColumn>
-                                    </DataGrid.Columns>
-                                </DataGrid>
-                            </DockPanel>
-
-                            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
-                                          VerticalAlignment="Stretch" Background="Transparent"
-                                          ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
-
-                            <Border Grid.Column="2" BorderBrush="Gray" BorderThickness="1" Padding="14" CornerRadius="4">
-                                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding LootFormTitle}" FontSize="16" FontWeight="Bold" Margin="0,0,0,4"/>
-                                        <TextBlock FontSize="11" Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,12"
-                                                   Text="Adiciona drops ao template do mob (npc_loot_entries). Chance 0.25 = 25%."/>
-
-                                        <TextBlock Text="Tipo de drop" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
-                                        <ComboBox SelectedIndex="{Binding LootEntryKind, Mode=TwoWay}" Margin="0,0,0,12">
-                                            <ComboBoxItem Content="Item"/>
-                                            <ComboBoxItem Content="Gold"/>
-                                        </ComboBox>
-
-                                        <TextBlock Text="Escolher item" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
-                                        <ComboBox ItemsSource="{Binding Items}"
-                                                  DisplayMemberPath="Name"
-                                                  SelectedValuePath="Id"
-                                                  SelectedValue="{Binding LootItemTemplateId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                  IsEditable="True"
-                                                  StaysOpenOnEdit="True"
-                                                  IsTextSearchEnabled="True"
-                                                  Margin="0,0,0,8"
-                                                  materialDesign:HintAssist.Hint="Buscar item por nome"
-                                                  materialDesign:HintAssist.IsFloating="True"/>
-                                        <TextBox Text="{Binding LootItemTemplateId, UpdateSourceTrigger=PropertyChanged}"
-                                                 materialDesign:HintAssist.Hint="Item Template ID"
-                                                 materialDesign:HintAssist.IsFloating="True"
-                                                 Margin="0,0,0,12"/>
-
-                                        <TextBlock Text="Chance e quantidade" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
-                                        <TextBox Text="{Binding LootDropChance, UpdateSourceTrigger=PropertyChanged}"
-                                                 materialDesign:HintAssist.Hint="Chance (0 a 1)"
-                                                 materialDesign:HintAssist.IsFloating="True"
-                                                 Margin="0,0,0,8"/>
-                                        <Grid Margin="0,0,0,8">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="8"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBox Grid.Column="0" Text="{Binding LootMinQty, UpdateSourceTrigger=PropertyChanged}"
-                                                     materialDesign:HintAssist.Hint="Qtd mín."
-                                                     materialDesign:HintAssist.IsFloating="True"/>
-                                            <TextBox Grid.Column="2" Text="{Binding LootMaxQty, UpdateSourceTrigger=PropertyChanged}"
-                                                     materialDesign:HintAssist.Hint="Qtd máx."
-                                                     materialDesign:HintAssist.IsFloating="True"/>
-                                        </Grid>
-                                        <TextBox Text="{Binding LootSortOrder, UpdateSourceTrigger=PropertyChanged}"
-                                                 materialDesign:HintAssist.Hint="Ordem (sort)"
-                                                 materialDesign:HintAssist.IsFloating="True"
-                                                 Margin="0,0,0,8"/>
-                                        <CheckBox Content="Ativo" IsChecked="{Binding LootEnabled}" Margin="0,0,0,12"/>
-
-                                        <Button Content="Salvar loot" Command="{Binding SaveNpcLootEntryCommand}"
-                                                Height="36" Style="{StaticResource MaterialDesignRaisedButton}"
-                                                HorizontalAlignment="Stretch"/>
-                                        <Button Content="Limpar formulário" Command="{Binding NewNpcLootEntryCommand}"
-                                                Height="32" Margin="0,8,0,0"
-                                                Style="{StaticResource MaterialDesignOutlinedButton}"
-                                                HorizontalAlignment="Stretch"/>
-                                    </StackPanel>
-                                </ScrollViewer>
-                            </Border>
-                        </Grid>
+                        <views:NpcLootEditorView/>
                     </TabItem>
 
                     <!-- Vendor (venda) -->
@@ -1246,8 +933,7 @@
                                     </StackPanel>
                                 </StackPanel>
 
-                                <DataGrid ItemsSource="{Binding VendorStockEntries}" AutoGenerateColumns="False" IsReadOnly="True"
-                                          HeadersVisibility="Column" RowHeight="34">
+                                <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding VendorStockEntries}" IsReadOnly="True">
                                     <DataGrid.Columns>
                                         <DataGridTextColumn Header="ID" Binding="{Binding StockId}" Width="55"/>
                                         <DataGridTextColumn Header="Item" Binding="{Binding ItemLabel}" Width="*"/>
@@ -1279,10 +965,10 @@
                                           VerticalAlignment="Stretch" Background="Transparent"
                                           ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
 
-                            <Border Grid.Column="2" BorderBrush="Gray" BorderThickness="1" Padding="14" CornerRadius="4">
+                            <Border Grid.Column="2" Style="{StaticResource ManagerEditorCard}">
                                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                                     <StackPanel>
-                                        <TextBlock Text="{Binding VendorFormTitle}" FontSize="16" FontWeight="Bold" Margin="0,0,0,4"/>
+                                        <TextBlock Text="{Binding VendorFormTitle}" Style="{StaticResource ManagerEditorTitle}"/>
                                         <TextBlock FontSize="11" Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,12"
                                                    Text="Itens vendidos por este NPC (npc_vendor_stock). Qty -1 = estoque infinito."/>
 
@@ -1320,12 +1006,9 @@
                                         <CheckBox Content="Ativo" IsChecked="{Binding VendorStockIsActive}" Margin="0,0,0,12"/>
 
                                         <Button Content="Salvar estoque" Command="{Binding SaveVendorStockEntryCommand}"
-                                                Height="36" Style="{StaticResource MaterialDesignRaisedButton}"
-                                                HorizontalAlignment="Stretch"/>
+                                                Style="{StaticResource ManagerFormPrimaryButton}"/>
                                         <Button Content="Limpar formulário" Command="{Binding NewVendorStockEntryCommand}"
-                                                Height="32" Margin="0,8,0,0"
-                                                Style="{StaticResource MaterialDesignOutlinedButton}"
-                                                HorizontalAlignment="Stretch"/>
+                                                Margin="0,8,0,0" Style="{StaticResource ManagerFormSecondaryButton}"/>
                                     </StackPanel>
                                 </ScrollViewer>
                             </Border>
@@ -1355,8 +1038,7 @@
                                     </StackPanel>
                                 </StackPanel>
 
-                                <DataGrid ItemsSource="{Binding NpcQuestOffers}" AutoGenerateColumns="False" IsReadOnly="True"
-                                          HeadersVisibility="Column" RowHeight="34">
+                                <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding NpcQuestOffers}" IsReadOnly="True">
                                     <DataGrid.Columns>
                                         <DataGridTextColumn Header="Offer" Binding="{Binding OfferId}" Width="55"/>
                                         <DataGridTextColumn Header="Quest" Binding="{Binding QuestId}" Width="55"/>
@@ -1391,10 +1073,10 @@
                                           VerticalAlignment="Stretch" Background="Transparent"
                                           ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
 
-                            <Border Grid.Column="2" BorderBrush="Gray" BorderThickness="1" Padding="14" CornerRadius="4">
+                            <Border Grid.Column="2" Style="{StaticResource ManagerEditorCard}">
                                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                                     <StackPanel>
-                                        <TextBlock Text="{Binding QuestFormTitle}" FontSize="16" FontWeight="Bold" Margin="0,0,0,4"/>
+                                        <TextBlock Text="{Binding QuestFormTitle}" Style="{StaticResource ManagerEditorTitle}"/>
                                         <TextBlock FontSize="11" Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,12"
                                                    Text="Cria/edita quest + offer neste NPC. Objetivos: talk/kill/collect/deliver (+ JSON para reach_area)."/>
 
@@ -1447,10 +1129,8 @@
                                             <Button DockPanel.Dock="Right" Content="+ Objetivo" Command="{Binding AddQuestObjectiveCommand}"
                                                     Style="{StaticResource MaterialDesignOutlinedButton}" Height="28" Padding="8,0"/>
                                         </DockPanel>
-                                        <DataGrid ItemsSource="{Binding QuestObjectives}"
-                                                  SelectedItem="{Binding SelectedQuestObjective}"
-                                                  AutoGenerateColumns="False" CanUserAddRows="False"
-                                                  HeadersVisibility="Column" MinHeight="100" MaxHeight="180" Margin="0,0,0,8"
+                                        <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding QuestObjectives}"
+                                                  SelectedItem="{Binding SelectedQuestObjective}" CanUserAddRows="False" MinHeight="100" MaxHeight="180" Margin="0,0,0,8"
                                                   x:Name="QuestObjectivesGrid">
                                             <DataGrid.Columns>
                                                 <DataGridTemplateColumn Header="Tipo" Width="110">
@@ -1514,10 +1194,8 @@
                                             <Button DockPanel.Dock="Right" Content="+ Reward" Command="{Binding AddQuestRewardCommand}"
                                                     Style="{StaticResource MaterialDesignOutlinedButton}" Height="28" Padding="8,0"/>
                                         </DockPanel>
-                                        <DataGrid ItemsSource="{Binding QuestRewards}"
-                                                  SelectedItem="{Binding SelectedQuestReward}"
-                                                  AutoGenerateColumns="False" CanUserAddRows="False"
-                                                  HeadersVisibility="Column" MinHeight="80" MaxHeight="150" Margin="0,0,0,12">
+                                        <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding QuestRewards}"
+                                                  SelectedItem="{Binding SelectedQuestReward}" CanUserAddRows="False" MinHeight="80" MaxHeight="150" Margin="0,0,0,12">
                                             <DataGrid.Columns>
                                                 <DataGridTemplateColumn Header="Tipo" Width="110">
                                                     <DataGridTemplateColumn.CellTemplate>
@@ -1576,10 +1254,8 @@
                                             <Button DockPanel.Dock="Right" Content="+ Grant" Command="{Binding AddQuestAcceptGrantCommand}"
                                                     Style="{StaticResource MaterialDesignOutlinedButton}" Height="28" Padding="8,0"/>
                                         </DockPanel>
-                                        <DataGrid ItemsSource="{Binding QuestAcceptGrants}"
-                                                  SelectedItem="{Binding SelectedQuestAcceptGrant}"
-                                                  AutoGenerateColumns="False" CanUserAddRows="False"
-                                                  HeadersVisibility="Column" MinHeight="60" MaxHeight="120" Margin="0,0,0,12">
+                                        <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding QuestAcceptGrants}"
+                                                  SelectedItem="{Binding SelectedQuestAcceptGrant}" CanUserAddRows="False" MinHeight="60" MaxHeight="120" Margin="0,0,0,12">
                                             <DataGrid.Columns>
                                                 <DataGridTemplateColumn Header="Item ID" Width="*">
                                                     <DataGridTemplateColumn.CellTemplate>
@@ -1616,10 +1292,8 @@
                                             <Button DockPanel.Dock="Right" Content="+ Req" Command="{Binding AddQuestStartRequirementCommand}"
                                                     Style="{StaticResource MaterialDesignOutlinedButton}" Height="28" Padding="8,0"/>
                                         </DockPanel>
-                                        <DataGrid ItemsSource="{Binding QuestStartRequirements}"
-                                                  SelectedItem="{Binding SelectedQuestStartRequirement}"
-                                                  AutoGenerateColumns="False" CanUserAddRows="False"
-                                                  HeadersVisibility="Column" MinHeight="60" MaxHeight="120" Margin="0,0,0,12">
+                                        <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding QuestStartRequirements}"
+                                                  SelectedItem="{Binding SelectedQuestStartRequirement}" CanUserAddRows="False" MinHeight="60" MaxHeight="120" Margin="0,0,0,12">
                                             <DataGrid.Columns>
                                                 <DataGridTemplateColumn Header="Item ID" Width="*">
                                                     <DataGridTemplateColumn.CellTemplate>
@@ -1652,12 +1326,9 @@
                                         </DataGrid>
 
                                         <Button Content="Salvar quest" Command="{Binding SaveNpcQuestCommand}"
-                                                Height="36" Style="{StaticResource MaterialDesignRaisedButton}"
-                                                HorizontalAlignment="Stretch"/>
+                                                Style="{StaticResource ManagerFormPrimaryButton}"/>
                                         <Button Content="Limpar formulário" Command="{Binding NewNpcQuestCommand}"
-                                                Height="32" Margin="0,8,0,0"
-                                                Style="{StaticResource MaterialDesignOutlinedButton}"
-                                                HorizontalAlignment="Stretch"/>
+                                                Margin="0,8,0,0" Style="{StaticResource ManagerFormSecondaryButton}"/>
                                     </StackPanel>
                                 </ScrollViewer>
                             </Border>
@@ -1666,147 +1337,13 @@
                 </TabControl>
             </TabItem>
 
-            <TabItem Header="Admin Hub">
+            <TabItem Header="Admin Hub" Visibility="{Binding TabVisibilityContent}">
                 <TabControl Margin="4">
                     <TabItem Header="Player Inspector">
-                        <Grid Margin="8">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                                <TextBox Width="140" Margin="0,0,8,0"
-                                         Text="{Binding InspectPlayerId, UpdateSourceTrigger=PropertyChanged}"
-                                         materialDesign:HintAssist.Hint="Player ID"
-                                         materialDesign:HintAssist.IsFloating="True"/>
-                                <Button Content="Inspecionar" Command="{Binding InspectPlayerCommand}"/>
-                            </StackPanel>
-                            <Grid Grid.Row="1">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="360"/>
-                                    <ColumnDefinition Width="8"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <Border Grid.Column="0" Padding="12" CornerRadius="6"
-                                        Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding PlayerInspector.CharacterName}" FontSize="18" FontWeight="Bold"/>
-                                        <TextBlock Text="{Binding PlayerInspector.AccountName, StringFormat=Conta: {0}}" Margin="0,4,0,0"/>
-                                        <TextBlock Text="{Binding PlayerInspector.ClassName, StringFormat=Classe: {0}}" Margin="0,2,0,0"/>
-                                        <TextBlock Text="{Binding PlayerInspector.Level, StringFormat=Level: {0}}" Margin="0,2,0,0"/>
-                                        <TextBlock Text="{Binding PlayerInspector.ZoneId, StringFormat=Zone: {0}}" Margin="0,2,0,0"/>
-                                        <TextBlock Text="{Binding PlayerInspector.GuildName, StringFormat=Guild: {0}}" Margin="0,2,0,0"/>
-                                        <TextBlock Text="{Binding PlayerInspector.PartyLabel, StringFormat=Party: {0}}" Margin="0,2,0,0"/>
-                                        <TextBlock Text="{Binding PlayerInspector.Health, StringFormat=HP: {0}}" Margin="0,12,0,0"/>
-                                        <TextBlock Text="{Binding PlayerInspector.Mana, StringFormat=MP: {0}}" Margin="0,2,0,0"/>
-                                        <TextBlock Text="{Binding PlayerInspector.Gold, StringFormat=Gold: {0}}" Margin="0,2,0,0"/>
-                                        <TextBlock Text="{Binding PlayerInspector.InventoryCount, StringFormat=Inventário: {0}}" Margin="0,12,0,0"/>
-                                        <TextBlock Text="{Binding PlayerInspector.StorageCount, StringFormat=Storage: {0}}" Margin="0,2,0,0"/>
-                                        <TextBlock Text="{Binding PlayerInspector.ActiveAuctionCount, StringFormat=Leilões ativos: {0}}" Margin="0,2,0,0"/>
-                                        <TextBlock Text="{Binding PlayerInspector.OpenShopCount, StringFormat=Lojas abertas: {0}}" Margin="0,2,0,0"/>
-                                        <TextBlock Text="{Binding PlayerInspector.ActiveQuestCount, StringFormat=Quests ativas: {0}}" Margin="0,2,0,0"/>
-                                        <TextBlock Text="{Binding PlayerInspector.CompletedQuestCount, StringFormat=Quests concluídas: {0}}" Margin="0,2,0,0"/>
-                                    </StackPanel>
-                                </Border>
-                                <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
-                                              VerticalAlignment="Stretch" Background="Transparent"
-                                              ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
-                                <TabControl Grid.Column="2">
-                                    <TabItem Header="Inventário/Storage">
-                                        <ListBox ItemsSource="{Binding PlayerInspector.InventorySummary}" FontFamily="Consolas" FontSize="11"/>
-                                    </TabItem>
-                                    <TabItem Header="Social">
-                                        <ListBox ItemsSource="{Binding PlayerInspector.SocialSummary}" FontFamily="Consolas" FontSize="11"/>
-                                    </TabItem>
-                                    <TabItem Header="Quests">
-                                        <ListBox ItemsSource="{Binding PlayerInspector.QuestSummary}" FontFamily="Consolas" FontSize="11"/>
-                                    </TabItem>
-                                    <TabItem Header="Economia">
-                                        <ListBox ItemsSource="{Binding PlayerInspector.EconomySummary}" FontFamily="Consolas" FontSize="11"/>
-                                    </TabItem>
-                                </TabControl>
-                            </Grid>
-                        </Grid>
+                        <views:PlayerInspectorView/>
                     </TabItem>
 
-                    <TabItem Header="NPC Loot">
-                        <Grid Margin="8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="8"/>
-                                <ColumnDefinition Width="360"/>
-                            </Grid.ColumnDefinitions>
-                            <DockPanel Grid.Column="0">
-                                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                                    <TextBox Width="120" Margin="0,0,8,0"
-                                             Text="{Binding SelectedLootNpcTemplateId, UpdateSourceTrigger=PropertyChanged}"
-                                             materialDesign:HintAssist.Hint="NPC Template ID"
-                                             materialDesign:HintAssist.IsFloating="True"/>
-                                    <Button Content="Carregar loot" Command="{Binding RefreshNpcLootCommand}" Margin="0,0,8,0"/>
-                                    <Button Content="Novo loot" Command="{Binding NewNpcLootEntryCommand}"
-                                            Style="{StaticResource MaterialDesignOutlinedButton}"/>
-                                </StackPanel>
-                                <DataGrid ItemsSource="{Binding NpcLootEntries}" AutoGenerateColumns="False" IsReadOnly="True">
-                                    <DataGrid.Columns>
-                                        <DataGridTextColumn Header="ID" Binding="{Binding LootEntryId}" Width="60"/>
-                                        <DataGridTextColumn Header="Tipo" Binding="{Binding EntryKindLabel}" Width="80"/>
-                                        <DataGridTextColumn Header="Item" Binding="{Binding ItemLabel}" Width="*"/>
-                                        <DataGridTextColumn Header="Chance" Binding="{Binding DropChanceLabel}" Width="80"/>
-                                        <DataGridTextColumn Header="Qtd" Binding="{Binding QuantityLabel}" Width="80"/>
-                                        <DataGridCheckBoxColumn Header="Ativo" Binding="{Binding Enabled}" Width="60"/>
-                                        <DataGridTextColumn Header="Sort" Binding="{Binding SortOrder}" Width="60"/>
-                                        <DataGridTemplateColumn Header="Ações" Width="160">
-                                            <DataGridTemplateColumn.CellTemplate>
-                                                <DataTemplate>
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <Button Content="Editar" Margin="2"
-                                                                Command="{Binding DataContext.EditNpcLootEntryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                                CommandParameter="{Binding}"/>
-                                                        <Button Content="Excluir" Margin="2"
-                                                                Style="{StaticResource MaterialDesignOutlinedButton}"
-                                                                Command="{Binding DataContext.DeleteNpcLootEntryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                                CommandParameter="{Binding}"/>
-                                                    </StackPanel>
-                                                </DataTemplate>
-                                            </DataGridTemplateColumn.CellTemplate>
-                                        </DataGridTemplateColumn>
-                                    </DataGrid.Columns>
-                                </DataGrid>
-                            </DockPanel>
-                            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
-                                          VerticalAlignment="Stretch" Background="Transparent"
-                                          ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
-                            <Border Grid.Column="2" Padding="12" CornerRadius="6"
-                                    Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
-                                <StackPanel>
-                                    <TextBlock Text="{Binding LootFormTitle}" FontSize="16" FontWeight="Bold" Margin="0,0,0,8"/>
-                                    <ComboBox SelectedValue="{Binding LootEntryKind}" SelectedValuePath="Tag">
-                                        <ComboBoxItem Content="Item" Tag="0"/>
-                                        <ComboBoxItem Content="Gold" Tag="1"/>
-                                    </ComboBox>
-                                    <TextBox Margin="0,8,0,0" Text="{Binding LootItemTemplateId, UpdateSourceTrigger=PropertyChanged}"
-                                             materialDesign:HintAssist.Hint="Item Template ID"
-                                             materialDesign:HintAssist.IsFloating="True"/>
-                                    <TextBox Margin="0,8,0,0" Text="{Binding LootDropChance, UpdateSourceTrigger=PropertyChanged}"
-                                             materialDesign:HintAssist.Hint="Chance (0..1)"
-                                             materialDesign:HintAssist.IsFloating="True"/>
-                                    <TextBox Margin="0,8,0,0" Text="{Binding LootMinQty, UpdateSourceTrigger=PropertyChanged}"
-                                             materialDesign:HintAssist.Hint="Qtd mín."
-                                             materialDesign:HintAssist.IsFloating="True"/>
-                                    <TextBox Margin="0,8,0,0" Text="{Binding LootMaxQty, UpdateSourceTrigger=PropertyChanged}"
-                                             materialDesign:HintAssist.Hint="Qtd máx."
-                                             materialDesign:HintAssist.IsFloating="True"/>
-                                    <TextBox Margin="0,8,0,0" Text="{Binding LootSortOrder, UpdateSourceTrigger=PropertyChanged}"
-                                             materialDesign:HintAssist.Hint="Sort order"
-                                             materialDesign:HintAssist.IsFloating="True"/>
-                                    <CheckBox Margin="0,8,0,0" Content="Ativo" IsChecked="{Binding LootEnabled}"/>
-                                    <Button Margin="0,12,0,0" Content="Salvar loot" Command="{Binding SaveNpcLootEntryCommand}"/>
-                                </StackPanel>
-                            </Border>
-                        </Grid>
-                    </TabItem>
-
-                    <TabItem Header="EXP Zones">
+<TabItem Header="EXP Zones">
                         <Grid Margin="8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
@@ -1819,7 +1356,7 @@
                                     <Button Content="Nova zone" Command="{Binding NewExpZoneCommand}"
                                             Style="{StaticResource MaterialDesignOutlinedButton}"/>
                                 </StackPanel>
-                                <DataGrid ItemsSource="{Binding ExpZones}" AutoGenerateColumns="False" IsReadOnly="True">
+                                <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding ExpZones}" IsReadOnly="True">
                                     <DataGrid.Columns>
                                         <DataGridTextColumn Header="ID" Binding="{Binding ExpZoneId}" Width="60"/>
                                         <DataGridTextColumn Header="Zone" Binding="{Binding ZoneId}" Width="60"/>
@@ -1840,11 +1377,10 @@
                             <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
                                           VerticalAlignment="Stretch" Background="Transparent"
                                           ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
-                            <Border Grid.Column="2" Padding="12" CornerRadius="6"
-                                    Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
+                            <Border Grid.Column="2" Style="{StaticResource ManagerEditorCard}">
                                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                                     <StackPanel>
-                                        <TextBlock Text="{Binding ExpZoneFormTitle}" FontSize="16" FontWeight="Bold" Margin="0,0,0,8"/>
+                                        <TextBlock Text="{Binding ExpZoneFormTitle}" Style="{StaticResource ManagerEditorTitle}"/>
                                         <TextBox Text="{Binding ExpZoneZoneId, UpdateSourceTrigger=PropertyChanged}"
                                                  materialDesign:HintAssist.Hint="Zone ID"
                                                  materialDesign:HintAssist.IsFloating="True"/>
@@ -1881,7 +1417,7 @@
                         <DockPanel Margin="8">
                             <Button DockPanel.Dock="Top" Content="Atualizar configuração" Command="{Binding RefreshRefinementConfigsCommand}"
                                     Margin="0,0,0,8" Style="{StaticResource MaterialDesignOutlinedButton}"/>
-                            <DataGrid ItemsSource="{Binding RefinementConfigs}" AutoGenerateColumns="False" IsReadOnly="True">
+                            <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding RefinementConfigs}" IsReadOnly="True">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Nível" Binding="{Binding RefinementLevel}" Width="70"/>
                                     <DataGridTextColumn Header="Sucesso %" Binding="{Binding SuccessPercentage}" Width="90"/>
@@ -1897,80 +1433,82 @@
             </TabItem>
 
             <!-- Config -->
-            <TabItem Header="Config">
+            <TabItem Header="Config" Visibility="{Binding TabVisibilitySuper}">
                 <DockPanel Margin="8">
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                        <Button Content="Validar JSON" Command="{Binding ValidateConfigCommand}" Margin="0,0,8,0"/>
-                        <Button Content="Salvar arquivo" Command="{Binding SaveConfigCommand}" Margin="0,0,8,0"/>
-                        <Button Content="Reload runtime" Command="{Binding ReloadConfigCommand}"/>
-                        <TextBlock Text="{Binding ConfigStatus}" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <Button Content="Validar JSON" Command="{Binding ValidateConfigCommand}"
+                                Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,8,4"/>
+                        <Button Content="Salvar arquivo" Command="{Binding SaveConfigCommand}"
+                                Style="{StaticResource ManagerActionButton}" Margin="0,0,8,4"/>
+                        <Button Content="Reload runtime" Command="{Binding ReloadConfigCommand}"
+                                Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,8,4"/>
+                        <TextBlock Text="{Binding ConfigStatus}" VerticalAlignment="Center" Margin="8,0,0,4"/>
+                    </WrapPanel>
+                    <TextBox Text="{Binding ConfigJson, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" Background="#FF252526"/>
+                </DockPanel>
+            </TabItem>
+
+            
+
+            <!-- Rates -->
+            <TabItem Header="Rates" Visibility="{Binding TabVisibilitySuper}">
+                <Border Style="{StaticResource ManagerEditorCard}" Margin="8" MaxWidth="520" HorizontalAlignment="Left">
+                    <StackPanel>
+                        <TextBlock Text="Rates globais" Style="{StaticResource ManagerEditorTitle}"/>
+                        <TextBlock Text="Multiplicadores de EXP e Drop aplicados nas zones (reload após salvar)."
+                                   Style="{StaticResource ManagerEditorSubtitle}" Margin="0,0,0,12"/>
+                        <TextBox Text="{Binding GameExpMultiplier, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="EXP multiplier"
+                                 materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,10"/>
+                        <TextBox Text="{Binding GameDropMultiplier, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="Drop multiplier"
+                                 materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,10"/>
+                        <TextBlock Text="{Binding GameRatesStatus}" Opacity="0.8" Margin="0,0,0,12"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Button Grid.Column="0" Content="Atualizar" Command="{Binding RefreshGameRatesCommand}"
+                                    Style="{StaticResource ManagerFormSecondaryButton}"/>
+                            <Button Grid.Column="2" Content="Salvar rates" Command="{Binding SaveGameRatesCommand}"
+                                    Style="{StaticResource ManagerFormPrimaryButton}"/>
+                        </Grid>
                     </StackPanel>
-                    <TextBox Text="{Binding ConfigJson, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" FontFamily="Consolas"/>
+                </Border>
+            </TabItem>
+
+            <!-- Audit -->
+            <TabItem Header="Audit" Visibility="{Binding TabVisibilityOps}">
+                <DockPanel Margin="8">
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <TextBox Width="220" Margin="0,0,8,4"
+                                 Text="{Binding AuditFilter, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="Filtrar ação"
+                                 materialDesign:HintAssist.IsFloating="True"/>
+                        <Button Content="Atualizar" Command="{Binding RefreshAuditCommand}"
+                                Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,8,4"/>
+                    </WrapPanel>
+                    <DataGrid Style="{StaticResource ManagerDataGrid}"
+                              ItemsSource="{Binding AuditLogs}" IsReadOnly="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Quando" Binding="{Binding TimestampLocal}" Width="150"/>
+                            <DataGridTextColumn Header="Operador" Binding="{Binding OperatorName}" Width="120"/>
+                            <DataGridTextColumn Header="Ação" Binding="{Binding Action}" Width="160"/>
+                            <DataGridTextColumn Header="Detalhes" Binding="{Binding Details}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
                 </DockPanel>
             </TabItem>
 
             <!-- GM Console -->
-            <TabItem Header="GM Console">
-                <Grid Margin="8">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="420"/>
-                        <ColumnDefinition Width="8"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-
-                    <Border Grid.Column="0" Padding="10" CornerRadius="6"
-                            Background="{DynamicResource MaterialDesign.Brush.Card.Background}">
-                        <DockPanel>
-                            <TextBlock DockPanel.Dock="Top" Text="Catálogo de comandos"
-                                       FontWeight="SemiBold" Margin="0,0,0,8"/>
-                            <TextBlock DockPanel.Dock="Bottom" Text="{Binding GmCommandHelp}"
-                                       TextWrapping="Wrap" Margin="0,8,0,0" FontSize="11" Opacity="0.8"/>
-                            <DataGrid ItemsSource="{Binding GmCommands}" SelectedItem="{Binding SelectedGmCommandDefinition}"
-                                      AutoGenerateColumns="False" IsReadOnly="True">
-                                <DataGrid.Columns>
-                                    <DataGridTextColumn Header="Comando" Binding="{Binding Name}" Width="160"/>
-                                    <DataGridTextColumn Header="Escopo" Binding="{Binding ScopeLabel}" Width="80"/>
-                                    <DataGridCheckBoxColumn Header="!" Binding="{Binding IsDestructive}" Width="35"/>
-                                    <DataGridTemplateColumn Header="Usar" Width="70">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <Button Content="Usar" Padding="6,2"
-                                                        Command="{Binding DataContext.UseGmCommandCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                        CommandParameter="{Binding}"/>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                </DataGrid.Columns>
-                            </DataGrid>
-                        </DockPanel>
-                    </Border>
-
-                    <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
-                                  VerticalAlignment="Stretch" Background="Transparent"
-                                  ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
-
-                    <DockPanel Grid.Column="2">
-                        <ListBox DockPanel.Dock="Bottom" Height="260" ItemsSource="{Binding GmOutput}" FontFamily="Consolas" FontSize="11"/>
-                        <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,8">
-                            <StackPanel Orientation="Horizontal">
-                                <ComboBox Width="150" ItemsSource="{Binding Definitions}" DisplayMemberPath="Id"
-                                          SelectedValue="{Binding SelectedGmService}" SelectedValuePath="Id" Margin="0,0,8,0"/>
-                                <Button Content="Usar comando selecionado" Command="{Binding UseGmCommandCommand}"
-                                        CommandParameter="{Binding SelectedGmCommandDefinition}" Margin="0,0,8,0"
-                                        Style="{StaticResource MaterialDesignOutlinedButton}"/>
-                                <Button Content="Enviar" Command="{Binding SendGmCommand}"/>
-                            </StackPanel>
-                            <TextBox x:Name="GmInputBox" Margin="0,8,0,0"
-                                     Text="{Binding GmInput, UpdateSourceTrigger=PropertyChanged}"
-                                     materialDesign:HintAssist.Hint="comando arg=valor, suporta aspas e JSON (Tab autocomplete, ↑↓ histórico)"
-                                     KeyDown="GmInput_KeyDown"/>
-                        </StackPanel>
-                    </DockPanel>
-                </Grid>
+            <TabItem Header="GM Console" Visibility="{Binding TabVisibilityOps}">
+                <views:GmConsoleView/>
             </TabItem>
 
-            <!-- Scheduler -->
-            <TabItem Header="Scheduler">
+<!-- Scheduler -->
+            <TabItem Header="Scheduler" Visibility="{Binding TabVisibilitySuper}">
                 <Grid Margin="8">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -2008,8 +1546,8 @@
                         <TextBlock DockPanel.Dock="Top" Text="Tarefas agendadas"
                                    FontWeight="SemiBold" Margin="0,0,0,6"/>
 
-                        <DataGrid ItemsSource="{Binding ScheduledTasks}" AutoGenerateColumns="False"
-                                  IsReadOnly="True" RowHeight="34" HeadersVisibility="Column">
+                        <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding ScheduledTasks}"
+                                  IsReadOnly="True">
                             <DataGrid.Columns>
                                 <DataGridCheckBoxColumn Header="On" Binding="{Binding Enabled}" Width="40"/>
                                 <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="140" FontFamily="Consolas"/>
@@ -2047,8 +1585,7 @@
                                   ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
 
                     <!-- Painel de criação custom -->
-                    <Border Grid.Column="2" BorderBrush="Gray" BorderThickness="1"
-                            Padding="14" CornerRadius="4">
+                    <Border Grid.Column="2" Style="{StaticResource ManagerEditorCard}">
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
                                 <TextBlock Text="Nova tarefa custom" FontSize="16" FontWeight="Bold"/>
@@ -2088,7 +1625,7 @@
                                              materialDesign:HintAssist.IsFloating="True"
                                              Margin="0,0,0,12"/>
 
-                                    <Border Background="{DynamicResource MaterialDesign.Brush.Card.Background}"
+                                    <Border Background="#FF252526"
                                             Padding="10" CornerRadius="4" Margin="0,8,0,0">
                                         <StackPanel>
                                             <TextBlock Text="Significado de 'Alvo'" FontWeight="SemiBold" FontSize="11"/>

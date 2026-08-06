@@ -155,6 +155,28 @@ try {
         $partyLabels[] = ['label' => 'Party #' . (int)$row['party_id'] . ' | ' . $row['character_name']];
     }
 
+    $friendLabels = [];
+    try {
+        $friendStmt = $pdo->prepare("
+            SELECT p.id AS friend_player_id, p.character_name
+            FROM friends f
+            INNER JOIN players p ON p.id = IF(f.player1_id = :pid, f.player2_id, f.player1_id)
+            WHERE f.player1_id = :pid OR f.player2_id = :pid
+            ORDER BY p.character_name
+            LIMIT 50
+        ");
+        $friendStmt->execute([':pid' => $playerId]);
+        foreach ($friendStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $friendLabels[] = [
+                'label' => 'Amigo #' . (int)$row['friend_player_id'] . ' | ' . $row['character_name'],
+                'friend_player_id' => (int)$row['friend_player_id'],
+                'character_name' => $row['character_name'],
+            ];
+        }
+    } catch (Throwable $fe) {
+        error_log('[admin/player_inspector] friends: ' . $fe->getMessage());
+    }
+
     echo json_encode([
         'success' => true,
         'player' => [
@@ -184,10 +206,12 @@ try {
             'storage_count' => count($storageRows),
             'active_auction_count' => count(array_filter($auctionRows, static fn($r) => $r['status'] === 'active')),
             'open_shop_count' => count(array_filter($shopRows, static fn($r) => $r['status'] === 'open')),
+            'friend_count' => count($friendLabels),
         ],
         'inventory_items' => $inventoryLabels,
         'quests' => $questLabels,
         'party_members' => $partyLabels,
+        'friends' => $friendLabels,
         'economy' => $economy,
     ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {

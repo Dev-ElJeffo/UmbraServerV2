@@ -240,6 +240,20 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
     d["count"] = d["npcs"].size();
     return d;
   });
+
+  registry.registerCommand("reload_game_rates", [&server](const nlohmann::json&) {
+    server.reloadGameRates();
+    nlohmann::json d;
+    d["reloaded"] = true;
+    double expM = 1.0;
+    double dropM = 1.0;
+    if (auto* exp = server.getExperienceService()) expM = exp->getExpMultiplier();
+    if (auto* loot = server.getLootService()) dropM = loot->getDropMultiplier();
+    d["exp_multiplier"] = expM;
+    d["drop_multiplier"] = dropM;
+    d["zone_id"] = server.getConfig().zoneId;
+    return d;
+  });
 }
 
 void registerWorldCommands(CommandRegistry& registry, World::WorldServer& server) {

@@ -16,6 +16,22 @@ constexpr uint32_t kDefaultStatPointsPerLevel = 10;
 ExperienceService::ExperienceService(std::shared_ptr<Database::MySQLConnector> db)
     : db_(std::move(db)) {}
 
+void ExperienceService::loadGameRates() {
+  expMultiplier_ = 1.0;
+  if (!db_ || !db_->isConnected()) return;
+  try {
+    auto rows = db_->executePreparedQuery(
+        "SELECT rate_value FROM game_rates WHERE rate_key = 'exp_multiplier' LIMIT 1", {});
+    if (!rows.empty() && !rows[0].empty()) {
+      expMultiplier_ = std::stod(rows[0][0]);
+      if (expMultiplier_ < 0.0) expMultiplier_ = 0.0;
+    }
+  } catch (const std::exception& e) {
+    Core::Logger::getInstance().warn("[ExperienceService] loadGameRates: {}", e.what());
+  }
+  Core::Logger::getInstance().info("[ExperienceService] exp_multiplier={}", expMultiplier_);
+}
+
 void ExperienceService::ensurePointsRows(uint32_t playerId, uint32_t level) {
   if (!db_ || !db_->isConnected()) return;
   const std::string pid = std::to_string(playerId);
@@ -70,6 +86,11 @@ ExperienceGrantResult ExperienceService::grantExperience(uint32_t playerId, int6
 
   if (amount <= 0 || !db_ || !db_->isConnected()) {
     return result;
+  }
+
+  if (expMultiplier_ != 1.0) {
+    amount = static_cast<int64_t>(std::llround(static_cast<double>(amount) * expMultiplier_));
+    if (amount <= 0) return result;
   }
 
   const std::string pid = std::to_string(playerId);

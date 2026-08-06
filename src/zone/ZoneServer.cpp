@@ -185,6 +185,8 @@ bool ZoneServer::start() {
       lootService_->setShareRadiusUu(partyShareRadius);
       lootService_->setResolvePartyMembers(partyCb);
       lootService_->loadFromDatabase();
+      experienceService_->loadGameRates();
+      lootService_->loadGameRates();
       combatCoreEngine_->setLootService(lootService_.get());
       if (auto* questProgress = combatCoreEngine_->getQuestProgressService()) {
         questProgress->setMovementServer(movementServer_.get());
@@ -400,6 +402,11 @@ const ZoneServer::Config& ZoneServer::getConfig() const {
 
 void ZoneServer::forceSavePositions() {
   autoSavePlayerPositions();
+}
+
+void ZoneServer::reloadGameRates() {
+  if (experienceService_) experienceService_->loadGameRates();
+  if (lootService_) lootService_->loadGameRates();
 }
 
 }  // namespace Zone

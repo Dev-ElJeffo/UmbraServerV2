@@ -35,5 +35,6 @@ public static class GmCommandCatalogService
         new() { Scope = "zone", Name = "list_npcs", Description = "Lista NPCs vivos atualmente carregados em memória.", Example = "list_npcs" },
         new() { Scope = "zone", Name = "despawn_npc_instance", Description = "Remove uma instância NPC do runtime e envia opcode 101.", ArgsHint = "npc_instance_id=123", Example = "despawn_npc_instance npc_instance_id=123", IsDestructive = true },
         new() { Scope = "zone", Name = "move_npc_instance", Description = "Move NPC em runtime e rebroadcast opcode 100 (não grava MySQL).", ArgsHint = "npc_instance_id=16 pos_x=100 pos_y=200 pos_z=90 yaw=0", Example = "move_npc_instance npc_instance_id=16 pos_x=100 pos_y=200 pos_z=90" },
+        new() { Scope = "zone", Name = "reload_game_rates", Description = "Recarrega multiplicadores globais EXP/drop da tabela game_rates.", Example = "reload_game_rates" },
     ];
 }

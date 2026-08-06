@@ -28,6 +28,13 @@ public sealed class PlayerInspectorSummary
     public int StorageCount { get; set; }
     public int ActiveAuctionCount { get; set; }
     public int OpenShopCount { get; set; }
+
+    public ObservableCollection<InspectorItemRow> InventoryItems { get; } = new();
+    public ObservableCollection<InspectorQuestRow> QuestRows { get; } = new();
+    public ObservableCollection<InspectorSocialRow> SocialRows { get; } = new();
+    public ObservableCollection<InspectorEconomyRow> EconomyRows { get; } = new();
+
+    // Compat legado (strings)
     public ObservableCollection<string> SocialSummary { get; } = new();
     public ObservableCollection<string> QuestSummary { get; } = new();
     public ObservableCollection<string> EconomySummary { get; } = new();

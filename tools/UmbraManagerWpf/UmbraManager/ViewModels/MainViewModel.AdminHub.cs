@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using UmbraManager.Models;
 using UmbraManager.Services;
+using UmbraManager.Views;
 
 namespace UmbraManager.ViewModels;
 
@@ -17,6 +18,19 @@ public partial class MainViewModel
     public ObservableCollection<NpcLootEntryRow> NpcLootEntries { get; } = new();
     public ObservableCollection<ExpZoneRow> ExpZones { get; } = new();
     public ObservableCollection<RefinementConfigRow> RefinementConfigs { get; } = new();
+
+    [ObservableProperty] private RefinementConfigRow? _selectedRefinementConfig;
+    [ObservableProperty] private string _refinementFormTitle = "Editar nível de refinação";
+    [ObservableProperty] private int _refineFormLevel;
+    [ObservableProperty] private double _refineFormSuccessPercentage;
+    [ObservableProperty] private int _refineFormRequiredItemId;
+    [ObservableProperty] private string _refineFormRequiredItemName = "";
+    [ObservableProperty] private int _refineFormRequiredItemQuantity = 1;
+    [ObservableProperty] private double _refineFormBonusPercentage;
+    [ObservableProperty] private double _refineFormStatBonusMultiplier = 1.0;
+    [ObservableProperty] private double _gameExpMultiplier = 1.0;
+    [ObservableProperty] private double _gameDropMultiplier = 1.0;
+    [ObservableProperty] private string _gameRatesStatus = "";
 
     [ObservableProperty] private GmCommandDefinition? _selectedGmCommandDefinition;
     [ObservableProperty] private string _gmCommandHelp = "Selecione um comando para ver descrição, argumentos e exemplo.";
@@ -492,6 +506,7 @@ public partial class MainViewModel
             return;
         }
 
+        var keepLevel = RefineFormLevel;
         RefinementConfigs.Clear();
         if (data!.RootElement.TryGetProperty("config", out var rows))
         {
@@ -512,6 +527,153 @@ public partial class MainViewModel
             }
         }
         data.Dispose();
+
+        if (keepLevel > 0)
+        {
+            var match = RefinementConfigs.FirstOrDefault(r => r.RefinementLevel == keepLevel);
+            if (match != null)
+            {
+                SelectedRefinementConfig = match;
+                LoadRefinementFormFromRow(match);
+            }
+        }
+    }
+
+    [RelayCommand]
+    private void EditRefinementConfig(RefinementConfigRow? row)
+    {
+        if (row == null) return;
+        SelectedRefinementConfig = row;
+        LoadRefinementFormFromRow(row);
+    }
+
+    [RelayCommand]
+    private void ClearRefinementForm()
+    {
+        if (SelectedRefinementConfig != null)
+            LoadRefinementFormFromRow(SelectedRefinementConfig);
+        else
+            ResetRefinementForm();
+    }
+
+    private void LoadRefinementFormFromRow(RefinementConfigRow row)
+    {
+        RefineFormLevel = row.RefinementLevel;
+        RefineFormSuccessPercentage = row.SuccessPercentage > 0
+            ? row.SuccessPercentage
+            : row.SuccessRate * 100.0;
+        RefineFormRequiredItemId = row.RequiredItemId;
+        RefineFormRequiredItemName = row.RequiredItemName;
+        RefineFormRequiredItemQuantity = row.RequiredItemQuantity;
+        RefineFormBonusPercentage = row.BonusPercentage != 0
+            ? row.BonusPercentage
+            : (row.StatBonusMultiplier - 1.0) * 100.0;
+        RefineFormStatBonusMultiplier = row.StatBonusMultiplier;
+        RefinementFormTitle = $"Editar refinação — nível {row.RefinementLevel}";
+    }
+
+    private void ResetRefinementForm()
+    {
+        RefineFormLevel = 0;
+        RefineFormSuccessPercentage = 0;
+        RefineFormRequiredItemId = 0;
+        RefineFormRequiredItemName = "";
+        RefineFormRequiredItemQuantity = 1;
+        RefineFormBonusPercentage = 0;
+        RefineFormStatBonusMultiplier = 1.0;
+        RefinementFormTitle = "Editar nível de refinação";
+    }
+
+    [RelayCommand]
+    private async Task SaveSelectedRefinementConfigAsync()
+    {
+        if (RefineFormLevel <= 0)
+        {
+            MessageBox.Show("Selecione um nível na lista e clique em Editar.", "Refinement");
+            return;
+        }
+
+        var rate = RefineFormSuccessPercentage / 100.0;
+        if (rate < 0 || rate > 1)
+        {
+            MessageBox.Show("Sucesso % deve estar entre 0 e 100.", "Refinement");
+            return;
+        }
+        if (RefineFormRequiredItemId <= 0 || RefineFormRequiredItemQuantity < 1)
+        {
+            MessageBox.Show("Informe Item ID e quantidade válidos.", "Refinement");
+            return;
+        }
+
+        var mult = RefineFormStatBonusMultiplier;
+        if (Math.Abs(RefineFormBonusPercentage - (mult - 1) * 100) > 0.01)
+            mult = 1.0 + RefineFormBonusPercentage / 100.0;
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["refinement_level"] = RefineFormLevel,
+            ["success_rate"] = rate,
+            ["required_item_id"] = RefineFormRequiredItemId,
+            ["required_item_quantity"] = RefineFormRequiredItemQuantity,
+            ["stat_bonus_multiplier"] = mult,
+        };
+
+        var (ok, err, _) = await Php.UpsertRefinementConfigAsync(payload);
+        if (!ok)
+        {
+            MessageBox.Show(err, "Erro ao salvar refinação");
+            return;
+        }
+
+        Audit.Log(AppConfig.Instance.AdminUsername, "upsert_refinement_config", $"lvl={RefineFormLevel}");
+        StatusText = $"Refinação nível {RefineFormLevel} salva.";
+        await RefreshRefinementConfigsAsync();
+    }
+
+    [RelayCommand]
+    private async Task RefreshGameRatesAsync()
+    {
+        var (ok, err, data) = await Php.GetGameRatesAsync();
+        if (!ok)
+        {
+            MessageBox.Show(err, "Erro ao carregar rates");
+            return;
+        }
+
+        var root = data!.RootElement;
+        GameExpMultiplier = TryGetDoubleProp(root, "exp_multiplier");
+        GameDropMultiplier = TryGetDoubleProp(root, "drop_multiplier");
+        if (GameExpMultiplier <= 0) GameExpMultiplier = 1.0;
+        if (GameDropMultiplier <= 0) GameDropMultiplier = 1.0;
+        data.Dispose();
+        GameRatesStatus = $"Carregado {DateTime.Now:HH:mm:ss}";
+        StatusText = $"Rates globais: EXP x{GameExpMultiplier:0.##} | Drop x{GameDropMultiplier:0.##}";
+    }
+
+    [RelayCommand]
+    private async Task SaveGameRatesAsync()
+    {
+        if (GameExpMultiplier < 0 || GameDropMultiplier < 0 || GameExpMultiplier > 100 || GameDropMultiplier > 100)
+        {
+            MessageBox.Show("Multiplicadores devem estar entre 0 e 100.", "Rates globais");
+            return;
+        }
+
+        var (ok, err, _) = await Php.SetGameRatesAsync(GameExpMultiplier, GameDropMultiplier);
+        if (!ok)
+        {
+            MessageBox.Show(err, "Erro ao salvar rates");
+            return;
+        }
+
+        Audit.Log(AppConfig.Instance.AdminUsername, "set_game_rates",
+            $"exp={GameExpMultiplier};drop={GameDropMultiplier}");
+
+        foreach (var def in Definitions.Where(d => d.IsZone))
+            await AdminHub.SendCommandAsync(def.Id, "reload_game_rates");
+
+        GameRatesStatus = $"Salvo {DateTime.Now:HH:mm:ss} — reload enviado às zones";
+        StatusText = GameRatesStatus;
     }
 
     [RelayCommand]
@@ -564,14 +726,248 @@ public partial class MainViewModel
             summary.OpenShopCount = TryGetIntProp(details, "open_shop_count");
         }
 
-        FillInspectorSection(summary.InventorySummary, root, "inventory_items", "slot_label");
-        FillInspectorSection(summary.QuestSummary, root, "quests", "quest_title");
-        FillInspectorSection(summary.SocialSummary, root, "party_members", "label");
-        FillInspectorSection(summary.EconomySummary, root, "economy", "label");
+        FillInspectorInventory(summary, root);
+        FillInspectorQuests(summary, root);
+        FillInspectorSocialRows(summary, root);
+        FillInspectorEconomy(summary, root);
 
         PlayerInspector = summary;
         data.Dispose();
         StatusText = $"Player #{summary.PlayerId} carregado em Player Inspector.";
+    }
+
+    private PlayerInfo? FindOnlinePlayer(int playerId) =>
+        Players.FirstOrDefault(p => p.PlayerId == playerId);
+
+    [RelayCommand]
+    private async Task KickInspectedPlayerAsync()
+    {
+        var online = FindOnlinePlayer(PlayerInspector.PlayerId > 0 ? PlayerInspector.PlayerId : InspectPlayerId);
+        if (online == null)
+        {
+            MessageBox.Show("Player não está online nas zones autenticadas.", "Kick");
+            return;
+        }
+        await KickPlayerAsync(online);
+    }
+
+    [RelayCommand]
+    private async Task TeleportInspectedPlayerAsync()
+    {
+        var online = FindOnlinePlayer(PlayerInspector.PlayerId > 0 ? PlayerInspector.PlayerId : InspectPlayerId);
+        if (online == null)
+        {
+            MessageBox.Show("Player não está online nas zones autenticadas.", "Teleport");
+            return;
+        }
+        await TeleportPlayerAsync(online);
+    }
+
+    [RelayCommand]
+    private async Task GiveItemToInspectedPlayerAsync()
+    {
+        var playerId = PlayerInspector.PlayerId > 0 ? PlayerInspector.PlayerId : InspectPlayerId;
+        if (playerId <= 0)
+        {
+            MessageBox.Show("Inspecione um player primeiro.", "Give item");
+            return;
+        }
+        var online = FindOnlinePlayer(playerId);
+        if (online == null)
+        {
+            MessageBox.Show("Player precisa estar online para receber item via zone.", "Give item");
+            return;
+        }
+        var itemIdStr = InputPrompt.Show("Item template ID:", "Give item", "1");
+        var qtyStr = InputPrompt.Show("Quantidade:", "Give item", "1");
+        if (itemIdStr == null || qtyStr == null) return;
+        if (!int.TryParse(itemIdStr, out var itemId) || itemId <= 0) return;
+        if (!int.TryParse(qtyStr, out var qty) || qty < 1) return;
+
+        var args = new JsonObject
+        {
+            ["player_id"] = playerId,
+            ["item_template_id"] = itemId,
+            ["quantity"] = qty
+        };
+        var (ok, resp) = await AdminHub.SendCommandAndWaitAsync(online.ZoneService, "give_item", args, 5000);
+        if (!ok)
+        {
+            MessageBox.Show("Falha ao enviar give_item (comando pode não existir nesta zone).", "Give item");
+            return;
+        }
+        Audit.Log(AppConfig.Instance.AdminUsername, "give_item", $"player={playerId};item={itemId};qty={qty}");
+        StatusText = $"Give item {itemId} x{qty} → player #{playerId}";
+        await InspectPlayerAsync();
+    }
+
+    [RelayCommand]
+    private void RefreshAudit()
+    {
+        AuditLogs.Clear();
+        foreach (var row in Audit.QueryRecent(300, string.IsNullOrWhiteSpace(AuditFilter) ? null : AuditFilter))
+            AuditLogs.Add(row);
+        StatusText = $"Audit: {AuditLogs.Count} eventos.";
+    }
+
+    public void ApplyAdminRoleVisibility(string role)
+    {
+        var r = (role ?? "super").Trim().ToLowerInvariant();
+        AppConfig.Instance.AdminRole = r;
+        TabVisibilitySuper = r == "super" ? Visibility.Visible : Visibility.Collapsed;
+        TabVisibilityOps = r is "super" or "ops" ? Visibility.Visible : Visibility.Collapsed;
+        TabVisibilityContent = r is "super" or "content" ? Visibility.Visible : Visibility.Collapsed;
+        if (r == "ops")
+            TabVisibilityContent = Visibility.Collapsed;
+        if (r == "content")
+            TabVisibilityOps = Visibility.Collapsed;
+    }
+
+    private static void FillInspectorInventory(PlayerInspectorSummary summary, JsonElement root)
+    {
+        summary.InventoryItems.Clear();
+        summary.InventorySummary.Clear();
+        if (!root.TryGetProperty("inventory_items", out var list) || list.ValueKind != JsonValueKind.Array)
+            return;
+        foreach (var row in list.EnumerateArray())
+        {
+            if (row.ValueKind != JsonValueKind.Object) continue;
+            var item = new InspectorItemRow
+            {
+                SlotLabel = TryGetStringProp(row, "slot_label"),
+                ItemName = TryGetStringProp(row, "item_name"),
+                ItemTemplateId = TryGetIntProp(row, "item_template_id"),
+                Quantity = TryGetIntProp(row, "quantity"),
+            };
+            if (string.IsNullOrEmpty(item.ItemName))
+                item.ItemName = TryGetStringProp(row, "label");
+            summary.InventoryItems.Add(item);
+            summary.InventorySummary.Add($"{item.SlotLabel}: {item.ItemName} x{item.Quantity}");
+        }
+    }
+
+    private static void FillInspectorQuests(PlayerInspectorSummary summary, JsonElement root)
+    {
+        summary.QuestRows.Clear();
+        summary.QuestSummary.Clear();
+        if (!root.TryGetProperty("quests", out var list) || list.ValueKind != JsonValueKind.Array)
+            return;
+        foreach (var row in list.EnumerateArray())
+        {
+            if (row.ValueKind != JsonValueKind.Object) continue;
+            var q = new InspectorQuestRow
+            {
+                QuestId = TryGetIntProp(row, "quest_id"),
+                Title = TryGetStringProp(row, "quest_title"),
+                Status = TryGetStringProp(row, "status"),
+            };
+            if (string.IsNullOrEmpty(q.Title))
+                q.Title = TryGetStringProp(row, "label");
+            summary.QuestRows.Add(q);
+            summary.QuestSummary.Add($"{q.Title} [{q.Status}]");
+        }
+    }
+
+    private static void FillInspectorSocialRows(PlayerInspectorSummary summary, JsonElement root)
+    {
+        summary.SocialRows.Clear();
+        summary.SocialSummary.Clear();
+        var partyCount = 0;
+        if (root.TryGetProperty("party_members", out var party) && party.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var row in party.EnumerateArray())
+            {
+                partyCount++;
+                var label = row.ValueKind == JsonValueKind.Object
+                    ? (row.TryGetProperty("label", out var l) ? l.GetString() ?? "" : row.GetRawText())
+                    : (row.GetString() ?? "");
+                summary.SocialRows.Add(new InspectorSocialRow { Kind = "Party", Label = label });
+                summary.SocialSummary.Add($"Party: {label}");
+            }
+        }
+        if (partyCount == 0)
+        {
+            summary.SocialRows.Add(new InspectorSocialRow { Kind = "Party", Label = "(Sem party)" });
+            summary.SocialSummary.Add("--- Party ---");
+            summary.SocialSummary.Add("(Sem party)");
+        }
+
+        var friendCount = 0;
+        if (root.TryGetProperty("friends", out var friends) && friends.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var row in friends.EnumerateArray())
+            {
+                friendCount++;
+                var label = row.ValueKind == JsonValueKind.Object
+                    ? (row.TryGetProperty("label", out var l) ? l.GetString() ?? "" : row.GetRawText())
+                    : (row.GetString() ?? "");
+                summary.SocialRows.Add(new InspectorSocialRow { Kind = "Friend", Label = label });
+                summary.SocialSummary.Add($"Friend: {label}");
+            }
+        }
+        if (friendCount == 0)
+        {
+            summary.SocialRows.Add(new InspectorSocialRow { Kind = "Friend", Label = "(Sem amigos)" });
+            summary.SocialSummary.Add("--- Friends ---");
+            summary.SocialSummary.Add("(Sem amigos)");
+        }
+    }
+
+    private static void FillInspectorEconomy(PlayerInspectorSummary summary, JsonElement root)
+    {
+        summary.EconomyRows.Clear();
+        summary.EconomySummary.Clear();
+        if (!root.TryGetProperty("economy", out var list) || list.ValueKind != JsonValueKind.Array)
+            return;
+        foreach (var row in list.EnumerateArray())
+        {
+            if (row.ValueKind != JsonValueKind.Object) continue;
+            var e = new InspectorEconomyRow
+            {
+                Kind = TryGetStringProp(row, "kind"),
+                Label = TryGetStringProp(row, "label"),
+            };
+            if (string.IsNullOrEmpty(e.Kind))
+                e.Kind = "Info";
+            summary.EconomyRows.Add(e);
+            summary.EconomySummary.Add(e.Label);
+        }
+    }
+
+    private static void FillInspectorSocial(ObservableCollection<string> target, JsonElement root)
+    {
+        target.Clear();
+        target.Add("--- Party ---");
+        var partyCount = 0;
+        if (root.TryGetProperty("party_members", out var party) && party.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var row in party.EnumerateArray())
+            {
+                partyCount++;
+                if (row.ValueKind == JsonValueKind.Object && row.TryGetProperty("label", out var label))
+                    target.Add(label.GetString() ?? "");
+                else if (row.ValueKind == JsonValueKind.String)
+                    target.Add(row.GetString() ?? "");
+            }
+        }
+        if (partyCount == 0)
+            target.Add("(Sem party)");
+
+        target.Add("--- Friends ---");
+        var friendCount = 0;
+        if (root.TryGetProperty("friends", out var friends) && friends.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var row in friends.EnumerateArray())
+            {
+                friendCount++;
+                if (row.ValueKind == JsonValueKind.Object && row.TryGetProperty("label", out var label))
+                    target.Add(label.GetString() ?? "");
+                else if (row.ValueKind == JsonValueKind.String)
+                    target.Add(row.GetString() ?? "");
+            }
+        }
+        if (friendCount == 0)
+            target.Add("(Sem amigos)");
     }
 
     [RelayCommand]

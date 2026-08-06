@@ -3,14 +3,16 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         Title="Login Admin — UmbraManager"
-        Height="220" Width="420"
+        Height="280" Width="420"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
         Background="{DynamicResource MaterialDesign.Brush.Background}">
     <StackPanel Margin="24">
-        <TextBlock Text="Conta admin (isadmin=1)" Style="{StaticResource MaterialDesignSubtitle1TextBlock}" Margin="0,0,0,8"/>
+        <TextBlock Text="Conta admin (senha + JWT)" Style="{StaticResource MaterialDesignSubtitle1TextBlock}" Margin="0,0,0,8"/>
         <TextBox x:Name="UsernameBox" materialDesign:HintAssist.Hint="Username" Margin="0,0,0,12"
-                 KeyDown="UsernameBox_KeyDown"/>
+                 KeyDown="Input_KeyDown"/>
+        <PasswordBox x:Name="PasswordBox" materialDesign:HintAssist.Hint="Senha" Margin="0,0,0,12"
+                     KeyDown="Input_KeyDown"/>
         <TextBlock x:Name="ErrorText" Foreground="IndianRed" TextWrapping="Wrap" Margin="0,0,0,8"/>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="CancelButton" Content="Cancelar" Margin="0,0,8,0" Click="Cancel_Click" Style="{StaticResource MaterialDesignOutlinedButton}"/>

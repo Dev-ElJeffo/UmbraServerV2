@@ -31,6 +31,10 @@ public:
 
   void setStateLoader(CharacterStateLoader* loader) { stateLoader_ = loader; }
 
+  /** Multiplicador global de EXP (1.0 = normal). Carregado de game_rates. */
+  void loadGameRates();
+  double getExpMultiplier() const { return expMultiplier_; }
+
   ExperienceGrantResult grantExperience(uint32_t playerId, int64_t amount, const std::string& source);
 
 private:
@@ -40,6 +44,7 @@ private:
 
   std::shared_ptr<Database::MySQLConnector> db_;
   CharacterStateLoader* stateLoader_ = nullptr;
+  double expMultiplier_ = 1.0;
 };
 
 }  // namespace Zone

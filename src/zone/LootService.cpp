@@ -72,6 +72,22 @@ void LootService::loadFromDatabase() {
                                    tablesByTemplate_.size(), zoneId_);
 }
 
+void LootService::loadGameRates() {
+  dropMultiplier_ = 1.0;
+  if (!db_ || !db_->isConnected()) return;
+  try {
+    auto rows = db_->executePreparedQuery(
+        "SELECT rate_value FROM game_rates WHERE rate_key = 'drop_multiplier' LIMIT 1", {});
+    if (!rows.empty() && !rows[0].empty()) {
+      dropMultiplier_ = std::stod(rows[0][0]);
+      if (dropMultiplier_ < 0.0) dropMultiplier_ = 0.0;
+    }
+  } catch (const std::exception& e) {
+    Core::Logger::getInstance().warn("[LootService] loadGameRates: {}", e.what());
+  }
+  Core::Logger::getInstance().info("[LootService] drop_multiplier={}", dropMultiplier_);
+}
+
 uint32_t LootService::rollQty(uint32_t minQty, uint32_t maxQty) {
   if (maxQty < minQty) maxQty = minQty;
   if (minQty == maxQty) return minQty;
@@ -95,7 +111,10 @@ std::vector<LootCorpseSlot> LootService::rollSlots(uint32_t npcTemplateId) {
   for (const auto& e : table.entries) {
     if (static_cast<int>(rolled.size()) >= kMaxLootSlots) break;
     if (e.dropChance <= 0.f) continue;
-    if (chanceDist(rng_) > e.dropChance) continue;
+    const float effectiveChance = static_cast<float>(
+        std::min(1.0, static_cast<double>(e.dropChance) * dropMultiplier_));
+    if (effectiveChance <= 0.f) continue;
+    if (chanceDist(rng_) > effectiveChance) continue;
     LootCorpseSlot s;
     s.slotIndex = static_cast<uint8_t>(rolled.size());
     s.entryKind = e.entryKind;

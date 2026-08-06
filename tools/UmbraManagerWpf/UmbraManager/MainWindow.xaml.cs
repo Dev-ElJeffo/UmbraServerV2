@@ -1,6 +1,4 @@
-﻿using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
+using System.Windows;
 
 namespace UmbraManager;
 
@@ -9,36 +7,5 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Closed += (_, _) =>
-        {
-            if (DataContext is ViewModels.MainViewModel vm)
-                vm.Dispose();
-        };
-    }
-
-    private void GmInput_KeyDown(object sender, KeyEventArgs e)
-    {
-        if (DataContext is not ViewModels.MainViewModel vm) return;
-        if (e.Key == Key.Up)
-        {
-            vm.GmHistoryUp();
-            e.Handled = true;
-        }
-        else if (e.Key == Key.Down)
-        {
-            vm.GmHistoryDown();
-            e.Handled = true;
-        }
-        else if (e.Key == Key.Tab)
-        {
-            vm.GmAutocompleteTab();
-            e.Handled = true;
-        }
-        else if (e.Key == Key.Enter)
-        {
-            if (vm.SendGmCommand.CanExecute(null))
-                vm.SendGmCommand.Execute(null);
-            e.Handled = true;
-        }
     }
 }

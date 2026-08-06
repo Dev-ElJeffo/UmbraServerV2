@@ -43,8 +43,11 @@ class ZoneServer {
   EntitySystem& getEntitySystem();
   MovementServer* getMovementServer();
   CombatCoreEngine* getCombatCoreEngine();
+  ExperienceService* getExperienceService() { return experienceService_.get(); }
+  LootService* getLootService() { return lootService_.get(); }
   const Config& getConfig() const;
   void forceSavePositions();
+  void reloadGameRates();
 
  private:
   Config config_;

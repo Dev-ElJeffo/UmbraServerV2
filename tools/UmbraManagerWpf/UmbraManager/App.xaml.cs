@@ -1,4 +1,5 @@
 ﻿using System.Windows;
+using Microsoft.Extensions.DependencyInjection;
 using UmbraManager.Services;
 using UmbraManager.ViewModels;
 using UmbraManager.Views;
@@ -18,6 +19,7 @@ public partial class App : Application
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
         AppConfig.Instance.Load();
+        var provider = AppServices.Build();
 
         var login = new LoginDialog();
         if (login.ShowDialog() != true || string.IsNullOrWhiteSpace(login.Username))
@@ -27,12 +29,26 @@ public partial class App : Application
         }
 
         AppConfig.Instance.AdminUsername = login.Username;
+        AppConfig.Instance.AdminToken = login.Token;
+        AppConfig.Instance.AdminRole = string.IsNullOrWhiteSpace(login.Role) ? "super" : login.Role;
 
         try
         {
-            var main = new MainWindow { DataContext = new MainViewModel() };
+            var php = provider.GetRequiredService<PhpAdminClient>();
+            php.Configure(AppConfig.Instance.PhpApiBase, AppConfig.Instance.AdminUsername, AppConfig.Instance.AdminToken);
+
+            var vm = provider.GetRequiredService<MainViewModel>();
+            vm.ApplyAdminRoleVisibility(AppConfig.Instance.AdminRole);
+            vm.RefreshAuditCommand.Execute(null);
+
+            var main = new MainWindow { DataContext = vm };
             MainWindow = main;
-            main.Closed += (_, _) => Shutdown();
+            main.Closed += (_, _) =>
+            {
+                vm.Dispose();
+                provider.Dispose();
+                Shutdown();
+            };
             main.Show();
         }
         catch (Exception ex)

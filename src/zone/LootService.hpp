@@ -67,6 +67,8 @@ public:
   void setShareRadiusUu(float radiusUu) { shareRadiusUu_ = radiusUu; }
 
   void loadFromDatabase();
+  void loadGameRates();
+  double getDropMultiplier() const { return dropMultiplier_; }
   void tick(float deltaSeconds);
 
   /** Chamado no kill do NPC (killer autoritativo). Concede EXP (party share) e abre loot se houver drops. */
@@ -100,6 +102,7 @@ private:
   ExperienceService* experienceService_ = nullptr;
   std::function<std::vector<uint32_t>(uint32_t)> resolvePartyMembers_;
   float shareRadiusUu_ = 5000.f;
+  double dropMultiplier_ = 1.0;
 
   std::mutex mu_;
   std::unordered_map<uint32_t, NpcLootTableDef> tablesByTemplate_;
