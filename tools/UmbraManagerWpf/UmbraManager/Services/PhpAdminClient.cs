@@ -249,6 +249,85 @@ public sealed class PhpAdminClient
     public async Task<(bool Ok, string Error, JsonDocument? Data)> GetProjectStateSummaryAsync(CancellationToken ct = default) =>
         await PostAsync("/admin/project_state_summary.php", new { admin_username = _adminUsername }, ct);
 
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> LogAdminAuditAsync(
+        string operatorName, string action, string details, CancellationToken ct = default) =>
+        await PostAsync("/admin/log_admin_audit.php", new
+        {
+            admin_username = _adminUsername,
+            operator_name = operatorName,
+            action,
+            details,
+        }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListAdminAuditAsync(
+        string? actionFilter = null, int limit = 300, CancellationToken ct = default) =>
+        await PostAsync("/admin/list_admin_audit.php", new
+        {
+            admin_username = _adminUsername,
+            action = actionFilter ?? "",
+            limit,
+        }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListGuildsAsync(string? search = null, CancellationToken ct = default) =>
+        await PostAsync("/admin/list_guilds.php", new { admin_username = _adminUsername, search = search ?? "", limit = 200 }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> GetGuildAsync(int guildId, CancellationToken ct = default) =>
+        await PostAsync("/admin/get_guild.php", new { admin_username = _adminUsername, guild_id = guildId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> KickGuildMemberAsync(int guildId, int playerId, CancellationToken ct = default) =>
+        await PostAsync("/admin/kick_guild_member.php", new { admin_username = _adminUsername, guild_id = guildId, player_id = playerId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> DisbandGuildAdminAsync(int guildId, CancellationToken ct = default) =>
+        await PostAsync("/admin/disband_guild_admin.php", new { admin_username = _adminUsername, guild_id = guildId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> TransferGuildOwnerAsync(int guildId, int newLeaderPlayerId, CancellationToken ct = default) =>
+        await PostAsync("/admin/transfer_owner_admin.php", new
+        {
+            admin_username = _adminUsername,
+            guild_id = guildId,
+            new_leader_player_id = newLeaderPlayerId,
+        }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListAuctionsAdminAsync(string status = "active", CancellationToken ct = default) =>
+        await PostAsync("/admin/list_auctions_admin.php", new { admin_username = _adminUsername, status, limit = 200 }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ForceCancelAuctionAsync(int listingId, CancellationToken ct = default) =>
+        await PostAsync("/admin/force_cancel_auction.php", new { admin_username = _adminUsername, listing_id = listingId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ExpireStaleAuctionsAsync(CancellationToken ct = default) =>
+        await PostAsync("/admin/expire_stale.php", new { admin_username = _adminUsername }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListMailAdminAsync(int playerId = 0, string? subject = null, CancellationToken ct = default) =>
+        await PostAsync("/admin/list_mail_admin.php", new
+        {
+            admin_username = _adminUsername,
+            player_id = playerId,
+            subject = subject ?? "",
+            limit = 200,
+        }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> AdminSendMailAsync(
+        int toPlayerId, string subject, string body, object[]? attachments, CancellationToken ct = default) =>
+        await PostAsync("/admin/admin_send_mail.php", new
+        {
+            admin_username = _adminUsername,
+            to_player_id = toPlayerId,
+            subject,
+            body,
+            attachments = attachments ?? Array.Empty<object>(),
+        }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> AdminSendMailAllAsync(
+        string subject, string body, object[]? attachments, CancellationToken ct = default) =>
+        await PostAsync("/admin/admin_send_mail_all.php", new
+        {
+            admin_username = _adminUsername,
+            subject,
+            body,
+            confirm_all = true,
+            attachments = attachments ?? Array.Empty<object>(),
+        }, ct);
+
     private async Task<(bool Ok, string Error, JsonDocument? Data)> PostAsync(string path, object body, CancellationToken ct)
     {
         var url = _baseUrl + path;

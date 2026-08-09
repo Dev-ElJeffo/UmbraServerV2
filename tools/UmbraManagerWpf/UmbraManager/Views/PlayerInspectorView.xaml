@@ -60,7 +60,7 @@
                                     <TabItem Header="Inventário/Storage">
                                         <Border Style="{StaticResource ManagerEditorCard}" Padding="8">
                                             <DataGrid Style="{StaticResource ManagerDataGrid}"
-                                                      ItemsSource="{Binding InventoryItems}" IsReadOnly="True">
+                                                      ItemsSource="{Binding PlayerInspector.InventoryItems}" IsReadOnly="True">
                                                 <DataGrid.Columns>
                                                     <DataGridTextColumn Header="Slot" Binding="{Binding SlotLabel}" Width="120"/>
                                                     <DataGridTextColumn Header="Item" Binding="{Binding ItemName}" Width="*"/>
@@ -73,7 +73,7 @@
                                     <TabItem Header="Social">
                                         <Border Style="{StaticResource ManagerEditorCard}" Padding="8">
                                             <DataGrid Style="{StaticResource ManagerDataGrid}"
-                                                      ItemsSource="{Binding SocialRows}" IsReadOnly="True">
+                                                      ItemsSource="{Binding PlayerInspector.SocialRows}" IsReadOnly="True">
                                                 <DataGrid.Columns>
                                                     <DataGridTextColumn Header="Tipo" Binding="{Binding Kind}" Width="100"/>
                                                     <DataGridTextColumn Header="Label" Binding="{Binding Label}" Width="*"/>
@@ -84,7 +84,7 @@
                                     <TabItem Header="Quests">
                                         <Border Style="{StaticResource ManagerEditorCard}" Padding="8">
                                             <DataGrid Style="{StaticResource ManagerDataGrid}"
-                                                      ItemsSource="{Binding QuestRows}" IsReadOnly="True">
+                                                      ItemsSource="{Binding PlayerInspector.QuestRows}" IsReadOnly="True">
                                                 <DataGrid.Columns>
                                                     <DataGridTextColumn Header="ID" Binding="{Binding QuestId}" Width="70"/>
                                                     <DataGridTextColumn Header="Título" Binding="{Binding Title}" Width="*"/>
@@ -96,7 +96,7 @@
                                     <TabItem Header="Economia">
                                         <Border Style="{StaticResource ManagerEditorCard}" Padding="8">
                                             <DataGrid Style="{StaticResource ManagerDataGrid}"
-                                                      ItemsSource="{Binding EconomyRows}" IsReadOnly="True">
+                                                      ItemsSource="{Binding PlayerInspector.EconomyRows}" IsReadOnly="True">
                                                 <DataGrid.Columns>
                                                     <DataGridTextColumn Header="Tipo" Binding="{Binding Kind}" Width="100"/>
                                                     <DataGridTextColumn Header="Label" Binding="{Binding Label}" Width="*"/>

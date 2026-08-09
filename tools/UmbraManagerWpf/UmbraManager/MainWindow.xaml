@@ -1429,6 +1429,142 @@
                             </DataGrid>
                         </DockPanel>
                     </TabItem>
+
+                    <TabItem Header="Guilds">
+                        <Grid Margin="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <DockPanel Grid.Column="0">
+                                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                                    <TextBox Width="160" Margin="0,0,8,0" Text="{Binding GuildSearch, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="Buscar" materialDesign:HintAssist.IsFloating="True"/>
+                                    <Button Content="Atualizar" Command="{Binding RefreshGuildsCommand}"/>
+                                    <Button Content="Dissolver" Command="{Binding DisbandSelectedGuildCommand}" Margin="8,0,0,0"
+                                            Style="{StaticResource ManagerFormSecondaryButton}"/>
+                                </StackPanel>
+                                <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding GuildRows}"
+                                          SelectedItem="{Binding SelectedGuild}" IsReadOnly="True">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="ID" Binding="{Binding GuildId}" Width="60"/>
+                                        <DataGridTextColumn Header="Nome" Binding="{Binding GuildName}" Width="160"/>
+                                        <DataGridTextColumn Header="Líder" Binding="{Binding LeaderName}" Width="120"/>
+                                        <DataGridTextColumn Header="Membros" Binding="{Binding MemberCount}" Width="70"/>
+                                        <DataGridTextColumn Header="Nível" Binding="{Binding GuildLevel}" Width="60"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </DockPanel>
+                            <DockPanel Grid.Column="2">
+                                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                                    <Button Content="Kick" Command="{Binding KickSelectedGuildMemberCommand}" Margin="0,0,8,0"/>
+                                    <Button Content="Transferir líder" Command="{Binding TransferGuildOwnerCommand}"/>
+                                </StackPanel>
+                                <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding GuildMembers}"
+                                          SelectedItem="{Binding SelectedGuildMember}" IsReadOnly="True">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Player" Binding="{Binding PlayerId}" Width="70"/>
+                                        <DataGridTextColumn Header="Nome" Binding="{Binding CharacterName}" Width="*"/>
+                                        <DataGridTextColumn Header="Rank" Binding="{Binding MemberRank}" Width="100"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </DockPanel>
+                        </Grid>
+                    </TabItem>
+
+                    <TabItem Header="Auction">
+                        <DockPanel Margin="8">
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                                <TextBox Width="120" Margin="0,0,8,0" Text="{Binding AuctionStatusFilter, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="status" materialDesign:HintAssist.IsFloating="True"/>
+                                <Button Content="Atualizar" Command="{Binding RefreshAuctionsAdminCommand}" Margin="0,0,8,0"/>
+                                <Button Content="Cancelar selecionado" Command="{Binding ForceCancelSelectedAuctionCommand}" Margin="0,0,8,0"/>
+                                <Button Content="Expirar stale" Command="{Binding ExpireStaleAuctionsCommand}"/>
+                            </StackPanel>
+                            <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding AuctionAdminRows}"
+                                      SelectedItem="{Binding SelectedAuction}" IsReadOnly="True">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="ID" Binding="{Binding ListingId}" Width="60"/>
+                                    <DataGridTextColumn Header="Seller" Binding="{Binding SellerName}" Width="120"/>
+                                    <DataGridTextColumn Header="Item" Binding="{Binding ItemName}" Width="180"/>
+                                    <DataGridTextColumn Header="Qtd" Binding="{Binding Quantity}" Width="50"/>
+                                    <DataGridTextColumn Header="Gold" Binding="{Binding PriceGold}" Width="80"/>
+                                    <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="80"/>
+                                    <DataGridTextColumn Header="Expira" Binding="{Binding ExpiresAt}" Width="*"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </TabItem>
+
+                    <TabItem Header="Mail">
+                        <Grid Margin="8">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Border Grid.Row="0" Style="{StaticResource ManagerEditorCard}" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <TextBlock Text="Enviar carta sistema" Style="{StaticResource ManagerEditorTitle}"/>
+                                    <CheckBox Content="Enviar a TODOS os players" IsChecked="{Binding MailSendToAll}" Margin="0,0,0,8"/>
+                                    <TextBox Text="{Binding MailToPlayerId, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="to_player_id"
+                                             materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,8"/>
+                                    <TextBox Text="{Binding MailSubject, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="Assunto"
+                                             materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,8"/>
+                                    <TextBox Text="{Binding MailBody, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True"
+                                             Height="80" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                             materialDesign:HintAssist.Hint="Corpo"
+                                             materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,8"/>
+                                    <TextBlock Text="Anexos (até 5 slots)" Margin="0,0,0,4" Opacity="0.85"/>
+                                    <ItemsControl ItemsSource="{Binding MailAttachSlots}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Margin="0,0,8,8" Padding="8" BorderBrush="#444" BorderThickness="1" MinWidth="140">
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding SlotIndex, StringFormat=Slot {0}}"/>
+                                                        <TextBox Text="{Binding ItemTemplateId, UpdateSourceTrigger=PropertyChanged}"
+                                                                 materialDesign:HintAssist.Hint="item_id" materialDesign:HintAssist.IsFloating="True"/>
+                                                        <TextBox Text="{Binding Quantity, UpdateSourceTrigger=PropertyChanged}"
+                                                                 materialDesign:HintAssist.Hint="qty" materialDesign:HintAssist.IsFloating="True" Margin="0,4,0,0"/>
+                                                        <TextBox Text="{Binding RefinementLevel, UpdateSourceTrigger=PropertyChanged}"
+                                                                 materialDesign:HintAssist.Hint="refine" materialDesign:HintAssist.IsFloating="True" Margin="0,4,0,0"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Content="Enviar mail" Command="{Binding AdminSendMailCommand}"
+                                            Style="{StaticResource ManagerFormPrimaryButton}" HorizontalAlignment="Left"/>
+                                </StackPanel>
+                            </Border>
+                            <DockPanel Grid.Row="1">
+                                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                                    <TextBox Width="100" Margin="0,0,8,0" Text="{Binding MailListFilterPlayerId, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="player_id" materialDesign:HintAssist.IsFloating="True"/>
+                                    <TextBox Width="160" Margin="0,0,8,0" Text="{Binding MailListFilterSubject, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="assunto" materialDesign:HintAssist.IsFloating="True"/>
+                                    <Button Content="Atualizar histórico" Command="{Binding RefreshMailAdminCommand}"/>
+                                </StackPanel>
+                                <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding MailAdminRows}" IsReadOnly="True">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="ID" Binding="{Binding MailId}" Width="60"/>
+                                        <DataGridTextColumn Header="Para" Binding="{Binding ToName}" Width="120"/>
+                                        <DataGridTextColumn Header="De" Binding="{Binding FromName}" Width="100"/>
+                                        <DataGridTextColumn Header="Assunto" Binding="{Binding Subject}" Width="*"/>
+                                        <DataGridTextColumn Header="Anexos" Binding="{Binding AttachmentCount}" Width="60"/>
+                                        <DataGridTextColumn Header="Quando" Binding="{Binding CreatedAt}" Width="140"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </DockPanel>
+                        </Grid>
+                    </TabItem>
                 </TabControl>
             </TabItem>
 

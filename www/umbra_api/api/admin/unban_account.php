@@ -56,6 +56,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->bindParam(':target_id', $data->target_user_id);
             
             if ($stmt->execute()) {
+                require_once __DIR__ . '/../../helpers/admin_audit_helper.php';
+                logAdminAudit(
+                    $db,
+                    (string)$data->admin_username,
+                    'unban_account',
+                    "user={$target['username']}",
+                    'player',
+                    (int)$target['id'],
+                    isset($adminCheck['admin']['id']) ? (int)$adminCheck['admin']['id'] : null
+                );
                 $response['success'] = true;
                 $response['message'] = "Conta '{$target['username']}' foi desbanida com sucesso";
                 $response['unbanned_user'] = [

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows;
@@ -18,6 +19,24 @@ public partial class MainViewModel
     public ObservableCollection<NpcLootEntryRow> NpcLootEntries { get; } = new();
     public ObservableCollection<ExpZoneRow> ExpZones { get; } = new();
     public ObservableCollection<RefinementConfigRow> RefinementConfigs { get; } = new();
+    public ObservableCollection<GuildListRow> GuildRows { get; } = new();
+    public ObservableCollection<GuildMemberRow> GuildMembers { get; } = new();
+    public ObservableCollection<AuctionAdminRow> AuctionAdminRows { get; } = new();
+    public ObservableCollection<MailAdminRow> MailAdminRows { get; } = new();
+    public ObservableCollection<MailAttachSlotRow> MailAttachSlots { get; } = new(
+        Enumerable.Range(0, 5).Select(i => new MailAttachSlotRow { SlotIndex = i }));
+
+    [ObservableProperty] private string _guildSearch = "";
+    [ObservableProperty] private GuildListRow? _selectedGuild;
+    [ObservableProperty] private GuildMemberRow? _selectedGuildMember;
+    [ObservableProperty] private string _auctionStatusFilter = "active";
+    [ObservableProperty] private AuctionAdminRow? _selectedAuction;
+    [ObservableProperty] private int _mailToPlayerId;
+    [ObservableProperty] private string _mailSubject = "";
+    [ObservableProperty] private string _mailBody = "";
+    [ObservableProperty] private bool _mailSendToAll;
+    [ObservableProperty] private string _mailListFilterSubject = "";
+    [ObservableProperty] private int _mailListFilterPlayerId;
 
     [ObservableProperty] private RefinementConfigRow? _selectedRefinementConfig;
     [ObservableProperty] private string _refinementFormTitle = "Editar nível de refinação";
@@ -802,12 +821,313 @@ public partial class MainViewModel
     }
 
     [RelayCommand]
-    private void RefreshAudit()
+    private async Task RefreshAudit()
     {
         AuditLogs.Clear();
-        foreach (var row in Audit.QueryRecent(300, string.IsNullOrWhiteSpace(AuditFilter) ? null : AuditFilter))
+        var filter = string.IsNullOrWhiteSpace(AuditFilter) ? null : AuditFilter;
+        var (ok, err, doc) = await Php.ListAdminAuditAsync(filter, 300);
+        if (ok && doc != null)
+        {
+            try
+            {
+                if (doc.RootElement.TryGetProperty("rows", out var rows) && rows.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var r in rows.EnumerateArray())
+                    {
+                        var ts = r.TryGetProperty("ts", out var t) ? t.GetInt64() : 0;
+                        var created = r.TryGetProperty("created_at", out var c) ? c.GetString() ?? "" : "";
+                        AuditLogs.Add(new AuditLogRow
+                        {
+                            Id = r.TryGetProperty("id", out var id) ? id.GetInt64() : 0,
+                            Ts = ts,
+                            TimestampLocal = !string.IsNullOrEmpty(created)
+                                ? created
+                                : (ts > 0
+                                    ? DateTimeOffset.FromUnixTimeSeconds(ts).LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss")
+                                    : ""),
+                            OperatorName = r.TryGetProperty("operator_name", out var on) ? on.GetString() ?? "" : "",
+                            Action = r.TryGetProperty("action", out var a) ? a.GetString() ?? "" : "",
+                            Details = r.TryGetProperty("details", out var d) ? d.GetString() ?? "" : "",
+                        });
+                    }
+                }
+                StatusText = $"Audit MySQL: {AuditLogs.Count} eventos.";
+                return;
+            }
+            finally
+            {
+                doc.Dispose();
+            }
+        }
+
+        foreach (var row in Audit.QueryRecent(300, filter))
             AuditLogs.Add(row);
-        StatusText = $"Audit: {AuditLogs.Count} eventos.";
+        StatusText = $"Audit local (API offline: {err}): {AuditLogs.Count} eventos.";
+    }
+
+    [RelayCommand]
+    private async Task RefreshGuildsAsync()
+    {
+        GuildRows.Clear();
+        GuildMembers.Clear();
+        SelectedGuild = null;
+        var (ok, err, doc) = await Php.ListGuildsAsync(GuildSearch);
+        if (!ok || doc == null)
+        {
+            StatusText = $"Guilds: {err}";
+            return;
+        }
+        try
+        {
+            if (doc.RootElement.TryGetProperty("guilds", out var arr))
+            {
+                foreach (var g in arr.EnumerateArray())
+                {
+                    GuildRows.Add(new GuildListRow
+                    {
+                        GuildId = g.GetProperty("guild_id").GetInt32(),
+                        GuildName = g.TryGetProperty("guild_name", out var n) ? n.GetString() ?? "" : "",
+                        LeaderId = g.TryGetProperty("guild_leader_id", out var l) ? l.GetInt32() : 0,
+                        LeaderName = g.TryGetProperty("leader_name", out var ln) ? ln.GetString() ?? "" : "",
+                        MemberCount = g.TryGetProperty("member_count", out var mc) ? mc.GetInt32() : 0,
+                        MemberLimit = g.TryGetProperty("member_limit", out var ml) ? ml.GetInt32() : 0,
+                        GuildLevel = g.TryGetProperty("guild_level", out var gl) ? gl.GetInt32() : 1,
+                    });
+                }
+            }
+            StatusText = $"Guilds: {GuildRows.Count}";
+        }
+        finally { doc.Dispose(); }
+    }
+
+    partial void OnSelectedGuildChanged(GuildListRow? value)
+    {
+        if (value != null)
+            _ = LoadGuildDetailAsync(value.GuildId);
+    }
+
+    private async Task LoadGuildDetailAsync(int guildId)
+    {
+        GuildMembers.Clear();
+        var (ok, err, doc) = await Php.GetGuildAsync(guildId);
+        if (!ok || doc == null)
+        {
+            StatusText = $"Guild detalhe: {err}";
+            return;
+        }
+        try
+        {
+            if (doc.RootElement.TryGetProperty("members", out var arr))
+            {
+                foreach (var m in arr.EnumerateArray())
+                {
+                    GuildMembers.Add(new GuildMemberRow
+                    {
+                        PlayerId = m.GetProperty("player_id").GetInt32(),
+                        CharacterName = m.TryGetProperty("character_name", out var n) ? n.GetString() ?? "" : "",
+                        MemberRank = m.TryGetProperty("member_rank", out var r) ? r.GetString() ?? "" : "",
+                        JoinedAt = m.TryGetProperty("joined_at", out var j) ? j.GetString() ?? "" : "",
+                    });
+                }
+            }
+        }
+        finally { doc.Dispose(); }
+    }
+
+    [RelayCommand]
+    private async Task KickSelectedGuildMemberAsync()
+    {
+        if (SelectedGuild == null || SelectedGuildMember == null) return;
+        var (ok, err, _) = await Php.KickGuildMemberAsync(SelectedGuild.GuildId, SelectedGuildMember.PlayerId);
+        if (!ok) { MessageBox.Show(err, "Kick guild"); return; }
+        Audit.Log(AppConfig.Instance.AdminUsername, "kick_guild_member",
+            $"guild={SelectedGuild.GuildId};player={SelectedGuildMember.PlayerId}");
+        await LoadGuildDetailAsync(SelectedGuild.GuildId);
+        await RefreshGuildsAsync();
+    }
+
+    [RelayCommand]
+    private async Task DisbandSelectedGuildAsync()
+    {
+        if (SelectedGuild == null) return;
+        if (MessageBox.Show($"Dissolver guild '{SelectedGuild.GuildName}'?", "Confirmar",
+                MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+        var (ok, err, _) = await Php.DisbandGuildAdminAsync(SelectedGuild.GuildId);
+        if (!ok) { MessageBox.Show(err, "Disband"); return; }
+        Audit.Log(AppConfig.Instance.AdminUsername, "disband_guild_admin", $"guild={SelectedGuild.GuildId}");
+        await RefreshGuildsAsync();
+    }
+
+    [RelayCommand]
+    private async Task TransferGuildOwnerAsync()
+    {
+        if (SelectedGuild == null || SelectedGuildMember == null) return;
+        var (ok, err, _) = await Php.TransferGuildOwnerAsync(SelectedGuild.GuildId, SelectedGuildMember.PlayerId);
+        if (!ok) { MessageBox.Show(err, "Transfer owner"); return; }
+        Audit.Log(AppConfig.Instance.AdminUsername, "transfer_owner_admin",
+            $"guild={SelectedGuild.GuildId};leader={SelectedGuildMember.PlayerId}");
+        await LoadGuildDetailAsync(SelectedGuild.GuildId);
+        await RefreshGuildsAsync();
+    }
+
+    [RelayCommand]
+    private async Task RefreshAuctionsAdminAsync()
+    {
+        AuctionAdminRows.Clear();
+        var (ok, err, doc) = await Php.ListAuctionsAdminAsync(AuctionStatusFilter);
+        if (!ok || doc == null)
+        {
+            StatusText = $"Auction: {err}";
+            return;
+        }
+        try
+        {
+            if (doc.RootElement.TryGetProperty("listings", out var arr))
+            {
+                foreach (var a in arr.EnumerateArray())
+                {
+                    AuctionAdminRows.Add(new AuctionAdminRow
+                    {
+                        ListingId = a.GetProperty("listing_id").GetInt32(),
+                        SellerPlayerId = a.TryGetProperty("seller_player_id", out var s) ? s.GetInt32() : 0,
+                        SellerName = a.TryGetProperty("seller_name", out var sn) ? sn.GetString() ?? "" : "",
+                        ItemName = a.TryGetProperty("item_name", out var inn) ? inn.GetString() ?? "" : "",
+                        ItemTemplateId = a.TryGetProperty("item_template_id", out var it) ? it.GetInt32() : 0,
+                        Quantity = a.TryGetProperty("quantity", out var q) ? q.GetInt32() : 0,
+                        PriceGold = a.TryGetProperty("price_gold", out var p) ? p.GetInt32() : 0,
+                        Status = a.TryGetProperty("status", out var st) ? st.GetString() ?? "" : "",
+                        ExpiresAt = a.TryGetProperty("expires_at", out var e) ? e.GetString() ?? "" : "",
+                    });
+                }
+            }
+            StatusText = $"Auction: {AuctionAdminRows.Count}";
+        }
+        finally { doc.Dispose(); }
+    }
+
+    [RelayCommand]
+    private async Task ForceCancelSelectedAuctionAsync()
+    {
+        if (SelectedAuction == null) return;
+        var (ok, err, _) = await Php.ForceCancelAuctionAsync(SelectedAuction.ListingId);
+        if (!ok) { MessageBox.Show(err, "Cancel auction"); return; }
+        Audit.Log(AppConfig.Instance.AdminUsername, "force_cancel_auction", $"listing={SelectedAuction.ListingId}");
+        await RefreshAuctionsAdminAsync();
+    }
+
+    [RelayCommand]
+    private async Task ExpireStaleAuctionsAsync()
+    {
+        var (ok, err, doc) = await Php.ExpireStaleAuctionsAsync();
+        if (!ok) { MessageBox.Show(err, "Expire stale"); return; }
+        doc?.Dispose();
+        Audit.Log(AppConfig.Instance.AdminUsername, "expire_stale_auctions", "ok");
+        await RefreshAuctionsAdminAsync();
+    }
+
+    [RelayCommand]
+    private async Task RefreshMailAdminAsync()
+    {
+        MailAdminRows.Clear();
+        var (ok, err, doc) = await Php.ListMailAdminAsync(MailListFilterPlayerId, MailListFilterSubject);
+        if (!ok || doc == null)
+        {
+            StatusText = $"Mail: {err}";
+            return;
+        }
+        try
+        {
+            if (doc.RootElement.TryGetProperty("mails", out var arr))
+            {
+                foreach (var m in arr.EnumerateArray())
+                {
+                    MailAdminRows.Add(new MailAdminRow
+                    {
+                        MailId = m.GetProperty("mail_id").GetInt64(),
+                        RecipientPlayerId = m.TryGetProperty("recipient_player_id", out var r) ? r.GetInt32() : 0,
+                        ToName = m.TryGetProperty("to_name", out var tn) ? tn.GetString() ?? "" : "",
+                        FromName = m.TryGetProperty("from_name", out var fn) ? fn.GetString() ?? "" : "",
+                        Subject = m.TryGetProperty("subject", out var s) ? s.GetString() ?? "" : "",
+                        AttachmentCount = m.TryGetProperty("attachment_count", out var ac) ? ac.GetInt32() : 0,
+                        IsRead = m.TryGetProperty("is_read", out var ir) && ir.GetBoolean(),
+                        CreatedAt = m.TryGetProperty("created_at", out var c) ? c.GetString() ?? "" : "",
+                    });
+                }
+            }
+            StatusText = $"Mail: {MailAdminRows.Count}";
+        }
+        finally { doc.Dispose(); }
+    }
+
+    private object[] BuildMailAttachmentsPayload()
+    {
+        var list = new List<object>();
+        foreach (var slot in MailAttachSlots)
+        {
+            var p = slot.ToPayload();
+            if (p != null) list.Add(p);
+        }
+        return list.ToArray();
+    }
+
+    [RelayCommand]
+    private async Task AdminSendMailAsync()
+    {
+        if (string.IsNullOrWhiteSpace(MailSubject) || string.IsNullOrWhiteSpace(MailBody))
+        {
+            MessageBox.Show("Assunto e corpo obrigatórios.", "Mail");
+            return;
+        }
+        var atts = BuildMailAttachmentsPayload();
+        if (MailSendToAll)
+        {
+            if (MessageBox.Show(
+                    $"Enviar carta a TODOS os players com {atts.Length} anexo(s)?",
+                    "Confirmar envio em massa",
+                    MessageBoxButton.YesNo) != MessageBoxResult.Yes)
+                return;
+            var (ok, err, doc) = await Php.AdminSendMailAllAsync(MailSubject, MailBody, atts);
+            if (!ok) { MessageBox.Show(err, "Mail all"); return; }
+            var sent = 0;
+            if (doc != null)
+            {
+                if (doc.RootElement.TryGetProperty("sent", out var s)) sent = s.GetInt32();
+                doc.Dispose();
+            }
+            Audit.Log(AppConfig.Instance.AdminUsername, "admin_send_mail_all", $"sent={sent};atts={atts.Length}");
+            foreach (var z in GetAuthenticatedZoneServices())
+                await AdminHub.SendCommandAsync(z, "flush_mail_notify_queue");
+            StatusText = $"Mail enviado a {sent} players.";
+        }
+        else
+        {
+            if (MailToPlayerId <= 0)
+            {
+                MessageBox.Show("Informe to_player_id.", "Mail");
+                return;
+            }
+            var (ok, err, doc) = await Php.AdminSendMailAsync(MailToPlayerId, MailSubject, MailBody, atts);
+            if (!ok) { MessageBox.Show(err, "Mail"); return; }
+            long mailId = 0;
+            if (doc != null)
+            {
+                if (doc.RootElement.TryGetProperty("mail_id", out var mid)) mailId = mid.GetInt64();
+                doc.Dispose();
+            }
+            Audit.Log(AppConfig.Instance.AdminUsername, "admin_send_mail",
+                $"to={MailToPlayerId};mail={mailId};atts={atts.Length}");
+            var args = new JsonObject
+            {
+                ["player_id"] = MailToPlayerId,
+                ["mail_id"] = mailId,
+                ["from_name"] = "Sistema",
+                ["subject"] = MailSubject,
+            };
+            foreach (var z in GetAuthenticatedZoneServices())
+                await AdminHub.SendCommandAsync(z, "notify_mail", args);
+            StatusText = $"Mail #{mailId} enviado ao player {MailToPlayerId}.";
+        }
+        await RefreshMailAdminAsync();
     }
 
     public void ApplyAdminRoleVisibility(string role)
@@ -841,6 +1161,10 @@ public partial class MainViewModel
             };
             if (string.IsNullOrEmpty(item.ItemName))
                 item.ItemName = TryGetStringProp(row, "label");
+            if (string.IsNullOrEmpty(item.ItemName))
+                item.ItemName = item.SlotLabel;
+            if (string.IsNullOrEmpty(item.SlotLabel) && !string.IsNullOrEmpty(item.ItemName))
+                item.SlotLabel = item.ItemName;
             summary.InventoryItems.Add(item);
             summary.InventorySummary.Add($"{item.SlotLabel}: {item.ItemName} x{item.Quantity}");
         }
@@ -863,6 +1187,15 @@ public partial class MainViewModel
             };
             if (string.IsNullOrEmpty(q.Title))
                 q.Title = TryGetStringProp(row, "label");
+            if (string.IsNullOrEmpty(q.Status) && !string.IsNullOrEmpty(q.Title) && q.Title.StartsWith('['))
+            {
+                var end = q.Title.IndexOf(']');
+                if (end > 1)
+                {
+                    q.Status = q.Title.Substring(1, end - 1);
+                    q.Title = q.Title.Substring(end + 1).Trim();
+                }
+            }
             summary.QuestRows.Add(q);
             summary.QuestSummary.Add($"{q.Title} [{q.Status}]");
         }

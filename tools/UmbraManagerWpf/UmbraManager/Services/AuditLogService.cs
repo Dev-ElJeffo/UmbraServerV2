@@ -5,6 +5,7 @@ namespace UmbraManager.Services;
 public sealed class AuditLogService : IDisposable
 {
     private readonly SqliteConnection _conn;
+    private PhpAdminClient? _php;
 
     public AuditLogService()
     {
@@ -26,6 +27,8 @@ public sealed class AuditLogService : IDisposable
         cmd.ExecuteNonQuery();
     }
 
+    public void AttachPhpClient(PhpAdminClient php) => _php = php;
+
     public void Log(string operatorName, string action, string details)
     {
         using var cmd = _conn.CreateCommand();
@@ -35,6 +38,21 @@ public sealed class AuditLogService : IDisposable
         cmd.Parameters.AddWithValue("$a", action);
         cmd.Parameters.AddWithValue("$d", details);
         cmd.ExecuteNonQuery();
+
+        if (_php != null)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _php.LogAdminAuditAsync(operatorName, action, details).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // SQLite local já gravou
+                }
+            });
+        }
     }
 
     public IReadOnlyList<Models.AuditLogRow> QueryRecent(int limit = 200, string? actionFilter = null)

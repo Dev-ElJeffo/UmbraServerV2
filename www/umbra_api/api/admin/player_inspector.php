@@ -75,7 +75,7 @@ try {
     $partyRows = $partyStmt->fetchAll(PDO::FETCH_ASSOC);
 
     $inventoryStmt = $pdo->prepare("
-        SELECT pi.slot_index, it.item_name, pi.quantity
+        SELECT pi.slot_index, pi.item_template_id, it.item_name, pi.quantity
         FROM player_inventory pi
         INNER JOIN item_templates it ON it.item_id = pi.item_template_id
         WHERE pi.player_id = :player_id
@@ -86,7 +86,7 @@ try {
     $inventoryRows = $inventoryStmt->fetchAll(PDO::FETCH_ASSOC);
 
     $storageStmt = $pdo->prepare("
-        SELECT s.slot_index, it.item_name, pi.quantity
+        SELECT s.slot_index, pi.item_template_id, it.item_name, pi.quantity
         FROM player_storage s
         INNER JOIN player_inventory pi ON pi.inventory_id = s.inventory_id
         INNER JOIN item_templates it ON it.item_id = pi.item_template_id
@@ -98,7 +98,7 @@ try {
     $storageRows = $storageStmt->fetchAll(PDO::FETCH_ASSOC);
 
     $questStmt = $pdo->prepare("
-        SELECT q.title AS quest_title, pq.status
+        SELECT pq.quest_id, q.title AS quest_title, pq.status
         FROM player_quests pq
         INNER JOIN quests q ON q.quest_id = pq.quest_id
         WHERE pq.player_id = :player_id
@@ -131,28 +131,64 @@ try {
     $partyLabel = empty($partyRows) ? 'Sem party' : ('Party #' . (int)$partyRows[0]['party_id'] . ' (' . count($partyRows) . ' membros)');
     $economy = [];
     foreach ($auctionRows as $row) {
-        $economy[] = ['label' => 'Leilão #' . (int)$row['listing_id'] . ' | ' . $row['status'] . ' | ' . (int)$row['price_gold'] . ' gold'];
+        $economy[] = [
+            'kind' => 'auction',
+            'label' => 'Leilão #' . (int)$row['listing_id'] . ' | ' . $row['status'] . ' | ' . (int)$row['price_gold'] . ' gold',
+        ];
     }
     foreach ($shopRows as $row) {
-        $economy[] = ['label' => 'Loja #' . (int)$row['shop_id'] . ' | ' . $row['status'] . ' | ' . $row['shop_name']];
+        $economy[] = [
+            'kind' => 'shop',
+            'label' => 'Loja #' . (int)$row['shop_id'] . ' | ' . $row['status'] . ' | ' . $row['shop_name'],
+        ];
     }
 
     $inventoryLabels = [];
     foreach ($inventoryRows as $row) {
-        $inventoryLabels[] = ['slot_label' => 'INV[' . (int)$row['slot_index'] . '] ' . $row['item_name'] . ' x' . (int)$row['quantity']];
+        $slot = (int)$row['slot_index'];
+        $name = (string)$row['item_name'];
+        $qty = (int)$row['quantity'];
+        $tpl = (int)$row['item_template_id'];
+        $inventoryLabels[] = [
+            'location' => 'INV',
+            'slot_index' => $slot,
+            'item_template_id' => $tpl,
+            'item_name' => $name,
+            'quantity' => $qty,
+            'slot_label' => 'INV[' . $slot . '] ' . $name . ' x' . $qty,
+        ];
     }
     foreach ($storageRows as $row) {
-        $inventoryLabels[] = ['slot_label' => 'STO[' . (int)$row['slot_index'] . '] ' . $row['item_name'] . ' x' . (int)$row['quantity']];
+        $slot = (int)$row['slot_index'];
+        $name = (string)$row['item_name'];
+        $qty = (int)$row['quantity'];
+        $tpl = (int)$row['item_template_id'];
+        $inventoryLabels[] = [
+            'location' => 'STO',
+            'slot_index' => $slot,
+            'item_template_id' => $tpl,
+            'item_name' => $name,
+            'quantity' => $qty,
+            'slot_label' => 'STO[' . $slot . '] ' . $name . ' x' . $qty,
+        ];
     }
 
     $questLabels = [];
     foreach ($questRows as $row) {
-        $questLabels[] = ['quest_title' => '[' . $row['status'] . '] ' . $row['quest_title']];
+        $title = (string)$row['quest_title'];
+        $status = (string)$row['status'];
+        $qid = (int)$row['quest_id'];
+        $questLabels[] = [
+            'quest_id' => $qid,
+            'quest_title' => $title,
+            'status' => $status,
+            'label' => '[' . $status . '] ' . $title,
+        ];
     }
 
     $partyLabels = [];
     foreach ($partyRows as $row) {
-        $partyLabels[] = ['label' => 'Party #' . (int)$row['party_id'] . ' | ' . $row['character_name']];
+        $partyLabels[] = ['kind' => 'party', 'label' => 'Party #' . (int)$row['party_id'] . ' | ' . $row['character_name']];
     }
 
     $friendLabels = [];
@@ -168,6 +204,7 @@ try {
         $friendStmt->execute([':pid' => $playerId]);
         foreach ($friendStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $friendLabels[] = [
+                'kind' => 'friend',
                 'label' => 'Amigo #' . (int)$row['friend_player_id'] . ' | ' . $row['character_name'],
                 'friend_player_id' => (int)$row['friend_player_id'],
                 'character_name' => $row['character_name'],

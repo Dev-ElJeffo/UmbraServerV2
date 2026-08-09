@@ -65,6 +65,8 @@ enum class MovementMsgType : uint8_t {
   ChatGlobalReceived = 70,             // Servidor -> Cliente: [msgType][fromPlayerId:4][nameLen:2][name:utf8][msgLen:2][msg:utf8]
   ChatGroupReceived = 71,              // Servidor -> Cliente: [msgType][fromPlayerId:4][nameLen:2][name:utf8][msgLen:2][msg:utf8]
   ChatServerError = 72,                // Servidor -> Cliente: [msgType][errorCode:2][msgLen:2][error:utf8]
+  SystemBroadcast = 73,                // Servidor -> Cliente: [msgType][severity:1][durationMs:2][nameLen:2][name][msgLen:2][msg]
+  MailNotify = 74,                     // Servidor -> Cliente: [msgType][mailId:4][fromLen:2][from][subjLen:2][subject]
   GuildInviteReceived = 80,            // Servidor -> Cliente: [msgType][inviteId:4][guildId:4][fromPlayerId:4]
   GuildStateRefresh = 81,              // Servidor -> Cliente: [msgType][guildId:4]
   GuildMemberUpdated = 82,             // Servidor -> Cliente: [msgType][guildId:4][playerId:4]
@@ -789,6 +791,94 @@ inline std::vector<uint8_t> encodeChatReceived(MovementMsgType msgType, uint32_t
   write16(static_cast<uint16_t>(message.size()));
   out.insert(out.end(), message.begin(), message.end());
   return out;
+}
+
+// System broadcast toast (73): [msgType][severity:u8][durationMs:u16 LE][nameLen:u16][name][msgLen:u16][msg]
+inline std::vector<uint8_t> encodeSystemBroadcast(uint8_t severity, uint16_t durationMs,
+                                                   const std::string& fromName,
+                                                   const std::string& message) {
+  std::vector<uint8_t> out;
+  out.reserve(1 + 1 + 2 + 2 + fromName.size() + 2 + message.size());
+  out.push_back(static_cast<uint8_t>(MovementMsgType::SystemBroadcast));
+  out.push_back(severity);
+  out.push_back(static_cast<uint8_t>(durationMs & 0xFF));
+  out.push_back(static_cast<uint8_t>((durationMs >> 8) & 0xFF));
+  auto write16 = [&out](uint16_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  };
+  write16(static_cast<uint16_t>(fromName.size()));
+  out.insert(out.end(), fromName.begin(), fromName.end());
+  write16(static_cast<uint16_t>(message.size()));
+  out.insert(out.end(), message.begin(), message.end());
+  return out;
+}
+
+inline bool decodeSystemBroadcast(const std::vector<uint8_t>& data, uint8_t& severity,
+                                  uint16_t& durationMs, std::string& fromName,
+                                  std::string& message) {
+  if (data.size() < 6) return false;
+  size_t off = 1;
+  severity = data[off++];
+  durationMs = static_cast<uint16_t>(data[off] | (static_cast<uint16_t>(data[off + 1]) << 8));
+  off += 2;
+  if (off + 2 > data.size()) return false;
+  uint16_t nameLen = static_cast<uint16_t>(data[off] | (static_cast<uint16_t>(data[off + 1]) << 8));
+  off += 2;
+  if (off + nameLen + 2 > data.size()) return false;
+  fromName.assign(reinterpret_cast<const char*>(data.data() + off), nameLen);
+  off += nameLen;
+  uint16_t msgLen = static_cast<uint16_t>(data[off] | (static_cast<uint16_t>(data[off + 1]) << 8));
+  off += 2;
+  if (off + msgLen > data.size()) return false;
+  message.assign(reinterpret_cast<const char*>(data.data() + off), msgLen);
+  return true;
+}
+
+// Mail notify (74): [msgType][mailId:u32 LE][fromLen:u16][from][subjLen:u16][subject]
+inline std::vector<uint8_t> encodeMailNotify(uint32_t mailId, const std::string& fromName,
+                                              const std::string& subject) {
+  std::vector<uint8_t> out;
+  out.reserve(1 + 4 + 2 + fromName.size() + 2 + subject.size());
+  out.push_back(static_cast<uint8_t>(MovementMsgType::MailNotify));
+  auto write32 = [&out](uint32_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  auto write16 = [&out](uint16_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  };
+  write32(mailId);
+  write16(static_cast<uint16_t>(fromName.size()));
+  out.insert(out.end(), fromName.begin(), fromName.end());
+  write16(static_cast<uint16_t>(subject.size()));
+  out.insert(out.end(), subject.begin(), subject.end());
+  return out;
+}
+
+inline bool decodeMailNotify(const std::vector<uint8_t>& data, uint32_t& mailId,
+                             std::string& fromName, std::string& subject) {
+  if (data.size() < 7) return false;
+  size_t off = 1;
+  mailId = static_cast<uint32_t>(data[off]) |
+           (static_cast<uint32_t>(data[off + 1]) << 8) |
+           (static_cast<uint32_t>(data[off + 2]) << 16) |
+           (static_cast<uint32_t>(data[off + 3]) << 24);
+  off += 4;
+  if (off + 2 > data.size()) return false;
+  uint16_t fromLen = static_cast<uint16_t>(data[off] | (static_cast<uint16_t>(data[off + 1]) << 8));
+  off += 2;
+  if (off + fromLen + 2 > data.size()) return false;
+  fromName.assign(reinterpret_cast<const char*>(data.data() + off), fromLen);
+  off += fromLen;
+  uint16_t subjLen = static_cast<uint16_t>(data[off] | (static_cast<uint16_t>(data[off + 1]) << 8));
+  off += 2;
+  if (off + subjLen > data.size()) return false;
+  subject.assign(reinterpret_cast<const char*>(data.data() + off), subjLen);
+  return true;
 }
 
 inline bool decodeChatReceived(const std::vector<uint8_t>& data, uint32_t& fromPlayerId,

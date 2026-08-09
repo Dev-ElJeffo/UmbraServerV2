@@ -10,7 +10,9 @@
 #include "chat/ChatServer.hpp"
 #include "chat/ChannelManager.hpp"
 #include "network/SocketServer.hpp"
+#include "database/MySQLConnector.hpp"
 #include <nlohmann/json.hpp>
+#include <string>
 
 namespace Umbra {
 namespace Admin {
@@ -112,6 +114,69 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
     nlohmann::json d;
     auto* mov = server.getMovementServer();
     d["sent"] = mov ? mov->broadcastAdminMessage(msg) : false;
+    return d;
+  });
+
+  registry.registerCommand("notify_mail", [&server](const nlohmann::json& args) {
+    nlohmann::json d;
+    const uint32_t playerId = args.value("player_id", 0u);
+    const uint32_t mailId = args.value("mail_id", 0u);
+    const std::string fromName = args.value("from_name", "Sistema");
+    const std::string subject = args.value("subject", "");
+    auto* mov = server.getMovementServer();
+    const bool sent = mov && playerId > 0 && mailId > 0 &&
+                      mov->notifyMailToPlayer(playerId, mailId, fromName, subject);
+    d["sent"] = sent;
+    d["player_id"] = playerId;
+    d["mail_id"] = mailId;
+    return d;
+  });
+
+  registry.registerCommand("flush_mail_notify_queue", [&server](const nlohmann::json& args) {
+    (void)args;
+    nlohmann::json d;
+    d["notified"] = 0;
+    d["consumed"] = 0;
+    auto* mov = server.getMovementServer();
+    auto db = server.getConfig().dbConnector;
+    if (!mov || !db) {
+      d["ok"] = false;
+      d["message"] = "MovementServer ou MySQL indisponível";
+      return d;
+    }
+    db->execute(
+        "CREATE TABLE IF NOT EXISTS mail_notify_queue ("
+        "id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,"
+        "recipient_player_id BIGINT UNSIGNED NOT NULL,"
+        "mail_id BIGINT UNSIGNED NOT NULL,"
+        "from_name VARCHAR(64) NOT NULL DEFAULT '',"
+        "subject VARCHAR(128) NOT NULL DEFAULT '',"
+        "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "consumed TINYINT(1) NOT NULL DEFAULT 0,"
+        "PRIMARY KEY (id),"
+        "INDEX idx_mail_notify_pending (consumed, recipient_player_id)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    auto rows = db->executeQuery(
+        "SELECT id, recipient_player_id, mail_id, from_name, subject "
+        "FROM mail_notify_queue WHERE consumed = 0 ORDER BY id ASC LIMIT 200");
+    int notified = 0;
+    int consumed = 0;
+    for (const auto& row : rows) {
+      if (row.size() < 5) continue;
+      const uint64_t qid = std::stoull(row[0]);
+      const uint32_t playerId = static_cast<uint32_t>(std::stoul(row[1]));
+      const uint32_t mailId = static_cast<uint32_t>(std::stoul(row[2]));
+      const std::string fromName = row[3];
+      const std::string subject = row[4];
+      if (mov->notifyMailToPlayer(playerId, mailId, fromName, subject)) {
+        ++notified;
+      }
+      db->execute("UPDATE mail_notify_queue SET consumed = 1 WHERE id = " + std::to_string(qid));
+      ++consumed;
+    }
+    d["ok"] = true;
+    d["notified"] = notified;
+    d["consumed"] = consumed;
     return d;
   });
 

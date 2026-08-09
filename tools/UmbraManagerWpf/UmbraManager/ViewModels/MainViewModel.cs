@@ -308,6 +308,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         Scheduler = scheduler;
         Php = php;
         Php.Configure(config.PhpApiBase, config.AdminUsername, config.AdminToken);
+        Audit.AttachPhpClient(Php);
 
         foreach (var def in Definitions)
         {

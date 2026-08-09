@@ -48,6 +48,13 @@ try {
     $upsert->execute([':k' => 'exp_multiplier', ':v' => $exp]);
     $upsert->execute([':k' => 'drop_multiplier', ':v' => $drop]);
 
+    require_once __DIR__ . '/../../helpers/admin_audit_helper.php';
+    $op = !empty($data['admin_username']) ? (string)$data['admin_username'] : 'admin';
+    logAdminAudit($pdo, $op, 'set_game_rates', "exp={$exp};drop={$drop}", 'system', null, null, [
+        'exp_multiplier' => $exp,
+        'drop_multiplier' => $drop,
+    ]);
+
     echo json_encode([
         'success' => true,
         'message' => 'Rates globais salvos',

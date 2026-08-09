@@ -21,14 +21,17 @@ Standalone desktop admin application for UmbraEternum.
 - `GM Console`: command catalog plus structured command execution.
 - `Admin Hub`:
   - `Player Inspector`
-  - `NPC Loot`
   - `EXP Zones`
   - `Refinement`
+  - `Guilds` / `Auction` / `Mail` (até 5 anexos inventory-slot + envio em massa)
+- `Audit`: MySQL `admin_audit` (fallback SQLite local)
+- `Rates`: multiplicadores globais EXP/Drop
 
 ## External integrations
 
-- Admin TCP: commands handled in `src/admin/`.
+- Admin TCP: commands handled in `src/admin/` (incl. `notify_mail`, `flush_mail_notify_queue`, broadcast 70+73).
 - PHP Admin API: endpoints under `www/umbra_api/api/admin/`.
+- Mail player API: `www/umbra_api/api/mail/`.
 - Runtime NPC operations: `src/zone/CombatCoreEngine.*`, `src/zone/NpcManager.*`.
 
 ## Notable admin endpoints added/expanded
@@ -38,6 +41,10 @@ Standalone desktop admin application for UmbraEternum.
 - `api/admin/upsert_exp_zone.php`
 - `api/admin/player_inspector.php`
 - `api/admin/project_state_summary.php`
+- `api/admin/list_admin_audit.php` / `log_admin_audit.php`
+- `api/admin/list_guilds.php` / `get_guild.php` / `kick_guild_member.php` / `disband_guild_admin.php` / `transfer_owner_admin.php`
+- `api/admin/list_auctions_admin.php` / `force_cancel_auction.php` / `expire_stale.php`
+- `api/admin/admin_send_mail.php` / `admin_send_mail_all.php` / `list_mail_admin.php`
 - `api/admin/get_refinement_config.php`
 
 ## Validation notes

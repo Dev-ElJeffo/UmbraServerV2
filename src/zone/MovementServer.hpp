@@ -1343,6 +1343,19 @@ public:
     auto packet = encodeChatReceived(
         MovementMsgType::ChatGlobalReceived, 0, "GM", message);
     ws_.broadcastBinary(packet);
+    // Toast dedicado (opcode 73) além do chat global (70)
+    auto toast = encodeSystemBroadcast(1, 5000, "GM", message);
+    ws_.broadcastBinary(toast);
+    return true;
+  }
+
+  bool notifyMailToPlayer(uint32_t playerId, uint32_t mailId,
+                          const std::string& fromName, const std::string& subject) {
+    std::lock_guard<std::mutex> lock(mu_);
+    const uint32_t cid = findClientIdForPlayerUnlocked(playerId);
+    if (cid == 0) return false;
+    auto packet = encodeMailNotify(mailId, fromName, subject);
+    ws_.sendBinary(cid, packet);
     return true;
   }
 
