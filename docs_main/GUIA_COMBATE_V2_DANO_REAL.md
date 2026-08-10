@@ -425,7 +425,25 @@ Skill **Corte Dilacerante** (`insert_all_skills.sql`):
 ]
 ```
 
-Tipos suportados no cast (`applySkillEffects`): **`DOT`**, **`HOT`**. Outros (`BUFF_STAT`, `STUN`, etc.) parseados mas **não aplicados** ainda.
+Tipos suportados no cast (`applySkillEffects`): **`DOT`**, **`HOT`**, **`BUFF_STAT`**, **`DEBUFF_STAT`**, **`SHIELD`**, **`STUN`**, **`SILENCE`**, **`ROOT`**, **`SLOW`**.
+
+### 7.3.1 Rank scaling (`skill_rank_scaling`)
+
+Fonte de verdade do fortalecimento por rank (além do `power_coef` base):
+
+| Coluna | Efeito no cast |
+|--------|----------------|
+| `power_coef_bonus` | somado ao `power_coef` base |
+| `resource_cost_bonus` | somado ao custo de mana |
+| `cooldown_reduction_ms` | subtraído do CD |
+| `duration_bonus_ms` | somado à duração base |
+| `extra_effects_json` | efeitos extras; **cumulativos** para todos os ranks ≤ `current_rank` |
+
+Fallback se não houver linha para o rank: `power_coef * (1 + (rank-1)*0.1)` (mesmo +10%/rank antigo). CD/mana/duração ficam nos valores base.
+
+Seed: `www/umbra_api/scripts/seed_skill_rank_scaling_defaults.sql` (defaults + showcase SILENCE rank 3 / STUN rank 5 em `BARB_RUIN_STRIKE`).
+
+Helpers C++: `SkillData::getEffectivePowerCoef/Cost/Cooldown/Duration` e `buildEffectsForRank`. Hot-reload zone: admin TCP `reload_skills`.
 
 ### 7.4 Como alterar uma skill
 
@@ -436,9 +454,15 @@ UPDATE skills SET
   cooldown_ms = 3000,
   effects_json = '[{"type":"DOT","target_stat":"health","value_percent":30,"duration_ms":6000,"tick_interval_ms":2000}]'
 WHERE skill_id = 42;
+
+INSERT INTO skill_rank_scaling (skill_id, rank, power_coef_bonus, extra_effects_json)
+VALUES (42, 4, 45, '[{"type":"SILENCE","duration_ms":1500,"chance_percent":100}]')
+ON DUPLICATE KEY UPDATE power_coef_bonus=VALUES(power_coef_bonus), extra_effects_json=VALUES(extra_effects_json);
 ```
 
 Rank do jogador: `UPDATE player_skills SET current_rank = 3 WHERE player_id = ? AND skill_id = ?`.
+
+Preferível: aba **Skills** no UmbraManager + botão **Recarregar no Zone** (`reload_skills`).
 
 ### 7.5 Como alterar ataque básico
 
@@ -571,9 +595,9 @@ Inicialização (`ZoneServer::start`):
 
 ## 12. Escopo futuro (não implementado)
 
-- `BUFF_STAT`, `DEBUFF_STAT`, `STUN` etc. em `effects_json` — parseados, não aplicados no cast.
-- Range check server-side no basic attack (cooldown sim; `range_max` do SQL pode não ser validado).
-- `pvp_modifier` por skill no cálculo PvP detalhado.
+- Range check server-side no basic attack (cooldown sim; `range_max` do SQL pode não ser validado em todos os paths).
+- Redesign completo de `skill_effects` normalizado (continua JSON em `effects_json` / `extra_effects_json`).
+- Novos tipos de CC além de STUN/SILENCE/ROOT/SLOW.
 - `CombatService` legado — não participa do fluxo V2.
 - Componentes `UmbraBasicAttackComponent` / `UmbraCombatComponent` — referenciados no character; verificar presença no branch antes de depender do fluxo LMB→98.
 

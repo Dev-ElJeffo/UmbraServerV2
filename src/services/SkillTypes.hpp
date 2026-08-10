@@ -5,6 +5,7 @@
  * Server-Side Authoritative Combat System
  */
 
+#include <algorithm>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -261,6 +262,19 @@ struct SkillEffect {
 };
 
 // ============================================================================
+// SKILL RANK SCALING (skill_rank_scaling)
+// ============================================================================
+
+struct SkillRankScaling {
+    uint8_t rank = 1;
+    int16_t powerCoefBonus = 0;
+    int16_t resourceCostBonus = 0;
+    int32_t cooldownReductionMs = 0;
+    int32_t durationBonusMs = 0;
+    std::vector<SkillEffect> extraEffects;
+};
+
+// ============================================================================
 // SKILL DATA (Loaded from database)
 // ============================================================================
 
@@ -328,12 +342,66 @@ struct SkillData {
     // Effects
     std::vector<SkillEffect> effects;
     std::vector<std::string> serverTags;
-    
-    // Calculate effective power coefficient with rank
+    std::vector<SkillRankScaling> rankScalings;
+
+    const SkillRankScaling* findRankScaling(uint8_t rank) const {
+        for (const auto& row : rankScalings) {
+            if (row.rank == rank) return &row;
+        }
+        return nullptr;
+    }
+
+    /** power_coef efetivo: linha skill_rank_scaling ou fallback +10%/rank acima de 1. */
     uint16_t getEffectivePowerCoef(uint8_t rank) const {
-        // +10% per rank above 1
-        float multiplier = 1.0f + ((rank - 1) * 0.1f);
+        const uint8_t r = rank < 1 ? 1 : rank;
+        if (const SkillRankScaling* row = findRankScaling(r)) {
+            const int32_t v = static_cast<int32_t>(powerCoef) + static_cast<int32_t>(row->powerCoefBonus);
+            return static_cast<uint16_t>(std::clamp(v, 0, 65535));
+        }
+        const float multiplier = 1.0f + ((r - 1) * 0.1f);
         return static_cast<uint16_t>(powerCoef * multiplier);
+    }
+
+    uint16_t getEffectiveResourceCost(uint8_t rank) const {
+        const uint8_t r = rank < 1 ? 1 : rank;
+        int32_t cost = static_cast<int32_t>(resourceCost);
+        if (const SkillRankScaling* row = findRankScaling(r)) {
+            cost += static_cast<int32_t>(row->resourceCostBonus);
+        }
+        return static_cast<uint16_t>(std::max(0, cost));
+    }
+
+    uint32_t getEffectiveCooldownMs(uint8_t rank) const {
+        const uint8_t r = rank < 1 ? 1 : rank;
+        int64_t cd = static_cast<int64_t>(cooldownMs);
+        if (const SkillRankScaling* row = findRankScaling(r)) {
+            cd -= static_cast<int64_t>(row->cooldownReductionMs);
+        }
+        return static_cast<uint32_t>(std::max<int64_t>(0, cd));
+    }
+
+    uint32_t getEffectiveDurationMs(uint8_t rank) const {
+        const uint8_t r = rank < 1 ? 1 : rank;
+        int64_t dur = static_cast<int64_t>(durationMs);
+        if (const SkillRankScaling* row = findRankScaling(r)) {
+            dur += static_cast<int64_t>(row->durationBonusMs);
+        }
+        return static_cast<uint32_t>(std::max<int64_t>(0, dur));
+    }
+
+    /** Efeitos base + extra_effects de todos os ranks <= rank (unlock cumulativo). */
+    std::vector<SkillEffect> buildEffectsForRank(uint8_t rank) const {
+        const uint8_t r = rank < 1 ? 1 : rank;
+        std::vector<SkillEffect> out = effects;
+        uint8_t order = static_cast<uint8_t>(out.size() + 1);
+        for (const auto& row : rankScalings) {
+            if (row.rank < 1 || row.rank > r) continue;
+            for (auto eff : row.extraEffects) {
+                eff.effectOrder = order++;
+                out.push_back(std::move(eff));
+            }
+        }
+        return out;
     }
     
     // Check if skill has tag

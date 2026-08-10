@@ -8,7 +8,7 @@ Standalone desktop admin application for UmbraEternum.
 - `ViewModels/MainViewModel.cs`: legacy core orchestration for services, polling and existing tabs.
 - `ViewModels/MainViewModel.AdminHub.cs`: new admin surfaces, project overview, player inspector, loot, EXP zones and refinement.
 - `Services/AdminChannelHub.cs`: TCP admin channel to C++ services.
-- `Services/PhpAdminClient.cs`: PHP admin API client for accounts, items, NPCs and extended admin surfaces.
+- `Services/PhpAdminClient.cs`: PHP admin API client for accounts, items, skills, NPCs and extended admin surfaces.
 - `Services/GmCommandCatalogService.cs`: source of truth for GM/admin command catalog shown in UI.
 - `Services/GmCommandLineParser.cs`: robust parser for GM command input with quotes and JSON payload fragments.
 - `Models/`: UI-facing rows and DTO-like classes used by tabs and forms.
@@ -17,7 +17,7 @@ Standalone desktop admin application for UmbraEternum.
 
 - `Dashboard`: service health, CPU chart and project-wide coverage summary.
 - `Servers / Zones / Players / Logs`: live operations for the running stack.
-- `Accounts / Items / NPCs`: core game data and runtime actions.
+- `Accounts / Items / Skills / NPCs`: core game data and runtime actions.
 - `GM Console`: command catalog plus structured command execution.
 - `Admin Hub`:
   - `Player Inspector`
@@ -38,6 +38,8 @@ Standalone desktop admin application for UmbraEternum.
 
 - `api/admin/update_item.php`
 - `api/admin/list_exp_zones.php`
+- `api/admin/list_skills.php` / `get_skill.php` / CRUD + `upsert_skill_rank_scaling.php`
+- Zone admin TCP: `reload_skills`
 - `api/admin/upsert_exp_zone.php`
 - `api/admin/player_inspector.php`
 - `api/admin/project_state_summary.php`

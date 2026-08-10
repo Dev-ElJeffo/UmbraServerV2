@@ -414,6 +414,10 @@
                 <views:ItemsEditorView/>
             </TabItem>
 
+            <TabItem Header="Skills" Visibility="{Binding TabVisibilityContent}">
+                <views:SkillsEditorView/>
+            </TabItem>
+
             <!-- NPCs -->
             <TabItem Header="NPCs" Visibility="{Binding TabVisibilityContent}">
                 <TabControl Margin="4" SelectedIndex="{Binding NpcSubTabIndex, Mode=TwoWay}">

@@ -127,6 +127,8 @@ public:
   size_t reloadMissingInstancesFromDatabase();
   /** Despawn todos → reload MySQL → spawn todos (corrige pos/home/roam em runtime). */
   size_t reloadAllNpcInstancesFromDatabase();
+  /** Recarrega definitions de skills (+ skill_rank_scaling) do MySQL em runtime. */
+  bool reloadSkills();
 
   void broadcastNpcSpawnToAll(const NpcRuntimeInstance& inst);
   void broadcastNpcDespawnToAll(uint32_t npcInstanceId, uint8_t reason = 0);
@@ -180,7 +182,8 @@ public:
   float getPlayerMovementSpeedPercent(uint32_t playerId) const;
 
 private:
-  bool skillHasEffectType(const Combat::SkillData& skill, Combat::EffectType type) const;
+  bool skillHasEffectType(const Combat::SkillData& skill, Combat::EffectType type,
+                          uint8_t skillRank = 1) const;
   void armReactionSkill(uint32_t sourcePlayerId, const Combat::SkillData& skill);
   int32_t computeInstantHealDelta(const Combat::SkillData& skill, uint8_t rank,
                                   const Combat::CharacterState& sourceState,

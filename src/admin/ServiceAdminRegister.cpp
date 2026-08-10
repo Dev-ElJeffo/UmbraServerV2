@@ -319,6 +319,17 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
     d["zone_id"] = server.getConfig().zoneId;
     return d;
   });
+
+  registry.registerCommand("reload_skills", [&server](const nlohmann::json&) {
+    nlohmann::json d;
+    auto* combat = server.getCombatCoreEngine();
+    const bool ok = combat && combat->reloadSkills();
+    d["ok"] = ok;
+    d["reloaded"] = ok;
+    d["zone_id"] = server.getConfig().zoneId;
+    if (!ok) d["message"] = "CombatCoreEngine/SkillService indisponível";
+    return d;
+  });
 }
 
 void registerWorldCommands(CommandRegistry& registry, World::WorldServer& server) {

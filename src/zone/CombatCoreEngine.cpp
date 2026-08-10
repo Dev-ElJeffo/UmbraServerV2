@@ -1328,6 +1328,16 @@ void CombatCoreEngine::tickNpcBuffExpirations() {
   }
 }
 
+bool CombatCoreEngine::reloadSkills() {
+  if (!skillService_) return false;
+  const bool ok = skillService_->reloadSkills();
+  if (ok) {
+    preloadSkillAnimPaths();
+    Core::Logger::getInstance().info("[CombatCoreEngine] skills recarregadas do DB");
+  }
+  return ok;
+}
+
 bool CombatCoreEngine::spawnNpcInstance(uint32_t npcInstanceId) {
   if (!npcManager_ || npcInstanceId == 0) return false;
   if (!npcManager_->loadInstanceById(npcInstanceId)) {
@@ -2291,8 +2301,9 @@ void CombatCoreEngine::enrichSkillBuffSyncPayload(SkillBuffSyncPayload& payload)
 }
 
 bool CombatCoreEngine::skillHasEffectType(const Combat::SkillData& skill,
-                                          Combat::EffectType type) const {
-  return std::any_of(skill.effects.begin(), skill.effects.end(),
+                                          Combat::EffectType type, uint8_t skillRank) const {
+  const auto effects = skill.buildEffectsForRank(skillRank);
+  return std::any_of(effects.begin(), effects.end(),
                      [type](const Combat::SkillEffect& e) { return e.effectType == type; });
 }
 
@@ -2575,6 +2586,14 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
     sourceState.isAlive = true;
   }
 
+  // #region agent log
+  const int64_t rankT0 = agentNowMs();
+  // #endregion
+  const uint8_t rank = loadSkillRank(sourcePlayerId, payload.skillId);
+  // #region agent log
+  phaseLog.tRank = agentNowMs() - rankT0;
+  // #endregion
+
   if (!hitOnly) {
   SkillCastRejectReason rangeFail = SkillCastRejectReason::Unknown;
   if (!validateSkillRange(sourcePlayerId, *skill, payload, &rangeFail)) {
@@ -2601,6 +2620,7 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   Combat::SkillUseRequest req;
   req.skillId = payload.skillId;
   req.sourcePlayerId = sourcePlayerId;
+  req.skillRank = rank;
   if (payload.targetType == static_cast<uint8_t>(CombatTargetType::Player)) {
     req.targetPlayerId = payload.targetId;
   }
@@ -2614,18 +2634,17 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   }
   }  // !hitOnly
 
-  // #region agent log
-  const int64_t rankT0 = agentNowMs();
-  // #endregion
-  const uint8_t rank = loadSkillRank(sourcePlayerId, payload.skillId);
-  // #region agent log
-  phaseLog.tRank = agentNowMs() - rankT0;
-  // #endregion
+  Combat::SkillData rankedSkill = *skill;
+  rankedSkill.effects = skill->buildEffectsForRank(rank);
+  rankedSkill.durationMs = skill->getEffectiveDurationMs(rank);
+  rankedSkill.powerCoef = skill->getEffectivePowerCoef(rank);
+  rankedSkill.resourceCost = skill->getEffectiveResourceCost(rank);
+  rankedSkill.cooldownMs = skill->getEffectiveCooldownMs(rank);
 
   if (!hitOnly) {
   const bool isHealPrecheck = (skill->type == Combat::SkillType::HOT) ||
-                              skillHasEffectType(*skill, Combat::EffectType::HEAL) ||
-                              skillHasEffectType(*skill, Combat::EffectType::HOT);
+                              skillHasEffectType(*skill, Combat::EffectType::HEAL, rank) ||
+                              skillHasEffectType(*skill, Combat::EffectType::HOT, rank);
   if (isHealPrecheck && skill->target == Combat::TargetType::SELF && haveSource &&
       sourceState.buffedStats.currentHealth >= sourceState.buffedStats.maxHealth) {
     // Possível cache stale pós-equip: recarrega stats e reavalia uma vez.
@@ -2644,10 +2663,11 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
     }
   }
 
-  skillService_->startCooldown(sourcePlayerId, payload.skillId, skill->cooldownMs);
+  skillService_->startCooldown(sourcePlayerId, payload.skillId, skill->getEffectiveCooldownMs(rank));
 
-  if (skill->resourceType == Combat::ResourceType::MANA && skill->resourceCost > 0) {
-    const int32_t cost = static_cast<int32_t>(skill->resourceCost);
+  const uint16_t effectiveManaCost = skill->getEffectiveResourceCost(rank);
+  if (skill->resourceType == Combat::ResourceType::MANA && effectiveManaCost > 0) {
+    const int32_t cost = static_cast<int32_t>(effectiveManaCost);
     const int32_t knownMana = haveSource ? sourceState.buffedStats.currentMana : -1;
     const int32_t knownHealth = haveSource ? sourceState.buffedStats.currentHealth : -1;
     deductPlayerMana(sourcePlayerId, cost, knownHealth, knownMana);
@@ -2705,7 +2725,7 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   // #endregion
 
   if (skill->type == Combat::SkillType::REACTION) {
-    armReactionSkill(sourcePlayerId, *skill);
+    armReactionSkill(sourcePlayerId, rankedSkill);
     Core::Logger::getInstance().debug(
         "[CombatCoreEngine] SkillCast REACTION armada player={} skill={}", sourcePlayerId,
         payload.skillId);
@@ -2722,17 +2742,17 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   }  // !hitOnly
 
   const bool isHeal = (skill->type == Combat::SkillType::HOT) ||
-                      skillHasEffectType(*skill, Combat::EffectType::HEAL) ||
-                      skillHasEffectType(*skill, Combat::EffectType::HOT);
+                      skillHasEffectType(*skill, Combat::EffectType::HEAL, rank) ||
+                      skillHasEffectType(*skill, Combat::EffectType::HOT, rank);
   const bool isBuffOnly =
-      !isHeal && !skillHasEffectType(*skill, Combat::EffectType::DAMAGE) &&
-      (skillHasEffectType(*skill, Combat::EffectType::BUFF_STAT) ||
-       skillHasEffectType(*skill, Combat::EffectType::DEBUFF_STAT) ||
-       skillHasEffectType(*skill, Combat::EffectType::SHIELD) ||
-       skillHasEffectType(*skill, Combat::EffectType::STUN) ||
-       skillHasEffectType(*skill, Combat::EffectType::SILENCE) ||
-       skillHasEffectType(*skill, Combat::EffectType::ROOT) ||
-       skillHasEffectType(*skill, Combat::EffectType::SLOW));
+      !isHeal && !skillHasEffectType(*skill, Combat::EffectType::DAMAGE, rank) &&
+      (skillHasEffectType(*skill, Combat::EffectType::BUFF_STAT, rank) ||
+       skillHasEffectType(*skill, Combat::EffectType::DEBUFF_STAT, rank) ||
+       skillHasEffectType(*skill, Combat::EffectType::SHIELD, rank) ||
+       skillHasEffectType(*skill, Combat::EffectType::STUN, rank) ||
+       skillHasEffectType(*skill, Combat::EffectType::SILENCE, rank) ||
+       skillHasEffectType(*skill, Combat::EffectType::ROOT, rank) ||
+       skillHasEffectType(*skill, Combat::EffectType::SLOW, rank));
 
   const bool effectOnSelf = (skill->target == Combat::TargetType::SELF ||
                              skill->target == Combat::TargetType::PARTY);
@@ -2772,7 +2792,7 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
 
   if (isHeal) {
     const Combat::CharacterState& healTarget = haveDefender ? defender : sourceState;
-    delta = computeInstantHealDelta(*skill, rank, sourceState, healTarget, haveSource);
+    delta = computeInstantHealDelta(rankedSkill, rank, sourceState, healTarget, haveSource);
     delta = std::max(1, delta);
   } else if (!isBuffOnly) {
     if (!haveDefender) {
@@ -2798,7 +2818,7 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
         Core::Logger::getInstance().debug(
             "[CombatCoreEngine] SkillCast REACTION miss player={} skill={} target={}", sourcePlayerId,
             payload.skillId, payload.targetId);
-        applySkillEffects(sourcePlayerId, payload.targetType, payload.targetId, *skill, sourceState,
+        applySkillEffects(sourcePlayerId, payload.targetType, payload.targetId, rankedSkill, sourceState,
                           haveSource);
         return;
       }
@@ -2981,7 +3001,7 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   hitPhase.finish();
   const int64_t fxT0 = agentNowMs();
   // #endregion
-  applySkillEffects(sourcePlayerId, payload.targetType, payload.targetId, *skill, sourceState, haveSource);
+  applySkillEffects(sourcePlayerId, payload.targetType, payload.targetId, rankedSkill, sourceState, haveSource);
   // #region agent log
   phaseLog.tFx = agentNowMs() - fxT0;
   // #endregion

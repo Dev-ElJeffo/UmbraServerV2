@@ -1,0 +1,153 @@
+<UserControl x:Class="UmbraManager.Views.SkillsEditorView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes">
+  <Grid Margin="8">
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="*" MinWidth="420"/>
+      <ColumnDefinition Width="Auto"/>
+      <ColumnDefinition Width="520"/>
+    </Grid.ColumnDefinitions>
+
+    <DockPanel Grid.Column="0">
+      <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+        <Button Content="Atualizar" Command="{Binding RefreshSkillsCommand}" Margin="0,0,8,4"
+                Style="{StaticResource ManagerActionOutlinedButton}"/>
+        <Button Content="Nova skill" Command="{Binding NewSkillCommand}" Margin="0,0,8,4"
+                Style="{StaticResource ManagerActionOutlinedButton}"/>
+        <Button Content="Recarregar no Zone" Command="{Binding ReloadSkillsOnZonesCommand}" Margin="0,0,8,4"
+                Style="{StaticResource ManagerActionButton}"/>
+        <TextBox Width="160" Margin="0,0,8,4"
+                 Text="{Binding SkillFilterText, UpdateSourceTrigger=PropertyChanged}"
+                 materialDesign:HintAssist.Hint="Buscar"
+                 materialDesign:HintAssist.IsFloating="True"/>
+        <ComboBox Width="140" Margin="0,0,8,4"
+                  ItemsSource="{Binding SkillClassOptions}"
+                  DisplayMemberPath="Display"
+                  SelectedValuePath="Id"
+                  SelectedValue="{Binding SkillFilterClassId}"
+                  materialDesign:HintAssist.Hint="Classe"
+                  materialDesign:HintAssist.IsFloating="True"/>
+        <TextBlock Text="{Binding Skills.Count, StringFormat={}{0} skills}"
+                   VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0.7"/>
+      </WrapPanel>
+
+      <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding Skills}" IsReadOnly="True">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="ID" Binding="{Binding SkillId}" Width="50"/>
+          <DataGridTextColumn Header="Key" Binding="{Binding SkillKey}" Width="140"/>
+          <DataGridTextColumn Header="Nome" Binding="{Binding SkillName}" Width="160"/>
+          <DataGridTextColumn Header="Classe" Binding="{Binding ClassName}" Width="100"/>
+          <DataGridTextColumn Header="Tipo" Binding="{Binding TypeName}" Width="90"/>
+          <DataGridTextColumn Header="Power" Binding="{Binding PowerCoef}" Width="60"/>
+          <DataGridTextColumn Header="CD" Binding="{Binding CooldownMs}" Width="70"/>
+          <DataGridTextColumn Header="Mana" Binding="{Binding ResourceCost}" Width="55"/>
+          <DataGridCheckBoxColumn Header="On" Binding="{Binding IsEnabled}" Width="40"/>
+          <DataGridTemplateColumn Header="Ações" Width="160">
+            <DataGridTemplateColumn.CellTemplate>
+              <DataTemplate>
+                <StackPanel Orientation="Horizontal">
+                  <Button Content="Editar" Style="{StaticResource ManagerActionButton}"
+                          Command="{Binding DataContext.EditSkillCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                          CommandParameter="{Binding}"/>
+                  <Button Content="Excluir" Style="{StaticResource ManagerActionOutlinedButton}"
+                          Command="{Binding DataContext.DeleteSkillCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                          CommandParameter="{Binding}"/>
+                </StackPanel>
+              </DataTemplate>
+            </DataGridTemplateColumn.CellTemplate>
+          </DataGridTemplateColumn>
+        </DataGrid.Columns>
+      </DataGrid>
+    </DockPanel>
+
+    <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                  VerticalAlignment="Stretch" Background="Transparent"
+                  ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
+
+    <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+      <StackPanel Margin="8,0,0,0">
+        <TextBlock Text="{Binding SkillFormTitle}" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,8"/>
+        <TextBox Text="{Binding SkillFormKey, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="skill_key" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding SkillFormName, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="skill_name" materialDesign:HintAssist.IsFloating="True"/>
+        <ComboBox ItemsSource="{Binding SkillClassOptions}" DisplayMemberPath="Display" SelectedValuePath="Id"
+                  SelectedValue="{Binding SkillFormClassId}" Margin="0,0,0,6"
+                  materialDesign:HintAssist.Hint="Classe" materialDesign:HintAssist.IsFloating="True"/>
+        <ComboBox ItemsSource="{Binding SkillTypeOptions}" DisplayMemberPath="Display" SelectedValuePath="Id"
+                  SelectedValue="{Binding SkillFormTypeId}" Margin="0,0,0,6"
+                  materialDesign:HintAssist.Hint="Tipo" materialDesign:HintAssist.IsFloating="True"/>
+        <ComboBox ItemsSource="{Binding SkillTargetOptions}" DisplayMemberPath="Display" SelectedValuePath="Id"
+                  SelectedValue="{Binding SkillFormTargetId}" Margin="0,0,0,6"
+                  materialDesign:HintAssist.Hint="Target" materialDesign:HintAssist.IsFloating="True"/>
+        <ComboBox ItemsSource="{Binding SkillElementOptions}" DisplayMemberPath="Display" SelectedValuePath="Id"
+                  SelectedValue="{Binding SkillFormElementId}" Margin="0,0,0,6"
+                  materialDesign:HintAssist.Hint="Elemento" materialDesign:HintAssist.IsFloating="True"/>
+        <ComboBox ItemsSource="{Binding SkillScalingOptions}" DisplayMemberPath="Display" SelectedValuePath="Id"
+                  SelectedValue="{Binding SkillFormScalingStatId}" Margin="0,0,0,6"
+                  materialDesign:HintAssist.Hint="Scaling" materialDesign:HintAssist.IsFloating="True"/>
+        <UniformGrid Columns="3" Margin="0,0,0,6">
+          <TextBox Text="{Binding SkillFormPowerCoef}" materialDesign:HintAssist.Hint="power_coef" materialDesign:HintAssist.IsFloating="True" Margin="0,0,4,4"/>
+          <TextBox Text="{Binding SkillFormResourceCost}" materialDesign:HintAssist.Hint="mana" materialDesign:HintAssist.IsFloating="True" Margin="0,0,4,4"/>
+          <ComboBox ItemsSource="{Binding SkillResourceTypes}" SelectedItem="{Binding SkillFormResourceType}" Margin="0,0,0,4"
+                    materialDesign:HintAssist.Hint="resource" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding SkillFormCooldownMs}" materialDesign:HintAssist.Hint="cooldown_ms" materialDesign:HintAssist.IsFloating="True" Margin="0,0,4,4"/>
+          <TextBox Text="{Binding SkillFormCastTimeMs}" materialDesign:HintAssist.Hint="cast_ms" materialDesign:HintAssist.IsFloating="True" Margin="0,0,4,4"/>
+          <TextBox Text="{Binding SkillFormDurationMs}" materialDesign:HintAssist.Hint="duration_ms" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,4"/>
+          <TextBox Text="{Binding SkillFormRangeMax}" materialDesign:HintAssist.Hint="range_max" materialDesign:HintAssist.IsFloating="True" Margin="0,0,4,4"/>
+          <TextBox Text="{Binding SkillFormMaxRank}" materialDesign:HintAssist.Hint="max_rank" materialDesign:HintAssist.IsFloating="True" Margin="0,0,4,4"/>
+          <TextBox Text="{Binding SkillFormRequiredLevel}" materialDesign:HintAssist.Hint="req_level" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,4"/>
+        </UniformGrid>
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+          <CheckBox Content="Crit" IsChecked="{Binding SkillFormCanCrit}" Margin="0,0,12,0"/>
+          <CheckBox Content="IgnoreDef" IsChecked="{Binding SkillFormIgnoresDefense}" Margin="0,0,12,0"/>
+          <CheckBox Content="ReqTarget" IsChecked="{Binding SkillFormRequiresTarget}" Margin="0,0,12,0"/>
+          <CheckBox Content="Enabled" IsChecked="{Binding SkillFormIsEnabled}"/>
+        </StackPanel>
+        <TextBox Text="{Binding SkillFormIconPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="icon_path" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding SkillFormDescription, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 AcceptsReturn="True" Height="60" TextWrapping="Wrap"
+                 materialDesign:HintAssist.Hint="description" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding SkillFormEffectsJson, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"
+                 AcceptsReturn="True" Height="90" FontFamily="Consolas" TextWrapping="Wrap"
+                 materialDesign:HintAssist.Hint="effects_json" materialDesign:HintAssist.IsFloating="True"/>
+
+        <TextBlock Text="Rank scaling (2..max)" FontWeight="SemiBold" Margin="0,4,0,4"/>
+        <DataGrid ItemsSource="{Binding SkillRankScalings}" AutoGenerateColumns="False" CanUserAddRows="False"
+                  Height="180" Margin="0,0,0,8">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="Rank" Binding="{Binding Rank}" Width="50"/>
+            <DataGridTextColumn Header="Power+" Binding="{Binding PowerCoefBonus}" Width="60"/>
+            <DataGridTextColumn Header="Cost+" Binding="{Binding ResourceCostBonus}" Width="55"/>
+            <DataGridTextColumn Header="CD-" Binding="{Binding CooldownReductionMs}" Width="55"/>
+            <DataGridTextColumn Header="Dur+" Binding="{Binding DurationBonusMs}" Width="55"/>
+            <DataGridTextColumn Header="extra_effects_json" Binding="{Binding ExtraEffectsJson}" Width="*"/>
+            <DataGridTemplateColumn Header="" Width="120">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                  <StackPanel Orientation="Horizontal">
+                    <Button Content="Salvar" Style="{StaticResource ManagerActionButton}"
+                            Command="{Binding DataContext.SaveSkillRankRowCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                            CommandParameter="{Binding}"/>
+                    <Button Content="X" Style="{StaticResource ManagerActionOutlinedButton}"
+                            Command="{Binding DataContext.DeleteSkillRankRowCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                            CommandParameter="{Binding}"/>
+                  </StackPanel>
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+          </DataGrid.Columns>
+        </DataGrid>
+
+        <StackPanel Orientation="Horizontal">
+          <Button Content="{Binding SkillSaveButtonText}" Command="{Binding SaveSkillCommand}"
+                  Style="{StaticResource ManagerActionButton}" Margin="0,0,8,0"/>
+          <Button Content="Limpar" Command="{Binding NewSkillCommand}"
+                  Style="{StaticResource ManagerActionOutlinedButton}"/>
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

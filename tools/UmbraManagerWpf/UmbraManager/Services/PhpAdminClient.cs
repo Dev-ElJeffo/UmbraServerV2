@@ -232,6 +232,62 @@ public sealed class PhpAdminClient
         return await PostAsync("/admin/upsert_refinement_config.php", dict, ct);
     }
 
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListSkillsAsync(
+        int? classId = null,
+        int? typeId = null,
+        string? search = null,
+        CancellationToken ct = default)
+    {
+        var body = new Dictionary<string, object?> { ["admin_username"] = _adminUsername };
+        if (classId is > 0) body["class_id"] = classId.Value;
+        if (typeId is > 0) body["type_id"] = typeId.Value;
+        if (!string.IsNullOrWhiteSpace(search)) body["search"] = search;
+        return await PostAsync("/admin/list_skills.php", body, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> GetSkillAsync(int skillId, CancellationToken ct = default) =>
+        await PostAsync("/admin/get_skill.php", new { admin_username = _adminUsername, skill_id = skillId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListSkillLookupsAsync(CancellationToken ct = default) =>
+        await PostAsync("/admin/list_skill_lookups.php", new { admin_username = _adminUsername }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> CreateSkillAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/create_skill.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpdateSkillAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/update_skill.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> DeleteSkillAsync(int skillId, CancellationToken ct = default) =>
+        await PostAsync("/admin/delete_skill.php", new { admin_username = _adminUsername, skill_id = skillId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpsertSkillRankScalingAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/upsert_skill_rank_scaling.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> DeleteSkillRankScalingAsync(
+        int skillId, int rank, int scalingId = 0, CancellationToken ct = default) =>
+        await PostAsync("/admin/delete_skill_rank_scaling.php", new
+        {
+            admin_username = _adminUsername,
+            skill_id = skillId,
+            rank,
+            scaling_id = scalingId
+        }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ReloadSkillsPhpAsync(CancellationToken ct = default) =>
+        await PostAsync("/admin/reload_skills.php", new { admin_username = _adminUsername }, ct);
+
     public async Task<(bool Ok, string Error, JsonDocument? Data)> GetGameRatesAsync(CancellationToken ct = default) =>
         await PostAsync("/admin/get_game_rates.php", new { admin_username = _adminUsername }, ct);
 

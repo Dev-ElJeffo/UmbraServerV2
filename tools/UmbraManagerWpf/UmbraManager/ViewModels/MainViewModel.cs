@@ -390,6 +390,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _playersTimer.Start();
         await RefreshAccountsAsync();
         await RefreshItemsAsync();
+        await RefreshSkillsAsync();
         await RefreshNpcTemplatesAsync();
         await RefreshNpcInstancesAsync();
         await RefreshExpZonesAsync();

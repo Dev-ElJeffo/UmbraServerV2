@@ -103,13 +103,22 @@ bool SkillService::loadSkillsFromDatabase() {
 
   auto rows = db_->executePreparedQuery(
       "SELECT skill_id, skill_key, skill_name, class_id, skill_order, required_level, skill_cost, max_rank, "
-      "type_id, target_id, element_id, scaling_stat_id, power_coef, resource_type, resource_cost, "
-      "cooldown_ms, cast_time_ms, range_max, can_crit, COALESCE(effects_json,''), COALESCE(icon_path,'') "
+      "type_id, target_id, element_id, scaling_stat_id, "
+      "COALESCE(str_scaling,0), COALESCE(dex_scaling,0), COALESCE(vit_scaling,0), "
+      "COALESCE(int_scaling,0), COALESCE(lck_scaling,0), "
+      "power_coef, COALESCE(secondary_coef,0), resource_type, resource_cost, "
+      "COALESCE(resource_cost_percent,0), cooldown_ms, cast_time_ms, COALESCE(duration_ms,0), "
+      "COALESCE(range_min,0), range_max, COALESCE(area_radius,0), "
+      "COALESCE(is_stackable,0), COALESCE(max_stacks,1), can_crit, COALESCE(ignores_defense,0), "
+      "COALESCE(is_interrupt,0), COALESCE(requires_target,1), COALESCE(can_move_while_casting,0), "
+      "COALESCE(threat_modifier,100), COALESCE(pvp_modifier,100), "
+      "COALESCE(effects_json,''), COALESCE(icon_path,''), COALESCE(vfx_key,''), COALESCE(sfx_key,''), "
+      "COALESCE(description,''), COALESCE(tooltip_template,''), COALESCE(server_tags,'') "
       "FROM skills WHERE is_enabled = 1",
       {});
 
   for (const auto& row : rows) {
-    if (row.size() < 21) continue;
+    if (row.size() < 44) continue;
     SkillData skill;
     try {
       skill.skillId = static_cast<uint32_t>(std::stoul(row[0]));
@@ -124,15 +133,45 @@ bool SkillService::loadSkillsFromDatabase() {
       skill.target = static_cast<TargetType>(std::stoul(row[9]));
       skill.element = static_cast<Element>(std::stoul(row[10]));
       skill.scalingStat = static_cast<ScalingStat>(std::stoul(row[11]));
-      skill.powerCoef = static_cast<uint16_t>(std::stoul(row[12]));
-      skill.resourceType = parseResourceType(row[13]);
-      skill.resourceCost = static_cast<uint16_t>(std::stoul(row[14]));
-      skill.cooldownMs = static_cast<uint32_t>(std::stoul(row[15]));
-      skill.castTimeMs = static_cast<uint32_t>(std::stoul(row[16]));
-      skill.rangeMax = static_cast<uint16_t>(std::stoul(row[17]));
-      skill.canCrit = (std::stoi(row[18]) != 0);
-      skill.effects = parseEffectsFromJson(row[19]);
-      skill.iconPath = row[20];
+      skill.strScaling = static_cast<uint8_t>(std::stoul(row[12]));
+      skill.dexScaling = static_cast<uint8_t>(std::stoul(row[13]));
+      skill.vitScaling = static_cast<uint8_t>(std::stoul(row[14]));
+      skill.intScaling = static_cast<uint8_t>(std::stoul(row[15]));
+      skill.lckScaling = static_cast<uint8_t>(std::stoul(row[16]));
+      skill.powerCoef = static_cast<uint16_t>(std::stoul(row[17]));
+      skill.secondaryCoef = static_cast<uint16_t>(std::stoul(row[18]));
+      skill.resourceType = parseResourceType(row[19]);
+      skill.resourceCost = static_cast<uint16_t>(std::stoul(row[20]));
+      skill.resourceCostPercent = static_cast<uint8_t>(std::stoul(row[21]));
+      skill.cooldownMs = static_cast<uint32_t>(std::stoul(row[22]));
+      skill.castTimeMs = static_cast<uint32_t>(std::stoul(row[23]));
+      skill.durationMs = static_cast<uint32_t>(std::stoul(row[24]));
+      skill.rangeMin = static_cast<uint16_t>(std::stoul(row[25]));
+      skill.rangeMax = static_cast<uint16_t>(std::stoul(row[26]));
+      skill.areaRadius = static_cast<uint16_t>(std::stoul(row[27]));
+      skill.isStackable = (std::stoi(row[28]) != 0);
+      skill.maxStacks = static_cast<uint8_t>(std::stoul(row[29]));
+      skill.canCrit = (std::stoi(row[30]) != 0);
+      skill.ignoresDefense = (std::stoi(row[31]) != 0);
+      skill.isInterrupt = (std::stoi(row[32]) != 0);
+      skill.requiresTarget = (std::stoi(row[33]) != 0);
+      skill.canMoveWhileCasting = (std::stoi(row[34]) != 0);
+      skill.threatModifier = static_cast<int16_t>(std::stoi(row[35]));
+      skill.pvpModifier = static_cast<uint8_t>(std::stoul(row[36]));
+      skill.effects = parseEffectsFromJson(row[37]);
+      skill.iconPath = row[38];
+      skill.vfxKey = row[39];
+      skill.sfxKey = row[40];
+      skill.description = row[41];
+      skill.tooltipTemplate = row[42];
+      if (!row[43].empty() && row[43] != "null") {
+        nlohmann::json tags = nlohmann::json::parse(row[43], nullptr, false);
+        if (tags.is_array()) {
+          for (const auto& t : tags) {
+            if (t.is_string()) skill.serverTags.push_back(t.get<std::string>());
+          }
+        }
+      }
     } catch (...) {
       continue;
     }
@@ -144,7 +183,35 @@ bool SkillService::loadSkillsFromDatabase() {
     skillIdsByClass_[skill.classId].push_back(skill.skillId);
   }
 
-  Core::Logger::getInstance().info("[SkillService] {} skills carregadas do DB", skillDataById_.size());
+  auto scalingRows = db_->executePreparedQuery(
+      "SELECT skill_id, `rank`, power_coef_bonus, resource_cost_bonus, cooldown_reduction_ms, "
+      "duration_bonus_ms, COALESCE(extra_effects_json,'') "
+      "FROM skill_rank_scaling ORDER BY skill_id, `rank`",
+      {});
+  size_t scalingAttached = 0;
+  for (const auto& row : scalingRows) {
+    if (row.size() < 7) continue;
+    try {
+      const uint32_t skillId = static_cast<uint32_t>(std::stoul(row[0]));
+      auto it = skillDataById_.find(skillId);
+      if (it == skillDataById_.end()) continue;
+      SkillRankScaling scaling;
+      scaling.rank = static_cast<uint8_t>(std::stoul(row[1]));
+      scaling.powerCoefBonus = static_cast<int16_t>(std::stoi(row[2]));
+      scaling.resourceCostBonus = static_cast<int16_t>(std::stoi(row[3]));
+      scaling.cooldownReductionMs = std::stoi(row[4]);
+      scaling.durationBonusMs = std::stoi(row[5]);
+      scaling.extraEffects = parseEffectsFromJson(row[6]);
+      it->second.rankScalings.push_back(std::move(scaling));
+      ++scalingAttached;
+    } catch (...) {
+      continue;
+    }
+  }
+
+  Core::Logger::getInstance().info(
+      "[SkillService] {} skills carregadas do DB ({} rank scalings)", skillDataById_.size(),
+      scalingAttached);
   return true;
 }
 
@@ -216,8 +283,10 @@ SkillService::ValidationResult SkillService::validateSkillUse(
     return result;
   }
 
+  const uint8_t rank = request.skillRank < 1 ? 1 : request.skillRank;
+  const uint16_t effectiveCost = skill->getEffectiveResourceCost(rank);
   if (skill->resourceType == ResourceType::MANA &&
-      source.baseStats.currentMana < static_cast<int32_t>(skill->resourceCost)) {
+      source.baseStats.currentMana < static_cast<int32_t>(effectiveCost)) {
     result.errorCode = "NO_MANA";
     result.errorMessage = "Mana insuficiente";
     return result;
@@ -235,6 +304,7 @@ uint64_t SkillService::applyBuff(uint64_t targetPlayerId, uint64_t sourcePlayerI
   if (!skill) return 0;
 
   const BuffType buffType = effectToBuffType(effect.effectType);
+  // Sem rank no applyBuff legado: usa duration base da skill (cast path usa helpers efetivos).
   uint32_t durationMs = effect.durationMs > 0 ? effect.durationMs : skill->durationMs;
   if (durationMs == 0) durationMs = 5000;
 
