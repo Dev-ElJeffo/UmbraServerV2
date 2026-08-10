@@ -1,3 +1,5 @@
+> **OBSOLETO (2026-08):** não reaplicar offset ±90 no wire/parse. Ver [`GUIA_MOVIMENTO_REMOTE_YAW.md`](GUIA_MOVIMENTO_REMOTE_YAW.md).
+
 # 🔧 **CORREÇÃO: Direção Incorreta - Offset de 90 Graus**
 
 ## 🎯 **PROBLEMA:**

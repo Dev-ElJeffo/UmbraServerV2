@@ -1,3 +1,5 @@
+> **OBSOLETO (2026-08):** não reaplicar `Yaw + 180` no parse. Fix correto: remover `360 - Yaw` no envio — [`GUIA_MOVIMENTO_REMOTE_YAW.md`](GUIA_MOVIMENTO_REMOTE_YAW.md).
+
 # ✅ **CORREÇÃO: Yaw com Offset de 180 Graus Aplicada**
 
 ## 🎯 **PROBLEMA:**

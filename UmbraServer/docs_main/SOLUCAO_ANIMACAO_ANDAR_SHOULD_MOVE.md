@@ -1,3 +1,5 @@
+> **Atualização 2026-08:** `CMC->Acceleration` é protected no UE 5.6 — ajuste **obrigatório** no AnimBP (`Should Move` só com GroundSpeed). Ver [`GUIA_BP_ABP_SHOULD_MOVE_REMOTE_UE561.md`](../../docs_main/GUIA_BP_ABP_SHOULD_MOVE_REMOTE_UE561.md).
+
 # 🔍 **ANÁLISE DO ANIMATION BLUEPRINT: Problema Identificado**
 
 ## 📊 **ANÁLISE DO XML FORNECIDO:**

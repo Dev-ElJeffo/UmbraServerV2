@@ -1,3 +1,5 @@
+> **OBSOLETO para velocity remota (2026-08):** não usar mais `Forward(Yaw) * OutSpeed` no remote — causa moonwalk em ré/strafe. Usar `ComputeRemoteLocomotionVelocity` / `ApplyRemoteLocomotionVelocity` (Δposição/Δt). Ver [`docs_main/GUIA_BP_REMOTE_LOCOMOTION_VELOCITY_UE561.md`](../../docs_main/GUIA_BP_REMOTE_LOCOMOTION_VELOCITY_UE561.md).
+
 # 🎯 **IMPLEMENTAÇÃO SIMPLIFICADA: Atualização de Velocity no Remote Actor**
 
 ## 📋 **OBJETIVO:**

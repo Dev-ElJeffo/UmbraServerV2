@@ -2,6 +2,18 @@
 
 Documentação do fluxo de rotação na rede e como diagnosticar animação "de costas" / "de lado" no observador.
 
+**Status (2026-08):** fix C++ de yaw aplicado (`360 - Yaw` removido). Mesh remote Yaw=-90. **Velocity remota:** Δposição/Δt — [`docs_main/GUIA_BP_REMOTE_LOCOMOTION_VELOCITY_UE561.md`](../../docs_main/GUIA_BP_REMOTE_LOCOMOTION_VELOCITY_UE561.md). Yaw BP: [`docs_main/GUIA_BP_APLICAR_YAW_REMOTE_UE561.md`](../../docs_main/GUIA_BP_APLICAR_YAW_REMOTE_UE561.md). Should Move: [`docs_main/GUIA_BP_ABP_SHOULD_MOVE_REMOTE_UE561.md`](../../docs_main/GUIA_BP_ABP_SHOULD_MOVE_REMOTE_UE561.md).
+
+---
+
+## Contrato canônico
+
+1. Unidade: graus Unreal (`ActorRotation.Yaw`), wire normalizado `[0, 360)`.
+2. Owner envia `GetActorRotation().Yaw` — **nunca** `GetControlRotation`.
+3. Zone: passthrough (não recalcula yaw de players).
+4. Observador: `OutYawDegrees` = wire; `SetActorRotation` no root; interpolar shortest-path.
+5. **Proibido** no encode/decode: `360 - Yaw`, `Yaw + 180`, `±90`.
+
 ---
 
 ## Fluxo owner → wire → observador
@@ -31,22 +43,8 @@ sequenceDiagram
 | Relay | [`MovementServer.hpp`](../../src/zone/MovementServer.hpp) — broadcast `StateUpdate` via AOI |
 | Parse (observador) | `WSBinaryBPFL.cpp` — `ParseStateUpdateFrameWithAnimation` |
 | Roteamento WS | [`NetMovementClient.cpp`](../../UmbraEternumUE/Source/UmbraEternumUE/Network/NetMovementClient.cpp) → repassa bytes ao Blueprint |
-| **Aplicação yaw (BP)** | **`BP_NetMovementClient`** — Custom Event `ProcessNextFrame` |
-| Actor remoto | **`BP_RemotePlayer`** — spawn + `Set Actor Rotation` no Event Tick |
-
-### Nós Blueprint relevantes (`BP_NetMovementClient`)
-
-Conforme [`docs_main/ANALISE_XML_IMPLEMENTACAO.md`](../../docs_main/ANALISE_XML_IMPLEMENTACAO.md) e [`docs_main/PROCEDIMENTO_MOVIMENTO_WEBSOCKET_BINARIO.md`](../../docs_main/PROCEDIMENTO_MOVIMENTO_WEBSOCKET_BINARIO.md):
-
-1. **`ProcessNextFrame`** (Custom Event) — chamado quando chega frame binário.
-2. **`ParseStateUpdateFrameWithAnimation`** — extrai `OutPlayerId`, `OutLocation`, `OutYawDegrees`, `OutSpeed`, etc.
-3. **Branch** — ignora se `OutPlayerId == ActivePlayerID` (próprio player).
-4. **Spawn** — `SpawnActorFromClass(BP_RemotePlayer)` com `Make Rotator(Yaw = OutYawDegrees)` no primeiro frame.
-5. **Buffer** — `UpdatePlayerStateBuffer(Entry, OutLocation, OutYawDegrees, OutTimestampMs)`.
-6. **Event Tick** — interpola `StateA` → `StateB`:
-   - Location: `VInterpTo` / `VLerp`
-   - Yaw: **usar `InterpolateNetworkYawDegrees`** (C++) em vez de `Lerp` simples
-7. **`Set Actor Rotation`** no `RemoteActorRef` com o yaw interpolado.
+| **Aplicação yaw (BP)** | **`BP_NetMovementClient`** — Custom Event `ProcessNextFrame` + Event Tick |
+| Actor remoto | **`BP_RemotePlayer`** (parent `UmbraEternumUECharacter`) |
 
 ---
 
@@ -54,176 +52,111 @@ Conforme [`docs_main/ANALISE_XML_IMPLEMENTACAO.md`](../../docs_main/ANALISE_XML_
 
 ### Problema
 
-`BuildMoveUpdateFrame` e `BuildMoveUpdateFrameWithAnimation` invertiam o yaw com `360 - YawDegrees` no envio, mas o parse usava o valor direto. No observador, `ActorRotation.Yaw` ficava espelhado em relação ao owner → blendspace de locomotion interpretava movimento como "andando de costas".
+`BuildMoveUpdateFrame` / `WithAnimation` espelhavam o yaw com `360 - YawDegrees`; o parse usava o valor direto → remote de costas / face errada no observador.
 
-### Fix
+### Fix no Source (já no tree)
 
-- Removida a inversão `360 - Yaw` no envio.
-- Yaw normalizado para `[0, 360)` em send e receive.
-- Logs de diagnóstico:
-  - `[YawSend] PlayerId=... YawReal=... WireYaw=...`
-  - `[YawRecv] PlayerId=... YawWire=... OutYaw=...`
+- Removida a inversão `360 - Yaw` no envio; yaw normalizado `[0, 360)`.
+- Parse e `UpdatePlayerStateBuffer` normalizam sem offset.
+- `InterpolateNetworkYawDegrees` + `ApplyInterpolatedNetworkYawToActor` (BlueprintPure/Callable).
+- Logs: `[YawSend]`, `[YawRecv]`.
+- `AUmbraEternumUECharacter::BeginPlay`: se `!IsLocallyControlled()`, desliga `bOrientRotationToMovement` / controller rotation.
+- `ANetMovementClient::RegisterRemoteActorInGameInstance`: reforça o mesmo no CMC do remote.
 
-### Interpolação (suavização)
+### BP (obrigatório após rebuild)
 
-- `UpdatePlayerStateBuffer` agora normaliza yaw ao gravar no buffer.
-- Nova função Blueprint **`InterpolateNetworkYawDegrees(FromYaw, ToYaw, Alpha)`** — interpola pelo **caminho mais curto** (evita saltos perto de 0°/360°).
+Passo a passo: [`GUIA_BP_APLICAR_YAW_REMOTE_UE561.md`](../../docs_main/GUIA_BP_APLICAR_YAW_REMOTE_UE561.md).
+
+Script opcional (defaults CMC do `BP_RemotePlayer`):
+
+`UmbraEternumUE/scripts/apply_remote_yaw_defaults.py` — executar no Editor via `py "..."`.
 
 ---
 
 ## Substituição nó a nó do `Lerp (Float)` por `InterpolateNetworkYawDegrees`
 
-Contexto: no Event Tick de `BP_NetMovementClient`, há um `Lerp (Float)` (`K2Node_CallFunction_34` na [`ANALISE_XML_IMPLEMENTACAO.md`](../../docs_main/ANALISE_XML_IMPLEMENTACAO.md)) que recebe `StateA_Yaw`, `StateB_Yaw` e `ClampedAlpha` e grava em `InterpolatedYaw`.
+Contexto: no Event Tick de `BP_NetMovementClient`, há um `Lerp (Float)` que recebe `StateA_Yaw`, `StateB_Yaw` e `ClampedAlpha` → `InterpolatedYaw`.
 
 ### Passo 1 — Localizar o nó atual
 
-1. Abra `BP_NetMovementClient` → Event Graph → role até o **Event Tick** (`For Each Loop` sobre `RemoteStates`).
-2. Encontre o `Lerp` (categoria *Math → Float → Lerp*) que tem:
-   - Pino `A`: ligado em `StateA_Yaw` (vindo do `Break PlayerStateEntry`)
-   - Pino `B`: ligado em `StateB_Yaw`
-   - Pino `Alpha`: ligado em `ClampedAlpha` (variável Double)
-   - Saída ligada em `Set InterpolatedYaw`.
+1. Abra `BP_NetMovementClient` → Event Graph → **Event Tick** (`For Each Loop` sobre `RemoteStates`).
+2. Encontre o `Lerp` com `A`=`StateA_Yaw`, `B`=`StateB_Yaw`, `Alpha`=`ClampedAlpha`.
 
-### Passo 2 — Inserir `Interpolate Network Yaw Degrees`
+### Passo 2 — Inserir helper C++
 
-1. Clique direito num espaço vazio próximo do `Lerp` → digite **`Interpolate Network Yaw Degrees`** (categoria `Umbra | Net | WS | State`, marcada como `BlueprintPure`).
-2. Conecte as **três** entradas do novo nó usando exatamente as mesmas fontes que estavam no `Lerp`:
+**Opção A:** `Apply Interpolated Network Yaw To Actor` (Target=`RemoteActorRef`, From/To/Alpha iguais ao Lerp) — substitui Lerp + Make Rotator + Set Actor Rotation.
 
-| Pino do novo nó | O que conectar (mesma origem do `Lerp` antigo) | Tipo |
-|-----------------|------------------------------------------------|------|
-| `From Yaw` (Float) | **`StateA_Yaw`** — saída do `Break PlayerStateEntry` correspondente à `Array Element` do `For Each Loop` | Float |
-| `To Yaw` (Float) | **`StateB_Yaw`** — saída do mesmo `Break PlayerStateEntry` | Float |
-| `Alpha` (Float) | **`ClampedAlpha`** — `Get ClampedAlpha` (Double, converte automaticamente para Float). Se preferir, conecte direto a saída do `FClamp` (0.0 ↔ 1.0). | Float |
+**Opção B:** `Interpolate Network Yaw Degrees` → `Make Rotator(Yaw=...)` → `Set Actor Rotation`.
 
-3. Saída `Return Value` (Float) → conecte ao pino do antigo destino (entrada Float de `Set InterpolatedYaw`, ou diretamente ao pino `Yaw` do `Make Rotator` se você não usar a variável intermediária).
-4. Apague o nó `Lerp` antigo.
+### Passo 3 — Remover offsets
 
-### Passo 3 — Garantir que o `Set Actor Rotation` consome `InterpolatedYaw`
+No `Make Rotator` / graph: **sem** `+90`, `+180`, `360-Yaw`.
 
-No mesmo Event Tick, depois do `IsValid(RemoteActorRef)`:
+### Passo 4 — Compile + Save
 
-1. `Make Rotator` deve ter:
-   - `Roll` = 0.0
-   - `Pitch` = 0.0
-   - `Yaw` = `InterpolatedYaw` (ou direto a saída do `Interpolate Network Yaw Degrees`).
-2. `Set Actor Rotation` em `RemoteActorRef`:
-   - `New Rotation` = saída do `Make Rotator`
-   - `Teleport Physics` = `false`.
-
-### Passo 4 — Compilar e salvar
-
-`Compile` (Ctrl+Shift+C) e `Save` (Ctrl+S) no `BP_NetMovementClient`.
-
-> **Importante:** a função aparece em BP **somente após** o build C++ do `UmbraEternumUE` ser refeito (Live Coding ou rebuild). Se você não vê `Interpolate Network Yaw Degrees` na busca, recompile o projeto pelo Editor (`Build` → `Compile UmbraEternumUE`).
+A função só aparece após rebuild C++ do `UmbraEternumUE`.
 
 ---
 
-## "Rotação continua errada" — checklist de causas comuns
+## Checklist se a rotação continuar errada
 
-Se após:
+### A) Binário C++
 
-- recompilar o C++ (`UmbraEternumUE` Live Coding ou rebuild),
-- substituir o `Lerp` pelo `InterpolateNetworkYawDegrees`,
-- recompilar e salvar o `BP_NetMovementClient`,
+Filtro: `YawSend` / `YawRecv`. Esperado: `YawReal ≈ WireYaw ≈ OutYaw` (90→90, **não** 270).
 
-o remote **ainda** parece andar "de costas" / "de lado" / virado pra direção errada no observador, verifique a lista abaixo **em ordem**:
+### B) CMC do remote
 
-### A) Confirmar que o fix C++ entrou no binário
+Log: `Remote pawn detectado` ou `Remote pawn CMC locked`. Se `InterpYaw` correto mas `ActorYaw` não muda → CMC ainda reorientando (defaults BP / BeginPlay).
 
-1. Output Log com filtros `YawSend` e `YawRecv`.
-2. Owner gira em uma direção fixa (ex.: forward = +X, `Yaw ≈ 0`).
-3. Esperado **no client do owner**: `[YawSend] PlayerId=X YawReal=0.00 WireYaw=0.00`.
-4. Esperado **no client do observador**: `[YawRecv] PlayerId=X YawWire=0.00 OutYaw=0.00`.
+### C) Fonte do yaw no owner
 
-Se o `WireYaw` ainda for `360 - YawReal` (ex.: `YawReal=0.00 WireYaw=360.00` aparece como `0.00` por normalização, mas `YawReal=90 WireYaw=270`), o binário não foi atualizado — refaça o build.
+Send deve usar `GetActorRotation`, não `GetControlRotation`.
 
-### B) `BP_RemotePlayer` — Character Movement Component (já resolvido em C++)
+### D) Spawn
 
-Esse é o culpado mais comum quando o `Set Actor Rotation` "não pega".
+`Make Transform` com `Yaw = OutYawDegrees` no primeiro frame.
 
-**Status atual:** corrigido em `AUmbraEternumUECharacter::BeginPlay()` — para qualquer pawn `!IsLocallyControlled()`, o construtor agora desliga em runtime:
+### E) AnimBP
 
-- `CharacterMovement->bOrientRotationToMovement = false`
-- `CharacterMovement->bUseControllerDesiredRotation = false`
-- `bUseControllerRotationYaw/Pitch/Roll = false`
-
-Filtro do Output Log: `Remote pawn detectado` — deve aparecer uma linha por pawn remoto spawnado.
-
-**Se ainda quiser garantir no Blueprint** (defesa em profundidade):
-
-1. Abra `BP_RemotePlayer`.
-2. **Components → CharacterMovement** → Details:
-   - `Orient Rotation to Movement` → **`false`**
-   - `Use Controller Desired Rotation` → **`false`**
-3. **Components → CapsuleComponent** (root) → Details → **Pawn**:
-   - `Use Controller Rotation Yaw/Pitch/Roll` → **`false`**
-4. **Compile** e **Save** o `BP_RemotePlayer`.
-
-### C) Origem do yaw enviado pelo owner
-
-No `SendMoveUpdate` (`BP_NetMovementClient`):
-
-1. Confirme que o pino `YawDegrees` do `BuildMoveUpdateFrame` / `BuildMoveUpdateFrameWithAnimation` é alimentado por **`GetActorRotation` do pawn local → componente `Yaw`**, e **não** por `GetControlRotation`.
-2. Se for `GetControlRotation`, troque para `GetActorRotation`:
-   - O pawn local em third person tem `Orient Rotation to Movement = true` (correto), então `GetActorRotation().Yaw` reflete a direção visual do personagem.
-   - `GetControlRotation` reflete a direção da câmera/mouse, que diverge do mesh quando o personagem está se virando.
-
-### D) Spawn inicial do `BP_RemotePlayer`
-
-No `SpawnActorFromClass(BP_RemotePlayer)` (executado quando `Find` no `RemoteActorIds` falha):
-
-1. `SpawnTransform` deve usar **`Make Transform`** com:
-   - `Location` = `OutLocation` (do `ParseStateUpdateFrameWithAnimation`)
-   - `Rotation` = **`Make Rotator(Yaw = OutYawDegrees)`** — não usar Rotation zerada.
-2. Sem isso, o primeiro frame visual nasce em `Yaw=0` até o Tick aplicar `Set Actor Rotation` — pisca virado pra +X.
-
-### E) Animation Blueprint do remote — fonte de `Direction`
-
-Se o pawn remoto continua animando "de costas" mesmo com `ActorRotation` correta, o problema migrou para a AnimBP de locomotion:
-
-1. Abra a `AnimBP` usada pelo `BP_RemotePlayer` (provavelmente a mesma do owner).
-2. Em `Event Blueprint Update Animation`:
-   - `Velocity` deve vir de `TryGetPawnOwner` → `GetVelocity`.
-   - `Direction` deve ser calculada por `Calculate Direction(Velocity, ActorRotation)` onde `ActorRotation = TryGetPawnOwner.GetActorRotation`.
-3. Se a AnimBP usar `GetControlRotation`, o remote (sem controller) recebe `Rotator(0,0,0)` e `Direction` fica errada. Trocar por `GetActorRotation` resolve para owners e remotes.
-
-### F) Print de diagnóstico no observador
-
-No `Set Actor Rotation` do `BP_NetMovementClient`, adicione um `Print String` imediatamente antes:
-
-```
-Print String: "Remote " + (String) PlayerId
-            + " InterpYaw=" + (String) InterpolatedYaw
-            + " ActorYaw=" + (String) RemoteActorRef->GetActorRotation().Yaw
-```
-
-Compare com `[YawRecv]` no log. Se `InterpYaw` ≈ `YawRecv` mas `ActorYaw` fica fixo em 0 ou outro valor, a causa é **B** (Character Movement / Use Controller Rotation Yaw).
+`Calculate Direction(Velocity, GetActorRotation)` — não `GetControlRotation`.
 
 ---
 
 ## Como testar (PIE 2 clients)
 
-Filtro Output Log: `YawSend` OR `YawRecv`
+Filtro Output Log: `YawSend` OR `YawRecv` OR `Remote pawn`
 
 | Janela | Ação | Esperado |
 |--------|------|----------|
-| Owner | Girar 360° | `[YawSend] YawReal ≈ WireYaw` (sem espelhamento) |
-| Observador | Ver remote | `[YawRecv] OutYaw` ≈ `YawSend` do owner |
+| Owner | Girar 360° | `YawReal ≈ WireYaw` (sem espelhamento) |
+| Observador | Ver remote | `OutYaw` ≈ `YawSend` do owner |
 | Observador | Owner anda pra frente | Animação forward (não backward) |
 | Observador | Owner gira | Remote gira no **mesmo sentido** |
 
-Se o owner local ficar invertido após o fix, **não** reintroduzir `360 - Yaw` no C++ global — aplicar correção só no BP do remote (opção cirúrgica documentada no plano original).
+Se o owner local ficar invertido após o fix, **não** reintroduzir `360 - Yaw` no C++ — corrigir só mesh relative / BP do remote.
+
+---
+
+## Docs obsoletas (não reaplicar)
+
+| Doc | Motivo |
+|-----|--------|
+| [`CORRECAO_YAW_180_GRAUS_APLICADA.md`](CORRECAO_YAW_180_GRAUS_APLICADA.md) | Offset +180 no parse — conflita com contrato canônico |
+| [`CORRECAO_YAW_ANIMACAO_DIRECAO.md`](CORRECAO_YAW_ANIMACAO_DIRECAO.md) | `Yaw - 180` / sugestões ±90 — obsoleto |
+| [`CORRECAO_DIRECAO_INCORRETA_OFFSET_90_GRAUS.md`](CORRECAO_DIRECAO_INCORRETA_OFFSET_90_GRAUS.md) | Offset ±90 no BP — não usar no wire |
+
+Causa raiz correta: remover espelho `360 - Yaw` + CMC remote + interpolação shortest-path.
 
 ---
 
 ## Warning C4100 (servidor, cosmético)
 
-`broadcastToNearby` em [`MovementServer.hpp`](../../src/zone/MovementServer.hpp) recebia `x, y` mas usava apenas `getNearbyPlayers(sourceClientId)` (posição já registrada no `aoiGrid_`). Parâmetros removidos; sem impacto em rotação ou AOI.
+`broadcastToNearby` em [`MovementServer.hpp`](../../src/zone/MovementServer.hpp) — parâmetros de posição removidos; sem impacto em rotação ou AOI.
 
 ---
 
 ## Referências
 
+- [`GUIA_BP_APLICAR_YAW_REMOTE_UE561.md`](../../docs_main/GUIA_BP_APLICAR_YAW_REMOTE_UE561.md)
 - [`PROCEDIMENTO_MOVIMENTO_WEBSOCKET_BINARIO.md`](../../docs_main/PROCEDIMENTO_MOVIMENTO_WEBSOCKET_BINARIO.md)
-- [`CORRECAO_PROCESSAR_FRAMES_PROPRIO_PLAYER.md`](../../docs_main/CORRECAO_PROCESSAR_FRAMES_PROPRIO_PLAYER.md)
-- [`CORRECAO_SPAWN_0_0_0.md`](../../docs_main/CORRECAO_SPAWN_0_0_0.md)
+- [`ANALISE_XML_IMPLEMENTACAO.md`](../../docs_main/ANALISE_XML_IMPLEMENTACAO.md)
