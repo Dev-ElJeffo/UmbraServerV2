@@ -414,6 +414,10 @@
                 <views:ItemsEditorView/>
             </TabItem>
 
+            <TabItem Header="Encantamentos" Visibility="{Binding TabVisibilityContent}">
+                <views:EnchantmentsEditorView/>
+            </TabItem>
+
             <TabItem Header="Skills" Visibility="{Binding TabVisibilityContent}">
                 <views:SkillsEditorView/>
             </TabItem>

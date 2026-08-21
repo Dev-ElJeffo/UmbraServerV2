@@ -254,6 +254,7 @@ try {
             'tooltip_template' => $skill['tooltip_template'],
             'server_tags' => json_decode($skill['server_tags'] ?? '[]', true),
             'effects' => $eff['effects'],
+            'effects_json' => json_encode($eff['effects'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             'has_rank_scaling' => $eff['has_scaling_row'],
             
             'status' => [

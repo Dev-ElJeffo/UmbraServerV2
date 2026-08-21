@@ -27,7 +27,24 @@ WHERE s.is_enabled = 1
   AND r.rank_n <= GREATEST(1, s.max_rank)
   AND r.rank_n >= 2;
 
--- Showcase CC: Golpe da Ruína (BARB) — SILENCE no rank 3, STUN no rank 5
+-- Showcase CC: Golpe da Ruína (BARB)
+-- Rank 1: STUN 2000 ms 100% (QA sem gastar ponto de skill)
+-- Rank 3: SILENCE 1500 ms; Rank 5: STUN 1000 ms (cumulativo após o fix de identidade)
+INSERT INTO skill_rank_scaling
+  (skill_id, `rank`, power_coef_bonus, resource_cost_bonus, cooldown_reduction_ms, duration_bonus_ms, extra_effects_json)
+SELECT
+  s.skill_id,
+  1,
+  0,
+  0,
+  0,
+  0,
+  JSON_ARRAY(JSON_OBJECT('type', 'STUN', 'duration_ms', 2000, 'chance_percent', 100))
+FROM skills s
+WHERE s.skill_key = 'BARB_RUIN_STRIKE'
+ON DUPLICATE KEY UPDATE
+  extra_effects_json = JSON_ARRAY(JSON_OBJECT('type', 'STUN', 'duration_ms', 2000, 'chance_percent', 100));
+
 UPDATE skill_rank_scaling srs
 JOIN skills s ON s.skill_id = srs.skill_id
 SET
@@ -64,3 +81,24 @@ SET
   END
 WHERE barb.skill_id IS NULL
   AND srs.`rank` IN (3, 5);
+
+INSERT INTO skill_rank_scaling
+  (skill_id, `rank`, power_coef_bonus, resource_cost_bonus, cooldown_reduction_ms, duration_bonus_ms, extra_effects_json)
+SELECT
+  pick.skill_id,
+  1,
+  0,
+  0,
+  0,
+  0,
+  JSON_ARRAY(JSON_OBJECT('type', 'STUN', 'duration_ms', 2000, 'chance_percent', 100))
+FROM (
+  SELECT skill_id FROM skills
+  WHERE is_enabled = 1 AND type_id = 1
+  ORDER BY skill_id ASC
+  LIMIT 1
+) pick
+LEFT JOIN skills barb ON barb.skill_key = 'BARB_RUIN_STRIKE'
+WHERE barb.skill_id IS NULL
+ON DUPLICATE KEY UPDATE
+  extra_effects_json = JSON_ARRAY(JSON_OBJECT('type', 'STUN', 'duration_ms', 2000, 'chance_percent', 100));

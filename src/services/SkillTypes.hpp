@@ -6,6 +6,7 @@
  */
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -154,6 +155,14 @@ struct CharacterStats {
     int32_t doubleAttackRate = 0;    // 0-100
     int32_t doubleAttackResistance = 0;
     int32_t movementSpeed = 100;     // 100 = base
+    int32_t stunResist = 0;          // 0-100 vs STUN
+    int32_t silenceResist = 0;
+    int32_t rootResist = 0;
+    int32_t slowResist = 0;
+    int32_t stunChance = 0;          // 0-100 extra chance to apply STUN
+    int32_t silenceChance = 0;
+    int32_t rootChance = 0;
+    int32_t slowChance = 0;
     
     // Resistances (percentual 0-100)
     int32_t physicalRes = 0;
@@ -258,6 +267,8 @@ struct SkillEffect {
     uint32_t durationMs = 0;
     uint32_t tickIntervalMs = 1000;
     uint8_t chancePercent = 100;
+    /** 0-100: reduz a resistência de CC do alvo neste efeito. */
+    uint8_t resistPenetration = 0;
     nlohmann::json conditions;
 };
 
@@ -351,15 +362,15 @@ struct SkillData {
         return nullptr;
     }
 
-    /** power_coef efetivo: linha skill_rank_scaling ou fallback +10%/rank acima de 1. */
+    /** power_coef efetivo: +10%/rank + power_coef_bonus da linha (se existir). */
     uint16_t getEffectivePowerCoef(uint8_t rank) const {
         const uint8_t r = rank < 1 ? 1 : rank;
-        if (const SkillRankScaling* row = findRankScaling(r)) {
-            const int32_t v = static_cast<int32_t>(powerCoef) + static_cast<int32_t>(row->powerCoefBonus);
-            return static_cast<uint16_t>(std::clamp(v, 0, 65535));
-        }
         const float multiplier = 1.0f + ((r - 1) * 0.1f);
-        return static_cast<uint16_t>(powerCoef * multiplier);
+        int32_t v = static_cast<int32_t>(std::lround(static_cast<double>(powerCoef) * multiplier));
+        if (const SkillRankScaling* row = findRankScaling(r)) {
+            v += static_cast<int32_t>(row->powerCoefBonus);
+        }
+        return static_cast<uint16_t>(std::clamp(v, 0, 65535));
     }
 
     uint16_t getEffectiveResourceCost(uint8_t rank) const {

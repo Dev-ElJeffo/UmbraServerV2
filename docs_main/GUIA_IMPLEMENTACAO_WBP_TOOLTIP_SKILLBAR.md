@@ -98,6 +98,7 @@ O C++ associa pelo **nome do widget** no Designer. Se o nome estiver errado, ess
 | `Tooltip_SkillType` | **Text Block** |
 | `Tooltip_Element` | **Text Block** |
 | `Tooltip_Description` | **Text Block** |
+| `Tooltip_Effects` | **Text Block** (lista: dano, CC, buffs — **não** repetir na descrição) |
 | `Tooltip_Cost` | **Text Block** |
 | `Tooltip_Cooldown` | **Text Block** |
 | `Tooltip_CastTime` | **Text Block** |
@@ -129,8 +130,11 @@ Border (fundo escuro semi-opaco, padding 12)
         ├── Tooltip_Duration
         ├── Tooltip_Power
         ├── Tooltip_Scaling
-        └── Tooltip_Description
+        ├── Tooltip_Description   (só o template: “Causa 180 (252) de dano…”)
+        └── Tooltip_Effects       (bullets: Dano, Atordoado, Double Attack…)
 ```
+
+**Descrição vs Effects:** `FormatSkillTooltipText` **não** anexa a lista de efeitos. `{damage}` vira `180 (252)` (base e rank). CC entra só em `Tooltip_Effects`.
 
 **Boas práticas:**
 

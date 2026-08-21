@@ -194,7 +194,7 @@ try {
     
     // Criar nova entrada para a pilha dividida
     $insert_query = "INSERT INTO player_inventory 
-                     (player_id, item_template_id, quantity, slot_index, is_equipped, durability, custom_properties, acquired_at)
+                     (player_id, item_template_id, quantity, slot_index, is_equipped, durability, custom_properties, acquired_at, refinement_level, refinement_bonus_stats, enchantments_json)
                      SELECT 
                        player_id, 
                        item_template_id, 
@@ -203,7 +203,10 @@ try {
                        FALSE, 
                        durability, 
                        custom_properties, 
-                       NOW()
+                       NOW(),
+                       refinement_level,
+                       refinement_bonus_stats,
+                       enchantments_json
                      FROM player_inventory
                      WHERE inventory_id = :inventory_id";
     $insert_stmt = $pdo->prepare($insert_query);

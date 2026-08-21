@@ -239,6 +239,8 @@ SkillEffect SkillService::parseEffectFromJson(const nlohmann::json& json) {
   effect.durationMs = static_cast<uint32_t>(std::max(0, jsonIntField(json, "duration_ms", 0)));
   effect.tickIntervalMs = static_cast<uint32_t>(std::max(0, jsonIntField(json, "tick_interval_ms", 1000)));
   effect.chancePercent = static_cast<uint8_t>(std::clamp(jsonIntField(json, "chance_percent", 100), 0, 100));
+  effect.resistPenetration =
+      static_cast<uint8_t>(std::clamp(jsonIntField(json, "resist_penetration", 0), 0, 100));
   if (json.contains("conditions_json") && json["conditions_json"].is_object()) {
     effect.conditions = json["conditions_json"];
   }

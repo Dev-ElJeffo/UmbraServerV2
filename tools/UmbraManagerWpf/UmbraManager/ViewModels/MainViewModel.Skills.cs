@@ -214,11 +214,12 @@ public partial class MainViewModel
                     DurationBonusMs = TryGetIntProp(rk, "duration_bonus_ms"),
                     ExtraEffectsJson = string.IsNullOrWhiteSpace(extra) ? "[]" : extra
                 });
+                SkillRankScalings[^1].PullResistFromExtraJson();
             }
         }
         data.Dispose();
 
-        for (var r = 2; r <= Math.Max(5, SkillFormMaxRank); r++)
+        for (var r = 1; r <= Math.Max(5, SkillFormMaxRank); r++)
         {
             if (SkillRankScalings.Any(x => x.Rank == r)) continue;
             SkillRankScalings.Add(new SkillRankScalingRow { SkillId = EditingSkillId, Rank = r, ExtraEffectsJson = "[]" });
@@ -307,6 +308,7 @@ public partial class MainViewModel
         {
             foreach (var rk in SkillRankScalings.Where(x => x.Rank >= 1))
             {
+                rk.PushResistIntoExtraJson();
                 var (rok, rerr, _) = await Php.UpsertSkillRankScalingAsync(new Dictionary<string, object?>
                 {
                     ["skill_id"] = skillId,
@@ -353,6 +355,7 @@ public partial class MainViewModel
             return;
         }
         row.SkillId = EditingSkillId;
+        row.PushResistIntoExtraJson();
         var (ok, err, _) = await Php.UpsertSkillRankScalingAsync(new Dictionary<string, object?>
         {
             ["skill_id"] = row.SkillId,

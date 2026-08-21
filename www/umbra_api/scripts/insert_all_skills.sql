@@ -53,7 +53,7 @@ INSERT INTO `skills` (
 'Um ataque descendente brutal que quebra defesas pela força pura.',
 'Causa {damage} de dano físico. {secondary}% de chance de Double Attack.',
 '["melee", "single_target", "high_damage"]',
-'[{"type": "DAMAGE", "target_stat": "health", "value_percent": 180}, {"type": "BUFF_STAT", "target_stat": "double_attack_chance", "value_percent": 25, "duration_ms": 0, "chance_percent": 100}]'),
+'[{"type": "DAMAGE", "target_stat": "health", "value_percent": 180}, {"type": "BUFF_STAT", "target_stat": "double_attack_chance", "value_percent": 25, "duration_ms": 0, "chance_percent": 100}, {"type": "STUN", "duration_ms": 2000, "chance_percent": 100}]'),
 
 -- 2. Pele Endurecida (Level 4)
 ('BARB_HARDENED_SKIN', 'Pele Endurecida', 1, 2, 4, 1, 5,

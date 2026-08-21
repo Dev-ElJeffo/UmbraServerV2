@@ -4,6 +4,8 @@
  */
 
 require_once __DIR__ . '/npc_vendor_helper.php';
+require_once __DIR__ . '/stat_key_mapping.php';
+require_once __DIR__ . '/enchant_helper.php';
 
 const MAIL_MAX_ATTACHMENTS = 5;
 const MAIL_SUBJECT_MAX = 128;
@@ -45,6 +47,14 @@ function mailEnsureTables(PDO $pdo): void
           INDEX idx_mail_attach_mail (mail_id, claimed)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
+    try {
+        $col = $pdo->query("SHOW COLUMNS FROM mail_attachments LIKE 'enchantments_json'")->fetch();
+        if (!$col) {
+            $pdo->exec('ALTER TABLE mail_attachments ADD COLUMN enchantments_json JSON NULL');
+        }
+    } catch (PDOException $e) {
+        // Tabela pode não existir ainda em instalações antigas.
+    }
 }
 
 /**
@@ -75,6 +85,10 @@ function mailNormalizeAttachments($raw): array
         $ref = (int)($a['refinement_level'] ?? 0);
         $dur = isset($a['durability']) ? (float)$a['durability'] : 100.0;
         $bonus = $a['bonus_stats_json'] ?? ($a['bonus_stats'] ?? null);
+        $ench = $a['enchantments_json'] ?? ($a['enchantments'] ?? null);
+        if (is_array($ench)) {
+            $ench = enchant_encode_list($ench);
+        }
         if ($slot < 0 || $slot > 4) {
             return [false, 'slot_index deve ser 0–4', []];
         }
@@ -98,6 +112,7 @@ function mailNormalizeAttachments($raw): array
             'refinement_level' => max(0, min(12, $ref)),
             'durability' => $dur,
             'bonus_stats_json' => $bonusJson,
+            'enchantments_json' => is_string($ench) ? $ench : null,
         ];
     }
     return [true, null, $out];
@@ -136,9 +151,9 @@ function mailInsertMessage(
     if ($count > 0) {
         $ins = $pdo->prepare('
             INSERT INTO mail_attachments
-              (mail_id, slot_index, item_template_id, quantity, refinement_level, durability, bonus_stats_json)
+              (mail_id, slot_index, item_template_id, quantity, refinement_level, durability, bonus_stats_json, enchantments_json)
             VALUES
-              (:mid, :slot, :iid, :qty, :ref, :dur, :bonus)
+              (:mid, :slot, :iid, :qty, :ref, :dur, :bonus, :ench)
         ');
         foreach ($attachments as $a) {
             $ins->execute([
@@ -149,6 +164,7 @@ function mailInsertMessage(
                 ':ref' => $a['refinement_level'],
                 ':dur' => $a['durability'],
                 ':bonus' => $a['bonus_stats_json'],
+                ':ench' => $a['enchantments_json'] ?? null,
             ]);
         }
     }
@@ -162,7 +178,7 @@ function mailFetchAttachments(PDO $pdo, int $mailId): array
 {
     $st = $pdo->prepare('
         SELECT ma.id, ma.slot_index, ma.item_template_id, ma.quantity, ma.refinement_level,
-               ma.durability, ma.bonus_stats_json, ma.claimed, ma.claimed_at,
+               ma.durability, ma.bonus_stats_json, ma.enchantments_json, ma.claimed, ma.claimed_at,
                it.item_name, it.icon_path, it.item_type, it.rarity, it.max_stack_size
         FROM mail_attachments ma
         LEFT JOIN item_templates it ON it.item_id = ma.item_template_id
@@ -180,6 +196,8 @@ function mailFetchAttachments(PDO $pdo, int $mailId): array
             'refinement_level' => (int)$r['refinement_level'],
             'durability' => (float)$r['durability'],
             'bonus_stats_json' => $r['bonus_stats_json'],
+            'enchantments_json' => $r['enchantments_json'] ?? null,
+            'enchantments' => enchant_parse_list($r['enchantments_json'] ?? null),
             'claimed' => (int)$r['claimed'] === 1,
             'claimed_at' => $r['claimed_at'],
             'item_name' => $r['item_name'] ?? '',
@@ -199,6 +217,10 @@ function mailGrantAttachmentToInventory(PDO $pdo, int $playerId, array $att): bo
     $ref = (int)($att['refinement_level'] ?? 0);
     $dur = (float)($att['durability'] ?? 100.0);
     $bonus = $att['bonus_stats_json'] ?? null;
+    $ench = $att['enchantments_json'] ?? null;
+    if (is_array($ench)) {
+        $ench = enchant_encode_list($ench);
+    }
 
     $tpl = $pdo->prepare('SELECT item_id, max_stack_size FROM item_templates WHERE item_id = ? LIMIT 1');
     $tpl->execute([$itemId]);
@@ -209,7 +231,7 @@ function mailGrantAttachmentToInventory(PDO $pdo, int $playerId, array $att): bo
     $remaining = $qty;
     $maxStack = max(1, (int)$template['max_stack_size']);
     // Itens refinados / com bonus: não stackar — um insert por chunk com stats
-    $forceUnique = $ref > 0 || ($bonus !== null && $bonus !== '');
+    $forceUnique = $ref > 0 || ($bonus !== null && $bonus !== '') || ($ench !== null && $ench !== '');
     while ($remaining > 0) {
         $chunk = $forceUnique ? $remaining : min($remaining, $maxStack);
         if (!$forceUnique && $maxStack > 1) {
@@ -238,11 +260,14 @@ function mailGrantAttachmentToInventory(PDO $pdo, int $playerId, array $att): bo
         }
         $ins = $pdo->prepare('
             INSERT INTO player_inventory
-              (player_id, item_template_id, quantity, slot_index, is_equipped, durability, refinement_level, refinement_bonus_stats)
+              (player_id, item_template_id, quantity, slot_index, is_equipped, durability, refinement_level, refinement_bonus_stats, enchantments_json)
             VALUES
-              (?, ?, ?, ?, 0, ?, ?, ?)
+              (?, ?, ?, ?, 0, ?, ?, ?, ?)
         ');
-        $ins->execute([$playerId, $itemId, $chunk, $slot, $dur, $ref, $bonus]);
+        $ins->execute([$playerId, $itemId, $chunk, $slot, $dur, $ref, $bonus, $ench]);
+        if ($ench === null || $ench === '') {
+            enchant_apply_roll_to_inventory_id($pdo, (int)$pdo->lastInsertId());
+        }
         $remaining -= $chunk;
         if ($forceUnique) {
             break;
@@ -265,7 +290,7 @@ function mailDebitSenderInventory(PDO $pdo, int $senderId, array $attachments): 
         $qty = (int)$a['quantity'];
         if ($invId > 0) {
             $st = $pdo->prepare('
-                SELECT inventory_id, item_template_id, quantity, refinement_level, durability, refinement_bonus_stats
+                SELECT inventory_id, item_template_id, quantity, refinement_level, durability, refinement_bonus_stats, enchantments_json
                 FROM player_inventory
                 WHERE inventory_id = ? AND player_id = ? AND is_equipped = 0
                   AND auction_listing_id IS NULL AND slot_index BETWEEN 0 AND 49
@@ -293,12 +318,13 @@ function mailDebitSenderInventory(PDO $pdo, int $senderId, array $attachments): 
                 'refinement_level' => (int)($row['refinement_level'] ?? 0),
                 'durability' => (float)($row['durability'] ?? 100.0),
                 'bonus_stats_json' => $row['refinement_bonus_stats'] ?? null,
+                'enchantments_json' => $row['enchantments_json'] ?? null,
             ];
         } else {
             $itemId = (int)$a['item_template_id'];
             $need = $qty;
             $st = $pdo->prepare('
-                SELECT inventory_id, quantity, refinement_level, durability, refinement_bonus_stats
+                SELECT inventory_id, quantity, refinement_level, durability, refinement_bonus_stats, enchantments_json
                 FROM player_inventory
                 WHERE player_id = ? AND item_template_id = ? AND is_equipped = 0
                   AND auction_listing_id IS NULL AND slot_index BETWEEN 0 AND 49
@@ -312,6 +338,7 @@ function mailDebitSenderInventory(PDO $pdo, int $senderId, array $attachments): 
             $taken = 0;
             $dur = (float)($a['durability'] ?? 100.0);
             $bonus = $a['bonus_stats_json'] ?? null;
+            $ench = $a['enchantments_json'] ?? null;
             foreach ($rows as $row) {
                 if ($taken >= $need) {
                     break;
@@ -326,6 +353,7 @@ function mailDebitSenderInventory(PDO $pdo, int $senderId, array $attachments): 
                 }
                 $dur = (float)($row['durability'] ?? $dur);
                 $bonus = $row['refinement_bonus_stats'] ?? $bonus;
+                $ench = $row['enchantments_json'] ?? $ench;
                 $taken += $take;
             }
             if ($taken < $need) {
@@ -338,6 +366,7 @@ function mailDebitSenderInventory(PDO $pdo, int $senderId, array $attachments): 
                 'refinement_level' => $refWant,
                 'durability' => $dur,
                 'bonus_stats_json' => $bonus,
+                'enchantments_json' => $ench,
             ];
         }
     }

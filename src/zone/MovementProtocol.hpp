@@ -243,6 +243,8 @@ struct SkillBuffSyncPayload {
   std::string iconPath;
   /** 0 = jogador (targetPlayerId), 1 = NPC (npc_instance_id em targetPlayerId). */
   uint8_t targetType = 0;
+  /** STUN/SILENCE/ROOT/SLOW/BUFF_STAT/... — append após targetType (compatível). */
+  std::string effectType;
 };
 
 enum class ChatChannel : uint8_t {
@@ -2412,6 +2414,7 @@ inline std::vector<uint8_t> encodeSkillBuffSync(const SkillBuffSyncPayload& p) {
   appendStringField(data, p.skillName, 64);
   appendStringField(data, p.iconPath, 128);
   data.push_back(p.targetType);
+  appendStringField(data, p.effectType, 16);
   return data;
 }
 
@@ -2456,6 +2459,11 @@ inline bool decodeSkillBuffSync(const std::vector<uint8_t>& data, SkillBuffSyncP
   if (!readStringField(data, off, p.skillName, 64)) return false;
   if (!readStringField(data, off, p.iconPath, 128)) return false;
   p.targetType = (off < data.size()) ? data[off++] : 0;
+  if (off < data.size()) {
+    if (!readStringField(data, off, p.effectType, 16)) {
+      p.effectType.clear();
+    }
+  }
   return true;
 }
 

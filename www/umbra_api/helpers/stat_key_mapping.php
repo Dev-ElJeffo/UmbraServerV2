@@ -61,6 +61,14 @@ function apply_percent_to_combat_stats(string $canonicalKey, int $pct, array &$c
         'double_attack_rate' => 'double_attack_rate',
         'double_attack_resistance' => 'double_attack_resistance',
         'movement' => 'movement',
+        'stun_chance' => 'stun_chance',
+        'silence_chance' => 'silence_chance',
+        'root_chance' => 'root_chance',
+        'slow_chance' => 'slow_chance',
+        'stun_resist' => 'stun_resist',
+        'silence_resist' => 'silence_resist',
+        'root_resist' => 'root_resist',
+        'slow_resist' => 'slow_resist',
     ];
     if (!isset($combatKeys[$canonicalKey])) {
         return;

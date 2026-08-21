@@ -9,6 +9,7 @@
  * @return array|null Array 'character' ou null se jogador não existir.
  */
 require_once __DIR__ . '/stat_key_mapping.php';
+require_once __DIR__ . '/enchant_helper.php';
 
 /**
  * Lista passivas aprendidas e se health_below_percent está ativa (debug).
@@ -178,6 +179,7 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
                         pi.custom_properties,
                         pi.refinement_level,
                         pi.refinement_bonus_stats,
+                        pi.enchantments_json,
                         it.item_name,
                         it.item_description,
                         it.item_type,
@@ -252,7 +254,15 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
         'movement' => $base_movement,
         'resistance' => $base_resistance,
         'double_attack_resistance' => 0,
-        'double_attack_rate' => $base_double_atk
+        'double_attack_rate' => $base_double_atk,
+        'stun_chance' => 0,
+        'silence_chance' => 0,
+        'root_chance' => 0,
+        'slow_chance' => 0,
+        'stun_resist' => 0,
+        'silence_resist' => 0,
+        'root_resist' => 0,
+        'slow_resist' => 0,
     ];
 
     foreach ($equipped_items as $item) {
@@ -296,6 +306,9 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
             }
         }
 
+        $enchantments = enchant_parse_list($item['enchantments_json'] ?? null);
+        enchant_apply_flats_to_totals($enchantments, $total_stats);
+
         $equipped_by_slot[$equipment_slot] = [
             'inventory_id' => (int)$item['inventory_id'],
             'item_template_id' => (int)$item['item_template_id'],
@@ -314,6 +327,7 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
             'tradeable' => (bool)$item['tradeable'],
             'refinement_level' => $refinement_level,
             'refinement_bonus_stats' => $refinement_bonus_stats,
+            'enchantments' => $enchantments,
             'stats' => $stats
         ];
 
@@ -499,6 +513,14 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
         'critical_resistance' => $total_stats['resistance'],
         'double_attack_rate' => $total_stats['double_attack_rate'],
         'double_attack_resistance' => $total_stats['double_attack_resistance'],
+        'stun_chance' => max(0, min(100, (int)($total_stats['stun_chance'] ?? 0))),
+        'silence_chance' => max(0, min(100, (int)($total_stats['silence_chance'] ?? 0))),
+        'root_chance' => max(0, min(100, (int)($total_stats['root_chance'] ?? 0))),
+        'slow_chance' => max(0, min(100, (int)($total_stats['slow_chance'] ?? 0))),
+        'stun_resist' => max(0, min(100, (int)($total_stats['stun_resist'] ?? 0))),
+        'silence_resist' => max(0, min(100, (int)($total_stats['silence_resist'] ?? 0))),
+        'root_resist' => max(0, min(100, (int)($total_stats['root_resist'] ?? 0))),
+        'slow_resist' => max(0, min(100, (int)($total_stats['slow_resist'] ?? 0))),
     ];
     foreach ($skill_percent_mods as $pm) {
         if (empty($pm['apply_to_totals'])) {

@@ -47,6 +47,10 @@ struct NpcRuntimeInstance {
   int32_t criticalResistance = 0;
   int32_t doubleAttackRate = 0;
   int32_t doubleAttackResistance = 0;
+  int32_t stunResist = 0;
+  int32_t silenceResist = 0;
+  int32_t rootResist = 0;
+  int32_t slowResist = 0;
   std::string npcName;
   std::string skeletalMeshPath;
   std::string animBlueprintPath;

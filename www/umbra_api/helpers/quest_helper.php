@@ -5,6 +5,8 @@
 
 require_once __DIR__ . '/experience_helper.php';
 require_once __DIR__ . '/npc_vendor_helper.php';
+require_once __DIR__ . '/stat_key_mapping.php';
+require_once __DIR__ . '/enchant_helper.php';
 
 const QUEST_AREA_MARGIN = 50.0;
 
@@ -498,6 +500,7 @@ function questGrantItemToPlayer(PDO $pdo, int $player_id, int $item_template_id,
             VALUES (?, ?, ?, ?)
         ');
         $ins->execute([$player_id, $item_template_id, $chunk, $slot]);
+        enchant_apply_roll_to_inventory_id($pdo, (int)$pdo->lastInsertId());
         $remaining -= $chunk;
     }
     return true;

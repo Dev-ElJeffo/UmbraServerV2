@@ -40,6 +40,14 @@ inline std::string mapTargetStatToCanonical(const std::string& raw) {
   if (raw == "mana") return "mana_bonus";
   if (raw == "damage_reduction") return "damage_reduction";
   if (raw == "all_resistance") return "resistance";
+  if (raw == "stun_resist" || raw == "stunResist") return "stun_resist";
+  if (raw == "silence_resist" || raw == "silenceResist") return "silence_resist";
+  if (raw == "root_resist" || raw == "rootResist") return "root_resist";
+  if (raw == "slow_resist" || raw == "slowResist") return "slow_resist";
+  if (raw == "stun_chance" || raw == "stunChance") return "stun_chance";
+  if (raw == "silence_chance" || raw == "silenceChance") return "silence_chance";
+  if (raw == "root_chance" || raw == "rootChance") return "root_chance";
+  if (raw == "slow_chance" || raw == "slowChance") return "slow_chance";
   return raw;
 }
 
@@ -86,6 +94,14 @@ inline void applyPercentToCharacterStats(const std::string& canonicalKey, int32_
   else if (canonicalKey == "vitality") mod(stats.vitality);
   else if (canonicalKey == "luck") mod(stats.luck);
   else if (canonicalKey == "damage_reduction") mod(stats.damageReduction);
+  else if (canonicalKey == "stun_resist") mod(stats.stunResist);
+  else if (canonicalKey == "silence_resist") mod(stats.silenceResist);
+  else if (canonicalKey == "root_resist") mod(stats.rootResist);
+  else if (canonicalKey == "slow_resist") mod(stats.slowResist);
+  else if (canonicalKey == "stun_chance") mod(stats.stunChance);
+  else if (canonicalKey == "silence_chance") mod(stats.silenceChance);
+  else if (canonicalKey == "root_chance") mod(stats.rootChance);
+  else if (canonicalKey == "slow_chance") mod(stats.slowChance);
 }
 
 /** Chaves percentuais que devem ser aplicadas no mapa totals (antes de max HP/MP). */

@@ -14,6 +14,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once __DIR__ . '/npc_vendor_bootstrap.php';
+require_once dirname(__DIR__, 2) . '/helpers/stat_key_mapping.php';
+require_once dirname(__DIR__, 2) . '/helpers/enchant_helper.php';
 
 $json = file_get_contents('php://input');
 $data = json_decode($json, true) ?: [];
@@ -135,6 +137,9 @@ try {
     ")->execute([$player_id, (int)$stock['item_template_id'], $quantity, $freeSlot]);
 
     $inventory_id = (int)$pdo->lastInsertId();
+    $tplStmt = $pdo->prepare('SELECT item_category, equipment_slot, item_type FROM item_templates WHERE item_id = ? LIMIT 1');
+    $tplStmt->execute([(int)$stock['item_template_id']]);
+    enchant_apply_roll_to_inventory_id($pdo, $inventory_id, $tplStmt->fetch(PDO::FETCH_ASSOC) ?: null);
     $pdo->commit();
 
     $bg2 = $pdo->prepare('SELECT gold FROM players WHERE id = ?');

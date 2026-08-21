@@ -82,11 +82,24 @@ try {
             al.expires_at,
             pi.quantity,
             pi.item_template_id,
+            pi.durability,
+            pi.refinement_level,
+            pi.refinement_bonus_stats,
+            pi.enchantments_json,
             it.item_name,
+            it.item_description,
             it.icon_path,
             it.item_type,
             it.item_subtype,
-            it.rarity
+            it.equipment_slot,
+            it.required_level,
+            it.max_stack_size,
+            it.stats_json,
+            it.rarity,
+            it.value,
+            it.weight,
+            it.can_be_refined,
+            it.tradeable
         FROM auction_listings al
         INNER JOIN player_inventory pi ON al.inventory_id = pi.inventory_id
         INNER JOIN item_templates it ON pi.item_template_id = it.item_id
@@ -100,6 +113,7 @@ try {
     $lstmt->execute($params);
     $listings = $lstmt->fetchAll(PDO::FETCH_ASSOC);
     foreach ($listings as &$row) {
+        enrichListedInventoryItemRow($row);
         $row['expires_at_unix'] = isset($row['expires_at']) ? (int) strtotime($row['expires_at']) : 0;
     }
     unset($row);

@@ -4,9 +4,11 @@
 #include "zone/QuestProgressService.hpp"
 #include "zone/AgentDebugLog.hpp"
 #include "SkillTypes.hpp"
+#include "StatKeyMapping.hpp"
 #include "core/Logger.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -30,6 +32,82 @@ SkillCastRejectReason rejectReasonFromErrorCode(const std::string& code) {
   if (code == "CANNOT_CAST") return SkillCastRejectReason::CannotCast;
   if (code == "SKILL_NOT_FOUND") return SkillCastRejectReason::SkillNotFound;
   return SkillCastRejectReason::Unknown;
+}
+
+const char* effectTypeToWireName(Combat::EffectType type) {
+  switch (type) {
+    case Combat::EffectType::DEBUFF_STAT: return "DEBUFF_STAT";
+    case Combat::EffectType::SHIELD: return "SHIELD";
+    case Combat::EffectType::STUN: return "STUN";
+    case Combat::EffectType::SILENCE: return "SILENCE";
+    case Combat::EffectType::ROOT: return "ROOT";
+    case Combat::EffectType::SLOW: return "SLOW";
+    case Combat::EffectType::DOT: return "DOT";
+    case Combat::EffectType::HOT: return "HOT";
+    case Combat::EffectType::HEAL: return "HEAL";
+    default: return "BUFF_STAT";
+  }
+}
+
+std::string resolveBuffTargetStat(const Combat::SkillEffect& effect) {
+  if (!effect.targetStat.empty()) return effect.targetStat;
+  switch (effect.effectType) {
+    case Combat::EffectType::STUN: return "stun";
+    case Combat::EffectType::SILENCE: return "silence";
+    case Combat::EffectType::ROOT: return "root";
+    case Combat::EffectType::SLOW: return "slow";
+    default: return {};
+  }
+}
+
+void inferEffectTypeFromTargetStat(SkillBuffSyncPayload& payload) {
+  if (!payload.effectType.empty()) return;
+  std::string ts = payload.targetStat;
+  for (char& c : ts) {
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  }
+  if (ts == "stun") payload.effectType = "STUN";
+  else if (ts == "silence") payload.effectType = "SILENCE";
+  else if (ts == "root") payload.effectType = "ROOT";
+  else if (ts == "slow") payload.effectType = "SLOW";
+}
+
+int32_t ccResistFromStats(const Combat::CharacterStats& stats, Combat::EffectType type) {
+  switch (type) {
+    case Combat::EffectType::STUN: return stats.stunResist;
+    case Combat::EffectType::SILENCE: return stats.silenceResist;
+    case Combat::EffectType::ROOT: return stats.rootResist;
+    case Combat::EffectType::SLOW: return stats.slowResist;
+    default: return 0;
+  }
+}
+
+int32_t ccChanceFromStats(const Combat::CharacterStats& stats, Combat::EffectType type) {
+  switch (type) {
+    case Combat::EffectType::STUN: return stats.stunChance;
+    case Combat::EffectType::SILENCE: return stats.silenceChance;
+    case Combat::EffectType::ROOT: return stats.rootChance;
+    case Combat::EffectType::SLOW: return stats.slowChance;
+    default: return 0;
+  }
+}
+
+int32_t computeCcApplyChance(const Combat::SkillEffect& effect, int32_t targetResist,
+                             int32_t casterCcChance) {
+  const int32_t reduced =
+      std::max(0, targetResist - static_cast<int32_t>(effect.resistPenetration));
+  return std::clamp(static_cast<int32_t>(effect.chancePercent) + casterCcChance - reduced, 0, 100);
+}
+
+bool isCasterCcResistBuff(const Combat::SkillEffect& effect) {
+  if (effect.effectType != Combat::EffectType::BUFF_STAT) return false;
+  std::string raw = effect.targetStat;
+  for (char& c : raw) {
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  }
+  const std::string key = Combat::StatKeyMapping::mapTargetStatToCanonical(raw);
+  return key == "stun_resist" || key == "silence_resist" || key == "root_resist" ||
+         key == "slow_resist";
 }
 
 uint8_t buffTypeFromDbString(const std::string& value) {
@@ -700,6 +778,8 @@ void CombatCoreEngine::tickBuffExpirations() {
     sync.buffType = entry.buffType;
     sync.skillName = entry.skillName;
     sync.iconPath = entry.iconPath;
+    sync.targetStat = entry.targetStat;
+    sync.effectType = entry.effectTypeStr;
     enrichSkillBuffSyncPayload(sync);
     broadcastSkillBuffSync(sync);
   }
@@ -717,7 +797,7 @@ uint64_t CombatCoreEngine::applyPlayerBuffInMemory(uint32_t targetPlayerId, uint
   const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::system_clock::now().time_since_epoch())
                             .count();
-  const std::string targetStat = effect.targetStat;
+  const std::string targetStat = resolveBuffTargetStat(effect);
   const int32_t valueSnapshot = effect.valueFlat != 0 ? effect.valueFlat : effect.valuePercent;
 
   const char* buffTypeStr = "BUFF";
@@ -725,16 +805,7 @@ uint64_t CombatCoreEngine::applyPlayerBuffInMemory(uint32_t targetPlayerId, uint
   else if (buffTypeCode == static_cast<uint8_t>(Combat::BuffType::SHIELD)) buffTypeStr = "SHIELD";
   else if (buffTypeCode == static_cast<uint8_t>(Combat::BuffType::AURA)) buffTypeStr = "AURA";
 
-  const char* effectTypeStr = "BUFF_STAT";
-  switch (effect.effectType) {
-    case Combat::EffectType::DEBUFF_STAT: effectTypeStr = "DEBUFF_STAT"; break;
-    case Combat::EffectType::SHIELD: effectTypeStr = "SHIELD"; break;
-    case Combat::EffectType::STUN: effectTypeStr = "STUN"; break;
-    case Combat::EffectType::SILENCE: effectTypeStr = "SILENCE"; break;
-    case Combat::EffectType::ROOT: effectTypeStr = "ROOT"; break;
-    case Combat::EffectType::SLOW: effectTypeStr = "SLOW"; break;
-    default: break;
-  }
+  const char* effectTypeStr = effectTypeToWireName(effect.effectType);
 
   uint64_t buffId = 0;
   uint8_t stacks = 1;
@@ -755,6 +826,7 @@ uint64_t CombatCoreEngine::applyPlayerBuffInMemory(uint32_t targetPlayerId, uint
         existing.expiresAtMs = nowMs + static_cast<int64_t>(durationMs);
         existing.durationMs = durationMs;
         existing.sourcePlayerId = sourcePlayerId;
+        existing.effectTypeStr = effectTypeStr;
         break;
       }
     }
@@ -852,15 +924,37 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
                              eff.effectType == Combat::EffectType::SILENCE ||
                              eff.effectType == Combat::EffectType::ROOT ||
                              eff.effectType == Combat::EffectType::SLOW);
+    const bool casterResistBuff = isCasterCcResistBuff(eff);
 
     if (isBuffStat || isDebuffStat || isShield || isCcDebuff) {
-      if (effectPlayerId == 0) continue;
-      if (eff.chancePercent < 100) {
+      if (!casterResistBuff && effectPlayerId == 0) continue;
+      int32_t applyChance = static_cast<int32_t>(eff.chancePercent);
+      if (isCcDebuff) {
+        int32_t targetResist = 0;
+        int32_t casterCcChance = 0;
+        if (haveAttacker) {
+          casterCcChance = ccChanceFromStats(attacker.buffedStats, eff.effectType);
+        }
+        Combat::CharacterState defender;
+        bool defenderIsPlayer = false;
+        if (effectOnSelf) {
+          if (haveAttacker) {
+            targetResist = ccResistFromStats(attacker.buffedStats, eff.effectType);
+          }
+        } else if (buildDefenderState(targetIsNpc ? static_cast<uint8_t>(CombatTargetType::Npc)
+                                                  : static_cast<uint8_t>(CombatTargetType::Player),
+                                      targetIsNpc ? targetId : effectPlayerId, defender,
+                                      defenderIsPlayer)) {
+          targetResist = ccResistFromStats(defender.buffedStats, eff.effectType);
+        }
+        applyChance = computeCcApplyChance(eff, targetResist, casterCcChance);
+      }
+      if (applyChance < 100) {
         const int32_t roll = std::rand() % 100;
-        if (roll >= eff.chancePercent) continue;
+        if (roll >= applyChance) continue;
       }
 
-      if (!effectOnSelf && targetIsNpc) {
+      if (!effectOnSelf && targetIsNpc && !casterResistBuff) {
         uint32_t durationMs = eff.durationMs > 0 ? eff.durationMs : skill.durationMs;
         if (durationMs == 0) durationMs = 5000;
         uint8_t buffTypeCode = static_cast<uint8_t>(Combat::BuffType::BUFF);
@@ -887,7 +981,8 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
           sync.valuePercent = eff.valuePercent;
           sync.expiresAtMs = nowMs + static_cast<int64_t>(durationMs);
           sync.durationMs = durationMs;
-          sync.targetStat = eff.targetStat;
+          sync.targetStat = resolveBuffTargetStat(eff);
+          sync.effectType = effectTypeToWireName(eff.effectType);
           sync.skillName = skill.skillName;
           sync.iconPath = skill.iconPath;
           enrichSkillBuffSyncPayload(sync);
@@ -903,8 +998,10 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
       } else if (isDebuffStat || isCcDebuff) {
         buffTypeCode = static_cast<uint8_t>(Combat::BuffType::DEBUFF);
       }
+      const uint32_t buffPlayerId = casterResistBuff ? sourcePlayerId : effectPlayerId;
+      if (buffPlayerId == 0) continue;
       const uint64_t buffId =
-          applyPlayerBuffInMemory(effectPlayerId, sourcePlayerId, skill.skillId, eff, skill,
+          applyPlayerBuffInMemory(buffPlayerId, sourcePlayerId, skill.skillId, eff, skill,
                                   buffTypeCode);
       if (buffId > 0) {
         uint32_t durationMs = eff.durationMs > 0 ? eff.durationMs : skill.durationMs;
@@ -913,7 +1010,7 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
                                   std::chrono::system_clock::now().time_since_epoch())
                                   .count();
         SkillBuffSyncPayload sync;
-        sync.targetPlayerId = static_cast<uint32_t>(effectPlayerId);
+        sync.targetPlayerId = buffPlayerId;
         sync.buffId = buffId;
         sync.skillId = skill.skillId;
         sync.buffType = buffTypeCode;
@@ -922,14 +1019,15 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
         sync.valuePercent = eff.valuePercent;
         sync.expiresAtMs = nowMs + static_cast<int64_t>(durationMs);
         sync.durationMs = durationMs;
-        sync.targetStat = eff.targetStat;
+        sync.targetStat = resolveBuffTargetStat(eff);
+        sync.effectType = effectTypeToWireName(eff.effectType);
         sync.skillName = skill.skillName;
         sync.iconPath = skill.iconPath;
         broadcastPlayerSkillBuffApply(sync);
       } else {
         Core::Logger::getInstance().warn(
             "[CombatCoreEngine] applyPlayerBuffInMemory retornou 0: skill={} target={} effectType={}",
-            skill.skillId, effectPlayerId, static_cast<int>(eff.effectType));
+            skill.skillId, buffPlayerId, static_cast<int>(eff.effectType));
       }
       continue;
     }
@@ -1235,16 +1333,17 @@ uint64_t CombatCoreEngine::applyNpcSkillBuff(uint32_t npcInstanceId, uint32_t so
   inst.valuePercent = eff.valuePercent;
   inst.expiresAtMs = nowMs + static_cast<int64_t>(durationMs);
   inst.durationMs = durationMs;
-  inst.targetStat = eff.targetStat;
+  inst.targetStat = resolveBuffTargetStat(eff);
   inst.skillName = skill.skillName;
   inst.iconPath = skill.iconPath;
+  inst.effectTypeStr = effectTypeToWireName(eff.effectType);
 
   std::vector<NpcBuffInstance> replaced;
   {
     std::lock_guard<std::mutex> lock(npcBuffsMu_);
     for (const auto& existing : npcBuffs_) {
       if (existing.npcInstanceId == npcInstanceId && existing.skillId == skillId &&
-          existing.buffType == buffType) {
+          existing.buffType == buffType && existing.targetStat == inst.targetStat) {
         replaced.push_back(existing);
       }
     }
@@ -1252,7 +1351,8 @@ uint64_t CombatCoreEngine::applyNpcSkillBuff(uint32_t npcInstanceId, uint32_t so
                                    [&](const NpcBuffInstance& existing) {
                                      return existing.npcInstanceId == npcInstanceId &&
                                             existing.skillId == skillId &&
-                                            existing.buffType == buffType;
+                                            existing.buffType == buffType &&
+                                            existing.targetStat == inst.targetStat;
                                    }),
                     npcBuffs_.end());
     npcBuffs_.push_back(inst);
@@ -1274,6 +1374,7 @@ uint64_t CombatCoreEngine::applyNpcSkillBuff(uint32_t npcInstanceId, uint32_t so
     sync.targetStat = old.targetStat;
     sync.skillName = old.skillName;
     sync.iconPath = old.iconPath;
+    sync.effectType = old.effectTypeStr;
     enrichSkillBuffSyncPayload(sync);
     broadcastSkillBuffSync(sync);
   }
@@ -1320,6 +1421,7 @@ void CombatCoreEngine::tickNpcBuffExpirations() {
     sync.targetStat = inst.targetStat;
     sync.skillName = inst.skillName;
     sync.iconPath = inst.iconPath;
+    sync.effectType = inst.effectTypeStr;
     enrichSkillBuffSyncPayload(sync);
     broadcastSkillBuffSync(sync);
     Core::Logger::getInstance().debug(
@@ -1544,6 +1646,7 @@ void CombatCoreEngine::sendNpcBuffSnapshotForNpc(uint32_t clientId, uint32_t npc
     sync.targetStat = inst.targetStat;
     sync.skillName = inst.skillName;
     sync.iconPath = inst.iconPath;
+    sync.effectType = inst.effectTypeStr;
     enrichSkillBuffSyncPayload(sync);
     movementServer_->sendBinaryToClient(clientId, encodeSkillBuffSync(sync));
     ++sentBuffs;
@@ -1629,6 +1732,9 @@ void CombatCoreEngine::sendPlayerBuffSnapshotToClient(uint32_t clientId) {
           }
           if (snap.contains("target_stat") && snap["target_stat"].is_string()) {
             sync.targetStat = snap["target_stat"].get<std::string>();
+          }
+          if (snap.contains("effect_type") && snap["effect_type"].is_string()) {
+            sync.effectType = snap["effect_type"].get<std::string>();
           }
         }
 
@@ -2293,6 +2399,7 @@ void CombatCoreEngine::broadcastSkillBuffSyncPublic(const SkillBuffSyncPayload& 
 }
 
 void CombatCoreEngine::enrichSkillBuffSyncPayload(SkillBuffSyncPayload& payload) {
+  inferEffectTypeFromTargetStat(payload);
   if (!skillService_ || payload.skillId == 0) return;
   const Combat::SkillData* skill = skillService_->getSkillData(payload.skillId);
   if (!skill) return;
@@ -2394,7 +2501,8 @@ void CombatCoreEngine::applyReactionBuff(uint32_t targetPlayerId, uint32_t sourc
   sync.valuePercent = effect.valuePercent;
   sync.expiresAtMs = nowMs + static_cast<int64_t>(durationMs);
   sync.durationMs = durationMs;
-  sync.targetStat = effect.targetStat;
+  sync.targetStat = resolveBuffTargetStat(effect);
+  sync.effectType = effectTypeToWireName(effect.effectType);
   sync.skillName = skill->skillName;
   sync.iconPath = skill->iconPath;
   broadcastPlayerSkillBuffApply(sync);

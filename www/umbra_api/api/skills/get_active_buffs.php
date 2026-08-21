@@ -121,6 +121,7 @@ try {
             'value' => (int)$buff['value_snapshot'],
             'target_stat' => $targetStat,
             'value_percent' => $valuePercent,
+            'effect_type' => (string)($snapshot['effect_type'] ?? ''),
             'source_name' => $buff['source_name'],
             'is_permanent' => (bool)$buff['is_permanent'],
             'remaining_ms' => (int)$remainingMs,

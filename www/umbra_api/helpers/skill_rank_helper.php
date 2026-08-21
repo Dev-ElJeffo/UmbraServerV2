@@ -32,6 +32,43 @@ function load_skill_rank_scaling_map(PDO $pdo, array $skillIds): array
 }
 
 /**
+ * Decodifica JSON de coluna MySQL (string, array já decodificado ou objeto).
+ * @return list<array>
+ */
+function decode_json_array($raw): array
+{
+    if ($raw === null || $raw === '' || $raw === 'null') {
+        return [];
+    }
+    if (is_object($raw)) {
+        $raw = json_decode(json_encode($raw), true);
+    }
+    if (is_string($raw)) {
+        $decoded = json_decode($raw, true);
+        if (is_string($decoded)) {
+            $decoded = json_decode($decoded, true);
+        }
+        $raw = $decoded;
+    }
+    if (!is_array($raw)) {
+        return [];
+    }
+    if (isset($raw['type']) || isset($raw['effect_type'])) {
+        return [$raw];
+    }
+    $out = [];
+    foreach ($raw as $item) {
+        if (is_object($item)) {
+            $item = json_decode(json_encode($item), true);
+        }
+        if (is_array($item)) {
+            $out[] = $item;
+        }
+    }
+    return $out;
+}
+
+/**
  * Calcula power/CD/cost/duration efetivos + effects cumulativos para um rank.
  *
  * @param array $skill row com power_coef, resource_cost, cooldown_ms, duration_ms, effects_json
@@ -50,38 +87,28 @@ function compute_effective_skill_stats(array $skill, int $rank, ?array $scalingB
     $row = ($scalingByRank !== null && isset($scalingByRank[$rank])) ? $scalingByRank[$rank] : null;
     $hasRow = $row !== null;
 
+    $mult = 1.0 + (($rank - 1) * 0.1);
+    $power = (int)round($basePower * $mult);
+    $cost = $baseCost;
+    $cd = $baseCd;
+    $dur = $baseDur;
     if ($hasRow) {
-        $power = max(0, $basePower + (int)$row['power_coef_bonus']);
-        $cost = max(0, $baseCost + (int)$row['resource_cost_bonus']);
-        $cd = max(0, $baseCd - (int)$row['cooldown_reduction_ms']);
-        $dur = max(0, $baseDur + (int)$row['duration_bonus_ms']);
-    } else {
-        $mult = 1.0 + (($rank - 1) * 0.1);
-        $power = (int)round($basePower * $mult);
-        $cost = $baseCost;
-        $cd = $baseCd;
-        $dur = $baseDur;
+        $power = max(0, $power + (int)$row['power_coef_bonus']);
+        $cost = max(0, $cost + (int)$row['resource_cost_bonus']);
+        $cd = max(0, $cd - (int)$row['cooldown_reduction_ms']);
+        $dur = max(0, $dur + (int)$row['duration_bonus_ms']);
     }
 
-    $effects = json_decode($skill['effects_json'] ?? '[]', true);
-    if (!is_array($effects)) {
-        $effects = [];
-    }
+    $effects = decode_json_array($skill['effects_json'] ?? '[]');
 
     if ($scalingByRank) {
         for ($r = 1; $r <= $rank; $r++) {
             if (!isset($scalingByRank[$r])) {
                 continue;
             }
-            $extraRaw = $scalingByRank[$r]['extra_effects_json'] ?? null;
-            if ($extraRaw === null || $extraRaw === '') {
-                continue;
-            }
-            $extra = is_string($extraRaw) ? json_decode($extraRaw, true) : $extraRaw;
-            if (is_array($extra)) {
-                foreach ($extra as $eff) {
-                    $effects[] = $eff;
-                }
+            $extra = decode_json_array($scalingByRank[$r]['extra_effects_json'] ?? null);
+            foreach ($extra as $eff) {
+                $effects[] = $eff;
             }
         }
     }

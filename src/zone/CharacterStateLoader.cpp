@@ -3,6 +3,7 @@
 #include "core/Logger.hpp"
 
 #include <nlohmann/json.hpp>
+#include <algorithm>
 #include <cmath>
 #include <unordered_map>
 #include <vector>
@@ -343,12 +344,21 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
   t["resistance"] = baseCritRes;
   t["double_attack_resistance"] = 0;
   t["double_attack_rate"] = baseDoubleAtk;
+  t["stun_resist"] = 0;
+  t["silence_resist"] = 0;
+  t["root_resist"] = 0;
+  t["slow_resist"] = 0;
+  t["stun_chance"] = 0;
+  t["silence_chance"] = 0;
+  t["root_chance"] = 0;
+  t["slow_chance"] = 0;
 
   // Equipamento equipado: somar stats_json + refinement_bonus_stats.
   // Texto com pid numérico (injection-safe): prepared com '?' retorna vazio neste ambiente
   // (MySQL remoto), mesmo motivo do fallback de active_buffs. Sem texto, equipamento não soma.
   auto equipRows = db_->executeQuery(
-      "SELECT COALESCE(it.stats_json,''), COALESCE(pi.refinement_bonus_stats,'') "
+      "SELECT COALESCE(it.stats_json,''), COALESCE(pi.refinement_bonus_stats,''), "
+      "COALESCE(pi.enchantments_json,'') "
       "FROM player_inventory pi "
       "INNER JOIN item_templates it ON pi.item_template_id = it.item_id "
       "WHERE pi.player_id = " + pid + " AND pi.is_equipped = TRUE");
@@ -371,6 +381,18 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
       }
     }
     accumulateItemStats(stats, t);
+    if (er.size() > 2 && !er[2].empty() && er[2] != "null") {
+      nlohmann::json ench = nlohmann::json::parse(er[2], nullptr, false);
+      if (ench.is_array()) {
+        for (const auto& row : ench) {
+          if (!row.is_object()) continue;
+          const std::string key =
+              Combat::StatKeyMapping::mapTargetStatToCanonical(row.value("stat_key", std::string{}));
+          const int64_t val = jsonInt(row, "value");
+          Combat::StatKeyMapping::applyFlatToTotals(key, val, t);
+        }
+      }
+    }
   }
 
   // Buffs temporários de poção (player_item_buffs) — somados antes do scaling de atributo.
@@ -420,8 +442,14 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
       Combat::StatKeyMapping::applyFlatToTotals(statKey, flat, t);
     }
     if (!statKey.empty() && pct != 0) {
-      skillPercentMods.push_back(
-          {statKey, pct, Combat::StatKeyMapping::isTotalsPercentKey(statKey)});
+      const bool ccResistStat = (statKey == "stun_resist" || statKey == "silence_resist" ||
+                                 statKey == "root_resist" || statKey == "slow_resist");
+      if (ccResistStat) {
+        Combat::StatKeyMapping::applyFlatToTotals(statKey, pct, t);
+      } else {
+        skillPercentMods.push_back(
+            {statKey, pct, Combat::StatKeyMapping::isTotalsPercentKey(statKey)});
+      }
     }
   };
 
@@ -540,6 +568,14 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
   stats.doubleAttackRate = static_cast<int32_t>(t["double_attack_rate"]);
   stats.doubleAttackResistance = static_cast<int32_t>(t["double_attack_resistance"]);
   stats.movementSpeed = static_cast<int32_t>(std::max<int64_t>(50, 100 + t["movement"]));
+  stats.stunResist = static_cast<int32_t>(std::clamp<int64_t>(t["stun_resist"], 0, 100));
+  stats.silenceResist = static_cast<int32_t>(std::clamp<int64_t>(t["silence_resist"], 0, 100));
+  stats.rootResist = static_cast<int32_t>(std::clamp<int64_t>(t["root_resist"], 0, 100));
+  stats.slowResist = static_cast<int32_t>(std::clamp<int64_t>(t["slow_resist"], 0, 100));
+  stats.stunChance = static_cast<int32_t>(std::clamp<int64_t>(t["stun_chance"], 0, 100));
+  stats.silenceChance = static_cast<int32_t>(std::clamp<int64_t>(t["silence_chance"], 0, 100));
+  stats.rootChance = static_cast<int32_t>(std::clamp<int64_t>(t["root_chance"], 0, 100));
+  stats.slowChance = static_cast<int32_t>(std::clamp<int64_t>(t["slow_chance"], 0, 100));
 
   for (const auto& pm : skillPercentMods) {
     if (!pm.applyToTotals) {
@@ -597,6 +633,10 @@ Combat::CharacterState CharacterStateLoader::makeNpcDefenderState(const NpcRunti
   stats.criticalResistance = inst.criticalResistance;
   stats.dodge = inst.dodge;
   stats.doubleAttackResistance = inst.doubleAttackResistance;
+  stats.stunResist = inst.stunResist;
+  stats.silenceResist = inst.silenceResist;
+  stats.rootResist = inst.rootResist;
+  stats.slowResist = inst.slowResist;
   s.baseStats = stats;
   s.buffedStats = stats;
   return s;

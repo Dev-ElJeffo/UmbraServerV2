@@ -162,6 +162,14 @@ function npcVendorCalcSellUnitPrice(int $item_value, int $sell_rate_percent): in
  */
 function npcVendorFormatStockRow(array $stockRow, array $templateRow): array
 {
+    $stats = [];
+    if (!empty($templateRow['stats_json'])) {
+        $decoded = json_decode($templateRow['stats_json'], true);
+        $stats = is_array($decoded) ? $decoded : [];
+    } elseif (!empty($templateRow['stats']) && is_array($templateRow['stats'])) {
+        $stats = $templateRow['stats'];
+    }
+
     return [
         'stock_id' => (int)$stockRow['stock_id'],
         'item_template_id' => (int)$stockRow['item_template_id'],
@@ -170,12 +178,22 @@ function npcVendorFormatStockRow(array $stockRow, array $templateRow): array
         'icon_path' => $templateRow['icon_path'] ?? '',
         'item_type' => $templateRow['item_type'] ?? '',
         'item_subtype' => $templateRow['item_subtype'] ?? '',
-        'rarity' => (int)($templateRow['rarity'] ?? 0),
+        'equipment_slot' => $templateRow['equipment_slot'] ?? 'none',
+        'required_level' => (int)($templateRow['required_level'] ?? 0),
+        'rarity' => isset($templateRow['rarity']) && $templateRow['rarity'] !== '' && $templateRow['rarity'] !== null
+            ? (is_numeric($templateRow['rarity'])
+                ? (int)$templateRow['rarity']
+                : strtolower(trim((string)$templateRow['rarity'])))
+            : 'common',
         'max_stack_size' => (int)($templateRow['max_stack_size'] ?? 1),
         'buy_price_gold' => (int)$stockRow['buy_price_gold'],
         'stock_qty' => (int)$stockRow['stock_qty'],
         'max_buy_per_tx' => (int)$stockRow['max_buy_per_tx'],
         'sort_order' => (int)$stockRow['sort_order'],
         'value' => (int)($templateRow['value'] ?? 0),
+        'weight' => isset($templateRow['weight']) ? (float)$templateRow['weight'] : 0.0,
+        'can_be_refined' => ((int)($templateRow['can_be_refined'] ?? 0)) === 1,
+        'tradeable' => !isset($templateRow['tradeable']) ? true : (((int)$templateRow['tradeable']) === 1),
+        'stats' => $stats,
     ];
 }

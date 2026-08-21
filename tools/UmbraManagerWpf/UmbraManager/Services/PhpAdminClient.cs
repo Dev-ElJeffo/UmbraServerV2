@@ -222,6 +222,16 @@ public sealed class PhpAdminClient
         return await PostAsync("/admin/upsert_exp_zone.php", dict, ct);
     }
 
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> GetEnchantConfigAsync(CancellationToken ct = default) =>
+        await PostAsync("/admin/get_enchant_config.php", new { admin_username = _adminUsername }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpsertEnchantConfigAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/upsert_enchant_config.php", dict, ct);
+    }
+
     public async Task<(bool Ok, string Error, JsonDocument? Data)> GetRefinementConfigAsync(CancellationToken ct = default) =>
         await PostAsync("/admin/get_refinement_config.php", new { admin_username = _adminUsername }, ct);
 
@@ -402,10 +412,17 @@ public sealed class PhpAdminClient
 
             if (text[0] == '<')
             {
-                return (false,
-                    $"API PHP retornou HTML em vez de JSON ({url}). " +
-                    "Verifique se o WAMP/Apache está ativo e se os arquivos em www/umbra_api estão atualizados.",
-                    null);
+                var jsonStart = text.IndexOf('{');
+                if (jsonStart >= 0)
+                    text = text[jsonStart..];
+                else
+                {
+                    var snippet = text.Length > 180 ? text[..180] : text;
+                    snippet = snippet.Replace('\n', ' ').Replace('\r', ' ');
+                    return (false,
+                        $"API PHP retornou HTML em vez de JSON ({url}). Trecho: {snippet}",
+                        null);
+                }
             }
 
             JsonDocument doc;

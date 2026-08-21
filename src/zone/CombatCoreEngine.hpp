@@ -90,6 +90,7 @@ struct NpcBuffInstance {
   std::string targetStat;
   std::string skillName;
   std::string iconPath;
+  std::string effectTypeStr;
 };
 
 class CombatCoreEngine {

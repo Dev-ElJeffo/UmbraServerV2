@@ -51,3 +51,49 @@ function assertPlayerBelongsToAccount(PDO $pdo, int $player_id, int $account_id)
     $stmt->execute([$player_id, $account_id]);
     return (bool) $stmt->fetch();
 }
+
+/**
+ * Decodifica campos de template/instância para tooltips de listing (shop/auction).
+ * Espera colunas: stats_json, refinement_bonus_stats, enchantments_json (+ metadados).
+ */
+function enrichListedInventoryItemRow(array &$row): void
+{
+    if (!empty($row['stats_json'])) {
+        $decoded = json_decode($row['stats_json'], true);
+        $row['stats'] = is_array($decoded) ? $decoded : [];
+    } else {
+        $row['stats'] = [];
+    }
+    unset($row['stats_json']);
+
+    if (!empty($row['refinement_bonus_stats']) && is_string($row['refinement_bonus_stats'])) {
+        $decodedBonus = json_decode($row['refinement_bonus_stats'], true);
+        $row['refinement_bonus_stats'] = is_array($decodedBonus) ? $decodedBonus : [];
+    } elseif (empty($row['refinement_bonus_stats']) || !is_array($row['refinement_bonus_stats'])) {
+        $row['refinement_bonus_stats'] = [];
+    }
+
+    if (function_exists('enchant_parse_list')) {
+        $row['enchantments'] = enchant_parse_list($row['enchantments_json'] ?? null);
+    } else {
+        $row['enchantments'] = [];
+    }
+    unset($row['enchantments_json']);
+
+    $row['can_be_refined'] = ((int)($row['can_be_refined'] ?? 0)) === 1;
+    $row['tradeable'] = !isset($row['tradeable']) ? true : (((int)$row['tradeable']) === 1);
+    $row['refinement_level'] = (int)($row['refinement_level'] ?? 0);
+    $row['durability'] = isset($row['durability']) ? (float)$row['durability'] : 100.0;
+    $row['required_level'] = (int)($row['required_level'] ?? 0);
+    $row['max_stack_size'] = (int)($row['max_stack_size'] ?? 1);
+    $row['value'] = (int)($row['value'] ?? 0);
+    $row['weight'] = isset($row['weight']) ? (float)$row['weight'] : 0.0;
+    // rarity no schema é string (common/uncommon/rare/epic/legendary) — não castar para int
+    if (!isset($row['rarity']) || $row['rarity'] === '' || $row['rarity'] === null) {
+        $row['rarity'] = 'common';
+    } else {
+        $row['rarity'] = is_numeric($row['rarity'])
+            ? (int)$row['rarity']
+            : strtolower(trim((string)$row['rarity']));
+    }
+}

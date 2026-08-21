@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace UmbraManager.Models;
 
 public sealed class SkillRow
@@ -62,7 +64,132 @@ public sealed class SkillRankScalingRow
     public int ResourceCostBonus { get; set; }
     public int CooldownReductionMs { get; set; }
     public int DurationBonusMs { get; set; }
+    public int StunResistBonus { get; set; }
+    public int SilenceResistBonus { get; set; }
+    public int RootResistBonus { get; set; }
+    public int SlowResistBonus { get; set; }
     public string ExtraEffectsJson { get; set; } = "[]";
+
+    public void PullResistFromExtraJson()
+    {
+        StunResistBonus = 0;
+        SilenceResistBonus = 0;
+        RootResistBonus = 0;
+        SlowResistBonus = 0;
+        if (!TryParseEffects(ExtraEffectsJson, out var arr)) return;
+        foreach (var el in arr.EnumerateArray())
+        {
+            if (el.ValueKind != JsonValueKind.Object) continue;
+            var type = GetString(el, "type");
+            if (!type.Equals("BUFF_STAT", StringComparison.OrdinalIgnoreCase)) continue;
+            var stat = GetString(el, "target_stat").ToLowerInvariant();
+            var pct = GetInt(el, "value_percent");
+            if (pct == 0) pct = GetInt(el, "value");
+            switch (stat)
+            {
+                case "stun_resist":
+                case "stunresist":
+                    StunResistBonus = pct;
+                    break;
+                case "silence_resist":
+                case "silenceresist":
+                    SilenceResistBonus = pct;
+                    break;
+                case "root_resist":
+                case "rootresist":
+                    RootResistBonus = pct;
+                    break;
+                case "slow_resist":
+                case "slowresist":
+                    SlowResistBonus = pct;
+                    break;
+            }
+        }
+    }
+
+    public void PushResistIntoExtraJson()
+    {
+        var kept = new List<Dictionary<string, object?>>();
+        if (!TryParseEffects(ExtraEffectsJson, out var arr))
+        {
+            return;
+        }
+        foreach (var el in arr.EnumerateArray())
+        {
+            if (el.ValueKind != JsonValueKind.Object) continue;
+            var type = GetString(el, "type");
+            var stat = GetString(el, "target_stat").ToLowerInvariant();
+            var isCcResist = type.Equals("BUFF_STAT", StringComparison.OrdinalIgnoreCase) &&
+                             (stat is "stun_resist" or "stunresist" or "silence_resist" or "silenceresist"
+                                 or "root_resist" or "rootresist" or "slow_resist" or "slowresist");
+            if (isCcResist) continue;
+            kept.Add(JsonElementToDict(el));
+        }
+
+        void AddResist(string stat, int pct)
+        {
+            if (pct == 0) return;
+            kept.Add(new Dictionary<string, object?>
+            {
+                ["type"] = "BUFF_STAT",
+                ["target_stat"] = stat,
+                ["value_percent"] = pct
+            });
+        }
+
+        AddResist("stun_resist", StunResistBonus);
+        AddResist("silence_resist", SilenceResistBonus);
+        AddResist("root_resist", RootResistBonus);
+        AddResist("slow_resist", SlowResistBonus);
+        ExtraEffectsJson = JsonSerializer.Serialize(kept);
+    }
+
+    private static bool TryParseEffects(string? json, out JsonElement arr)
+    {
+        arr = default;
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "[]" : json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return false;
+            arr = doc.RootElement.Clone();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string GetString(JsonElement el, string name)
+    {
+        if (!el.TryGetProperty(name, out var p)) return "";
+        return p.ValueKind == JsonValueKind.String ? p.GetString() ?? "" : p.ToString();
+    }
+
+    private static int GetInt(JsonElement el, string name)
+    {
+        if (!el.TryGetProperty(name, out var p)) return 0;
+        if (p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var n)) return n;
+        return int.TryParse(p.ToString(), out var parsed) ? parsed : 0;
+    }
+
+    private static Dictionary<string, object?> JsonElementToDict(JsonElement el)
+    {
+        var d = new Dictionary<string, object?>();
+        foreach (var p in el.EnumerateObject())
+        {
+            d[p.Name] = p.Value.ValueKind switch
+            {
+                JsonValueKind.Number when p.Value.TryGetInt32(out var i) => i,
+                JsonValueKind.Number => p.Value.GetDouble(),
+                JsonValueKind.String => p.Value.GetString(),
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                _ => JsonSerializer.Deserialize<object>(p.Value.GetRawText())
+            };
+        }
+        return d;
+    }
 }
 
 public sealed class SkillLookupOption

@@ -1,4 +1,5 @@
 #include "zone/LootService.hpp"
+#include "zone/EnchantRoll.hpp"
 #include "zone/MovementServer.hpp"
 #include "zone/PartyShare.hpp"
 #include "core/Logger.hpp"
@@ -342,10 +343,13 @@ int LootService::findFreeInventorySlot(uint32_t playerId) {
 bool LootService::grantItemToPlayer(uint32_t playerId, uint32_t itemTemplateId, uint32_t quantity) {
   if (!db_ || itemTemplateId == 0 || quantity == 0) return false;
   auto tpl = db_->executePreparedQuery(
-      "SELECT item_id, max_stack_size FROM item_templates WHERE item_id = ? LIMIT 1",
+      "SELECT item_id, max_stack_size, COALESCE(item_category,''), COALESCE(equipment_slot,''), "
+      "COALESCE(item_type,'') FROM item_templates WHERE item_id = ? LIMIT 1",
       {std::to_string(itemTemplateId)});
   if (tpl.empty() || tpl[0].size() < 2) return false;
   const uint32_t maxStack = std::max(1u, static_cast<uint32_t>(std::stoul(tpl[0][1])));
+  const bool isEquipment = tpl[0].size() >= 5 &&
+      EnchantRoll::isEquipmentTemplate(tpl[0][2], tpl[0][3], tpl[0][4]);
 
   // Prefer stack existing
   auto stacks = db_->executePreparedQuery(
@@ -380,6 +384,15 @@ bool LootService::grantItemToPlayer(uint32_t playerId, uint32_t itemTemplateId, 
             {std::to_string(playerId), std::to_string(itemTemplateId), std::to_string(chunk),
              std::to_string(slot)})) {
       return false;
+    }
+    if (isEquipment) {
+      const uint64_t invId = db_->getLastInsertId();
+      const std::string ench = EnchantRoll::rollSpawnJson(*db_);
+      if (invId > 0) {
+        db_->executePreparedInsert(
+            "UPDATE player_inventory SET enchantments_json = ? WHERE inventory_id = ?",
+            {ench.empty() ? "null" : ench, std::to_string(invId)});
+      }
     }
     remaining -= chunk;
   }

@@ -22,6 +22,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/stat_key_mapping.php';
+require_once __DIR__ . '/../../helpers/enchant_helper.php';
 
 // Obter dados da requisição (aceita GET ou POST)
 $json = file_get_contents('php://input');
@@ -60,6 +62,7 @@ try {
             pi.acquired_at,
             pi.refinement_level,
             pi.refinement_bonus_stats,
+            pi.enchantments_json,
             it.item_name,
             it.item_description,
             it.item_type,
@@ -105,6 +108,9 @@ try {
         } else {
             $item['refinement_bonus_stats'] = [];
         }
+
+        $item['enchantments'] = enchant_parse_list($item['enchantments_json'] ?? null);
+        unset($item['enchantments_json']);
         
         // Decodificar custom_properties
         if ($item['custom_properties']) {

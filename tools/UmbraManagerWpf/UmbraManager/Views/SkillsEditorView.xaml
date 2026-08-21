@@ -116,13 +116,17 @@
 
         <TextBlock Text="Rank scaling (2..max)" FontWeight="SemiBold" Margin="0,4,0,4"/>
         <DataGrid ItemsSource="{Binding SkillRankScalings}" AutoGenerateColumns="False" CanUserAddRows="False"
-                  Height="180" Margin="0,0,0,8">
+                  Height="200" Margin="0,0,0,8">
           <DataGrid.Columns>
             <DataGridTextColumn Header="Rank" Binding="{Binding Rank}" Width="50"/>
             <DataGridTextColumn Header="Power+" Binding="{Binding PowerCoefBonus}" Width="60"/>
             <DataGridTextColumn Header="Cost+" Binding="{Binding ResourceCostBonus}" Width="55"/>
             <DataGridTextColumn Header="CD-" Binding="{Binding CooldownReductionMs}" Width="55"/>
             <DataGridTextColumn Header="Dur+" Binding="{Binding DurationBonusMs}" Width="55"/>
+            <DataGridTextColumn Header="StunRes+" Binding="{Binding StunResistBonus}" Width="70"/>
+            <DataGridTextColumn Header="SilenceRes+" Binding="{Binding SilenceResistBonus}" Width="85"/>
+            <DataGridTextColumn Header="RootRes+" Binding="{Binding RootResistBonus}" Width="70"/>
+            <DataGridTextColumn Header="SlowRes+" Binding="{Binding SlowResistBonus}" Width="70"/>
             <DataGridTextColumn Header="extra_effects_json" Binding="{Binding ExtraEffectsJson}" Width="*"/>
             <DataGridTemplateColumn Header="" Width="120">
               <DataGridTemplateColumn.CellTemplate>

@@ -156,6 +156,7 @@ try {
             'description' => $skill['description'],
             'tooltip_template' => $skill['tooltip_template'],
             'effects' => $eff['effects'],
+            'effects_json' => json_encode($eff['effects'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             'has_rank_scaling' => $eff['has_scaling_row'],
 
             'can_upgrade' => $currentRank < (int)$skill['max_rank'] &&

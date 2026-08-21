@@ -89,10 +89,24 @@ try {
             pi.quantity,
             pi.item_template_id,
             pi.slot_index AS inv_slot_index,
+            pi.durability,
+            pi.refinement_level,
+            pi.refinement_bonus_stats,
+            pi.enchantments_json,
             it.item_name,
+            it.item_description,
             it.icon_path,
             it.item_type,
-            it.rarity
+            it.item_subtype,
+            it.equipment_slot,
+            it.required_level,
+            it.max_stack_size,
+            it.stats_json,
+            it.rarity,
+            it.value,
+            it.weight,
+            it.can_be_refined,
+            it.tradeable
         FROM personal_shop_listings psl
         INNER JOIN player_inventory pi ON psl.inventory_id = pi.inventory_id
         INNER JOIN item_templates it ON pi.item_template_id = it.item_id
@@ -101,6 +115,10 @@ try {
     ");
     $lq->execute([$sid]);
     $listings = $lq->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($listings as &$listingRow) {
+        enrichListedInventoryItemRow($listingRow);
+    }
+    unset($listingRow);
 
     http_response_code(200);
     echo json_encode([

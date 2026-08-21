@@ -221,7 +221,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ["weapon"]     = new[] { "sword", "dagger", "axe", "mace", "hammer", "bow", "crossbow", "staff", "wand", "polearm", "spear", "shield", "fist" },
         ["armor"]      = new[] { "helmet", "chest", "legs", "boots", "gloves", "cloak", "belt", "ring", "amulet", "earring", "bracelet" },
         ["consumable"] = new[] { "potion", "elixir", "scroll", "food", "drink", "bandage", "stone" },
-        ["material"]   = new[] { "metal", "cloth", "leather", "wood", "gem", "ore", "herb", "essence", "shard", "dust" },
+        ["material"]   = new[] { "metal", "cloth", "leather", "wood", "gem", "ore", "herb", "essence", "shard", "dust", "enchant_crystal", "enchant_extractor" },
         ["quest"]      = new[] { "key", "document", "token", "relic" },
         ["misc"]       = new[] { "misc", "currency", "tool", "lockpick", "container" }
     };
@@ -395,6 +395,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         await RefreshNpcInstancesAsync();
         await RefreshExpZonesAsync();
         await RefreshRefinementConfigsAsync();
+        await RefreshEnchantConfigAsync();
         await RefreshGameRatesAsync();
         await RefreshProjectStateAsync();
     }
