@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <random>
 #include <string>
 #include <unordered_set>
@@ -24,12 +25,26 @@ class EnchantRoll {
     return type == "weapon" || type == "armor";
   }
 
-  static std::string rollSpawnJson(Database::MySQLConnector& db) {
+  static bool isAccessorySlot(const std::string& equipmentSlot) {
+    const std::string slot = toLower(equipmentSlot);
+    return slot == "ring" || slot == "amulet" || slot == "necklace" || slot == "earring" ||
+           slot == "bracelet";
+  }
+
+  static bool isCcStatKey(const std::string& key) {
+    const std::string k = toLower(key);
+    return k == "stun_chance" || k == "silence_chance" || k == "root_chance" || k == "slow_chance" ||
+           k == "stun_resist" || k == "silence_resist" || k == "root_resist" || k == "slow_resist";
+  }
+
+  /** equipmentSlot: se não for acessório, afixos de CC são excluídos do pool. */
+  static std::string rollSpawnJson(Database::MySQLConnector& db, const std::string& equipmentSlot = "") {
+    const bool allowCc = isAccessorySlot(equipmentSlot);
     const int n = pickWeighted(loadSlotWeights(db));
     nlohmann::json arr = nlohmann::json::array();
     std::unordered_set<std::string> used;
     for (int slot = 0; slot < n; ++slot) {
-      nlohmann::json affix = rollOneAffix(db, used);
+      nlohmann::json affix = rollOneAffix(db, used, allowCc);
       if (affix.is_null()) break;
       used.insert(affix.value("stat_key", std::string{}));
       affix["slot"] = slot;
@@ -79,7 +94,8 @@ class EnchantRoll {
   }
 
   static nlohmann::json rollOneAffix(Database::MySQLConnector& db,
-                                     const std::unordered_set<std::string>& exclude) {
+                                     const std::unordered_set<std::string>& exclude,
+                                     bool allowCcStats) {
     struct Row {
       std::string key;
       int weight = 0;
@@ -95,6 +111,7 @@ class EnchantRoll {
       Row row;
       row.key = r[0];
       if (row.key.empty() || exclude.count(row.key)) continue;
+      if (!allowCcStats && isCcStatKey(row.key)) continue;
       row.weight = std::stoi(r[1]);
       row.vmin = std::stoi(r[2]);
       row.vmax = std::stoi(r[3]);

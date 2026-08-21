@@ -367,7 +367,8 @@ Só se precisar pré-preencher o alvo em um fluxo especial (NPC, debug). Pino **
 | Escolher peça | Drag da bag → `InventorySlot_TargetItem` | Enum MainHand / só arma |
 | Cristal | Drag → `InventorySlot_Crystal` | Pré-set no Graph |
 
-No PIE: clique o botão do HUD → inventário aberto → arraste peito **ou** anel **ou** arma → ícone no slot esquerdo → cristal no direito → Aplicar.
+No PIE: clique o botão do HUD → inventário aberto → arraste peito **ou** anel **ou** arma → ícone no slot esquerdo → cristal no direito → Aplicar.  
+**Exceção:** cristais de chance/resist CC só em acessórios (anel, amuleto, colar, brinco, bracelete).
 
 ---
 
@@ -462,7 +463,8 @@ O C++ cria o `WBP_CcChances`, preenche e **ancora ao lado** do Character Info (d
 - JSON da instância: `enchantments_json` → `[{"slot":0,"stat_key":"strength","value":8}]` — o `"slot":0` é o **buraco de afixo**, o mesmo do `Enchant_Slot0`.  
 - APIs: `POST /api/inventory/enchant_apply.php`, `enchant_remove.php`  
 - UmbraManager: aba Encantamentos (pesos 0/1/2/3 slots = **quantos buracos** o drop pode nascer, não o slot do corpo).  
-- Combate: Zone soma afixos; CC = chance da skill + chance do caster − max(0, resist − pen).
+- Combate: Zone soma afixos; CC = `clamp(skill.chance_percent + caster_*_chance − max(0, resist − pen), 0, 100)`.
+- **Cristais de CC** (`stun/silence/root/slow_chance` e `*_resist`): só em **acessórios** (`ring`, `amulet`, `necklace`, `earring`, `bracelet`). Armas/armaduras rejeitam apply e não sorteiam esses afixos no spawn/loot.
 
 ---
 
@@ -477,6 +479,7 @@ O C++ cria o `WBP_CcChances`, preenche e **ancora ao lado** do Character Info (d
 | Linhas sempre “Slot N: vazio” mesmo com encanto no tooltip | Nomes `Enchant_Slot0` diferentes no Designer | F2 no Hierarchy; Compile |
 | Remover a linha 1 apaga o afixo da linha 2 | Slot Index 1 no botão da linha 0 | BTN_Remove0 → índice **0** |
 | Create Widget aparece em branco | Class = classe C++ | Class = asset `WBP_ItemEnchant` |
+| Apply CC em peito/arma | Afixo é chance/resist de CC | Use anel/amulet/colar/brinco/bracelete; PHP/UI bloqueiam o resto |
 | Cristal não achado / apply recusa | Não soltou no `InventorySlot_Crystal` ou subtype errado | Arraste o cristal até o quadrado **Cristal**; o ícone tem que aparecer |
 | `CrystalSlot=NULL` no log | Nome do widget ≠ `InventorySlot_Crystal` | F2 no Hierarchy; Is Variable; Compile |
 | Ícone do cristal não fica no slot | Parent errado ou Graph também trata OnDrop | Graph vazio; Compile C++ novo |

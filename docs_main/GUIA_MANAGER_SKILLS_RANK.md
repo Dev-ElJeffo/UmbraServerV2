@@ -25,7 +25,11 @@ Seed de QA (`BARB_RUIN_STRIKE`): **rank 1 = STUN 2000 ms** (teste imediato), ran
 6. **Recarregar no Zone** (comando admin TCP `reload_skills` em cada zone autenticada).
 7. No jogo: subir `player_skills.current_rank` e testar cast.
 
-Fórmula do CC: `chance = chance_percent - max(0, resist_alvo - resist_penetration)` (clamp 0–100), depois um `rand() % 100`.
+Fórmula do CC no combate: `chance = clamp(chance_percent + caster_cc_chance − max(0, resist_alvo − resist_penetration), 0, 100)`, depois `rand() % 100`.
+
+- `chance_percent` — efeito da skill (JSON)
+- `caster_cc_chance` — `stun_chance` / `silence_chance` / … do caster (cristais/afixos em **acessórios**)
+- Painel CcChances no cliente mostra **só** o bônus do personagem, não skill + bônus.
 
 Ícones de CC no mundo: [GUIA_BP_CC_NAMEPLATE_UE561.md](GUIA_BP_CC_NAMEPLATE_UE561.md).
 

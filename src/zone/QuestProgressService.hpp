@@ -28,6 +28,7 @@ public:
 private:
   void creditKillForPlayer(uint32_t playerId, uint32_t npcInstanceId, uint32_t npcTemplateId);
   void promoteReadyQuests(uint32_t playerId);
+  void notifyQuestProgress(uint32_t playerId, uint32_t questId, uint8_t status, uint8_t flags);
 
   std::shared_ptr<Database::MySQLConnector> db_;
   uint32_t zoneId_ = 0;

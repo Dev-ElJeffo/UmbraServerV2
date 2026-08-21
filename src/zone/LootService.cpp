@@ -387,7 +387,7 @@ bool LootService::grantItemToPlayer(uint32_t playerId, uint32_t itemTemplateId, 
     }
     if (isEquipment) {
       const uint64_t invId = db_->getLastInsertId();
-      const std::string ench = EnchantRoll::rollSpawnJson(*db_);
+      const std::string ench = EnchantRoll::rollSpawnJson(*db_, tpl[0][3]);
       if (invId > 0) {
         db_->executePreparedInsert(
             "UPDATE player_inventory SET enchantments_json = ? WHERE inventory_id = ?",

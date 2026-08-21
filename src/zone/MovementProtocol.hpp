@@ -103,6 +103,7 @@ enum class MovementMsgType : uint8_t {
   LootTakeItem = 113,                  // Cliente -> Servidor: loot slot selecionado
   LootTakeAll = 114,                   // Cliente -> Servidor: loot all
   LootWindowUpdate = 115,              // Servidor -> Cliente: slots restantes + gold opcional
+  QuestProgressNotify = 116,           // Servidor -> Cliente: progresso/ready de quest (kill)
   WsKeepalive = 250                      // Servidor -> Cliente: heartbeat (1 byte); cliente ignora
 };
 
@@ -152,6 +153,14 @@ struct LootWindowUpdatePayload {
   int64_t playerGold = -1;  // <0 = não atualizar; >=0 = novo saldo
   uint8_t inventoryChanged = 0;
   std::vector<LootSlotPayload> slots;  // slots ainda não taken
+};
+
+/** Opcode 116: progresso de quest (kill) — status 1=active, 2=ready; flags bit0=progress, bit1=became_ready */
+struct QuestProgressNotifyPayload {
+  uint32_t playerId = 0;
+  uint32_t questId = 0;
+  uint8_t status = 1;
+  uint8_t flags = 0;
 };
 
 /** Motivo de revogacao de sessao WS (opcode 110) */
@@ -2826,6 +2835,37 @@ inline bool decodeLootWindowUpdate(const std::vector<uint8_t>& data, LootWindowU
   p.playerGold = static_cast<int64_t>(readLootU64(data, off));
   p.inventoryChanged = data[off++];
   return readLootSlots(data, off, p.slots);
+}
+
+inline std::vector<uint8_t> encodeQuestProgressNotify(const QuestProgressNotifyPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(11);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::QuestProgressNotify));
+  auto writeU32 = [&data](uint32_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  writeU32(p.playerId);
+  writeU32(p.questId);
+  data.push_back(p.status);
+  data.push_back(p.flags);
+  return data;
+}
+
+inline bool decodeQuestProgressNotify(const std::vector<uint8_t>& data, QuestProgressNotifyPayload& p) {
+  if (data.size() < 11 ||
+      static_cast<MovementMsgType>(data[0]) != MovementMsgType::QuestProgressNotify) {
+    return false;
+  }
+  p.playerId = static_cast<uint32_t>(data[1]) | (static_cast<uint32_t>(data[2]) << 8) |
+               (static_cast<uint32_t>(data[3]) << 16) | (static_cast<uint32_t>(data[4]) << 24);
+  p.questId = static_cast<uint32_t>(data[5]) | (static_cast<uint32_t>(data[6]) << 8) |
+              (static_cast<uint32_t>(data[7]) << 16) | (static_cast<uint32_t>(data[8]) << 24);
+  p.status = data[9];
+  p.flags = data[10];
+  return true;
 }
 
 } // namespace Zone

@@ -21,11 +21,12 @@ Este guia cobre **backend + implementação completa dos Blueprints**, com **cla
 11. [WBP_QuestHudTracker](#11-wbp_questhudtracker)
 12. [WBP_PlayerHUD — composição](#12-wbp_playerhud--composição)
 13. [Integração WBP_NpcDialog](#13-integração-wbp_npcdialog)
-14. [Regras do Event Graph](#14-regras-do-event-graph)
-15. [Fluxo no jogo](#15-fluxo-no-jogo)
-16. [Testes PIE](#16-testes-pie)
-17. [Troubleshooting](#17-troubleshooting)
-18. [Referências](#18-referências)
+14. [Marcadores overhead nos NPCs](#14-marcadores-overhead-nos-npcs)
+15. [Regras do Event Graph](#15-regras-do-event-graph)
+16. [Fluxo no jogo](#16-fluxo-no-jogo)
+17. [Testes PIE](#17-testes-pie)
+18. [Troubleshooting](#18-troubleshooting)
+19. [Referências](#19-referências)
 
 ---
 
@@ -74,7 +75,8 @@ Pasta: `www/umbra_api/api/quest/`
 |----------|--------|
 | `get_npc_quest_offers.php` | Lista quests do NPC + status |
 | `get_quest_detail.php` | Detalhe, objetivos, progresso |
-| `get_quest_journal.php` | Journal (ativas + concluídas) |
+| `get_quest_journal.php` | Journal (ativas + concluídas) + array `markers` |
+| `get_quest_npc_markers.php` | Marcadores overhead por `npc_template_id` (spawn / fallback) |
 | `accept_quest.php` | Aceitar quest |
 | `abandon_quest.php` | Abandonar |
 | `report_quest_progress.php` | `reach_area` / `use_item_at` |
@@ -548,7 +550,59 @@ Se `Btn_Quest` tiver **OnClicked** no Blueprint **e** bind C++, ambos podem disp
 
 ---
 
-## 14. Regras do Event Graph
+## 14. Marcadores overhead nos NPCs
+
+Indicadores acima do nome no `UmbraNpcOverheadWidget` via **`UImage` + texturas** (não mais texto `?`/`!`).
+
+Prioridade se o NPC tiver várias quests: **Ready > Available > Active**.
+
+| Estado | Textura | Tint (se arte monocromática) | Origem |
+|--------|---------|------------------------------|--------|
+| Disponível | `T_QuestMarker_Available` | Amarelo `(1, 0.9, 0.2)` | Ofertas do `npc_template_id` |
+| Aceita / em andamento | `T_QuestMarker_Active` | Cinza `(0.65, 0.65, 0.65)` | Ofertas do `npc_template_id` |
+| Pronto para entregar | `T_QuestMarker_Ready` | Laranja `(1, 0.55, 0.1)` | `turn_in_npc_template_id` das quests `ready` |
+| Sem oferta relevante | oculto | — | — |
+
+Paths: `Content/Widgets/UI/Status/T_QuestMarker_*.png` → importar no Editor como Texture2D. No GI (Class Defaults): `QuestMarkerTextureAvailable/Active/Ready` (opcional; fallback LoadObject).
+
+### Push TCP — opcode 116 `QuestProgressNotify`
+
+| Offset | Campo | Notas |
+|--------|--------|------|
+| 0 | `msgType` | **116** |
+| 1–4 | `playerId` | uint32 LE |
+| 5–8 | `questId` | uint32 LE |
+| 9 | `status` | `1=active`, `2=ready` |
+| 10 | `flags` | bit0=progress, bit1=became_ready |
+
+Enviado pela zone (`QuestProgressService`) após crédito de kill. Cliente → `RequestQuestJournalRefresh()` (debounce 0,35s).
+
+### Fluxo
+
+```mermaid
+sequenceDiagram
+  participant Zone as QuestProgressService
+  participant UE as UmbraGameInstance
+  participant PHP as get_quest_journal
+  participant OH as NpcOverhead
+
+  Zone->>UE: TCP 116
+  UE->>PHP: LoadQuestJournal debounced
+  PHP-->>UE: journal + markers
+  UE->>OH: SetQuestMarker textures
+```
+
+1. Spawn (`0x04` / `bHasQuestDialog`) = capacidade; status por jogador vem do HTTP.
+2. `get_quest_journal.php` devolve `markers` no mesmo payload (HUD + overhead juntos).
+3. `get_quest_npc_markers.php` só no primeiro spawn se o cache ainda estiver vazio.
+4. Collect/deliver: `OnLoadInventoryRequestComplete` agenda refresh se houver objetivos incompletos.
+5. Despawn `101` = fallback debounced (não é o único gatilho).
+
+Helper PHP: `questGetNpcMarkersForPlayer` em `quest_helper.php`.
+
+---
+
+## 15. Regras do Event Graph
 
 | Widget | Pode ficar vazio? | Exceção |
 |--------|-------------------|---------|
@@ -568,7 +622,7 @@ Se `Btn_Quest` tiver **OnClicked** no Blueprint **e** bind C++, ambos podem disp
 
 ---
 
-## 15. Fluxo no jogo
+## 16. Fluxo no jogo
 
 ```mermaid
 sequenceDiagram
@@ -601,23 +655,25 @@ sequenceDiagram
 
 ---
 
-## 16. Testes PIE
+## 17. Testes PIE
 
 | # | Teste | Resultado esperado |
 |---|-------|-------------------|
 | 1 | Interagir com `npc_merchant_01` | Abre **somente** `WBP_NpcDialog` (sem flash de quest) |
 | 2 | Clicar **Quest** no diálogo | Abre `WBP_QuestInteraction` com **somente a lista** de quests |
 | 3 | Clicar numa quest na lista | Aparece detalhe (body, objetivos, recompensas) + botão conforme status |
-| 2 | Aceitar missão de kill | Aparece no HUD (`Quests: 1`) e no journal (J) |
-| 3 | Matar `dummy_treino` ×3 | Objetivo kill completa; status **ready** |
-| 4 | Turn-in no mercador | Gold + EXP; inventário atualiza |
-| 5 | Quest do santuário (escolha) | Picker com 2 opções; só uma concedida |
-| 6 | HUD minimizar | `Panel_Expanded` some; `Text_MinimizedSummary` visível |
-| 7 | Abandonar no journal | Quest some da lista ativa |
+| 4 | Aceitar missão de kill | Aparece no HUD (`Quests: 1`) e no journal (J); `?` cinza no offer NPC |
+| 5 | Matar `dummy_treino` ×3 | Opcode **116** + journal; status **ready**; textura Ready no turn-in |
+| 6 | Turn-in no mercador | Gold + EXP; inventário atualiza; marcador some ou muda |
+| 7 | Quest do santuário (escolha) | Picker com 2 opções; só uma concedida |
+| 8 | HUD minimizar | `Panel_Expanded` some; `Text_MinimizedSummary` visível |
+| 9 | Abandonar no journal | Quest some da lista ativa |
+| 10 | NPC com oferta disponível | Overhead com textura Available (amarelo) |
+| 11 | Importar PNGs Status | `T_QuestMarker_*` em Content/Widgets/UI/Status como Texture2D |
 
 ---
 
-## 17. Troubleshooting
+## 18. Troubleshooting
 
 | Sintoma | Causa provável | Correção |
 |---------|----------------|----------|
@@ -633,10 +689,11 @@ sequenceDiagram
 | Textos sobrepostos no journal | Fill em vários TextBlocks no mesmo painel | §9.4 — Scroll + slot Auto; adicionar `VBox_Rewards` |
 | Recompensa mostra `Item #id` | API sem `item_name` ou GI sem DataTable de ícones | SQL com JOIN; `ItemIconsDataTable` no GI |
 | Picker confirma sem escolher | Sem clique na opção | §10 — clicar ícone/linha antes de confirmar |
+| Sem `?`/`!` / textura no overhead | PNG não importado ou cache vazio | Importar `T_QuestMarker_*`; aceitar/atualizar journal; opcode 116 + flag `0x04` |
 
 ---
 
-## 18. Referências
+## 19. Referências
 
 | Tópico | Guia |
 |--------|------|
@@ -656,4 +713,6 @@ sequenceDiagram
 | `UUmbraQuestRewardPickerWidget` | `UI/UmbraQuestRewardPickerWidget.h` |
 | `UUmbraQuestRewardChoiceEntryWidget` | `UI/UmbraQuestRewardChoiceEntryWidget.h` |
 | `UUmbraQuestAreaTrackerComponent` | `Components/UmbraQuestAreaTrackerComponent.h` |
-| `UUmbraGameInstance` (HTTP quests) | `Core/UmbraGameInstance.h` |
+| `UUmbraNpcOverheadWidget` (marcadores textura) | `UI/UmbraNpcOverheadWidget.h` |
+| `UUmbraGameInstance` (HTTP quests + TCP 116) | `Core/UmbraGameInstance.h` |
+| Zone `QuestProgressNotify` | `src/zone/MovementProtocol.hpp` (opcode 116) |

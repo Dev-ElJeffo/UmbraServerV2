@@ -55,6 +55,47 @@ function enchant_is_equipment(?array $template): bool
     return in_array($type, ['weapon', 'armor'], true) && $slot !== 'none' && $slot !== '';
 }
 
+/** Chance/resist de CC (stun/silence/root/slow). */
+function enchant_is_cc_stat_key(string $stat_key): bool
+{
+    $key = function_exists('map_target_stat_to_canonical')
+        ? map_target_stat_to_canonical($stat_key)
+        : strtolower(trim($stat_key));
+    return in_array($key, [
+        'stun_chance', 'silence_chance', 'root_chance', 'slow_chance',
+        'stun_resist', 'silence_resist', 'root_resist', 'slow_resist',
+    ], true);
+}
+
+function enchant_is_accessory_slot(string $slot): bool
+{
+    $s = strtolower(trim($slot));
+    return in_array($s, ['ring', 'amulet', 'necklace', 'earring', 'bracelet'], true);
+}
+
+function enchant_template_is_accessory(?array $template): bool
+{
+    if (!$template) {
+        return false;
+    }
+    return enchant_is_accessory_slot((string)($template['equipment_slot'] ?? ''));
+}
+
+/**
+ * Valida se o afixo CC pode ir no equipamento alvo.
+ * @return string|null mensagem de erro ou null se ok
+ */
+function enchant_validate_cc_affix_on_equipment(string $stat_key, ?array $equipmentTemplate): ?string
+{
+    if (!enchant_is_cc_stat_key($stat_key)) {
+        return null;
+    }
+    if (enchant_template_is_accessory($equipmentTemplate)) {
+        return null;
+    }
+    return 'Cristais de CC (chance/resistência) só podem ser aplicados em acessórios.';
+}
+
 function enchant_parse_list($raw): array
 {
     if (is_array($raw)) {
@@ -242,7 +283,7 @@ function enchant_affix_for_stat_key(PDO $pdo, string $stat_key, array $excludeKe
     ];
 }
 
-function enchant_roll_one_affix(PDO $pdo, array $excludeKeys): ?array
+function enchant_roll_one_affix(PDO $pdo, array $excludeKeys, bool $allowCcStats = true): ?array
 {
     $rows = enchant_load_stat_rows($pdo);
     $weights = [];
@@ -250,6 +291,9 @@ function enchant_roll_one_affix(PDO $pdo, array $excludeKeys): ?array
     foreach ($rows as $r) {
         $key = map_target_stat_to_canonical((string)$r['stat_key']);
         if ($key === '' || in_array($key, $excludeKeys, true)) {
+            continue;
+        }
+        if (!$allowCcStats && enchant_is_cc_stat_key($key)) {
             continue;
         }
         $weights[$key] = (int)$r['weight'];
@@ -274,14 +318,14 @@ function enchant_roll_one_affix(PDO $pdo, array $excludeKeys): ?array
     ];
 }
 
-function enchant_roll_spawn_list(PDO $pdo): array
+function enchant_roll_spawn_list(PDO $pdo, bool $allowCcStats = true): array
 {
     $n = (int)enchant_weighted_pick(enchant_load_slot_weights($pdo));
     $n = max(0, min(ENCHANT_MAX_SLOTS, $n));
     $list = [];
     $used = [];
     for ($slot = 0; $slot < $n; $slot++) {
-        $affix = enchant_roll_one_affix($pdo, $used);
+        $affix = enchant_roll_one_affix($pdo, $used, $allowCcStats);
         if ($affix === null) {
             break;
         }
@@ -315,7 +359,8 @@ function enchant_apply_roll_to_inventory_id(PDO $pdo, int $inventory_id, ?array 
     if (!enchant_is_equipment($template)) {
         return;
     }
-    $json = enchant_encode_list(enchant_roll_spawn_list($pdo));
+    $allowCc = enchant_template_is_accessory($template);
+    $json = enchant_encode_list(enchant_roll_spawn_list($pdo, $allowCc));
     $upd = $pdo->prepare('UPDATE player_inventory SET enchantments_json = :json WHERE inventory_id = :id');
     $upd->execute(['json' => $json, 'id' => $inventory_id]);
 }

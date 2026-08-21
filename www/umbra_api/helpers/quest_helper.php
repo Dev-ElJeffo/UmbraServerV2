@@ -1055,3 +1055,92 @@ function questCountOffersForNpc(PDO $pdo, int $npc_template_id): int
     $stmt->execute([$npc_template_id]);
     return (int)$stmt->fetchColumn();
 }
+
+/**
+ * Melhor marcador overhead por npc_template_id para o jogador.
+ * Prioridade: ready > available > active.
+ *
+ * @return list<array{npc_template_id:int,marker:string}>
+ */
+function questGetNpcMarkersForPlayer(PDO $pdo, int $player_id): array
+{
+    $rank = ['ready' => 3, 'available' => 2, 'active' => 1];
+    /** @var array<int,string> $best */
+    $best = [];
+
+    $setBest = static function (int $templateId, string $marker) use (&$best, $rank): void {
+        if ($templateId <= 0 || !isset($rank[$marker])) {
+            return;
+        }
+        if (!isset($best[$templateId]) || $rank[$marker] > $rank[$best[$templateId]]) {
+            $best[$templateId] = $marker;
+        }
+    };
+
+    // Uma query: ofertas + quests ativas (evita questGetNpcOffers por template).
+    $offerStmt = $pdo->query('
+        SELECT nqo.npc_template_id, q.quest_id
+        FROM npc_quest_offers nqo
+        INNER JOIN quests q ON q.quest_id = nqo.quest_id
+        WHERE q.is_active = 1
+    ');
+    $offerRows = $offerStmt ? $offerStmt->fetchAll(PDO::FETCH_ASSOC) : [];
+    /** @var array<int,string> $questStatusCache */
+    $questStatusCache = [];
+    foreach ($offerRows as $row) {
+        $tid = (int)$row['npc_template_id'];
+        $qid = (int)$row['quest_id'];
+        if ($tid <= 0 || $qid <= 0) {
+            continue;
+        }
+        if (!isset($questStatusCache[$qid])) {
+            $quest = questLoadQuestRow($pdo, $qid);
+            if (!$quest) {
+                $questStatusCache[$qid] = 'locked';
+            } else {
+                $playerQuest = questGetPlayerQuestRow($pdo, $player_id, $qid);
+                if ($playerQuest && in_array($playerQuest['status'], ['active', 'ready'], true)) {
+                    $questStatusCache[$qid] = (string)$playerQuest['status'];
+                } else {
+                    $questStatusCache[$qid] = questResolveAvailability($pdo, $player_id, $quest, $playerQuest);
+                }
+            }
+        }
+        $st = $questStatusCache[$qid];
+        if (isset($rank[$st])) {
+            $setBest($tid, $st);
+        }
+    }
+
+    // Turn-in: quests ready do jogador → marcador no NPC de entrega.
+    $readyStmt = $pdo->prepare("
+        SELECT pq.quest_id, pq.player_quest_id, pq.status, q.turn_in_npc_template_id
+        FROM player_quests pq
+        INNER JOIN quests q ON q.quest_id = pq.quest_id
+        WHERE pq.player_id = ? AND pq.status IN ('active', 'ready') AND q.is_active = 1
+    ");
+    $readyStmt->execute([$player_id]);
+    foreach ($readyStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $pqId = (int)$row['player_quest_id'];
+        questRefreshPlayerQuestProgress($pdo, $player_id, $pqId);
+        $fresh = questGetPlayerQuestRow($pdo, $player_id, (int)$row['quest_id']);
+        $status = $fresh ? (string)$fresh['status'] : (string)($row['status'] ?? '');
+        if ($status !== 'ready') {
+            continue;
+        }
+        $turnIn = (int)($row['turn_in_npc_template_id'] ?? 0);
+        $setBest($turnIn, 'ready');
+    }
+
+    $out = [];
+    foreach ($best as $templateId => $marker) {
+        $out[] = [
+            'npc_template_id' => (int)$templateId,
+            'marker' => $marker,
+        ];
+    }
+    usort($out, static function ($a, $b) {
+        return $a['npc_template_id'] <=> $b['npc_template_id'];
+    });
+    return $out;
+}

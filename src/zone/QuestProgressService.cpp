@@ -1,5 +1,7 @@
 #include "zone/QuestProgressService.hpp"
 #include "zone/PartyShare.hpp"
+#include "zone/MovementProtocol.hpp"
+#include "zone/MovementServer.hpp"
 #include "core/Logger.hpp"
 #include <sstream>
 #include <string>
@@ -41,6 +43,19 @@ void QuestProgressService::onNpcKilled(uint32_t killerPlayerId, uint32_t npcInst
       killerPlayerId, npcInstanceId, npcTemplateId, ids.str(), shareRadiusUu_);
 }
 
+void QuestProgressService::notifyQuestProgress(uint32_t playerId, uint32_t questId, uint8_t status,
+                                               uint8_t flags) {
+  if (!movementServer_ || playerId == 0) {
+    return;
+  }
+  QuestProgressNotifyPayload p;
+  p.playerId = playerId;
+  p.questId = questId;
+  p.status = status;
+  p.flags = flags;
+  movementServer_->sendToPlayer(playerId, encodeQuestProgressNotify(p));
+}
+
 void QuestProgressService::creditKillForPlayer(uint32_t playerId, uint32_t npcInstanceId,
                                                uint32_t npcTemplateId) {
   if (playerId == 0) return;
@@ -48,6 +63,27 @@ void QuestProgressService::creditKillForPlayer(uint32_t playerId, uint32_t npcIn
   const std::string playerStr = std::to_string(playerId);
   const std::string templateStr = std::to_string(npcTemplateId);
   const std::string instanceStr = std::to_string(npcInstanceId);
+
+  // Só credita se existir objetivo kill incompleto matching (evita spam do opcode 116).
+  const auto pending = db_->executePreparedQuery(
+      R"(
+        SELECT pq.quest_id
+        FROM player_quest_objectives pqo
+        INNER JOIN player_quests pq ON pq.player_quest_id = pqo.player_quest_id
+          AND pq.player_id = ? AND pq.status = 'active'
+        INNER JOIN quest_objectives qo ON qo.objective_id = pqo.objective_id
+          AND qo.objective_type = 'kill'
+        WHERE pqo.is_completed = 0
+          AND (
+            (? > 0 AND CAST(JSON_UNQUOTE(JSON_EXTRACT(qo.params_json, '$.npc_template_id')) AS UNSIGNED) = ?)
+            OR (? > 0 AND CAST(JSON_UNQUOTE(JSON_EXTRACT(qo.params_json, '$.npc_instance_id')) AS UNSIGNED) = ?)
+          )
+        LIMIT 1
+      )",
+      {playerStr, templateStr, templateStr, instanceStr, instanceStr});
+  if (pending.empty()) {
+    return;
+  }
 
   const std::string updateSql = R"(
     UPDATE player_quest_objectives pqo
@@ -102,11 +138,31 @@ void QuestProgressService::creditKillForPlayer(uint32_t playerId, uint32_t npcIn
     return;
   }
 
+  const uint32_t questId = static_cast<uint32_t>(std::stoul(checkRows[0][2]));
   promoteReadyQuests(playerId);
+
+  uint8_t status = 1;  // active
+  uint8_t flags = 0x01;  // progress
+  const auto statusRows = db_->executePreparedQuery(
+      R"(
+        SELECT status FROM player_quests
+        WHERE player_id = ? AND quest_id = ?
+        ORDER BY player_quest_id DESC
+        LIMIT 1
+      )",
+      {playerStr, std::to_string(questId)});
+  if (!statusRows.empty() && statusRows[0][0] == "ready") {
+    status = 2;
+    flags |= 0x02;  // became_ready
+  }
+
+  notifyQuestProgress(playerId, questId, status, flags);
+
   Core::Logger::getInstance().info(
       "[QuestProgressService] kill creditado player={} npcInstance={} npcTemplate={} count={} "
-      "completed={}",
-      playerId, npcInstanceId, npcTemplateId, checkRows[0][0], checkRows[0][1]);
+      "completed={} quest={} status={}",
+      playerId, npcInstanceId, npcTemplateId, checkRows[0][0], checkRows[0][1], questId,
+      status == 2 ? "ready" : "active");
 }
 
 void QuestProgressService::promoteReadyQuests(uint32_t playerId) {

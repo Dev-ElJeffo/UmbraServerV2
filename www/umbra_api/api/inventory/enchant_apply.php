@@ -98,6 +98,16 @@ try {
         exit;
     }
 
+    if ($forceKey !== '') {
+        $ccErr = enchant_validate_cc_affix_on_equipment($forceKey, $item);
+        if ($ccErr !== null) {
+            $pdo->rollBack();
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => $ccErr], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+    }
+
     if (!enchant_consume_one_item($pdo, $player_id, $crystal_inventory_id, ENCHANT_CRYSTAL_SUBTYPE)) {
         $pdo->rollBack();
         http_response_code(400);
@@ -105,13 +115,21 @@ try {
         exit;
     }
 
+    $allowCc = enchant_template_is_accessory($item);
     $affix = $forceKey !== ''
         ? enchant_affix_for_stat_key($pdo, $forceKey, $usedKeys)
-        : enchant_roll_one_affix($pdo, $usedKeys);
+        : enchant_roll_one_affix($pdo, $usedKeys, $allowCc);
     if ($affix === null) {
         $pdo->rollBack();
         http_response_code(500);
         echo json_encode(['success' => false, 'message' => 'Não foi possível sortear um afixo'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    $ccErr = enchant_validate_cc_affix_on_equipment((string)$affix['stat_key'], $item);
+    if ($ccErr !== null) {
+        $pdo->rollBack();
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => $ccErr], JSON_UNESCAPED_UNICODE);
         exit;
     }
     $list[] = [
