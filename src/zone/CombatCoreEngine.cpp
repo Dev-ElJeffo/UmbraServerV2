@@ -509,6 +509,13 @@ bool CombatCoreEngine::loadBasicAttacks() {
 }
 
 void CombatCoreEngine::tick(float deltaSeconds) {
+  if (npcManager_) {
+    const auto deathReady = npcManager_->tickPendingDeathDespawns();
+    for (const uint32_t id : deathReady) {
+      broadcastNpcDespawnToAll(id, 1);
+    }
+  }
+
   respawnTickAccum_ += deltaSeconds;
   if (respawnTickAccum_ >= 1.f && npcManager_) {
     const auto respawned = npcManager_->tickRespawns(respawnTickAccum_);
@@ -1570,6 +1577,28 @@ void CombatCoreEngine::handleNpcDamageResult(uint32_t npcInstanceId, int32_t app
                                       }),
                       npcBuffs_.end());
     }
+
+    uint16_t deathMs = 0;
+    bool hasDeathAnim = false;
+    if (const NpcRuntimeInstance* victim = npcManager_->findInstance(npcInstanceId)) {
+      hasDeathAnim = !victim->deathAnimPath.empty();
+      deathMs = victim->deathDurationMs;
+      if (hasDeathAnim && deathMs == 0) deathMs = 1500;
+      if (deathMs > 0 && deathMs < 500) deathMs = 500;
+      if (deathMs > 5000) deathMs = 5000;
+      broadcastNpcState(npcManager_->toStatePayload(*victim));
+    }
+
+    if (hasDeathAnim && deathMs > 0) {
+      npcManager_->mutateInstance(npcInstanceId, [deathMs](NpcRuntimeInstance& inst) {
+        inst.pendingDeathDespawn = true;
+        inst.deathDespawnAt =
+            std::chrono::steady_clock::now() + std::chrono::milliseconds(deathMs);
+        inst.aiState = NpcAiState::Dying;
+      });
+      return;
+    }
+
     broadcastNpcDespawnToAll(npcInstanceId, 1);
     return;
   }
@@ -3363,6 +3392,14 @@ int32_t CombatCoreEngine::computeDoubleBonus(const Combat::CharacterState& attac
   return std::max(1, firstHitAbs * kDoubleAttackDamagePercent / 100);
 }
 
+std::string CombatCoreEngine::resolveNpcSkillCastAnimPath(const NpcRuntimeInstance& inst,
+                                                           const std::string& skillCastAnimOverride) {
+  if (!skillCastAnimOverride.empty()) return skillCastAnimOverride;
+  if (!inst.skillAnimPath.empty()) return inst.skillAnimPath;
+  if (!inst.attackAnimPaths.empty()) return inst.attackAnimPaths.front();
+  return {};
+}
+
 void CombatCoreEngine::processNpcBasicAttack(uint32_t npcInstanceId, uint32_t targetPlayerId) {
   if (!movementServer_ || !npcManager_ || npcInstanceId == 0 || targetPlayerId == 0) return;
 
@@ -3392,8 +3429,10 @@ void CombatCoreEngine::processNpcBasicAttack(uint32_t npcInstanceId, uint32_t ta
   atkBroadcast.classId = 0;
   atkBroadcast.targetId = targetPlayerId;
   atkBroadcast.hitWindowMs = 300;
-  atkBroadcast.castAnimPath = "";
+  atkBroadcast.castAnimPath =
+      inst->attackAnimPaths.empty() ? std::string() : inst->attackAnimPaths.front();
   atkBroadcast.sourceType = static_cast<uint8_t>(CombatTargetType::Npc);
+  atkBroadcast.animIndex = 0;
   broadcastBasicAttack(atkBroadcast);
 
   Combat::SkillData synthetic;

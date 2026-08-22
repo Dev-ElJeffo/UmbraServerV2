@@ -1,5 +1,6 @@
 #include "zone/NpcManager.hpp"
 #include "core/Logger.hpp"
+#include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cmath>
 #include <ctime>
@@ -66,7 +67,8 @@ const char* NpcManager::kInstanceSelectSql =
     "COALESCE(nt.right_hand_rel_scale, 1), "
     "COALESCE(nt.left_hand_rel_x, 0), COALESCE(nt.left_hand_rel_y, 0), COALESCE(nt.left_hand_rel_z, 0), "
     "COALESCE(nt.left_hand_rel_pitch, 0), COALESCE(nt.left_hand_rel_yaw, 0), COALESCE(nt.left_hand_rel_roll, 0), "
-    "COALESCE(nt.left_hand_rel_scale, 1) "
+    "COALESCE(nt.left_hand_rel_scale, 1), "
+    "nt.anim_states_json "
     "FROM npc_instances ni "
     "JOIN npc_templates nt ON nt.npc_template_id = ni.npc_template_id "
     "LEFT JOIN npc_vendors nv ON nv.npc_template_id = nt.npc_template_id ";
@@ -84,6 +86,79 @@ void NpcManager::resetAiState(NpcRuntimeInstance& inst) {
   inst.hasWanderDest = false;
   inst.nextWanderAt = {};
   inst.lastAttackAt = {};
+  inst.pendingDeathDespawn = false;
+  inst.deathDespawnAt = {};
+}
+
+namespace {
+void appendAnimPathList(std::vector<std::string>& out, const nlohmann::json& node) {
+  if (node.is_array()) {
+    for (const auto& el : node) {
+      if (!el.is_string()) continue;
+      std::string s = el.get<std::string>();
+      if (!s.empty()) out.push_back(std::move(s));
+    }
+  } else if (node.is_string()) {
+    std::string s = node.get<std::string>();
+    if (!s.empty()) out.push_back(std::move(s));
+  }
+}
+}  // namespace
+
+void NpcManager::parseAnimStatesJson(NpcRuntimeInstance& inst, const std::string& jsonStr) {
+  inst.attackAnimPaths.clear();
+  inst.hitAnimPaths.clear();
+  inst.deathAnimPath.clear();
+  inst.skillAnimPath.clear();
+  inst.idleAnimPath.clear();
+  inst.walkAnimPath.clear();
+  inst.deathDurationMs = 0;
+  if (jsonStr.empty()) return;
+
+  nlohmann::json root = nlohmann::json::parse(jsonStr, nullptr, false);
+  if (root.is_discarded() || !root.is_object()) return;
+
+  if (root.contains("attacks")) {
+    appendAnimPathList(inst.attackAnimPaths, root["attacks"]);
+  } else if (root.contains("attack")) {
+    appendAnimPathList(inst.attackAnimPaths, root["attack"]);
+  }
+  if (root.contains("hits")) {
+    appendAnimPathList(inst.hitAnimPaths, root["hits"]);
+  } else if (root.contains("hit")) {
+    appendAnimPathList(inst.hitAnimPaths, root["hit"]);
+  }
+  if (root.contains("death") && root["death"].is_string()) {
+    inst.deathAnimPath = root["death"].get<std::string>();
+  }
+  if (root.contains("skill") && root["skill"].is_string()) {
+    inst.skillAnimPath = root["skill"].get<std::string>();
+  }
+  if (root.contains("idle") && root["idle"].is_string()) {
+    inst.idleAnimPath = root["idle"].get<std::string>();
+  }
+  if (root.contains("walk") && root["walk"].is_string()) {
+    inst.walkAnimPath = root["walk"].get<std::string>();
+  }
+  if (root.contains("death_ms")) {
+    try {
+      if (root["death_ms"].is_number_integer()) {
+        inst.deathDurationMs = static_cast<uint16_t>(
+            std::clamp(root["death_ms"].get<int>(), 0, 5000));
+      } else if (root["death_ms"].is_string()) {
+        inst.deathDurationMs = static_cast<uint16_t>(
+            std::clamp(std::stoi(root["death_ms"].get<std::string>()), 0, 5000));
+      }
+    } catch (...) {
+      inst.deathDurationMs = 0;
+    }
+  }
+  if (!inst.deathAnimPath.empty() && inst.deathDurationMs == 0) {
+    inst.deathDurationMs = 1500;
+  }
+  if (inst.deathDurationMs > 0 && inst.deathDurationMs < 500) {
+    inst.deathDurationMs = 500;
+  }
 }
 
 bool NpcManager::reloadFromDatabase() {
@@ -267,6 +342,9 @@ void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
       inst.leftHandOffset.scale = parseFloatOr(row[63], 1.f);
       if (inst.leftHandOffset.scale <= 0.01f) inst.leftHandOffset.scale = 1.f;
     }
+    if (row.size() > 64) {
+      parseAnimStatesJson(inst, row[64]);
+    }
 
     inst.lastBroadcastX = inst.x;
     inst.lastBroadcastY = inst.y;
@@ -367,6 +445,7 @@ int32_t NpcManager::applyDamage(uint32_t npcInstanceId, int32_t delta, bool& out
   if (inst.currentHealth <= 0) {
     inst.isDead = true;
     resetAiState(inst);
+    inst.aiState = NpcAiState::Dying;
     const uint32_t respawnSec = std::max(1u, inst.respawnSeconds);
     inst.respawnAt = std::chrono::system_clock::now() + std::chrono::seconds(respawnSec);
     if (outNpcDied) *outNpcDied = true;
@@ -396,6 +475,7 @@ std::vector<uint32_t> NpcManager::tickRespawns(float deltaSeconds) {
   std::lock_guard<std::mutex> lock(mu_);
   for (auto& inst : instances_) {
     if (!inst.isDead) continue;
+    if (inst.pendingDeathDespawn) continue;  // ainda mostrando death no cliente
     if (inst.respawnAt.time_since_epoch().count() == 0) continue;
     if (now < inst.respawnAt) continue;
 
@@ -409,6 +489,20 @@ std::vector<uint32_t> NpcManager::tickRespawns(float deltaSeconds) {
     Core::Logger::getInstance().info("[NpcManager] {} NPC(s) respawned", respawned.size());
   }
   return respawned;
+}
+
+std::vector<uint32_t> NpcManager::tickPendingDeathDespawns() {
+  std::vector<uint32_t> ready;
+  const auto now = std::chrono::steady_clock::now();
+  std::lock_guard<std::mutex> lock(mu_);
+  for (auto& inst : instances_) {
+    if (!inst.pendingDeathDespawn) continue;
+    if (now < inst.deathDespawnAt) continue;
+    inst.pendingDeathDespawn = false;
+    inst.deathDespawnAt = {};
+    ready.push_back(inst.npcInstanceId);
+  }
+  return ready;
 }
 
 bool NpcManager::removeInstance(uint32_t npcInstanceId) {
@@ -507,6 +601,13 @@ NpcSpawnPayload NpcManager::toSpawnPayload(const NpcRuntimeInstance& inst) const
   p.interactionRadius = inst.interactionRadius;
   p.vendorId = inst.vendorId;
   p.meshScale = inst.meshScale;
+  p.attackAnimPaths = inst.attackAnimPaths;
+  p.hitAnimPaths = inst.hitAnimPaths;
+  p.deathAnimPath = inst.deathAnimPath;
+  p.skillAnimPath = inst.skillAnimPath;
+  p.idleAnimPath = inst.idleAnimPath;
+  p.walkAnimPath = inst.walkAnimPath;
+  p.deathDurationMs = inst.deathDurationMs;
   return p;
 }
 
@@ -519,6 +620,7 @@ NpcStatePayload NpcManager::toStatePayload(const NpcRuntimeInstance& inst) const
   p.y = inst.y;
   p.z = inst.z;
   p.yaw = inst.yaw;
+  p.aiState = static_cast<uint8_t>(inst.aiState);
   return p;
 }
 

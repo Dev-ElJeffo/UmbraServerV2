@@ -655,6 +655,37 @@
                                                      materialDesign:HintAssist.Hint="Anim Blueprint path"
                                                      materialDesign:HintAssist.IsFloating="True"
                                                      Margin="0,0,0,10"/>
+                                            <TextBlock Text="Animações por estado (montages / sequences)" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                            <TextBox Text="{Binding NewNpcAnimAttacksCsv, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Attacks (paths separados por ;)"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     AcceptsReturn="True" MinHeight="40" TextWrapping="Wrap"
+                                                     Margin="0,0,0,6"/>
+                                            <TextBox Text="{Binding NewNpcAnimHitsCsv, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Hits (paths separados por ;)"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     AcceptsReturn="True" MinHeight="40" TextWrapping="Wrap"
+                                                     Margin="0,0,0,6"/>
+                                            <TextBox Text="{Binding NewNpcAnimDeathPath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Death montage path"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,6"/>
+                                            <TextBox Text="{Binding NewNpcAnimSkillPath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Skill montage path"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,6"/>
+                                            <TextBox Text="{Binding NewNpcAnimIdlePath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Idle sequence (fallback sem AnimBP)"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,6"/>
+                                            <TextBox Text="{Binding NewNpcAnimWalkPath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Walk sequence (fallback sem AnimBP)"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,6"/>
+                                            <TextBox Text="{Binding NewNpcAnimDeathMs, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Death delay ms (ex. 2000)"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,10"/>
                                             <TextBox Text="{Binding NewNpcRightHandMeshPath, UpdateSourceTrigger=PropertyChanged}"
                                                      materialDesign:HintAssist.Hint="Mesh mão direita (HandGrip_R)"
                                                      materialDesign:HintAssist.IsFloating="True"

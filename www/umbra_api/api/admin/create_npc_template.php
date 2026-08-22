@@ -34,7 +34,7 @@ try {
             physical_attack, magic_attack, physical_defense, magic_defense,
             accuracy, dodge, critical, critical_resistance,
             double_attack_rate, double_attack_resistance,
-            skeletal_mesh_path, anim_blueprint_path, mesh_scale, is_editable,
+            skeletal_mesh_path, anim_blueprint_path, anim_states_json, mesh_scale, is_editable,
             is_attackable, interaction_radius, has_vendor, has_quest_dialog,
             dialog_title, dialog_text, respawn_seconds, kill_exp,
             aggro_radius, leash_radius, attack_range, attack_cooldown_ms,
@@ -50,7 +50,7 @@ try {
             :physical_attack, :magic_attack, :physical_defense, :magic_defense,
             :accuracy, :dodge, :critical, :critical_resistance,
             :double_attack_rate, :double_attack_resistance,
-            :skeletal_mesh_path, :anim_blueprint_path, :mesh_scale, :is_editable,
+            :skeletal_mesh_path, :anim_blueprint_path, :anim_states_json, :mesh_scale, :is_editable,
             :is_attackable, :interaction_radius, :has_vendor, :has_quest_dialog,
             :dialog_title, :dialog_text, :respawn_seconds, :kill_exp,
             :aggro_radius, :leash_radius, :attack_range, :attack_cooldown_ms,
@@ -68,6 +68,20 @@ try {
     }
     $rightHand = trim((string)($data['right_hand_mesh_path'] ?? ''));
     $leftHand = trim((string)($data['left_hand_mesh_path'] ?? ''));
+    $animStatesJson = null;
+    if (array_key_exists('anim_states_json', $data) && $data['anim_states_json'] !== null && $data['anim_states_json'] !== '') {
+        if (is_array($data['anim_states_json']) || is_object($data['anim_states_json'])) {
+            $animStatesJson = json_encode($data['anim_states_json'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        } else {
+            $raw = trim((string)$data['anim_states_json']);
+            if ($raw !== '') {
+                json_decode($raw, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $animStatesJson = $raw;
+                }
+            }
+        }
+    }
     $rhScale = isset($data['right_hand_rel_scale']) ? (float)$data['right_hand_rel_scale'] : 1.0;
     if ($rhScale <= 0.01) {
         $rhScale = 1.0;
@@ -98,6 +112,7 @@ try {
         ':double_attack_resistance' => (int)($data['double_attack_resistance'] ?? 0),
         ':skeletal_mesh_path' => $data['skeletal_mesh_path'] ?? null,
         ':anim_blueprint_path' => $data['anim_blueprint_path'] ?? null,
+        ':anim_states_json' => $animStatesJson,
         ':mesh_scale' => $meshScale,
         ':is_editable' => (int)($data['is_editable'] ?? 1),
         ':is_attackable' => (int)($data['is_attackable'] ?? 1),

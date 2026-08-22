@@ -144,6 +144,12 @@ public:
   void processBasicAttack(uint32_t sourcePlayerId, const BasicAttackPayload& payload);
   /** Basic attack autoritativo do mob (NPC → player). */
   void processNpcBasicAttack(uint32_t npcInstanceId, uint32_t targetPlayerId);
+  /**
+   * Resolve path de montage para cast de skill do NPC:
+   * skill.cast_anim_path → anim_states_json.skill → attacks[0].
+   */
+  static std::string resolveNpcSkillCastAnimPath(const NpcRuntimeInstance& inst,
+                                                  const std::string& skillCastAnimOverride = "");
   /** Broadcast opcode 102 (HP + posição) — usado pelo NpcAiSystem. */
   void broadcastNpcStatePublic(const NpcStatePayload& payload) { broadcastNpcState(payload); }
   void cancelPendingSkillHit(uint32_t sourcePlayerId);

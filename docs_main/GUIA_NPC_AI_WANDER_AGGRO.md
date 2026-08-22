@@ -52,6 +52,10 @@ Instância: `home_x/y/z` (centro do roam). Spawn/admin move redefine home = pos.
 - `UmbraEternumUE/.../UmbraGameInstance.cpp` (102/99)
 - `UmbraEternumUE/.../Actors/UmbraNpcCharacter` (`ApplyMovementXYYaw`)
 
+## Animações por estado
+
+Ver [`GUIA_NPC_ANIM_STATES_UE561.md`](GUIA_NPC_ANIM_STATES_UE561.md) (`anim_states_json`, death delay, `aiState` no 102).
+
 ## Teste rápido
 
 1. Template: `roam_radius=800`, `aggro_radius=600`, `is_hostile=1`, `physical_attack` > 0  

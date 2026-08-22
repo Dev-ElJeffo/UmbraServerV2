@@ -18,7 +18,8 @@ enum class NpcAiState : uint8_t {
   Wander = 1,
   Combat = 2,
   Chase = 3,
-  Return = 4
+  Return = 4,
+  Dying = 5
 };
 
 struct NpcRuntimeInstance {
@@ -54,6 +55,15 @@ struct NpcRuntimeInstance {
   std::string npcName;
   std::string skeletalMeshPath;
   std::string animBlueprintPath;
+  std::vector<std::string> attackAnimPaths;
+  std::vector<std::string> hitAnimPaths;
+  std::string deathAnimPath;
+  std::string skillAnimPath;
+  std::string idleAnimPath;
+  std::string walkAnimPath;
+  uint16_t deathDurationMs = 0;
+  bool pendingDeathDespawn = false;
+  std::chrono::steady_clock::time_point deathDespawnAt{};
   std::string rightHandMeshPath;
   std::string leftHandMeshPath;
   NpcHandAttachOffset rightHandOffset;
@@ -133,6 +143,8 @@ public:
 
   /** Processa respawns pendentes; retorna IDs que voltaram a ficar vivos. */
   std::vector<uint32_t> tickRespawns(float deltaSeconds);
+  /** IDs mortos cujo delay de death anim expirou (cliente pode receber 101). */
+  std::vector<uint32_t> tickPendingDeathDespawns();
   bool removeInstance(uint32_t npcInstanceId);
   /**
    * Atualiza transform em memória (e opcionalmente persiste no MySQL).
@@ -153,6 +165,7 @@ private:
   void loadInstanceFromRow(const std::vector<std::string>& row);
   bool respawnInstance(NpcRuntimeInstance& inst);
   void resetAiState(NpcRuntimeInstance& inst);
+  void parseAnimStatesJson(NpcRuntimeInstance& inst, const std::string& jsonStr);
   void persistNpcSql(const std::string& sql);
 
   std::shared_ptr<Database::MySQLConnector> db_;

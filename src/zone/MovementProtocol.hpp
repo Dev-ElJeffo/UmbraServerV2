@@ -1938,6 +1938,8 @@ struct BasicAttackBroadcastPayload {
   std::string castAnimPath;
   /** 1 = player (default legado), 2 = NPC. Byte opcional no fim do frame. */
   uint8_t sourceType = static_cast<uint8_t>(CombatTargetType::Player);
+  /** Índice em attacks[]; 255 = default (0). Byte opcional após sourceType. */
+  uint8_t animIndex = 0;
 };
 
 struct NpcHandAttachOffset {
@@ -1971,6 +1973,13 @@ struct NpcSpawnPayload {
   std::string leftHandMeshPath;
   NpcHandAttachOffset rightHandOffset;
   NpcHandAttachOffset leftHandOffset;
+  std::vector<std::string> attackAnimPaths;
+  std::vector<std::string> hitAnimPaths;
+  std::string deathAnimPath;
+  std::string skillAnimPath;
+  std::string idleAnimPath;
+  std::string walkAnimPath;
+  uint16_t deathDurationMs = 0;
 };
 
 struct NpcDespawnPayload {
@@ -1986,6 +1995,7 @@ struct NpcStatePayload {
   float y = 0.f;
   float z = 0.f;
   float yaw = 0.f;
+  uint8_t aiState = 0;  // NpcAiState; compat se ausente
 };
 
 struct NpcCombatEventPayload {
@@ -1995,6 +2005,7 @@ struct NpcCombatEventPayload {
   uint8_t reason = 1;
   uint8_t isCrit = 0;
   uint8_t isDouble = 0;
+  uint8_t animIndex = 255;  // 255 = cliente escolhe (random); futuro: índice em hits[]
 };
 
 struct BasicAttackDef {
@@ -2139,6 +2150,7 @@ inline std::vector<uint8_t> encodeBasicAttackBroadcast(const BasicAttackBroadcas
   writeU32(p.hitWindowMs);
   appendStringField(data, p.castAnimPath, 255);
   data.push_back(p.sourceType == 0 ? static_cast<uint8_t>(CombatTargetType::Player) : p.sourceType);
+  data.push_back(p.animIndex);
   return data;
 }
 
@@ -2158,9 +2170,10 @@ inline bool decodeBasicAttackBroadcast(const std::vector<uint8_t>& data, BasicAt
   if (!readStringField(data, off, p.castAnimPath, 255)) return false;
   // Compat: frames antigos sem sourceType → Player.
   p.sourceType = (off < data.size())
-                     ? data[off]
+                     ? data[off++]
                      : static_cast<uint8_t>(CombatTargetType::Player);
   if (p.sourceType == 0) p.sourceType = static_cast<uint8_t>(CombatTargetType::Player);
+  p.animIndex = (off < data.size()) ? data[off] : 0;
   return true;
 }
 
@@ -2211,6 +2224,22 @@ inline std::vector<uint8_t> encodeNpcSpawnNotify(const NpcSpawnPayload& p) {
   };
   writeHand(p.rightHandOffset);
   writeHand(p.leftHandOffset);
+  auto writePathList = [&](const std::vector<std::string>& paths) {
+    const size_t n = paths.size() > 16 ? 16 : paths.size();
+    const uint8_t count = static_cast<uint8_t>(n);
+    data.push_back(count);
+    for (uint8_t i = 0; i < count; ++i) {
+      appendStringField(data, paths[i], 255);
+    }
+  };
+  writePathList(p.attackAnimPaths);
+  writePathList(p.hitAnimPaths);
+  appendStringField(data, p.deathAnimPath, 255);
+  appendStringField(data, p.skillAnimPath, 255);
+  appendStringField(data, p.idleAnimPath, 255);
+  appendStringField(data, p.walkAnimPath, 255);
+  data.push_back(static_cast<uint8_t>(p.deathDurationMs & 0xFF));
+  data.push_back(static_cast<uint8_t>((p.deathDurationMs >> 8) & 0xFF));
   return data;
 }
 
@@ -2272,6 +2301,37 @@ inline bool decodeNpcSpawnNotify(const std::vector<uint8_t>& data, NpcSpawnPaylo
     };
     readHand(p.rightHandOffset);
     readHand(p.leftHandOffset);
+    auto readPathList = [&](std::vector<std::string>& out) {
+      out.clear();
+      if (off >= data.size()) return;
+      const uint8_t count = data[off++];
+      out.reserve(count);
+      for (uint8_t i = 0; i < count; ++i) {
+        std::string path;
+        if (!readStringField(data, off, path, 255)) return;
+        out.push_back(std::move(path));
+      }
+    };
+    if (off < data.size()) {
+      readPathList(p.attackAnimPaths);
+      readPathList(p.hitAnimPaths);
+      if (off < data.size()) {
+        if (!readStringField(data, off, p.deathAnimPath, 255)) return false;
+      }
+      if (off < data.size()) {
+        if (!readStringField(data, off, p.skillAnimPath, 255)) return false;
+      }
+      if (off < data.size()) {
+        if (!readStringField(data, off, p.idleAnimPath, 255)) return false;
+      }
+      if (off < data.size()) {
+        if (!readStringField(data, off, p.walkAnimPath, 255)) return false;
+      }
+      if (off + 2 <= data.size()) {
+        p.deathDurationMs = static_cast<uint16_t>(data[off] | (static_cast<uint16_t>(data[off + 1]) << 8));
+        off += 2;
+      }
+    }
   }
   return true;
 }
@@ -2322,6 +2382,7 @@ inline std::vector<uint8_t> encodeNpcStateUpdate(const NpcStatePayload& p) {
   writeF32(p.y);
   writeF32(p.z);
   writeF32(p.yaw);
+  data.push_back(p.aiState);
   return data;
 }
 
@@ -2348,6 +2409,7 @@ inline bool decodeNpcStateUpdate(const std::vector<uint8_t>& data, NpcStatePaylo
   p.y = readF32();
   p.z = readF32();
   p.yaw = readF32();
+  p.aiState = (off < data.size()) ? data[off] : 0;
   return true;
 }
 
@@ -2368,6 +2430,7 @@ inline std::vector<uint8_t> encodeNpcCombatEvent(const NpcCombatEventPayload& p)
   data.push_back(p.reason);
   data.push_back(p.isCrit);
   data.push_back(p.isDouble);
+  data.push_back(p.animIndex);
   return data;
 }
 
@@ -2385,7 +2448,8 @@ inline bool decodeNpcCombatEvent(const std::vector<uint8_t>& data, NpcCombatEven
   p.delta = static_cast<int32_t>(readU32());
   p.reason = data[off++];
   p.isCrit = data[off++];
-  p.isDouble = (data.size() > off) ? data[off] : 0;
+  p.isDouble = (data.size() > off) ? data[off++] : 0;
+  p.animIndex = (data.size() > off) ? data[off] : 255;
   return true;
 }
 

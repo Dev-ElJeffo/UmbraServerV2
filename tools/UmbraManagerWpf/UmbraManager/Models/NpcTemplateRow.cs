@@ -24,6 +24,8 @@ public sealed class NpcTemplateRow
     public int DoubleAttackResistance { get; set; }
     public string SkeletalMeshPath { get; set; } = "";
     public string AnimBlueprintPath { get; set; } = "";
+    /** JSON string ou paths CSV montados no ViewModel. */
+    public string AnimStatesJson { get; set; } = "";
     public string RightHandMeshPath { get; set; } = "";
     public string LeftHandMeshPath { get; set; } = "";
     public float RightHandRelX { get; set; }

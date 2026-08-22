@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows;
@@ -100,6 +101,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private int _newNpcDoubleAttackResistance = 5;
     [ObservableProperty] private string _newNpcSkeletalMeshPath = "";
     [ObservableProperty] private string _newNpcAnimBlueprintPath = "";
+    [ObservableProperty] private string _newNpcAnimAttacksCsv = "";
+    [ObservableProperty] private string _newNpcAnimHitsCsv = "";
+    [ObservableProperty] private string _newNpcAnimDeathPath = "";
+    [ObservableProperty] private string _newNpcAnimSkillPath = "";
+    [ObservableProperty] private string _newNpcAnimIdlePath = "";
+    [ObservableProperty] private string _newNpcAnimWalkPath = "";
+    [ObservableProperty] private int _newNpcAnimDeathMs = 1500;
     [ObservableProperty] private string _newNpcRightHandMeshPath = "";
     [ObservableProperty] private string _newNpcLeftHandMeshPath = "";
     [ObservableProperty] private float _newNpcRightHandRelX;
@@ -514,6 +522,131 @@ public partial class MainViewModel : ObservableObject, IDisposable
             JsonValueKind.String => float.TryParse(v.GetString(), out var f) ? f : 0,
             _ => 0
         };
+    }
+
+    private static string TryGetAnimStatesJsonRaw(JsonElement obj)
+    {
+        if (!obj.TryGetProperty("anim_states_json", out var v)) return "";
+        return v.ValueKind switch
+        {
+            JsonValueKind.String => v.GetString() ?? "",
+            JsonValueKind.Object or JsonValueKind.Array => v.GetRawText(),
+            JsonValueKind.Null => "",
+            _ => ""
+        };
+    }
+
+    private static List<string> SplitAnimPathCsv(string? csv)
+    {
+        var list = new List<string>();
+        if (string.IsNullOrWhiteSpace(csv)) return list;
+        foreach (var part in csv.Replace('\n', ';').Replace('\r', ';').Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var t = part.Trim();
+            if (!string.IsNullOrEmpty(t)) list.Add(t);
+        }
+        return list;
+    }
+
+    private static string JoinAnimPathCsv(IEnumerable<string>? paths) =>
+        paths == null ? "" : string.Join(";", paths.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p.Trim()));
+
+    private object? BuildAnimStatesJsonObject()
+    {
+        var attacks = SplitAnimPathCsv(NewNpcAnimAttacksCsv);
+        var hits = SplitAnimPathCsv(NewNpcAnimHitsCsv);
+        var death = (NewNpcAnimDeathPath ?? "").Trim();
+        var skill = (NewNpcAnimSkillPath ?? "").Trim();
+        var idle = (NewNpcAnimIdlePath ?? "").Trim();
+        var walk = (NewNpcAnimWalkPath ?? "").Trim();
+        if (attacks.Count == 0 && hits.Count == 0 && death.Length == 0 && skill.Length == 0
+            && idle.Length == 0 && walk.Length == 0)
+        {
+            return null;
+        }
+
+        var root = new JsonObject();
+        if (attacks.Count > 0)
+        {
+            var arr = new JsonArray();
+            foreach (var p in attacks) arr.Add(p);
+            root["attacks"] = arr;
+        }
+        if (hits.Count > 0)
+        {
+            var arr = new JsonArray();
+            foreach (var p in hits) arr.Add(p);
+            root["hits"] = arr;
+        }
+        if (death.Length > 0) root["death"] = death;
+        if (skill.Length > 0) root["skill"] = skill;
+        if (idle.Length > 0) root["idle"] = idle;
+        if (walk.Length > 0) root["walk"] = walk;
+        if (death.Length > 0 || NewNpcAnimDeathMs > 0)
+        {
+            root["death_ms"] = NewNpcAnimDeathMs <= 0 ? 1500 : NewNpcAnimDeathMs;
+        }
+        return root;
+    }
+
+    private void ApplyAnimStatesJsonToForm(string? json)
+    {
+        NewNpcAnimAttacksCsv = "";
+        NewNpcAnimHitsCsv = "";
+        NewNpcAnimDeathPath = "";
+        NewNpcAnimSkillPath = "";
+        NewNpcAnimIdlePath = "";
+        NewNpcAnimWalkPath = "";
+        NewNpcAnimDeathMs = 1500;
+        if (string.IsNullOrWhiteSpace(json)) return;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            NewNpcAnimAttacksCsv = JoinAnimPathCsv(ReadAnimPathList(root, "attacks", "attack"));
+            NewNpcAnimHitsCsv = JoinAnimPathCsv(ReadAnimPathList(root, "hits", "hit"));
+            NewNpcAnimDeathPath = ReadAnimPathScalar(root, "death");
+            NewNpcAnimSkillPath = ReadAnimPathScalar(root, "skill");
+            NewNpcAnimIdlePath = ReadAnimPathScalar(root, "idle");
+            NewNpcAnimWalkPath = ReadAnimPathScalar(root, "walk");
+            if (root.TryGetProperty("death_ms", out var ms))
+            {
+                if (ms.ValueKind == JsonValueKind.Number && ms.TryGetInt32(out var n) && n > 0)
+                    NewNpcAnimDeathMs = n;
+                else if (ms.ValueKind == JsonValueKind.String && int.TryParse(ms.GetString(), out var ns) && ns > 0)
+                    NewNpcAnimDeathMs = ns;
+            }
+        }
+        catch
+        {
+            // ignore invalid JSON from DB
+        }
+    }
+
+    private static List<string> ReadAnimPathList(JsonElement root, string pluralKey, string singularKey)
+    {
+        var list = new List<string>();
+        if (root.TryGetProperty(pluralKey, out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var el in arr.EnumerateArray())
+            {
+                if (el.ValueKind == JsonValueKind.String)
+                {
+                    var s = (el.GetString() ?? "").Trim();
+                    if (s.Length > 0) list.Add(s);
+                }
+            }
+            return list;
+        }
+        var one = ReadAnimPathScalar(root, singularKey);
+        if (one.Length > 0) list.Add(one);
+        return list;
+    }
+
+    private static string ReadAnimPathScalar(JsonElement root, string key)
+    {
+        if (!root.TryGetProperty(key, out var v) || v.ValueKind != JsonValueKind.String) return "";
+        return (v.GetString() ?? "").Trim();
     }
 
     private static double TryGetDoubleProp(JsonElement obj, string prop)
@@ -1165,6 +1298,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     DoubleAttackResistance = TryGetIntProp(t, "double_attack_resistance"),
                     SkeletalMeshPath = TryGetStringProp(t, "skeletal_mesh_path"),
                     AnimBlueprintPath = TryGetStringProp(t, "anim_blueprint_path"),
+                    AnimStatesJson = TryGetAnimStatesJsonRaw(t),
                     RightHandMeshPath = TryGetStringProp(t, "right_hand_mesh_path"),
                     LeftHandMeshPath = TryGetStringProp(t, "left_hand_mesh_path"),
                     RightHandRelX = TryGetFloatProp(t, "right_hand_rel_x"),
@@ -1474,6 +1608,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["double_attack_resistance"] = NewNpcDoubleAttackResistance,
             ["skeletal_mesh_path"] = NewNpcSkeletalMeshPath,
             ["anim_blueprint_path"] = NewNpcAnimBlueprintPath,
+            ["anim_states_json"] = BuildAnimStatesJsonObject(),
             ["right_hand_mesh_path"] = NewNpcRightHandMeshPath,
             ["left_hand_mesh_path"] = NewNpcLeftHandMeshPath,
             ["right_hand_rel_x"] = NewNpcRightHandRelX,
@@ -1638,6 +1773,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcDoubleAttackResistance = row.DoubleAttackResistance;
         NewNpcSkeletalMeshPath = row.SkeletalMeshPath ?? "";
         NewNpcAnimBlueprintPath = row.AnimBlueprintPath ?? "";
+        ApplyAnimStatesJsonToForm(row.AnimStatesJson);
         NewNpcRightHandMeshPath = row.RightHandMeshPath ?? "";
         NewNpcLeftHandMeshPath = row.LeftHandMeshPath ?? "";
         NewNpcRightHandRelX = row.RightHandRelX;
@@ -1697,6 +1833,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcDoubleAttackResistance = 5;
         NewNpcSkeletalMeshPath = "";
         NewNpcAnimBlueprintPath = "";
+        NewNpcAnimAttacksCsv = "";
+        NewNpcAnimHitsCsv = "";
+        NewNpcAnimDeathPath = "";
+        NewNpcAnimSkillPath = "";
+        NewNpcAnimIdlePath = "";
+        NewNpcAnimWalkPath = "";
+        NewNpcAnimDeathMs = 1500;
         NewNpcRightHandMeshPath = "";
         NewNpcLeftHandMeshPath = "";
         NewNpcRightHandRelX = 0f;

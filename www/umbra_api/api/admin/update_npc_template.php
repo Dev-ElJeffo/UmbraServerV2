@@ -31,7 +31,7 @@ $allowed = [
     'physical_attack', 'magic_attack', 'physical_defense', 'magic_defense',
     'accuracy', 'dodge', 'critical', 'critical_resistance',
     'double_attack_rate', 'double_attack_resistance',
-    'skeletal_mesh_path', 'anim_blueprint_path', 'mesh_scale', 'is_editable',
+    'skeletal_mesh_path', 'anim_blueprint_path', 'anim_states_json', 'mesh_scale', 'is_editable',
     'kill_exp', 'is_attackable', 'interaction_radius', 'has_vendor', 'has_quest_dialog',
     'dialog_title', 'dialog_text', 'respawn_seconds',
     'aggro_radius', 'leash_radius', 'attack_range', 'attack_cooldown_ms',
@@ -48,7 +48,23 @@ foreach ($allowed as $field) {
     if (array_key_exists($field, $data)) {
         $key = ':' . $field;
         $sets[] = "$field = $key";
-        $params[$key] = $data[$field];
+        $value = $data[$field];
+        if ($field === 'anim_states_json') {
+            if ($value === null || $value === '') {
+                $value = null;
+            } elseif (is_array($value) || is_object($value)) {
+                $value = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            } else {
+                $raw = trim((string)$value);
+                if ($raw === '') {
+                    $value = null;
+                } else {
+                    json_decode($raw, true);
+                    $value = (json_last_error() === JSON_ERROR_NONE) ? $raw : null;
+                }
+            }
+        }
+        $params[$key] = $value;
     }
 }
 if (empty($sets)) {

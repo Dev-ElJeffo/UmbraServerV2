@@ -26,7 +26,7 @@ try {
                 t.physical_attack, t.magic_attack, t.physical_defense, t.magic_defense,
                 t.accuracy, t.dodge, t.critical, t.critical_resistance,
                 t.double_attack_rate, t.double_attack_resistance,
-                t.skeletal_mesh_path, t.anim_blueprint_path, t.mesh_scale, t.is_editable,
+                t.skeletal_mesh_path, t.anim_blueprint_path, t.anim_states_json, t.mesh_scale, t.is_editable,
                 t.is_attackable, t.interaction_radius, t.has_vendor, t.has_quest_dialog,
                 t.dialog_title, t.dialog_text, t.respawn_seconds, t.kill_exp,
                 t.aggro_radius, t.leash_radius, t.attack_range, t.attack_cooldown_ms,
