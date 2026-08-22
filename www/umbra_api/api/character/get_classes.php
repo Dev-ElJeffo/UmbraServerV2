@@ -43,6 +43,16 @@ try {
         throw new Exception("Falha na conexão");
     }
     
+    $hasAnimSet = false;
+    try {
+        $chk = $pdo->query("SHOW COLUMNS FROM classes LIKE 'anim_set_json'");
+        $hasAnimSet = $chk && $chk->rowCount() > 0;
+    } catch (Exception $e) {
+        $hasAnimSet = false;
+    }
+
+    $animCol = $hasAnimSet ? ",\n            anim_set_json" : "";
+
     // Buscar todas as classes
     $stmt = $pdo->query("
         SELECT 
@@ -69,6 +79,7 @@ try {
             base_double_attack_resistance,
             base_double_attack_rate,
             created_at
+            $animCol
         FROM classes
         ORDER BY class_id ASC
     ");
@@ -104,7 +115,8 @@ try {
                 'double_attack_resistance' => intval($row['base_double_attack_resistance']),
                 'double_attack_rate' => intval($row['base_double_attack_rate'])
             ],
-            'created_at' => $row['created_at']
+            'created_at' => $row['created_at'],
+            'anim_set_json' => (!empty($row['anim_set_json'])) ? json_decode($row['anim_set_json'], true) : null
         ];
     }
     

@@ -1,6 +1,7 @@
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace UmbraManager.Services;
 
@@ -297,6 +298,46 @@ public sealed class PhpAdminClient
 
     public async Task<(bool Ok, string Error, JsonDocument? Data)> ReloadSkillsPhpAsync(CancellationToken ct = default) =>
         await PostAsync("/admin/reload_skills.php", new { admin_username = _adminUsername }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListClassesAsync(CancellationToken ct = default) =>
+        await PostAsync("/admin/list_classes.php", new { admin_username = _adminUsername }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> CreateClassAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/create_class.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpdateClassAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/update_class.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> DeleteClassAsync(int classId, CancellationToken ct = default) =>
+        await PostAsync("/admin/delete_class.php", new { admin_username = _adminUsername, class_id = classId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListClassSkillsAsync(int classId, CancellationToken ct = default) =>
+        await PostAsync("/admin/list_class_skills.php", new { admin_username = _adminUsername, class_id = classId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpsertClassSkillAnimsAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/upsert_class_skill_anims.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListProgressionAsync(CancellationToken ct = default) =>
+        await PostAsync("/admin/list_progression.php", new { admin_username = _adminUsername }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpsertProgressionAsync(object payload, CancellationToken ct = default)
+    {
+        var node = JsonSerializer.SerializeToNode(payload) as JsonObject ?? new JsonObject();
+        node["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/upsert_progression.php", node, ct);
+    }
 
     public async Task<(bool Ok, string Error, JsonDocument? Data)> GetGameRatesAsync(CancellationToken ct = default) =>
         await PostAsync("/admin/get_game_rates.php", new { admin_username = _adminUsername }, ct);

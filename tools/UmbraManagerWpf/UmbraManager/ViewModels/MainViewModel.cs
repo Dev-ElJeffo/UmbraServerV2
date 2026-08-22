@@ -107,6 +107,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _newNpcAnimSkillPath = "";
     [ObservableProperty] private string _newNpcAnimIdlePath = "";
     [ObservableProperty] private string _newNpcAnimWalkPath = "";
+    [ObservableProperty] private string _newNpcAnimWalkFwdPath = "";
+    [ObservableProperty] private string _newNpcAnimWalkBwdPath = "";
+    [ObservableProperty] private string _newNpcAnimWalkLeftPath = "";
+    [ObservableProperty] private string _newNpcAnimWalkRightPath = "";
+    [ObservableProperty] private string _newNpcAnimRunFwdPath = "";
+    [ObservableProperty] private string _newNpcAnimRunBwdPath = "";
+    [ObservableProperty] private string _newNpcAnimRunLeftPath = "";
+    [ObservableProperty] private string _newNpcAnimRunRightPath = "";
+    [ObservableProperty] private string _newNpcAnimCastsCsv = "";
+    [ObservableProperty] private string _newNpcAnimBuffsCsv = "";
     [ObservableProperty] private int _newNpcAnimDeathMs = 1500;
     [ObservableProperty] private string _newNpcRightHandMeshPath = "";
     [ObservableProperty] private string _newNpcLeftHandMeshPath = "";
@@ -559,8 +569,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var skill = (NewNpcAnimSkillPath ?? "").Trim();
         var idle = (NewNpcAnimIdlePath ?? "").Trim();
         var walk = (NewNpcAnimWalkPath ?? "").Trim();
+        var walkFwd = (NewNpcAnimWalkFwdPath ?? "").Trim();
+        var walkBwd = (NewNpcAnimWalkBwdPath ?? "").Trim();
+        var walkLeft = (NewNpcAnimWalkLeftPath ?? "").Trim();
+        var walkRight = (NewNpcAnimWalkRightPath ?? "").Trim();
+        var runFwd = (NewNpcAnimRunFwdPath ?? "").Trim();
+        var runBwd = (NewNpcAnimRunBwdPath ?? "").Trim();
+        var runLeft = (NewNpcAnimRunLeftPath ?? "").Trim();
+        var runRight = (NewNpcAnimRunRightPath ?? "").Trim();
+        var casts = SplitAnimPathCsv(NewNpcAnimCastsCsv);
+        var buffs = SplitAnimPathCsv(NewNpcAnimBuffsCsv);
         if (attacks.Count == 0 && hits.Count == 0 && death.Length == 0 && skill.Length == 0
-            && idle.Length == 0 && walk.Length == 0)
+            && idle.Length == 0 && walk.Length == 0
+            && walkFwd.Length == 0 && walkBwd.Length == 0 && walkLeft.Length == 0 && walkRight.Length == 0
+            && runFwd.Length == 0 && runBwd.Length == 0 && runLeft.Length == 0 && runRight.Length == 0
+            && casts.Count == 0 && buffs.Count == 0)
         {
             return null;
         }
@@ -581,7 +604,40 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (death.Length > 0) root["death"] = death;
         if (skill.Length > 0) root["skill"] = skill;
         if (idle.Length > 0) root["idle"] = idle;
-        if (walk.Length > 0) root["walk"] = walk;
+        if (walkFwd.Length > 0 || walkBwd.Length > 0 || walkLeft.Length > 0 || walkRight.Length > 0)
+        {
+            var w = new JsonObject();
+            if (walkFwd.Length > 0) w["fwd"] = walkFwd;
+            if (walkBwd.Length > 0) w["bwd"] = walkBwd;
+            if (walkLeft.Length > 0) w["left"] = walkLeft;
+            if (walkRight.Length > 0) w["right"] = walkRight;
+            root["walk"] = w;
+        }
+        else if (walk.Length > 0)
+        {
+            root["walk"] = walk;
+        }
+        if (runFwd.Length > 0 || runBwd.Length > 0 || runLeft.Length > 0 || runRight.Length > 0)
+        {
+            var r = new JsonObject();
+            if (runFwd.Length > 0) r["fwd"] = runFwd;
+            if (runBwd.Length > 0) r["bwd"] = runBwd;
+            if (runLeft.Length > 0) r["left"] = runLeft;
+            if (runRight.Length > 0) r["right"] = runRight;
+            root["run"] = r;
+        }
+        if (casts.Count > 0)
+        {
+            var arr = new JsonArray();
+            foreach (var p in casts) arr.Add(p);
+            root["casts"] = arr;
+        }
+        if (buffs.Count > 0)
+        {
+            var arr = new JsonArray();
+            foreach (var p in buffs) arr.Add(p);
+            root["buffs"] = arr;
+        }
         if (death.Length > 0 || NewNpcAnimDeathMs > 0)
         {
             root["death_ms"] = NewNpcAnimDeathMs <= 0 ? 1500 : NewNpcAnimDeathMs;
@@ -597,6 +653,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcAnimSkillPath = "";
         NewNpcAnimIdlePath = "";
         NewNpcAnimWalkPath = "";
+        NewNpcAnimWalkFwdPath = "";
+        NewNpcAnimWalkBwdPath = "";
+        NewNpcAnimWalkLeftPath = "";
+        NewNpcAnimWalkRightPath = "";
+        NewNpcAnimRunFwdPath = "";
+        NewNpcAnimRunBwdPath = "";
+        NewNpcAnimRunLeftPath = "";
+        NewNpcAnimRunRightPath = "";
+        NewNpcAnimCastsCsv = "";
+        NewNpcAnimBuffsCsv = "";
         NewNpcAnimDeathMs = 1500;
         if (string.IsNullOrWhiteSpace(json)) return;
         try
@@ -608,7 +674,19 @@ public partial class MainViewModel : ObservableObject, IDisposable
             NewNpcAnimDeathPath = ReadAnimPathScalar(root, "death");
             NewNpcAnimSkillPath = ReadAnimPathScalar(root, "skill");
             NewNpcAnimIdlePath = ReadAnimPathScalar(root, "idle");
-            NewNpcAnimWalkPath = ReadAnimPathScalar(root, "walk");
+            ReadDirPaths(root, "walk", out var wFwd, out var wBwd, out var wLeft, out var wRight, out var wLegacy);
+            NewNpcAnimWalkPath = wLegacy;
+            NewNpcAnimWalkFwdPath = wFwd;
+            NewNpcAnimWalkBwdPath = wBwd;
+            NewNpcAnimWalkLeftPath = wLeft;
+            NewNpcAnimWalkRightPath = wRight;
+            ReadDirPaths(root, "run", out var rFwd, out var rBwd, out var rLeft, out var rRight, out _);
+            NewNpcAnimRunFwdPath = rFwd;
+            NewNpcAnimRunBwdPath = rBwd;
+            NewNpcAnimRunLeftPath = rLeft;
+            NewNpcAnimRunRightPath = rRight;
+            NewNpcAnimCastsCsv = JoinAnimPathCsv(ReadAnimPathList(root, "casts", "cast"));
+            NewNpcAnimBuffsCsv = JoinAnimPathCsv(ReadAnimPathList(root, "buffs", "buff"));
             if (root.TryGetProperty("death_ms", out var ms))
             {
                 if (ms.ValueKind == JsonValueKind.Number && ms.TryGetInt32(out var n) && n > 0)
@@ -641,6 +719,37 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var one = ReadAnimPathScalar(root, singularKey);
         if (one.Length > 0) list.Add(one);
         return list;
+    }
+
+    private static void ReadDirPaths(JsonElement root, string key,
+        out string fwd, out string bwd, out string left, out string right, out string legacy)
+    {
+        fwd = bwd = left = right = legacy = "";
+        if (!root.TryGetProperty(key, out var node)) return;
+        if (node.ValueKind == JsonValueKind.String)
+        {
+            legacy = (node.GetString() ?? "").Trim();
+            fwd = legacy;
+            return;
+        }
+        if (node.ValueKind != JsonValueKind.Object) return;
+        string Pick(params string[] keys)
+        {
+            foreach (var k in keys)
+            {
+                if (node.TryGetProperty(k, out var el) && el.ValueKind == JsonValueKind.String)
+                {
+                    var s = (el.GetString() ?? "").Trim();
+                    if (s.Length > 0) return s;
+                }
+            }
+            return "";
+        }
+        fwd = Pick("fwd", "f", "forward");
+        bwd = Pick("bwd", "b", "back", "backward");
+        left = Pick("left", "l");
+        right = Pick("right", "r");
+        legacy = fwd;
     }
 
     private static string ReadAnimPathScalar(JsonElement root, string key)
@@ -1839,6 +1948,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcAnimSkillPath = "";
         NewNpcAnimIdlePath = "";
         NewNpcAnimWalkPath = "";
+        NewNpcAnimWalkFwdPath = "";
+        NewNpcAnimWalkBwdPath = "";
+        NewNpcAnimWalkLeftPath = "";
+        NewNpcAnimWalkRightPath = "";
+        NewNpcAnimRunFwdPath = "";
+        NewNpcAnimRunBwdPath = "";
+        NewNpcAnimRunLeftPath = "";
+        NewNpcAnimRunRightPath = "";
+        NewNpcAnimCastsCsv = "";
+        NewNpcAnimBuffsCsv = "";
         NewNpcAnimDeathMs = 1500;
         NewNpcRightHandMeshPath = "";
         NewNpcLeftHandMeshPath = "";

@@ -2,6 +2,7 @@
 #include "core/Logger.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <initializer_list>
 #include <cmath>
 #include <ctime>
 
@@ -103,6 +104,32 @@ void appendAnimPathList(std::vector<std::string>& out, const nlohmann::json& nod
     if (!s.empty()) out.push_back(std::move(s));
   }
 }
+std::string jsonDirString(const nlohmann::json& dir, std::initializer_list<const char*> keys) {
+  for (const char* key : keys) {
+    if (dir.contains(key) && dir[key].is_string()) {
+      std::string s = dir[key].get<std::string>();
+      if (!s.empty()) return s;
+    }
+  }
+  return {};
+}
+
+void parseDirGroup(const nlohmann::json& root, const char* key, std::string& fwd, std::string& bwd,
+                    std::string& left, std::string& right, std::string& legacy) {
+  if (!root.contains(key)) return;
+  const auto& node = root[key];
+  if (node.is_string()) {
+    legacy = node.get<std::string>();
+    if (fwd.empty()) fwd = legacy;
+    return;
+  }
+  if (!node.is_object()) return;
+  fwd = jsonDirString(node, {"fwd", "f", "forward"});
+  bwd = jsonDirString(node, {"bwd", "b", "back", "backward"});
+  left = jsonDirString(node, {"left", "l"});
+  right = jsonDirString(node, {"right", "r"});
+  if (legacy.empty()) legacy = fwd;
+}
 }  // namespace
 
 void NpcManager::parseAnimStatesJson(NpcRuntimeInstance& inst, const std::string& jsonStr) {
@@ -112,6 +139,16 @@ void NpcManager::parseAnimStatesJson(NpcRuntimeInstance& inst, const std::string
   inst.skillAnimPath.clear();
   inst.idleAnimPath.clear();
   inst.walkAnimPath.clear();
+  inst.walkFwdPath.clear();
+  inst.walkBwdPath.clear();
+  inst.walkLeftPath.clear();
+  inst.walkRightPath.clear();
+  inst.runFwdPath.clear();
+  inst.runBwdPath.clear();
+  inst.runLeftPath.clear();
+  inst.runRightPath.clear();
+  inst.castAnimPaths.clear();
+  inst.buffAnimPaths.clear();
   inst.deathDurationMs = 0;
   if (jsonStr.empty()) return;
 
@@ -137,8 +174,19 @@ void NpcManager::parseAnimStatesJson(NpcRuntimeInstance& inst, const std::string
   if (root.contains("idle") && root["idle"].is_string()) {
     inst.idleAnimPath = root["idle"].get<std::string>();
   }
-  if (root.contains("walk") && root["walk"].is_string()) {
-    inst.walkAnimPath = root["walk"].get<std::string>();
+  parseDirGroup(root, "walk", inst.walkFwdPath, inst.walkBwdPath, inst.walkLeftPath, inst.walkRightPath,
+                 inst.walkAnimPath);
+  std::string runLegacy;
+  parseDirGroup(root, "run", inst.runFwdPath, inst.runBwdPath, inst.runLeftPath, inst.runRightPath, runLegacy);
+  if (inst.runFwdPath.empty()) inst.runFwdPath = runLegacy;
+  if (root.contains("casts")) {
+    appendAnimPathList(inst.castAnimPaths, root["casts"]);
+  }
+  if (root.contains("buffs")) {
+    appendAnimPathList(inst.buffAnimPaths, root["buffs"]);
+  }
+  if (inst.castAnimPaths.empty() && !inst.skillAnimPath.empty()) {
+    inst.castAnimPaths.push_back(inst.skillAnimPath);
   }
   if (root.contains("death_ms")) {
     try {
@@ -607,6 +655,16 @@ NpcSpawnPayload NpcManager::toSpawnPayload(const NpcRuntimeInstance& inst) const
   p.skillAnimPath = inst.skillAnimPath;
   p.idleAnimPath = inst.idleAnimPath;
   p.walkAnimPath = inst.walkAnimPath;
+  p.walkFwdPath = inst.walkFwdPath;
+  p.walkBwdPath = inst.walkBwdPath;
+  p.walkLeftPath = inst.walkLeftPath;
+  p.walkRightPath = inst.walkRightPath;
+  p.runFwdPath = inst.runFwdPath;
+  p.runBwdPath = inst.runBwdPath;
+  p.runLeftPath = inst.runLeftPath;
+  p.runRightPath = inst.runRightPath;
+  p.castAnimPaths = inst.castAnimPaths;
+  p.buffAnimPaths = inst.buffAnimPaths;
   p.deathDurationMs = inst.deathDurationMs;
   return p;
 }

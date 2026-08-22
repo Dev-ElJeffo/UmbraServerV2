@@ -134,6 +134,7 @@ try {
             s.threat_modifier,
             s.pvp_modifier,
             s.icon_path,
+            s.cast_anim_path,
             s.description,
             s.tooltip_template,
             s.server_tags,
@@ -250,6 +251,7 @@ try {
             ],
             
             'icon_path' => $skill['icon_path'],
+            'cast_anim_path' => $skill['cast_anim_path'] ?? '',
             'description' => $skill['description'],
             'tooltip_template' => $skill['tooltip_template'],
             'server_tags' => json_decode($skill['server_tags'] ?? '[]', true),

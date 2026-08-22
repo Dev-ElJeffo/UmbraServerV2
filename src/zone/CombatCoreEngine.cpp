@@ -505,6 +505,23 @@ bool CombatCoreEngine::loadBasicAttacks() {
     } catch (...) {
     }
   }
+
+  // Manager grava o path em skills (Ataque Básico). Overlay em cima de basic_attacks.
+  auto skillRows = db_->executePreparedQuery(
+      "SELECT class_id, COALESCE(cast_anim_path,'') FROM skills "
+      "WHERE is_basic_attack = 1 AND is_enabled = 1",
+      {});
+  for (const auto& row : skillRows) {
+    if (row.size() < 2 || row[1].empty()) continue;
+    try {
+      const uint32_t cid = static_cast<uint32_t>(std::stoul(row[0]));
+      auto it = basicAttacksByClass_.find(cid);
+      if (it != basicAttacksByClass_.end()) {
+        it->second.castAnimPath = row[1];
+      }
+    } catch (...) {
+    }
+  }
   return !basicAttacksByClass_.empty();
 }
 
@@ -1442,6 +1459,7 @@ bool CombatCoreEngine::reloadSkills() {
   const bool ok = skillService_->reloadSkills();
   if (ok) {
     preloadSkillAnimPaths();
+    loadBasicAttacks();
     Core::Logger::getInstance().info("[CombatCoreEngine] skills recarregadas do DB");
   }
   return ok;
@@ -1852,30 +1870,43 @@ void CombatCoreEngine::loadSkillAnimPaths(uint32_t skillId,
   vfx.clear();
   sfx.clear();
 
-  {
-    std::lock_guard<std::mutex> lock(skillAnimCacheMu_);
-    auto it = skillAnimCache_.find(skillId);
-    if (it != skillAnimCache_.end()) {
-      anim = it->second.anim;
-      vfx = it->second.vfx;
-      sfx = it->second.sfx;
+  // Sempre relê o DB: o Manager altera cast_anim_path sem reiniciar a zone.
+  if (db_ && db_->isConnected()) {
+    auto rows = db_->executePreparedQuery(
+        "SELECT COALESCE(cast_anim_path,''), COALESCE(vfx_path,''), COALESCE(sfx_path,'') "
+        "FROM skills WHERE skill_id = ? LIMIT 1",
+        {std::to_string(skillId)});
+    if (!rows.empty() && rows[0].size() >= 3) {
+      anim = rows[0][0];
+      vfx = rows[0][1];
+      sfx = rows[0][2];
+      std::lock_guard<std::mutex> lock(skillAnimCacheMu_);
+      skillAnimCache_[skillId] = SkillAnimPaths{anim, vfx, sfx};
       return;
     }
   }
 
-  if (!db_ || !db_->isConnected()) return;
-
-  auto rows = db_->executePreparedQuery(
-      "SELECT COALESCE(cast_anim_path,''), COALESCE(vfx_path,''), COALESCE(sfx_path,'') "
-      "FROM skills WHERE skill_id = ? LIMIT 1",
-      {std::to_string(skillId)});
-  if (rows.empty() || rows[0].size() < 3) return;
-  anim = rows[0][0];
-  vfx = rows[0][1];
-  sfx = rows[0][2];
-
   std::lock_guard<std::mutex> lock(skillAnimCacheMu_);
-  skillAnimCache_[skillId] = SkillAnimPaths{anim, vfx, sfx};
+  auto it = skillAnimCache_.find(skillId);
+  if (it != skillAnimCache_.end()) {
+    anim = it->second.anim;
+    vfx = it->second.vfx;
+    sfx = it->second.sfx;
+  }
+}
+
+std::string CombatCoreEngine::resolveBasicAttackAnimPath(uint32_t classId,
+                                                       const std::string& fallback) {
+  if (db_ && db_->isConnected()) {
+    auto rows = db_->executePreparedQuery(
+        "SELECT COALESCE(cast_anim_path,'') FROM skills "
+        "WHERE class_id = ? AND is_basic_attack = 1 AND is_enabled = 1 LIMIT 1",
+        {std::to_string(classId)});
+    if (!rows.empty() && !rows[0].empty() && !rows[0][0].empty()) {
+      return rows[0][0];
+    }
+  }
+  return fallback;
 }
 
 bool CombatCoreEngine::loadPlayerClassId(uint32_t playerId, uint32_t& outClassId) {
@@ -3195,7 +3226,9 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
   atkBroadcast.classId = classId;
   atkBroadcast.targetId = payload.targetId;
   atkBroadcast.hitWindowMs = 300;
-  atkBroadcast.castAnimPath = basic.castAnimPath;
+  atkBroadcast.castAnimPath = resolveBasicAttackAnimPath(classId, basic.castAnimPath);
+  Core::Logger::getInstance().debug(
+      "[CombatCoreEngine] BasicAttack anim class={} path={}", classId, atkBroadcast.castAnimPath);
   broadcastBasicAttack(atkBroadcast);
 
   // SkillData sintética representando o ataque básico (físico, pode critar).

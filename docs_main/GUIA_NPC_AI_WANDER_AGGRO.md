@@ -54,7 +54,7 @@ Instância: `home_x/y/z` (centro do roam). Spawn/admin move redefine home = pos.
 
 ## Animações por estado
 
-Ver [`GUIA_NPC_ANIM_STATES_UE561.md`](GUIA_NPC_ANIM_STATES_UE561.md) (`anim_states_json`, death delay, `aiState` no 102).
+Ver [`GUIA_NPC_ANIM_STATES_UE561.md`](GUIA_NPC_ANIM_STATES_UE561.md) (`anim_states_json`, ABP_Humanoid + Animation Set, death delay, `aiState` no 102).
 
 ## Teste rápido
 

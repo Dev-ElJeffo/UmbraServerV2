@@ -422,6 +422,14 @@
                 <views:SkillsEditorView/>
             </TabItem>
 
+            <TabItem Header="Classes" Visibility="{Binding TabVisibilityContent}">
+                <views:ClassesEditorView/>
+            </TabItem>
+
+            <TabItem Header="Progressão" Visibility="{Binding TabVisibilityContent}">
+                <views:ProgressionEditorView/>
+            </TabItem>
+
             <!-- NPCs -->
             <TabItem Header="NPCs" Visibility="{Binding TabVisibilityContent}">
                 <TabControl Margin="4" SelectedIndex="{Binding NpcSubTabIndex, Mode=TwoWay}">
@@ -679,7 +687,34 @@
                                                      materialDesign:HintAssist.IsFloating="True"
                                                      Margin="0,0,0,6"/>
                                             <TextBox Text="{Binding NewNpcAnimWalkPath, UpdateSourceTrigger=PropertyChanged}"
-                                                     materialDesign:HintAssist.Hint="Walk sequence (fallback sem AnimBP)"
+                                                     materialDesign:HintAssist.Hint="Walk sequence (fallback 1 eixo / Griffon)"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     Margin="0,0,0,6"/>
+                                            <TextBlock Text="Walk 4 dirs (humanoide)" FontSize="11" Opacity="0.7" Margin="0,4,0,4"/>
+                                            <TextBox Text="{Binding NewNpcAnimWalkFwdPath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Walk fwd" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,4"/>
+                                            <TextBox Text="{Binding NewNpcAnimWalkBwdPath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Walk bwd" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,4"/>
+                                            <TextBox Text="{Binding NewNpcAnimWalkLeftPath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Walk left" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,4"/>
+                                            <TextBox Text="{Binding NewNpcAnimWalkRightPath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Walk right" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,6"/>
+                                            <TextBlock Text="Run 4 dirs (humanoide)" FontSize="11" Opacity="0.7" Margin="0,4,0,4"/>
+                                            <TextBox Text="{Binding NewNpcAnimRunFwdPath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Run fwd" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,4"/>
+                                            <TextBox Text="{Binding NewNpcAnimRunBwdPath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Run bwd" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,4"/>
+                                            <TextBox Text="{Binding NewNpcAnimRunLeftPath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Run left" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,4"/>
+                                            <TextBox Text="{Binding NewNpcAnimRunRightPath, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Run right" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,6"/>
+                                            <TextBox Text="{Binding NewNpcAnimCastsCsv, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Casts/buffs montages (paths ; )"
+                                                     materialDesign:HintAssist.IsFloating="True"
+                                                     AcceptsReturn="True" MinHeight="36" TextWrapping="Wrap"
+                                                     Margin="0,0,0,6"/>
+                                            <TextBox Text="{Binding NewNpcAnimBuffsCsv, UpdateSourceTrigger=PropertyChanged}"
+                                                     materialDesign:HintAssist.Hint="Buffs overlay (paths ; )"
                                                      materialDesign:HintAssist.IsFloating="True"
                                                      Margin="0,0,0,6"/>
                                             <TextBox Text="{Binding NewNpcAnimDeathMs, UpdateSourceTrigger=PropertyChanged}"

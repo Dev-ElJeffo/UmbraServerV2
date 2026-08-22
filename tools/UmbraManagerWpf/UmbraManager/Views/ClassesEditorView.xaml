@@ -1,0 +1,122 @@
+<UserControl x:Class="UmbraManager.Views.ClassesEditorView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes">
+  <Grid Margin="8">
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="*" MinWidth="360"/>
+      <ColumnDefinition Width="Auto"/>
+      <ColumnDefinition Width="560"/>
+    </Grid.ColumnDefinitions>
+
+    <DockPanel Grid.Column="0">
+      <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+        <Button Content="Atualizar" Command="{Binding RefreshGameClassesCommand}" Margin="0,0,8,4"
+                Style="{StaticResource ManagerActionOutlinedButton}"/>
+        <Button Content="Nova classe" Command="{Binding NewGameClassCommand}" Margin="0,0,8,4"
+                Style="{StaticResource ManagerActionOutlinedButton}"/>
+        <TextBlock Text="{Binding GameClasses.Count, StringFormat={}{0} classes}"
+                   VerticalAlignment="Center" Opacity="0.7"/>
+      </WrapPanel>
+      <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding GameClasses}"
+                SelectedItem="{Binding SelectedGameClass}" IsReadOnly="True">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="ID" Binding="{Binding ClassId}" Width="45"/>
+          <DataGridTextColumn Header="Nome" Binding="{Binding ClassName}" Width="*"/>
+          <DataGridTextColumn Header="STR" Binding="{Binding BaseStrength}" Width="50"/>
+          <DataGridTextColumn Header="DEX" Binding="{Binding BaseDexterity}" Width="50"/>
+          <DataGridTextColumn Header="INT" Binding="{Binding BaseIntelligence}" Width="50"/>
+          <DataGridTextColumn Header="VIT" Binding="{Binding BaseVitality}" Width="50"/>
+          <DataGridTextColumn Header="LUK" Binding="{Binding BaseLuck}" Width="50"/>
+          <DataGridTextColumn Header="HP" Binding="{Binding BaseHealth}" Width="55"/>
+          <DataGridTextColumn Header="MP" Binding="{Binding BaseMana}" Width="55"/>
+        </DataGrid.Columns>
+      </DataGrid>
+    </DockPanel>
+
+    <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" Background="Transparent"
+                  ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
+
+    <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+      <StackPanel Margin="8,0,0,12">
+        <TextBlock Text="{Binding ClassFormTitle}" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,8"/>
+        <TextBox Text="{Binding ClassFormName, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Nome" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassFormDescription, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"
+                 AcceptsReturn="True" MinHeight="48" TextWrapping="Wrap"
+                 materialDesign:HintAssist.Hint="Descrição" materialDesign:HintAssist.IsFloating="True"/>
+
+        <TextBlock Text="Base stats" FontWeight="SemiBold" Margin="0,4,0,6"/>
+        <UniformGrid Columns="3">
+          <TextBox Text="{Binding ClassFormStrength}" Margin="0,0,6,6" materialDesign:HintAssist.Hint="STR" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormDexterity}" Margin="0,0,6,6" materialDesign:HintAssist.Hint="DEX" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormIntelligence}" Margin="0,0,0,6" materialDesign:HintAssist.Hint="INT" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormVitality}" Margin="0,0,6,6" materialDesign:HintAssist.Hint="VIT" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormLuck}" Margin="0,0,6,6" materialDesign:HintAssist.Hint="LUCK" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormMovement}" Margin="0,0,0,6" materialDesign:HintAssist.Hint="Movement" materialDesign:HintAssist.IsFloating="True"/>
+        </UniformGrid>
+
+        <TextBlock Text="Recursos" FontWeight="SemiBold" Margin="0,8,0,6"/>
+        <UniformGrid Columns="3">
+          <TextBox Text="{Binding ClassFormHealth}" Margin="0,0,6,6" materialDesign:HintAssist.Hint="HP" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormMana}" Margin="0,0,6,6" materialDesign:HintAssist.Hint="MP" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormStamina}" Margin="0,0,0,6" materialDesign:HintAssist.Hint="Stamina" materialDesign:HintAssist.IsFloating="True"/>
+        </UniformGrid>
+
+        <TextBlock Text="Combate" FontWeight="SemiBold" Margin="0,8,0,6"/>
+        <UniformGrid Columns="2">
+          <TextBox Text="{Binding ClassFormPhysicalAttack}" Margin="0,0,6,6" materialDesign:HintAssist.Hint="Phys Atk" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormMagicAttack}" Margin="0,0,0,6" materialDesign:HintAssist.Hint="Mag Atk" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormPhysicalDefense}" Margin="0,0,6,6" materialDesign:HintAssist.Hint="Phys Def" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormMagicDefense}" Margin="0,0,0,6" materialDesign:HintAssist.Hint="Mag Def" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormAccuracy}" Margin="0,0,6,6" materialDesign:HintAssist.Hint="Accuracy" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormDodge}" Margin="0,0,0,6" materialDesign:HintAssist.Hint="Dodge" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormCritical}" Margin="0,0,6,6" materialDesign:HintAssist.Hint="Critical" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormCriticalResistance}" Margin="0,0,0,6" materialDesign:HintAssist.Hint="Crit resist" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormDoubleAttackRate}" Margin="0,0,6,6" materialDesign:HintAssist.Hint="Double atk rate" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormDoubleAttackResistance}" Margin="0,0,0,6" materialDesign:HintAssist.Hint="Double atk resist" materialDesign:HintAssist.IsFloating="True"/>
+        </UniformGrid>
+
+        <TextBlock Text="Animation Set (loco / hit / death)" FontWeight="SemiBold" Margin="0,12,0,6"/>
+        <TextBox Text="{Binding ClassAnimIdlePath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Idle" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassAnimWalkPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Walk (1 eixo / fallback)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassAnimWalkFwdPath}" Margin="0,0,0,4" materialDesign:HintAssist.Hint="Walk fwd" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassAnimWalkBwdPath}" Margin="0,0,0,4" materialDesign:HintAssist.Hint="Walk bwd" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassAnimWalkLeftPath}" Margin="0,0,0,4" materialDesign:HintAssist.Hint="Walk left" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassAnimWalkRightPath}" Margin="0,0,0,6" materialDesign:HintAssist.Hint="Walk right" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassAnimRunFwdPath}" Margin="0,0,0,4" materialDesign:HintAssist.Hint="Run fwd" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassAnimRunBwdPath}" Margin="0,0,0,4" materialDesign:HintAssist.Hint="Run bwd" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassAnimRunLeftPath}" Margin="0,0,0,4" materialDesign:HintAssist.Hint="Run left" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassAnimRunRightPath}" Margin="0,0,0,6" materialDesign:HintAssist.Hint="Run right" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassAnimHitsCsv}" Margin="0,0,0,6" materialDesign:HintAssist.Hint="Hits (; )" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassAnimBuffsCsv}" Margin="0,0,0,6" materialDesign:HintAssist.Hint="Buffs (; )" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassAnimDeathPath}" Margin="0,0,0,6" materialDesign:HintAssist.Hint="Death" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassAnimDeathMs}" Margin="0,0,0,8" materialDesign:HintAssist.Hint="Death ms" materialDesign:HintAssist.IsFloating="True"/>
+
+        <WrapPanel Margin="0,0,0,12">
+          <Button Content="{Binding ClassSaveButtonText}" Command="{Binding SaveGameClassCommand}"
+                  Style="{StaticResource ManagerActionButton}" Margin="0,0,8,4"/>
+          <Button Content="Excluir" Command="{Binding DeleteGameClassCommand}"
+                  Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,8,4"/>
+        </WrapPanel>
+
+        <TextBlock Text="Animações por habilidade (cast_anim_path)" FontWeight="SemiBold" Margin="0,4,0,6"/>
+        <TextBlock Text="Básico no topo. Cada skill deve ter um path distinto (Montage/Sequence)."
+                   FontSize="11" Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,6"/>
+        <DataGrid ItemsSource="{Binding ClassSkillAnims}" AutoGenerateColumns="False" CanUserAddRows="False"
+                  Height="260" Style="{StaticResource ManagerDataGrid}">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="#" Binding="{Binding SkillOrder}" Width="36" IsReadOnly="True"/>
+            <DataGridCheckBoxColumn Header="Básico" Binding="{Binding IsBasicAttack, Mode=OneWay}" Width="55"/>
+            <DataGridTextColumn Header="Skill" Binding="{Binding SkillName}" Width="140" IsReadOnly="True"/>
+            <DataGridTextColumn Header="cast_anim_path" Binding="{Binding CastAnimPath, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+          </DataGrid.Columns>
+        </DataGrid>
+        <Button Content="Salvar anims das skills" Command="{Binding SaveClassSkillAnimsCommand}"
+                Style="{StaticResource ManagerActionButton}" Margin="0,8,0,0" HorizontalAlignment="Left"/>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

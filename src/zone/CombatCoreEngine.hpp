@@ -258,6 +258,8 @@ private:
   void broadcastPlayerSkillBuffApply(SkillBuffSyncPayload& sync);
   void preloadSkillAnimPaths();
   void loadSkillAnimPaths(uint32_t skillId, std::string& anim, std::string& vfx, std::string& sfx);
+  /** Path do opcode 99: skills.cast_anim_path (is_basic_attack) com fallback em basic_attacks. */
+  std::string resolveBasicAttackAnimPath(uint32_t classId, const std::string& fallback);
   void handleNpcDamageResult(uint32_t npcInstanceId, int32_t applied, bool npcDied,
                              uint32_t killerPlayerId = 0);
   int32_t computeDoubleBonus(const Combat::CharacterState& attacker,

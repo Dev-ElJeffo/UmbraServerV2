@@ -1979,6 +1979,16 @@ struct NpcSpawnPayload {
   std::string skillAnimPath;
   std::string idleAnimPath;
   std::string walkAnimPath;
+  std::string walkFwdPath;
+  std::string walkBwdPath;
+  std::string walkLeftPath;
+  std::string walkRightPath;
+  std::string runFwdPath;
+  std::string runBwdPath;
+  std::string runLeftPath;
+  std::string runRightPath;
+  std::vector<std::string> castAnimPaths;
+  std::vector<std::string> buffAnimPaths;
   uint16_t deathDurationMs = 0;
 };
 
@@ -2240,6 +2250,16 @@ inline std::vector<uint8_t> encodeNpcSpawnNotify(const NpcSpawnPayload& p) {
   appendStringField(data, p.walkAnimPath, 255);
   data.push_back(static_cast<uint8_t>(p.deathDurationMs & 0xFF));
   data.push_back(static_cast<uint8_t>((p.deathDurationMs >> 8) & 0xFF));
+  appendStringField(data, p.walkFwdPath, 255);
+  appendStringField(data, p.walkBwdPath, 255);
+  appendStringField(data, p.walkLeftPath, 255);
+  appendStringField(data, p.walkRightPath, 255);
+  appendStringField(data, p.runFwdPath, 255);
+  appendStringField(data, p.runBwdPath, 255);
+  appendStringField(data, p.runLeftPath, 255);
+  appendStringField(data, p.runRightPath, 255);
+  writePathList(p.castAnimPaths);
+  writePathList(p.buffAnimPaths);
   return data;
 }
 
@@ -2330,6 +2350,18 @@ inline bool decodeNpcSpawnNotify(const std::vector<uint8_t>& data, NpcSpawnPaylo
       if (off + 2 <= data.size()) {
         p.deathDurationMs = static_cast<uint16_t>(data[off] | (static_cast<uint16_t>(data[off + 1]) << 8));
         off += 2;
+      }
+      if (off < data.size()) {
+        if (!readStringField(data, off, p.walkFwdPath, 255)) return false;
+        if (off < data.size() && !readStringField(data, off, p.walkBwdPath, 255)) return false;
+        if (off < data.size() && !readStringField(data, off, p.walkLeftPath, 255)) return false;
+        if (off < data.size() && !readStringField(data, off, p.walkRightPath, 255)) return false;
+        if (off < data.size() && !readStringField(data, off, p.runFwdPath, 255)) return false;
+        if (off < data.size() && !readStringField(data, off, p.runBwdPath, 255)) return false;
+        if (off < data.size() && !readStringField(data, off, p.runLeftPath, 255)) return false;
+        if (off < data.size() && !readStringField(data, off, p.runRightPath, 255)) return false;
+        if (off < data.size()) readPathList(p.castAnimPaths);
+        if (off < data.size()) readPathList(p.buffAnimPaths);
       }
     }
   }

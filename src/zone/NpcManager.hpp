@@ -61,6 +61,16 @@ struct NpcRuntimeInstance {
   std::string skillAnimPath;
   std::string idleAnimPath;
   std::string walkAnimPath;
+  std::string walkFwdPath;
+  std::string walkBwdPath;
+  std::string walkLeftPath;
+  std::string walkRightPath;
+  std::string runFwdPath;
+  std::string runBwdPath;
+  std::string runLeftPath;
+  std::string runRightPath;
+  std::vector<std::string> castAnimPaths;
+  std::vector<std::string> buffAnimPaths;
   uint16_t deathDurationMs = 0;
   bool pendingDeathDespawn = false;
   std::chrono::steady_clock::time_point deathDespawnAt{};
