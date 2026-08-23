@@ -82,6 +82,14 @@ struct NpcRuntimeInstance {
   bool isAttackable = true;
   bool isHostile = true;
   float interactionRadius = 300.f;
+  float collisionRadius = 45.f;
+  float nameplateRadius = 2000.f;
+
+  float bodyMinDist() const {
+    const float cr = collisionRadius > 1.f ? collisionRadius : 45.f;
+    const float sc = meshScale > 0.01f ? meshScale : 1.f;
+    return cr * sc + 42.f;
+  }
   float aggroRadius = 0.f;
   float leashRadius = 0.f;
   float attackRange = 150.f;

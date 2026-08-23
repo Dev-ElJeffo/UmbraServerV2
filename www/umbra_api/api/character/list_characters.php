@@ -124,6 +124,7 @@ try {
             dexterity,
             intelligence,
             vitality,
+            class_id,
             created_at,
             last_played_at
         FROM players
@@ -140,6 +141,7 @@ try {
             'player_id' => intval($player['id']),
             'account_id' => intval($player['account_id']),
             'character_name' => $player['character_name'],
+            'class_id' => intval($player['class_id'] ?? 0),
             'level' => intval($player['level']),
             'experience' => intval($player['experience']),
             'current_zone' => $player['current_zone'],

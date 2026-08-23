@@ -1429,6 +1429,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     IsEditable = TryGetBoolProp(t, "is_editable"),
                     IsAttackable = TryGetBoolProp(t, "is_attackable"),
                     InteractionRadius = TryGetFloatProp(t, "interaction_radius"),
+                    CollisionRadius = TryGetFloatProp(t, "collision_radius") is float cr && cr > 0 ? cr : 45f,
+                    NameplateRadius = TryGetFloatProp(t, "nameplate_radius") is float nr && nr > 0 ? nr : 2000f,
                     HasVendor = TryGetBoolProp(t, "has_vendor"),
                     VendorId = TryGetIntProp(t, "vendor_id"),
                     HasQuestDialog = TryGetBoolProp(t, "has_quest_dialog"),
@@ -1738,6 +1740,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["is_editable"] = 1,
             ["is_attackable"] = NewNpcIsAttackable ? 1 : 0,
             ["interaction_radius"] = NewNpcInteractionRadius,
+            ["collision_radius"] = NewNpcCollisionRadius < 1f ? 45f : NewNpcCollisionRadius,
+            ["nameplate_radius"] = NewNpcNameplateRadius < 1f ? 2000f : NewNpcNameplateRadius,
             ["has_vendor"] = NewNpcHasVendor ? 1 : 0,
             ["has_quest_dialog"] = NewNpcHasQuestDialog ? 1 : 0,
             ["dialog_title"] = NewNpcDialogTitle,
@@ -1902,6 +1906,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcMeshScale = row.MeshScale <= 0 ? 1f : row.MeshScale;
         NewNpcIsAttackable = row.IsAttackable;
         NewNpcInteractionRadius = row.InteractionRadius <= 0 ? 300f : row.InteractionRadius;
+        NewNpcCollisionRadius = row.CollisionRadius < 1f ? 45f : row.CollisionRadius;
+        NewNpcNameplateRadius = row.NameplateRadius < 1f ? 2000f : row.NameplateRadius;
         NewNpcHasVendor = row.HasVendor;
         NewNpcHasQuestDialog = row.HasQuestDialog;
         NewNpcDialogTitle = row.DialogTitle ?? "";
@@ -1978,6 +1984,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcMeshScale = 1f;
         NewNpcIsAttackable = true;
         NewNpcInteractionRadius = 300f;
+        NewNpcCollisionRadius = 45f;
+        NewNpcNameplateRadius = 2000f;
         NewNpcHasVendor = false;
         NewNpcHasQuestDialog = false;
         NewNpcDialogTitle = "";

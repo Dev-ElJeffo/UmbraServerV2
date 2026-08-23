@@ -47,6 +47,8 @@ public sealed class NpcTemplateRow
     public bool IsEditable { get; set; } = true;
     public bool IsAttackable { get; set; } = true;
     public float InteractionRadius { get; set; } = 300f;
+    public float CollisionRadius { get; set; } = 45f;
+    public float NameplateRadius { get; set; } = 2000f;
     public bool HasVendor { get; set; }
     public int VendorId { get; set; }
     public bool HasQuestDialog { get; set; }

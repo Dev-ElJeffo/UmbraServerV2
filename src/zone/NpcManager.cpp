@@ -69,7 +69,9 @@ const char* NpcManager::kInstanceSelectSql =
     "COALESCE(nt.left_hand_rel_x, 0), COALESCE(nt.left_hand_rel_y, 0), COALESCE(nt.left_hand_rel_z, 0), "
     "COALESCE(nt.left_hand_rel_pitch, 0), COALESCE(nt.left_hand_rel_yaw, 0), COALESCE(nt.left_hand_rel_roll, 0), "
     "COALESCE(nt.left_hand_rel_scale, 1), "
-    "nt.anim_states_json "
+    "nt.anim_states_json, "
+    "COALESCE(nt.collision_radius, 45) AS collision_radius, "
+    "COALESCE(nt.nameplate_radius, 2000) AS nameplate_radius "
     "FROM npc_instances ni "
     "JOIN npc_templates nt ON nt.npc_template_id = ni.npc_template_id "
     "LEFT JOIN npc_vendors nv ON nv.npc_template_id = nt.npc_template_id ";
@@ -393,6 +395,16 @@ void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
     if (row.size() > 64) {
       parseAnimStatesJson(inst, row[64]);
     }
+    inst.collisionRadius = 45.f;
+    if (row.size() > 65) {
+      inst.collisionRadius = parseFloatOr(row[65], 45.f);
+      if (inst.collisionRadius < 1.f) inst.collisionRadius = 45.f;
+    }
+    inst.nameplateRadius = 2000.f;
+    if (row.size() > 66) {
+      inst.nameplateRadius = parseFloatOr(row[66], 2000.f);
+      if (inst.nameplateRadius < 1.f) inst.nameplateRadius = 2000.f;
+    }
 
     inst.lastBroadcastX = inst.x;
     inst.lastBroadcastY = inst.y;
@@ -647,6 +659,8 @@ NpcSpawnPayload NpcManager::toSpawnPayload(const NpcRuntimeInstance& inst) const
   if (inst.hasVendor) p.flags |= 0x02;
   if (inst.hasQuestDialog) p.flags |= 0x04;
   p.interactionRadius = inst.interactionRadius;
+  p.collisionRadius = inst.collisionRadius;
+  p.nameplateRadius = inst.nameplateRadius;
   p.vendorId = inst.vendorId;
   p.meshScale = inst.meshScale;
   p.attackAnimPaths = inst.attackAnimPaths;

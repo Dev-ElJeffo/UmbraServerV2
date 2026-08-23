@@ -59,6 +59,8 @@ public partial class MainViewModel
     [ObservableProperty] private float _newNpcMeshScale = 1f;
     [ObservableProperty] private bool _newNpcIsAttackable = true;
     [ObservableProperty] private float _newNpcInteractionRadius = 300f;
+    [ObservableProperty] private float _newNpcCollisionRadius = 45f;
+    [ObservableProperty] private float _newNpcNameplateRadius = 2000f;
     [ObservableProperty] private bool _newNpcHasVendor;
     [ObservableProperty] private bool _newNpcHasQuestDialog;
     [ObservableProperty] private string _newNpcDialogTitle = "";

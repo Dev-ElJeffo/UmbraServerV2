@@ -35,7 +35,7 @@ try {
             accuracy, dodge, critical, critical_resistance,
             double_attack_rate, double_attack_resistance,
             skeletal_mesh_path, anim_blueprint_path, anim_states_json, mesh_scale, is_editable,
-            is_attackable, interaction_radius, has_vendor, has_quest_dialog,
+            is_attackable, interaction_radius, collision_radius, nameplate_radius, has_vendor, has_quest_dialog,
             dialog_title, dialog_text, respawn_seconds, kill_exp,
             aggro_radius, leash_radius, attack_range, attack_cooldown_ms,
             move_speed, roam_radius, is_hostile,
@@ -51,7 +51,7 @@ try {
             :accuracy, :dodge, :critical, :critical_resistance,
             :double_attack_rate, :double_attack_resistance,
             :skeletal_mesh_path, :anim_blueprint_path, :anim_states_json, :mesh_scale, :is_editable,
-            :is_attackable, :interaction_radius, :has_vendor, :has_quest_dialog,
+            :is_attackable, :interaction_radius, :collision_radius, :nameplate_radius, :has_vendor, :has_quest_dialog,
             :dialog_title, :dialog_text, :respawn_seconds, :kill_exp,
             :aggro_radius, :leash_radius, :attack_range, :attack_cooldown_ms,
             :move_speed, :roam_radius, :is_hostile,
@@ -117,6 +117,14 @@ try {
         ':is_editable' => (int)($data['is_editable'] ?? 1),
         ':is_attackable' => (int)($data['is_attackable'] ?? 1),
         ':interaction_radius' => (float)($data['interaction_radius'] ?? 300),
+        ':collision_radius' => (function () use ($data) {
+            $r = (float)($data['collision_radius'] ?? 45);
+            return $r < 1.0 ? 45.0 : $r;
+        })(),
+        ':nameplate_radius' => (function () use ($data) {
+            $r = (float)($data['nameplate_radius'] ?? 2000);
+            return $r < 1.0 ? 2000.0 : $r;
+        })(),
         ':has_vendor' => (int)($data['has_vendor'] ?? 0),
         ':has_quest_dialog' => (int)($data['has_quest_dialog'] ?? 0),
         ':dialog_title' => $data['dialog_title'] ?? null,

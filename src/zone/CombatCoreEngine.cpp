@@ -3443,7 +3443,9 @@ void CombatCoreEngine::processNpcBasicAttack(uint32_t npcInstanceId, uint32_t ta
   if (!tryGetPlayerPosition(targetPlayerId, px, py, pz)) return;
 
   // Melee do mob: range curto (sem margem grande de cápsula/AI — senão “bate de longe”).
-  const float attackR = std::max(50.f, inst->attackRange) * 1.15f;
+  // Se attack_range < minDist do corpo, usa minDist só no teste de hit.
+  const float minDist = inst->bodyMinDist();
+  const float attackR = std::max(50.f, std::max(inst->attackRange, minDist)) * 1.15f;
   if (!isInRange2D(inst->x, inst->y, px, py, attackR)) {
     return;
   }
@@ -3490,9 +3492,14 @@ void CombatCoreEngine::processNpcBasicAttack(uint32_t npcInstanceId, uint32_t ta
 
   const Combat::DamageBreakdown bd =
       Combat::CombatCalculator::getInstance().calculatePhysicalDamage(attacker, defender, synthetic,
-                                                                      /*rank*/ 1, true);
+                                                                      /*rank*/ 1, false);
   const int32_t delta = -bd.finalDamage;
   const bool isCrit = (bd.critMultiplier != 100);
+  Core::Logger::getInstance().info(
+      "[CombatCoreEngine] NpcBasicAttack npc={} -> player={} npcAtk={} playerDef={} defReduction={} "
+      "finalDamage={} crit={}",
+      npcInstanceId, targetPlayerId, attacker.buffedStats.physicalAttack,
+      defender.buffedStats.physicalDefense, bd.defenseReduction, bd.finalDamage, isCrit ? 1 : 0);
 
   int32_t doubleBonus = 0;
   bool isDouble = false;

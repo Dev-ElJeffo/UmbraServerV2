@@ -27,10 +27,26 @@ BEGIN
 
     IF NOT EXISTS (
         SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'npc_templates' AND COLUMN_NAME = 'collision_radius'
+    ) THEN
+        ALTER TABLE npc_templates
+            ADD COLUMN collision_radius FLOAT NOT NULL DEFAULT 45.0 AFTER interaction_radius;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'npc_templates' AND COLUMN_NAME = 'nameplate_radius'
+    ) THEN
+        ALTER TABLE npc_templates
+            ADD COLUMN nameplate_radius FLOAT NOT NULL DEFAULT 2000.0 AFTER collision_radius;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'npc_templates' AND COLUMN_NAME = 'has_vendor'
     ) THEN
         ALTER TABLE npc_templates
-            ADD COLUMN has_vendor TINYINT(1) NOT NULL DEFAULT 0 AFTER interaction_radius;
+            ADD COLUMN has_vendor TINYINT(1) NOT NULL DEFAULT 0 AFTER nameplate_radius;
     END IF;
 
     IF NOT EXISTS (

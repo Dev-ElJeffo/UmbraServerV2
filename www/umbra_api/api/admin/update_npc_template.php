@@ -32,7 +32,7 @@ $allowed = [
     'accuracy', 'dodge', 'critical', 'critical_resistance',
     'double_attack_rate', 'double_attack_resistance',
     'skeletal_mesh_path', 'anim_blueprint_path', 'anim_states_json', 'mesh_scale', 'is_editable',
-    'kill_exp', 'is_attackable', 'interaction_radius', 'has_vendor', 'has_quest_dialog',
+    'kill_exp', 'is_attackable', 'interaction_radius', 'collision_radius', 'nameplate_radius', 'has_vendor', 'has_quest_dialog',
     'dialog_title', 'dialog_text', 'respawn_seconds',
     'aggro_radius', 'leash_radius', 'attack_range', 'attack_cooldown_ms',
     'move_speed', 'roam_radius', 'is_hostile',
@@ -62,6 +62,18 @@ foreach ($allowed as $field) {
                     json_decode($raw, true);
                     $value = (json_last_error() === JSON_ERROR_NONE) ? $raw : null;
                 }
+            }
+        }
+        if ($field === 'collision_radius') {
+            $value = (float)$value;
+            if ($value < 1.0) {
+                $value = 45.0;
+            }
+        }
+        if ($field === 'nameplate_radius') {
+            $value = (float)$value;
+            if ($value < 1.0) {
+                $value = 2000.0;
             }
         }
         $params[$key] = $value;

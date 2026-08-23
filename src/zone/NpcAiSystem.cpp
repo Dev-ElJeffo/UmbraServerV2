@@ -124,8 +124,9 @@ void NpcAiSystem::tick(float deltaSeconds) {
         enterReturn(inst);
       } else {
         // Melee: só ataca bem perto; fora disso persegue (evita “bater de longe”).
+        const float minDist = inst.bodyMinDist();
         const float attackR = std::max(50.f, inst.attackRange);
-        const float meleeReach = std::max(40.f, attackR * 0.75f);
+        const float meleeReach = std::max(std::max(40.f, attackR * 0.75f), minDist);
         float aimX = tx, aimY = ty;
         chaseAimXY(inst.npcInstanceId, tx, ty, aimX, aimY);
         const float toPlayer2d = std::sqrt(dist2dSq(inst.x, inst.y, tx, ty));
@@ -250,6 +251,27 @@ void NpcAiSystem::tick(float deltaSeconds) {
             }
             inst.aiState = NpcAiState::Wander;
           }
+        }
+      }
+    }
+
+    if (inst.aiState != NpcAiState::Dying) {
+      const float minDist = inst.bodyMinDist();
+      for (const auto& kv : players) {
+        const PlayerStateNet& p = kv.second;
+        if (p.isDead || p.playerId == 0) continue;
+        const float dx = inst.x - p.x;
+        const float dy = inst.y - p.y;
+        const float d = std::sqrt(dx * dx + dy * dy);
+        if (d < 0.001f) {
+          inst.x = p.x + minDist;
+          inst.y = p.y;
+          inst.z = inst.homeZ;
+        } else if (d < minDist) {
+          const float s = minDist / d;
+          inst.x = p.x + dx * s;
+          inst.y = p.y + dy * s;
+          inst.z = inst.homeZ;
         }
       }
     }

@@ -796,21 +796,29 @@
                                                     <ColumnDefinition Width="*"/>
                                                     <ColumnDefinition Width="8"/>
                                                     <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
                                                 </Grid.ColumnDefinitions>
                                                 <TextBox Grid.Column="0" Text="{Binding NewNpcMeshScale, UpdateSourceTrigger=PropertyChanged}"
                                                          materialDesign:HintAssist.Hint="Mesh scale" materialDesign:HintAssist.IsFloating="True"/>
                                                 <TextBox Grid.Column="2" Text="{Binding NewNpcInteractionRadius, UpdateSourceTrigger=PropertyChanged}"
                                                          materialDesign:HintAssist.Hint="Interaction radius" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="4" Text="{Binding NewNpcCollisionRadius, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Collision radius" materialDesign:HintAssist.IsFloating="True"/>
                                             </Grid>
                                             <Grid Margin="0,0,0,10">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*"/>
                                                     <ColumnDefinition Width="8"/>
                                                     <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="*"/>
                                                 </Grid.ColumnDefinitions>
-                                                <TextBox Grid.Column="0" Text="{Binding NewNpcRespawnSeconds, UpdateSourceTrigger=PropertyChanged}"
+                                                <TextBox Grid.Column="0" Text="{Binding NewNpcNameplateRadius, UpdateSourceTrigger=PropertyChanged}"
+                                                         materialDesign:HintAssist.Hint="Nameplate radius" materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NewNpcRespawnSeconds, UpdateSourceTrigger=PropertyChanged}"
                                                          materialDesign:HintAssist.Hint="Respawn (s)" materialDesign:HintAssist.IsFloating="True"/>
-                                                <TextBox Grid.Column="2" Text="{Binding NewNpcKillExp, UpdateSourceTrigger=PropertyChanged}"
+                                                <TextBox Grid.Column="4" Text="{Binding NewNpcKillExp, UpdateSourceTrigger=PropertyChanged}"
                                                          materialDesign:HintAssist.Hint="Kill EXP" materialDesign:HintAssist.IsFloating="True"/>
                                             </Grid>
                                             <TextBlock Text="AI / combate do mob" FontWeight="SemiBold" Margin="0,0,0,4" Opacity="0.85"/>

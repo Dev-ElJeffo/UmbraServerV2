@@ -1969,6 +1969,8 @@ struct NpcSpawnPayload {
   float interactionRadius = 300.f;
   uint32_t vendorId = 0;
   float meshScale = 1.f;
+  float collisionRadius = 42.f;
+  float nameplateRadius = 2000.f;
   std::string rightHandMeshPath;
   std::string leftHandMeshPath;
   NpcHandAttachOffset rightHandOffset;
@@ -2260,6 +2262,8 @@ inline std::vector<uint8_t> encodeNpcSpawnNotify(const NpcSpawnPayload& p) {
   appendStringField(data, p.runRightPath, 255);
   writePathList(p.castAnimPaths);
   writePathList(p.buffAnimPaths);
+  writeF32(p.collisionRadius);
+  writeF32(p.nameplateRadius);
   return data;
 }
 
@@ -2364,6 +2368,14 @@ inline bool decodeNpcSpawnNotify(const std::vector<uint8_t>& data, NpcSpawnPaylo
         if (off < data.size()) readPathList(p.buffAnimPaths);
       }
     }
+  }
+  if (off + 4 <= data.size()) {
+    p.collisionRadius = readF32();
+    if (p.collisionRadius < 1.f) p.collisionRadius = 42.f;
+  }
+  if (off + 4 <= data.size()) {
+    p.nameplateRadius = readF32();
+    if (p.nameplateRadius < 1.f) p.nameplateRadius = 2000.f;
   }
   return true;
 }
