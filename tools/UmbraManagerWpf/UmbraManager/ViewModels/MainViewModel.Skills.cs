@@ -54,6 +54,8 @@ public partial class MainViewModel
     [ObservableProperty] private bool _skillFormRequiresTarget = true;
     [ObservableProperty] private bool _skillFormIsEnabled = true;
     [ObservableProperty] private string _skillFormIconPath = "";
+    [ObservableProperty] private string _skillFormVfxPath = "";
+    [ObservableProperty] private string _skillFormHitVfxPath = "";
     [ObservableProperty] private string _skillFormDescription = "";
     [ObservableProperty] private string _skillFormEffectsJson = "[]";
 
@@ -125,6 +127,8 @@ public partial class MainViewModel
         SkillFormRequiresTarget = true;
         SkillFormIsEnabled = true;
         SkillFormIconPath = "";
+        SkillFormVfxPath = "";
+        SkillFormHitVfxPath = "";
         SkillFormDescription = "";
         SkillFormEffectsJson = "[]";
         SkillRankScalings.Clear();
@@ -184,6 +188,8 @@ public partial class MainViewModel
         SkillFormRequiresTarget = TryGetBoolProp(s, "requires_target");
         SkillFormIsEnabled = TryGetBoolProp(s, "is_enabled");
         SkillFormIconPath = TryGetStringProp(s, "icon_path");
+        SkillFormVfxPath = TryGetStringProp(s, "vfx_path");
+        SkillFormHitVfxPath = TryGetStringProp(s, "hit_vfx_path");
         SkillFormDescription = TryGetStringProp(s, "description");
         if (s.TryGetProperty("effects_json", out var ej) && ej.ValueKind == JsonValueKind.String)
             SkillFormEffectsJson = ej.GetString() ?? "[]";
@@ -278,6 +284,8 @@ public partial class MainViewModel
             ["requires_target"] = SkillFormRequiresTarget,
             ["is_enabled"] = SkillFormIsEnabled,
             ["icon_path"] = SkillFormIconPath,
+            ["vfx_path"] = SkillFormVfxPath,
+            ["hit_vfx_path"] = SkillFormHitVfxPath,
             ["description"] = SkillFormDescription,
             ["effects_json"] = SkillFormEffectsJson
         };
@@ -463,5 +471,7 @@ public partial class MainViewModel
         RangeMax = TryGetIntProp(s, "range_max"),
         IsEnabled = TryGetBoolProp(s, "is_enabled"),
         IconPath = TryGetStringProp(s, "icon_path"),
+        VfxPath = TryGetStringProp(s, "vfx_path"),
+        HitVfxPath = TryGetStringProp(s, "hit_vfx_path"),
     };
 }

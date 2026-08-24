@@ -60,6 +60,49 @@ void enterReturn(NpcRuntimeInstance& inst) {
   inst.aiState = NpcAiState::Return;
   inst.hasWanderDest = false;
 }
+
+struct PendingNpcAttack {
+  uint32_t npcInstanceId = 0;
+  uint32_t npcSkillId = 0;  // 0 = basic attack
+};
+
+bool boundSkillReady(const NpcRuntimeInstance::NpcBoundSkill& b,
+                     const std::chrono::steady_clock::time_point& now) {
+  if (b.weight <= 0) return false;
+  if (b.lastUsedAt.time_since_epoch().count() == 0) return true;
+  return now >= b.lastUsedAt + std::chrono::milliseconds(b.cooldownMs);
+}
+
+uint32_t pickBoundSkillId(const NpcRuntimeInstance& inst, float distToTarget, bool includeBasic,
+                           const std::chrono::steady_clock::time_point& now) {
+  struct Cand {
+    uint32_t id = 0;
+    int32_t w = 0;
+  };
+  std::vector<Cand> cands;
+  int32_t total = 0;
+  for (const auto& b : inst.boundSkills) {
+    if (!boundSkillReady(b, now)) continue;
+    const float range = std::max(50.f, static_cast<float>(b.rangeMax));
+    if (distToTarget > range * 1.05f) continue;
+    const int32_t w = std::max(0, b.weight);
+    if (w <= 0) continue;
+    cands.push_back({b.npcSkillId, w});
+    total += w;
+  }
+  if (includeBasic) {
+    cands.push_back({0, 100});
+    total += 100;
+  }
+  if (cands.empty() || total <= 0) return 0;
+  std::uniform_int_distribution<int32_t> dist(1, total);
+  int32_t roll = dist(gNpcAiRng);
+  for (const auto& c : cands) {
+    roll -= c.w;
+    if (roll <= 0) return c.id;
+  }
+  return cands.back().id;
+}
 }  // namespace
 
 NpcAiSystem::NpcAiSystem(NpcManager* npcManager, MovementServer* movementServer,
@@ -72,7 +115,7 @@ void NpcAiSystem::tick(float deltaSeconds) {
   const auto players = movementServer_->getPlayerStates();
   const auto now = std::chrono::steady_clock::now();
 
-  std::vector<uint32_t> attackQueue;
+  std::vector<PendingNpcAttack> attackQueue;
   attackQueue.reserve(8);
 
   npcManager_->forEachAlive([&](NpcRuntimeInstance& inst) {
@@ -153,7 +196,8 @@ void NpcAiSystem::tick(float deltaSeconds) {
           const auto readyAt =
               inst.lastAttackAt + std::chrono::milliseconds(inst.attackCooldownMs);
           if (now >= readyAt) {
-            attackQueue.push_back(inst.npcInstanceId);
+            const uint32_t skillId = pickBoundSkillId(inst, toPlayer2d, true, now);
+            attackQueue.push_back({inst.npcInstanceId, skillId});
             inst.lastAttackAt = now;
           }
         } else {
@@ -169,6 +213,13 @@ void NpcAiSystem::tick(float deltaSeconds) {
             // Nunca copiar Z do player — evita flutuação / spawn deslocado.
             inst.z = inst.homeZ;
             inst.yaw = yawFromDir(tx - inst.x, ty - inst.y);
+          }
+          if (now >= inst.lastAttackAt + std::chrono::milliseconds(inst.attackCooldownMs)) {
+            const uint32_t skillId = pickBoundSkillId(inst, toPlayer2d, false, now);
+            if (skillId > 0) {
+              attackQueue.push_back({inst.npcInstanceId, skillId});
+              inst.lastAttackAt = now;
+            }
           }
           // Chase: leash um pouco mais folgado que o idle (senão kita e o mob “desiste”).
           const float leash = std::max(inst.effectiveLeashRadius(), inst.effectiveDeaggroRadius());
@@ -295,14 +346,17 @@ void NpcAiSystem::tick(float deltaSeconds) {
     }
   });
 
-  for (const uint32_t npcId : attackQueue) {
+  for (const PendingNpcAttack& atk : attackQueue) {
     if (!combat_) break;
     uint32_t targetId = 0;
-    npcManager_->mutateInstance(npcId, [&](NpcRuntimeInstance& inst) {
+    npcManager_->mutateInstance(atk.npcInstanceId, [&](NpcRuntimeInstance& inst) {
       targetId = inst.targetPlayerId;
     });
-    if (targetId > 0) {
-      combat_->processNpcBasicAttack(npcId, targetId);
+    if (targetId == 0) continue;
+    if (atk.npcSkillId > 0) {
+      combat_->processNpcSkillCast(atk.npcInstanceId, targetId, atk.npcSkillId);
+    } else {
+      combat_->processNpcBasicAttack(atk.npcInstanceId, targetId);
     }
   }
 }

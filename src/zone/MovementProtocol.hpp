@@ -1922,6 +1922,9 @@ struct SkillCastBroadcastPayload {
   std::string castAnimPath;
   std::string vfxPath;
   std::string sfxPath;
+  uint8_t sourceType = static_cast<uint8_t>(CombatTargetType::Player);
+  std::string hitVfxPath;
+  uint8_t targetType = static_cast<uint8_t>(CombatTargetType::Player);
 };
 
 struct BasicAttackPayload {
@@ -2097,6 +2100,9 @@ inline std::vector<uint8_t> encodeSkillCastBroadcast(const SkillCastBroadcastPay
   appendStringField(data, p.castAnimPath, 255);
   appendStringField(data, p.vfxPath, 255);
   appendStringField(data, p.sfxPath, 255);
+  data.push_back(p.sourceType == 0 ? static_cast<uint8_t>(CombatTargetType::Player) : p.sourceType);
+  appendStringField(data, p.hitVfxPath, 255);
+  data.push_back(p.targetType == 0 ? static_cast<uint8_t>(CombatTargetType::Player) : p.targetType);
   return data;
 }
 
@@ -2116,6 +2122,21 @@ inline bool decodeSkillCastBroadcast(const std::vector<uint8_t>& data, SkillCast
   if (!readStringField(data, off, p.castAnimPath, 255)) return false;
   if (!readStringField(data, off, p.vfxPath, 255)) return false;
   if (!readStringField(data, off, p.sfxPath, 255)) return false;
+  p.sourceType = (off < data.size())
+                     ? data[off++]
+                     : static_cast<uint8_t>(CombatTargetType::Player);
+  if (p.sourceType == 0) p.sourceType = static_cast<uint8_t>(CombatTargetType::Player);
+  if (off < data.size()) {
+    if (!readStringField(data, off, p.hitVfxPath, 255)) p.hitVfxPath.clear();
+  } else {
+    p.hitVfxPath.clear();
+  }
+  p.targetType = (off < data.size())
+                      ? data[off++]
+                      : (p.sourceType == static_cast<uint8_t>(CombatTargetType::Npc)
+                             ? static_cast<uint8_t>(CombatTargetType::Player)
+                             : static_cast<uint8_t>(CombatTargetType::Npc));
+  if (p.targetType == 0) p.targetType = static_cast<uint8_t>(CombatTargetType::Player);
   return true;
 }
 

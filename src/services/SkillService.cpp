@@ -216,7 +216,70 @@ bool SkillService::loadSkillsFromDatabase() {
 }
 
 bool SkillService::reloadSkills() {
-  return loadSkillsFromDatabase();
+  const bool playerOk = loadSkillsFromDatabase();
+  const bool npcOk = loadNpcSkillsFromDatabase();
+  return playerOk && npcOk;
+}
+
+bool SkillService::loadNpcSkillsFromDatabase() {
+  if (!db_ || !db_->isConnected()) return false;
+  std::unique_lock<std::shared_mutex> lock(skillDataMutex_);
+  npcSkillById_.clear();
+  auto rows = db_->executePreparedQuery(
+      "SELECT npc_skill_id, skill_key, skill_name, type_id, target_id, element_id, scaling_stat_id, "
+      "COALESCE(str_scaling,0), COALESCE(dex_scaling,0), COALESCE(vit_scaling,0), "
+      "COALESCE(int_scaling,0), COALESCE(lck_scaling,0), "
+      "power_coef, COALESCE(secondary_coef,0), resource_type, COALESCE(resource_cost,0), "
+      "COALESCE(resource_cost_percent,0), cooldown_ms, cast_time_ms, COALESCE(duration_ms,0), "
+      "COALESCE(range_min,0), range_max, COALESCE(area_radius,0), "
+      "can_crit, COALESCE(ignores_defense,0), COALESCE(requires_target,1), "
+      "COALESCE(effects_json,''), COALESCE(icon_path,''), COALESCE(vfx_key,''), COALESCE(sfx_key,''), "
+      "COALESCE(vfx_path,''), COALESCE(hit_vfx_path,'') "
+      "FROM npc_skills WHERE is_enabled = 1",
+      {});
+  for (const auto& row : rows) {
+    if (row.size() < 32) continue;
+    SkillData skill;
+    try {
+      skill.skillId = static_cast<uint32_t>(std::stoul(row[0]));
+      skill.skillKey = row[1];
+      skill.skillName = row[2];
+      skill.type = static_cast<SkillType>(std::stoul(row[3]));
+      skill.target = static_cast<TargetType>(std::stoul(row[4]));
+      skill.element = static_cast<Element>(std::stoul(row[5]));
+      skill.scalingStat = static_cast<ScalingStat>(std::stoul(row[6]));
+      skill.strScaling = static_cast<uint8_t>(std::stoul(row[7]));
+      skill.dexScaling = static_cast<uint8_t>(std::stoul(row[8]));
+      skill.vitScaling = static_cast<uint8_t>(std::stoul(row[9]));
+      skill.intScaling = static_cast<uint8_t>(std::stoul(row[10]));
+      skill.lckScaling = static_cast<uint8_t>(std::stoul(row[11]));
+      skill.powerCoef = static_cast<uint16_t>(std::stoul(row[12]));
+      skill.secondaryCoef = static_cast<uint16_t>(std::stoul(row[13]));
+      skill.resourceType = parseResourceType(row[14]);
+      skill.resourceCost = static_cast<uint16_t>(std::stoul(row[15]));
+      skill.resourceCostPercent = static_cast<uint8_t>(std::stoul(row[16]));
+      skill.cooldownMs = static_cast<uint32_t>(std::stoul(row[17]));
+      skill.castTimeMs = static_cast<uint32_t>(std::stoul(row[18]));
+      skill.durationMs = static_cast<uint32_t>(std::stoul(row[19]));
+      skill.rangeMin = static_cast<uint16_t>(std::stoul(row[20]));
+      skill.rangeMax = static_cast<uint16_t>(std::stoul(row[21]));
+      skill.areaRadius = static_cast<uint16_t>(std::stoul(row[22]));
+      skill.canCrit = (std::stoi(row[23]) != 0);
+      skill.ignoresDefense = (std::stoi(row[24]) != 0);
+      skill.requiresTarget = (std::stoi(row[25]) != 0);
+      skill.effects = parseEffectsFromJson(row[26]);
+      skill.iconPath = row[27];
+      skill.vfxKey = row[28];
+      skill.sfxKey = row[29];
+      skill.vfxPath = row[30];
+      skill.hitVfxPath = row[31];
+    } catch (...) {
+      continue;
+    }
+    npcSkillById_[skill.skillId] = std::move(skill);
+  }
+  Core::Logger::getInstance().info("[SkillService] {} npc_skills carregadas", npcSkillById_.size());
+  return true;
 }
 
 SkillEffect SkillService::parseEffectFromJson(const nlohmann::json& json) {

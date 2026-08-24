@@ -413,6 +413,7 @@ void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
     if (inst.isDead) {
       inst.respawnAt = respawnTimeFromUnix(respawnUnix);
     }
+    loadBoundSkills(inst);
     resetAiState(inst);
   } catch (...) {
     return;
@@ -420,6 +421,34 @@ void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
 
   indexById_[inst.npcInstanceId] = instances_.size();
   instances_.push_back(std::move(inst));
+}
+
+void NpcManager::loadBoundSkills(NpcRuntimeInstance& inst) {
+  inst.boundSkills.clear();
+  if (!db_ || !db_->isConnected() || inst.templateId == 0) return;
+  auto rows = db_->executePreparedQuery(
+      "SELECT nts.npc_skill_id, nts.skill_rank, nts.weight, nts.cooldown_override_ms, "
+      "ns.cooldown_ms, ns.range_max "
+      "FROM npc_template_skills nts "
+      "JOIN npc_skills ns ON ns.npc_skill_id = nts.npc_skill_id "
+      "WHERE nts.npc_template_id = ? AND ns.is_enabled = 1",
+      {std::to_string(inst.templateId)});
+  for (const auto& row : rows) {
+    if (row.size() < 6) continue;
+    NpcRuntimeInstance::NpcBoundSkill b;
+    try {
+      b.npcSkillId = static_cast<uint32_t>(std::stoul(row[0]));
+      b.rank = static_cast<uint8_t>(std::max(1, std::stoi(row[1])));
+      b.weight = std::stoi(row[2]);
+      const uint32_t ov = static_cast<uint32_t>(std::max(0, std::stoi(row[3])));
+      const uint32_t cd = static_cast<uint32_t>(std::max(0, std::stoi(row[4])));
+      b.cooldownMs = ov > 0 ? ov : cd;
+      b.rangeMax = static_cast<uint16_t>(std::max(0, std::stoi(row[5])));
+    } catch (...) {
+      continue;
+    }
+    inst.boundSkills.push_back(b);
+  }
 }
 
 const NpcRuntimeInstance* NpcManager::findInstance(uint32_t npcInstanceId) const {

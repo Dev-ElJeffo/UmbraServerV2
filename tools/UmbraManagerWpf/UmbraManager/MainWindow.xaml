@@ -421,6 +421,9 @@
             <TabItem Header="Skills" Visibility="{Binding TabVisibilityContent}">
                 <views:SkillsEditorView/>
             </TabItem>
+            <TabItem Header="Mob Skills" Visibility="{Binding TabVisibilityContent}">
+                <views:MobSkillsEditorView/>
+            </TabItem>
 
             <TabItem Header="Classes" Visibility="{Binding TabVisibilityContent}">
                 <views:ClassesEditorView/>
@@ -872,6 +875,50 @@
                                                      materialDesign:HintAssist.IsFloating="True"
                                                      AcceptsReturn="True" Height="72" TextWrapping="Wrap"
                                                      VerticalScrollBarVisibility="Auto" Margin="0,0,0,16"/>
+
+                                            <TextBlock Text="Skills deste mob" FontWeight="SemiBold" Margin="0,0,0,4" Opacity="0.85"/>
+                                            <TextBlock FontSize="11" Opacity="0.65" TextWrapping="Wrap" Margin="0,0,0,8"
+                                                       Text="Catálogo em Mob Skills. Weight vs auto-attack (100). CD override 0 = usa o da skill."/>
+                                            <Grid Margin="0,0,0,8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="70"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <ComboBox Grid.Column="0"
+                                                          ItemsSource="{Binding NpcSkills}"
+                                                          DisplayMemberPath="SkillName"
+                                                          SelectedValuePath="NpcSkillId"
+                                                          SelectedValue="{Binding NpcTemplateSkillPickId}"
+                                                          materialDesign:HintAssist.Hint="Skill"
+                                                          materialDesign:HintAssist.IsFloating="True"/>
+                                                <TextBox Grid.Column="2" Text="{Binding NpcTemplateSkillWeight}"
+                                                         materialDesign:HintAssist.Hint="Weight" materialDesign:HintAssist.IsFloating="True"/>
+                                                <Button Grid.Column="4" Content="Add" Command="{Binding AddNpcTemplateSkillCommand}"
+                                                        Style="{StaticResource ManagerActionButton}"/>
+                                            </Grid>
+                                            <DataGrid ItemsSource="{Binding NpcTemplateSkills}" AutoGenerateColumns="False"
+                                                      CanUserAddRows="False" Height="140" Margin="0,0,0,16">
+                                                <DataGrid.Columns>
+                                                    <DataGridTextColumn Header="Skill" Binding="{Binding SkillName}" Width="*"/>
+                                                    <DataGridTextColumn Header="Rank" Binding="{Binding SkillRank, UpdateSourceTrigger=LostFocus}" Width="50"/>
+                                                    <DataGridTextColumn Header="W" Binding="{Binding Weight, UpdateSourceTrigger=LostFocus}" Width="50"/>
+                                                    <DataGridTextColumn Header="CD ov" Binding="{Binding CooldownOverrideMs, UpdateSourceTrigger=LostFocus}" Width="60"/>
+                                                    <DataGridTemplateColumn Width="50">
+                                                        <DataGridTemplateColumn.CellTemplate>
+                                                            <DataTemplate>
+                                                                <Button Content="X" Command="{Binding DataContext.RemoveNpcTemplateSkillCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                        CommandParameter="{Binding}"
+                                                                        Style="{StaticResource ManagerActionOutlinedButton}"/>
+                                                            </DataTemplate>
+                                                        </DataGridTemplateColumn.CellTemplate>
+                                                    </DataGridTemplateColumn>
+                                                </DataGrid.Columns>
+                                            </DataGrid>
+                                            <Button Content="Salvar skills do template" Command="{Binding SaveNpcTemplateSkillsCommand}"
+                                                    Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,0,16"/>
 
                                             <TextBlock Text="Spawn / posição da instância" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
                                             <TextBlock FontSize="11" Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,4"

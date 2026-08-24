@@ -162,6 +162,7 @@ bool CombatCoreEngine::initialize(uint32_t zoneId,
   }
 
   skillService_->loadSkillsFromDatabase();
+  skillService_->loadNpcSkillsFromDatabase();
   preloadSkillAnimPaths();
   npcManager_->reloadFromDatabase();
 
@@ -1846,16 +1847,17 @@ void CombatCoreEngine::preloadSkillAnimPaths() {
   if (!db_ || !db_->isConnected()) return;
 
   auto rows = db_->executePreparedQuery(
-      "SELECT skill_id, COALESCE(cast_anim_path,''), COALESCE(vfx_path,''), COALESCE(sfx_path,'') "
+      "SELECT skill_id, COALESCE(cast_anim_path,''), COALESCE(vfx_path,''), COALESCE(sfx_path,''), "
+      "COALESCE(hit_vfx_path,'') "
       "FROM skills WHERE is_enabled = 1",
       {});
   std::lock_guard<std::mutex> lock(skillAnimCacheMu_);
   size_t n = 0;
   for (const auto& row : rows) {
-    if (row.size() < 4) continue;
+    if (row.size() < 5) continue;
     try {
       const uint32_t skillId = static_cast<uint32_t>(std::stoul(row[0]));
-      skillAnimCache_[skillId] = SkillAnimPaths{row[1], row[2], row[3]};
+      skillAnimCache_[skillId] = SkillAnimPaths{row[1], row[2], row[3], row[4]};
       ++n;
     } catch (...) {
       continue;
@@ -1865,23 +1867,27 @@ void CombatCoreEngine::preloadSkillAnimPaths() {
 }
 
 void CombatCoreEngine::loadSkillAnimPaths(uint32_t skillId,
-                                          std::string& anim, std::string& vfx, std::string& sfx) {
+                                          std::string& anim, std::string& vfx, std::string& sfx,
+                                          std::string& hitVfx) {
   anim.clear();
   vfx.clear();
   sfx.clear();
+  hitVfx.clear();
 
   // Sempre relê o DB: o Manager altera cast_anim_path sem reiniciar a zone.
   if (db_ && db_->isConnected()) {
     auto rows = db_->executePreparedQuery(
-        "SELECT COALESCE(cast_anim_path,''), COALESCE(vfx_path,''), COALESCE(sfx_path,'') "
+        "SELECT COALESCE(cast_anim_path,''), COALESCE(vfx_path,''), COALESCE(sfx_path,''), "
+        "COALESCE(hit_vfx_path,'') "
         "FROM skills WHERE skill_id = ? LIMIT 1",
         {std::to_string(skillId)});
     if (!rows.empty() && rows[0].size() >= 3) {
       anim = rows[0][0];
       vfx = rows[0][1];
       sfx = rows[0][2];
+      if (rows[0].size() >= 4) hitVfx = rows[0][3];
       std::lock_guard<std::mutex> lock(skillAnimCacheMu_);
-      skillAnimCache_[skillId] = SkillAnimPaths{anim, vfx, sfx};
+      skillAnimCache_[skillId] = SkillAnimPaths{anim, vfx, sfx, hitVfx};
       return;
     }
   }
@@ -1892,6 +1898,7 @@ void CombatCoreEngine::loadSkillAnimPaths(uint32_t skillId,
     anim = it->second.anim;
     vfx = it->second.vfx;
     sfx = it->second.sfx;
+    hitVfx = it->second.hitVfx;
   }
 }
 
@@ -2604,6 +2611,20 @@ void CombatCoreEngine::applyDirectPlayerDamage(uint32_t sourcePlayerId, uint32_t
 
 void CombatCoreEngine::broadcastSkillCast(const SkillCastBroadcastPayload& payload) {
   if (!movementServer_) return;
+  if (payload.sourceType == static_cast<uint8_t>(CombatTargetType::Npc)) {
+    if (npcManager_) {
+      if (const NpcRuntimeInstance* inst = npcManager_->findInstance(payload.sourcePlayerId)) {
+        movementServer_->broadcastNearWorldXY(inst->x, inst->y, encodeSkillCastBroadcast(payload));
+        return;
+      }
+    }
+    if (payload.targetId > 0) {
+      movementServer_->broadcastNearPlayer(payload.targetId, encodeSkillCastBroadcast(payload));
+      return;
+    }
+    movementServer_->broadcastToAll(encodeSkillCastBroadcast(payload));
+    return;
+  }
   // #region agent log
   const int64_t t0 = agentNowMs();
   // #endregion
@@ -2845,11 +2866,11 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
     }
   }
 
-  std::string anim, vfx, sfx;
+  std::string anim, vfx, sfx, hitVfx;
   // #region agent log
   const int64_t animT0 = agentNowMs();
   // #endregion
-  loadSkillAnimPaths(payload.skillId, anim, vfx, sfx);
+  loadSkillAnimPaths(payload.skillId, anim, vfx, sfx, hitVfx);
   // #region agent log
   phaseLog.tAnim = agentNowMs() - animT0;
   // #endregion
@@ -2862,6 +2883,10 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   castBroadcast.castAnimPath = anim;
   castBroadcast.vfxPath = vfx;
   castBroadcast.sfxPath = sfx;
+  castBroadcast.hitVfxPath = hitVfx;
+  castBroadcast.targetType = payload.targetType == 0
+                                 ? static_cast<uint8_t>(CombatTargetType::Player)
+                                 : payload.targetType;
   // #region agent log
   {
     static std::mutex lastEmitMu;
@@ -3519,6 +3544,95 @@ void CombatCoreEngine::processNpcBasicAttack(uint32_t npcInstanceId, uint32_t ta
   Core::Logger::getInstance().debug(
       "[CombatCoreEngine] NpcBasicAttack npc={} -> player={} dmg={} crit={}",
       npcInstanceId, targetPlayerId, std::abs(totalDelta), isCrit ? 1 : 0);
+}
+
+void CombatCoreEngine::processNpcSkillCast(uint32_t npcInstanceId, uint32_t targetPlayerId,
+                                            uint32_t npcSkillId) {
+  if (!movementServer_ || !npcManager_ || !skillService_ || npcInstanceId == 0 ||
+      targetPlayerId == 0 || npcSkillId == 0) {
+    return;
+  }
+  const NpcRuntimeInstance* inst = npcManager_->findInstance(npcInstanceId);
+  if (!inst || inst->isDead || !inst->isHostile) return;
+  const Combat::SkillData* skill = skillService_->getNpcSkillData(npcSkillId);
+  if (!skill) return;
+
+  float px = 0.f, py = 0.f, pz = 0.f;
+  if (!tryGetPlayerPosition(targetPlayerId, px, py, pz)) return;
+  const float dist = std::sqrt((inst->x - px) * (inst->x - px) + (inst->y - py) * (inst->y - py));
+  const float rangeMax = std::max(50.f, static_cast<float>(skill->rangeMax));
+  if (dist > rangeMax * 1.15f) return;
+
+  Combat::CharacterState attacker = CharacterStateLoader::makeNpcAttackerState(*inst);
+  Combat::CharacterState defender;
+  if (!stateLoader_ ||
+      (!stateLoader_->getCachedOrWarm(targetPlayerId, defender) &&
+       !stateLoader_->loadPlayerState(targetPlayerId, defender))) {
+    return;
+  }
+  if (!defender.isAlive || defender.buffedStats.currentHealth <= 0) return;
+
+  uint8_t rank = 1;
+  npcManager_->mutateInstance(npcInstanceId, [&](NpcRuntimeInstance& live) {
+    for (auto& b : live.boundSkills) {
+      if (b.npcSkillId == npcSkillId) {
+        rank = b.rank;
+        b.lastUsedAt = std::chrono::steady_clock::now();
+        break;
+      }
+    }
+  });
+
+  SkillCastBroadcastPayload castBc;
+  castBc.sourcePlayerId = npcInstanceId;
+  castBc.skillId = npcSkillId;
+  castBc.targetId = targetPlayerId;
+  castBc.castTimeMs = skill->castTimeMs;
+  castBc.castAnimPath = resolveNpcSkillCastAnimPath(*inst, skill->vfxKey.empty() ? skill->iconPath : skill->vfxKey);
+  castBc.vfxPath = skill->vfxPath;
+  castBc.sfxPath = skill->sfxKey;
+  castBc.hitVfxPath = skill->hitVfxPath;
+  castBc.sourceType = static_cast<uint8_t>(CombatTargetType::Npc);
+  castBc.targetType = static_cast<uint8_t>(CombatTargetType::Player);
+  broadcastSkillCast(castBc);
+
+  Combat::SkillData synthetic = *skill;
+  synthetic.canCrit = skill->canCrit;
+  synthetic.ignoresDefense = skill->ignoresDefense;
+  synthetic.powerCoef = skill->getEffectivePowerCoef(rank);
+
+  const int32_t hitChance =
+      Combat::CombatCalculator::getInstance().calculateHitChance(attacker, defender);
+  if (!Combat::CombatCalculator::getInstance().rollHit(hitChance)) {
+    CombatEventPayload combat;
+    combat.targetId = targetPlayerId;
+    combat.sourceId = npcInstanceId;
+    combat.delta = 0;
+    combat.reason = static_cast<uint8_t>(CombatReason::Miss);
+    combat.isCrit = 0;
+    movementServer_->broadcastNearPlayer(targetPlayerId, encodeCombatEventNotify(combat));
+    return;
+  }
+
+  const bool physical = (skill->element == Combat::Element::PHYSICAL);
+  const Combat::DamageBreakdown bd =
+      physical ? Combat::CombatCalculator::getInstance().calculatePhysicalDamage(attacker, defender,
+                                                                               synthetic, rank, false)
+               : Combat::CombatCalculator::getInstance().calculateMagicDamage(attacker, defender,
+                                                                              synthetic, rank, false);
+  const int32_t totalDelta = -bd.finalDamage;
+  const bool isCrit = (bd.critMultiplier != 100);
+  Core::Logger::getInstance().info(
+      "[CombatCoreEngine] NpcSkillCast npc={} skill={} -> player={} npcAtk={} playerDef={} "
+      "finalDamage={} crit={}",
+      npcInstanceId, npcSkillId, targetPlayerId, attacker.buffedStats.physicalAttack,
+      defender.buffedStats.physicalDefense, bd.finalDamage, isCrit ? 1 : 0);
+
+  const bool prevReaction = inReactionDispatch_;
+  inReactionDispatch_ = true;
+  applyPlayerDamage(npcInstanceId, targetPlayerId, totalDelta,
+                    static_cast<uint8_t>(CombatReason::Damage), isCrit, false);
+  inReactionDispatch_ = prevReaction;
 }
 
 }  // namespace Zone

@@ -174,6 +174,8 @@ CREATE TABLE `skills` (
     -- Ícone e visual
     `icon_path` VARCHAR(255) DEFAULT NULL,
     `vfx_key` VARCHAR(100) DEFAULT NULL,
+    `vfx_path` VARCHAR(512) DEFAULT NULL,
+    `hit_vfx_path` VARCHAR(512) DEFAULT NULL,
     `sfx_key` VARCHAR(100) DEFAULT NULL,
     
     -- Descrição

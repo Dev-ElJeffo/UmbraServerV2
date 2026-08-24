@@ -46,6 +46,8 @@ public sealed class SkillRow
     public int PvpModifier { get; set; } = 100;
     public string IconPath { get; set; } = "";
     public string VfxKey { get; set; } = "";
+    public string VfxPath { get; set; } = "";
+    public string HitVfxPath { get; set; } = "";
     public string SfxKey { get; set; } = "";
     public string Description { get; set; } = "";
     public string TooltipTemplate { get; set; } = "";

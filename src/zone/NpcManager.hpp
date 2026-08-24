@@ -112,6 +112,15 @@ struct NpcRuntimeInstance {
   bool hasWanderDest = false;
   std::chrono::steady_clock::time_point nextWanderAt{};
   std::chrono::steady_clock::time_point lastAttackAt{};
+  struct NpcBoundSkill {
+    uint32_t npcSkillId = 0;
+    uint8_t rank = 1;
+    int32_t weight = 100;
+    uint32_t cooldownMs = 4000;
+    uint16_t rangeMax = 200;
+    std::chrono::steady_clock::time_point lastUsedAt{};
+  };
+  std::vector<NpcBoundSkill> boundSkills;
   std::chrono::steady_clock::time_point lastBroadcastAt{};
   float lastBroadcastX = 0.f;
   float lastBroadcastY = 0.f;
@@ -181,6 +190,7 @@ private:
   static const char* kInstanceSelectSql;
   static std::string zoneWhereClause();
   void loadInstanceFromRow(const std::vector<std::string>& row);
+  void loadBoundSkills(NpcRuntimeInstance& inst);
   bool respawnInstance(NpcRuntimeInstance& inst);
   void resetAiState(NpcRuntimeInstance& inst);
   void parseAnimStatesJson(NpcRuntimeInstance& inst, const std::string& jsonStr);

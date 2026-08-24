@@ -144,6 +144,7 @@ public:
   void processBasicAttack(uint32_t sourcePlayerId, const BasicAttackPayload& payload);
   /** Basic attack autoritativo do mob (NPC → player). */
   void processNpcBasicAttack(uint32_t npcInstanceId, uint32_t targetPlayerId);
+  void processNpcSkillCast(uint32_t npcInstanceId, uint32_t targetPlayerId, uint32_t npcSkillId);
   /**
    * Resolve path de montage para cast de skill do NPC:
    * skill.cast_anim_path → anim_states_json.skill → attacks[0].
@@ -257,7 +258,8 @@ private:
   /** Opcode 104 action=0 para jogador: targetType=0, enrich e broadcast. */
   void broadcastPlayerSkillBuffApply(SkillBuffSyncPayload& sync);
   void preloadSkillAnimPaths();
-  void loadSkillAnimPaths(uint32_t skillId, std::string& anim, std::string& vfx, std::string& sfx);
+  void loadSkillAnimPaths(uint32_t skillId, std::string& anim, std::string& vfx, std::string& sfx,
+                           std::string& hitVfx);
   /** Path do opcode 99: skills.cast_anim_path (is_basic_attack) com fallback em basic_attacks. */
   std::string resolveBasicAttackAnimPath(uint32_t classId, const std::string& fallback);
   void handleNpcDamageResult(uint32_t npcInstanceId, int32_t applied, bool npcDied,
@@ -297,6 +299,7 @@ private:
     std::string anim;
     std::string vfx;
     std::string sfx;
+    std::string hitVfx;
   };
   std::mutex skillAnimCacheMu_;
   std::unordered_map<uint32_t, SkillAnimPaths> skillAnimCache_;

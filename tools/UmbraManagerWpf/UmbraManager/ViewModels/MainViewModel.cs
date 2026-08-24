@@ -176,6 +176,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(CanEditNpcVendorStock));
         OnPropertyChanged(nameof(CanEditNpcQuests));
         _ = RefreshVendorAndQuestsForSelectedTemplateAsync();
+        _ = RefreshNpcTemplateSkillsAsync();
+        if (NpcSkills.Count == 0)
+            _ = RefreshNpcSkillsAsync();
     }
 
     partial void OnEditingNpcTemplateIdChanged(int value)

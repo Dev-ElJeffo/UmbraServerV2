@@ -279,6 +279,44 @@ public sealed class PhpAdminClient
     public async Task<(bool Ok, string Error, JsonDocument? Data)> DeleteSkillAsync(int skillId, CancellationToken ct = default) =>
         await PostAsync("/admin/delete_skill.php", new { admin_username = _adminUsername, skill_id = skillId }, ct);
 
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListNpcSkillsAsync(string? search = null, CancellationToken ct = default)
+    {
+        var body = new Dictionary<string, object?> { ["admin_username"] = _adminUsername };
+        if (!string.IsNullOrWhiteSpace(search)) body["search"] = search;
+        return await PostAsync("/admin/list_npc_skills.php", body, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> GetNpcSkillAsync(int npcSkillId, CancellationToken ct = default) =>
+        await PostAsync("/admin/get_npc_skill.php", new { admin_username = _adminUsername, npc_skill_id = npcSkillId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> CreateNpcSkillAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/create_npc_skill.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpdateNpcSkillAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/update_npc_skill.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> DeleteNpcSkillAsync(int npcSkillId, CancellationToken ct = default) =>
+        await PostAsync("/admin/delete_npc_skill.php", new { admin_username = _adminUsername, npc_skill_id = npcSkillId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListNpcTemplateSkillsAsync(int npcTemplateId, CancellationToken ct = default) =>
+        await PostAsync("/admin/list_npc_template_skills.php", new { admin_username = _adminUsername, npc_template_id = npcTemplateId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> SetNpcTemplateSkillsAsync(int npcTemplateId, object skills, CancellationToken ct = default) =>
+        await PostAsync("/admin/set_npc_template_skills.php", new
+        {
+            admin_username = _adminUsername,
+            npc_template_id = npcTemplateId,
+            skills
+        }, ct);
+
     public async Task<(bool Ok, string Error, JsonDocument? Data)> UpsertSkillRankScalingAsync(object payload, CancellationToken ct = default)
     {
         var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();

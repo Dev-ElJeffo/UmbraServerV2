@@ -41,6 +41,7 @@ public:
      * Carrega todas as skills do banco de dados
      */
     bool loadSkillsFromDatabase();
+    bool loadNpcSkillsFromDatabase();
     
     /**
      * Recarrega skills (hot reload para balanceamento)
@@ -65,6 +66,7 @@ public:
      * Obtém todas as skills de uma classe
      */
     std::vector<const SkillData*> getSkillsByClass(uint64_t classId) const;
+    const SkillData* getNpcSkillData(uint32_t npcSkillId) const;
     
     // ========================================================================
     // SKILL VALIDATION
@@ -269,6 +271,7 @@ private:
     std::unordered_map<uint32_t, SkillData> skillDataById_;
     std::unordered_map<std::string, uint32_t> skillIdByKey_;
     std::unordered_map<uint64_t, std::vector<uint32_t>> skillIdsByClass_;
+    std::unordered_map<uint32_t, SkillData> npcSkillById_;
     
     // Active cooldowns
     mutable std::shared_mutex cooldownMutex_;
@@ -315,6 +318,12 @@ inline const SkillData* SkillService::getSkillData(uint32_t skillId) const {
     std::shared_lock<std::shared_mutex> lock(skillDataMutex_);
     auto it = skillDataById_.find(skillId);
     return it != skillDataById_.end() ? &it->second : nullptr;
+}
+
+inline const SkillData* SkillService::getNpcSkillData(uint32_t npcSkillId) const {
+    std::shared_lock<std::shared_mutex> lock(skillDataMutex_);
+    auto it = npcSkillById_.find(npcSkillId);
+    return it != npcSkillById_.end() ? &it->second : nullptr;
 }
 
 inline const SkillData* SkillService::getSkillDataByKey(const std::string& skillKey) const {
