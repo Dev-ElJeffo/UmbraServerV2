@@ -65,6 +65,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _newItemSlot = "none";
     [ObservableProperty] private string _newItemCategory = "misc";
     [ObservableProperty] private string _newItemIconPath = "";
+    [ObservableProperty] private string _newItemSkeletalMeshPath = "";
     [ObservableProperty] private int _newItemRequiredLevel = 1;
     [ObservableProperty] private int _newItemMaxStack = 1;
     [ObservableProperty] private int _newItemValue = 0;
@@ -1249,6 +1250,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     CanBeRefined = TryGetBoolProp(it, "can_be_refined"),
                     UseCooldownMs = TryGetIntProp(it, "use_cooldown_ms"),
                     IconPath = TryGetStringProp(it, "icon_path"),
+                    SkeletalMeshPath = TryGetStringProp(it, "skeletal_mesh_path"),
+                    VisualMeshesJson = TryGetStringProp(it, "visual_meshes_json"),
                     Description = TryGetStringProp(it, "item_description"),
                     StatsJson = statsRaw
                 });
@@ -1288,6 +1291,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["item_type"] = NewItemType,
             ["item_subtype"] = NewItemSubtype,
             ["icon_path"] = NewItemIconPath,
+            ["skeletal_mesh_path"] = NewItemSkeletalMeshPath,
             ["max_stack_size"] = NewItemMaxStack,
             ["equipment_slot"] = string.IsNullOrWhiteSpace(NewItemSlot) ? "none" : NewItemSlot,
             ["required_level"] = NewItemRequiredLevel,
@@ -1300,6 +1304,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["item_category"] = string.IsNullOrWhiteSpace(NewItemCategory) ? "misc" : NewItemCategory,
             ["stats"] = stats ?? new Dictionary<string, object>()
         };
+
+        SeedDefaultVisualFromLegacyPath();
+        var visualPayload = BuildVisualMeshesPayload();
+        if (visualPayload != null)
+        {
+            payload["visual_meshes_json"] = visualPayload;
+        }
 
         bool ok;
         string err;
@@ -1334,6 +1345,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewItemSlot = string.IsNullOrEmpty(item.EquipmentSlot) ? "none" : item.EquipmentSlot;
         NewItemCategory = string.IsNullOrEmpty(item.Category) ? "misc" : item.Category;
         NewItemIconPath = item.IconPath;
+        NewItemSkeletalMeshPath = item.SkeletalMeshPath;
+        LoadItemVisualMeshesFromJson(item.VisualMeshesJson);
         NewItemRequiredLevel = item.RequiredLevel <= 0 ? 1 : item.RequiredLevel;
         NewItemMaxStack = item.MaxStackSize <= 0 ? 1 : item.MaxStackSize;
         NewItemValue = item.Value;
@@ -1355,6 +1368,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewItemSlot = "none";
         NewItemCategory = "misc";
         NewItemIconPath = "";
+        NewItemSkeletalMeshPath = "";
+        ClearItemVisualMeshEditor();
         NewItemRequiredLevel = 1;
         NewItemMaxStack = 1;
         NewItemValue = 0;

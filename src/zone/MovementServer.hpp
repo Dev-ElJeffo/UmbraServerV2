@@ -39,6 +39,10 @@ struct PlayerStateNet {
   std::string characterName;
   std::string characterTitle;
   std::string guildName;
+  uint32_t classId = 0;
+  uint32_t hair = 0;
+  uint32_t head = 0;
+  std::vector<EquippedVisualWireEntry> equippedVisual;
 };
 
 class MovementServer {
@@ -1084,7 +1088,10 @@ public:
       if (msgType == MovementMsgType::PlayerInfoUpdate) {
         uint32_t playerId;
         std::string name, title, guildName;
-        if (decodePlayerInfoUpdate(data, playerId, name, title, guildName)) {
+        uint32_t classId = 0;
+        uint32_t hair = 0;
+        uint32_t head = 0;
+        if (decodePlayerInfoUpdate(data, playerId, name, title, guildName, &classId, &hair, &head)) {
           // Validação de conta FORA do mu_: playerBelongsToAccount faz MySQL e não pode
           // segurar o mutex global do movimento (medido até 174ms sob mu_ no Proxmox).
           if (sessionAuthEnabled_) {
@@ -1145,6 +1152,11 @@ public:
               players_[playerId].characterName = name;
               players_[playerId].characterTitle = title;
               players_[playerId].guildName = guildName;
+              if (classId > 0) {
+                players_[playerId].classId = classId;
+                players_[playerId].hair = hair;
+                players_[playerId].head = head;
+              }
               Umbra::Core::Logger::getInstance().info("✅ Updated existing PlayerStateNet for player {} (name={}, title={}, guild={})",
                                                       playerId, name, title, guildName);
             } else {
@@ -1153,6 +1165,9 @@ public:
               newPlayer.characterName = name;
               newPlayer.characterTitle = title;
               newPlayer.guildName = guildName;
+              newPlayer.classId = classId;
+              newPlayer.hair = hair;
+              newPlayer.head = head;
               newPlayer.x = 0.0f;
               newPlayer.y = 0.0f;
               newPlayer.z = 0.0f;
@@ -1165,7 +1180,10 @@ public:
               shouldReloadReactions = true;
             }
 
-            broadcastMsg = encodePlayerInfoUpdate(playerId, name, title, guildName);
+            broadcastMsg = encodePlayerInfoUpdate(playerId, name, title, guildName,
+                                                  players_[playerId].classId,
+                                                  players_[playerId].hair,
+                                                  players_[playerId].head);
           }
 
           // MySQL em reloadArmedForPlayer: nunca sob mu_ (mesmo padrão de SkillCast/BasicAttack).
@@ -1180,6 +1198,54 @@ public:
           ws_.broadcastBinary(broadcastMsg);
           Umbra::Core::Logger::getInstance().info("📤 Broadcasted PlayerInfoUpdate for player {} (name={}, title={}, guild={}) to all clients",
                                                   playerId, name, title, guildName);
+        }
+        return;
+      }
+
+      if (msgType == MovementMsgType::PlayerEquipmentVisualUpdate) {
+        uint32_t playerId = 0;
+        std::vector<EquippedVisualWireEntry> entries;
+        if (decodePlayerEquipmentVisualUpdate(data, playerId, entries)) {
+          if (sessionAuthEnabled_) {
+            const uint32_t accountId = sessionAuth_.getAccountIdForClient(cid);
+            bool belongs = false;
+            {
+              std::lock_guard<std::mutex> lock(mu_);
+              auto cacheIt = belongsOkByCid_.find(cid);
+              if (cacheIt != belongsOkByCid_.end() && cacheIt->second == playerId) {
+                belongs = true;
+              }
+            }
+            if (!belongs) {
+              belongs = (accountId != 0) && sessionAuth_.playerBelongsToAccount(playerId, accountId);
+              if (belongs) {
+                std::lock_guard<std::mutex> lock(mu_);
+                belongsOkByCid_[cid] = playerId;
+              }
+            }
+            if (!belongs) {
+              Umbra::Core::Logger::getInstance().warn(
+                  "PlayerEquipmentVisualUpdate rejeitado: client {} player {} nao pertence a account {}",
+                  cid, playerId, accountId);
+              return;
+            }
+          }
+
+          std::vector<uint8_t> broadcastMsg;
+          {
+            std::lock_guard<std::mutex> lock(mu_);
+            setClientPlayerMapUnlocked(cid, playerId);
+            if (players_.find(playerId) != players_.end()) {
+              players_[playerId].equippedVisual = entries;
+            } else {
+              PlayerStateNet newPlayer;
+              newPlayer.playerId = playerId;
+              newPlayer.equippedVisual = entries;
+              players_[playerId] = newPlayer;
+            }
+            broadcastMsg = encodePlayerEquipmentVisualUpdate(playerId, players_[playerId].equippedVisual);
+          }
+          ws_.broadcastBinary(broadcastMsg);
         }
         return;
       }
@@ -1547,8 +1613,14 @@ private:
       if (!st.characterName.empty() || !st.characterTitle.empty() || !st.guildName.empty()) {
         outbox.emplace_back(clientId,
                             encodePlayerInfoUpdate(st.playerId, st.characterName, st.characterTitle,
-                                                   st.guildName));
+                                                   st.guildName, st.classId, st.hair, st.head));
         ++sentInfoCount;
+      }
+    }
+
+    for (const auto& [pid, st] : players_) {
+      if (!st.equippedVisual.empty()) {
+        outbox.emplace_back(clientId, encodePlayerEquipmentVisualUpdate(st.playerId, st.equippedVisual));
       }
     }
 

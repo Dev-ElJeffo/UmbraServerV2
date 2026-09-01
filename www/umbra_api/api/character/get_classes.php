@@ -42,6 +42,8 @@ try {
     if (!$pdo) {
         throw new Exception("Falha na conexão");
     }
+
+    require_once __DIR__ . '/../admin/class_admin_helpers.php';
     
     $hasAnimSet = false;
     try {
@@ -51,7 +53,20 @@ try {
         $hasAnimSet = false;
     }
 
+    $hasMeshPaths = false;
+    try {
+        $chkMesh = $pdo->query("SHOW COLUMNS FROM classes LIKE 'skeletal_mesh_path'");
+        $hasMeshPaths = $chkMesh && $chkMesh->rowCount() > 0;
+    } catch (Exception $e) {
+        $hasMeshPaths = false;
+    }
+
     $animCol = $hasAnimSet ? ",\n            anim_set_json" : "";
+    $meshCol = $hasMeshPaths ? ",\n            skeletal_mesh_path,\n            anim_blueprint_path" : "";
+    $modularCols = class_modular_mesh_columns_for_db($pdo);
+    $modularCol = !empty($modularCols)
+        ? ",\n            " . implode(",\n            ", $modularCols)
+        : "";
 
     // Buscar todas as classes
     $stmt = $pdo->query("
@@ -80,13 +95,15 @@ try {
             base_double_attack_rate,
             created_at
             $animCol
+            $meshCol
+            $modularCol
         FROM classes
         ORDER BY class_id ASC
     ");
     
     $classes = [];
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-        $classes[] = [
+        $entry = [
             'class_id' => intval($row['class_id']),
             'class_name' => $row['class_name'],
             'class_description' => $row['class_description'],
@@ -116,8 +133,17 @@ try {
                 'double_attack_rate' => intval($row['base_double_attack_rate'])
             ],
             'created_at' => $row['created_at'],
-            'anim_set_json' => (!empty($row['anim_set_json'])) ? json_decode($row['anim_set_json'], true) : null
+            'anim_set_json' => (!empty($row['anim_set_json'])) ? json_decode($row['anim_set_json'], true) : null,
+            'skeletal_mesh_path' => $hasMeshPaths ? ($row['skeletal_mesh_path'] ?? null) : null,
+            'anim_blueprint_path' => $hasMeshPaths ? ($row['anim_blueprint_path'] ?? null) : null,
         ];
+        foreach ($modularCols as $col) {
+            $entry[$col] = $row[$col] ?? null;
+        }
+        if (empty($entry['arms_mesh_path'])) {
+            $entry['arms_mesh_path'] = $row['left_hand_mesh_path'] ?? $row['right_hand_mesh_path'] ?? null;
+        }
+        $classes[] = $entry;
     }
     
     echo json_encode([

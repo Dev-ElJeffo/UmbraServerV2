@@ -93,6 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/item_visual_helper.php';
 require_once __DIR__ . '/verify_admin.php';
 
 $json = file_get_contents('php://input');
@@ -171,6 +172,22 @@ try {
     $item_type = $data['item_type'];
     $item_subtype = isset($data['item_subtype']) ? trim($data['item_subtype']) : '';
     $icon_path = isset($data['icon_path']) ? trim($data['icon_path']) : '';
+    $skeletal_mesh_path = isset($data['skeletal_mesh_path']) ? trim($data['skeletal_mesh_path']) : '';
+    $visual_meshes_json = null;
+    if (isset($data['visual_meshes_json'])) {
+        $visualValidation = validate_item_visual_meshes_for_storage($data['visual_meshes_json']);
+        if (!$visualValidation['ok']) {
+            ob_clean();
+            http_response_code(400);
+            echo json_encode([
+                'success' => false,
+                'message' => $visualValidation['error'] ?? 'visual_meshes_json inválido'
+            ], JSON_UNESCAPED_UNICODE);
+            ob_end_flush();
+            exit;
+        }
+        $visual_meshes_json = $visualValidation['json'];
+    }
     $max_stack_size = isset($data['max_stack_size']) ? (int)$data['max_stack_size'] : 1;
     $equipment_slot = isset($data['equipment_slot']) ? $data['equipment_slot'] : 'none';
     $required_level = isset($data['required_level']) ? (int)$data['required_level'] : 1;
@@ -288,12 +305,17 @@ try {
     }
     
     // Inserir item
+    $hasVisualJson = item_templates_has_visual_meshes_json($pdo);
+    $visualCol = $hasVisualJson ? ",\n        visual_meshes_json" : "";
+    $visualVal = $hasVisualJson ? ",\n        :visual_meshes_json" : "";
+
     $insert_query = "INSERT INTO item_templates (
         item_name,
         item_description,
         item_type,
         item_subtype,
         icon_path,
+        skeletal_mesh_path,
         max_stack_size,
         equipment_slot,
         required_level,
@@ -304,13 +326,14 @@ try {
         weight,
         can_be_refined,
         tradeable,
-        item_category
+        item_category{$visualCol}
     ) VALUES (
         :item_name,
         :item_description,
         :item_type,
         :item_subtype,
         :icon_path,
+        :skeletal_mesh_path,
         :max_stack_size,
         :equipment_slot,
         :required_level,
@@ -321,16 +344,16 @@ try {
         :weight,
         :can_be_refined,
         :tradeable,
-        :item_category
+        :item_category{$visualVal}
     )";
     
-    $insert_stmt = $pdo->prepare($insert_query);
-    $insert_stmt->execute([
+    $insert_params = [
         'item_name' => $item_name,
         'item_description' => $item_description,
         'item_type' => $item_type,
         'item_subtype' => $item_subtype,
         'icon_path' => $icon_path,
+        'skeletal_mesh_path' => $skeletal_mesh_path !== '' ? $skeletal_mesh_path : null,
         'max_stack_size' => $max_stack_size,
         'equipment_slot' => $equipment_slot,
         'required_level' => $required_level,
@@ -342,7 +365,13 @@ try {
         'can_be_refined' => $can_be_refined ? 1 : 0,
         'tradeable' => $tradeable ? 1 : 0,
         'item_category' => $item_category
-    ]);
+    ];
+    if ($hasVisualJson) {
+        $insert_params['visual_meshes_json'] = $visual_meshes_json;
+    }
+
+    $insert_stmt = $pdo->prepare($insert_query);
+    $insert_stmt->execute($insert_params);
     
     $item_id = $pdo->lastInsertId();
     

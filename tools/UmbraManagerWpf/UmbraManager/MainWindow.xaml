@@ -429,6 +429,10 @@
                 <views:ClassesEditorView/>
             </TabItem>
 
+            <TabItem Header="Appearance Parts" Visibility="{Binding TabVisibilityContent}">
+                <views:AppearancePartsEditorView/>
+            </TabItem>
+
             <TabItem Header="Progressão" Visibility="{Binding TabVisibilityContent}">
                 <views:ProgressionEditorView/>
             </TabItem>

@@ -52,6 +52,14 @@ public partial class MainViewModel
     [ObservableProperty] private string _classAnimBuffsCsv = "";
     [ObservableProperty] private string _classAnimDeathPath = "";
     [ObservableProperty] private int _classAnimDeathMs = 1500;
+    [ObservableProperty] private string _classFormSkeletalMeshPath = "";
+    [ObservableProperty] private string _classFormAnimBlueprintPath = "";
+    [ObservableProperty] private string _classFormTorsoMeshPath = "";
+    [ObservableProperty] private string _classFormArmsMeshPath = "";
+    [ObservableProperty] private string _classFormLegsMeshPath = "";
+    [ObservableProperty] private string _classFormFeetMeshPath = "";
+    [ObservableProperty] private string _classFormMainHandMeshPath = "";
+    [ObservableProperty] private string _classFormOffHandMeshPath = "";
 
     public string ClassFormTitle => EditingClassId > 0 ? $"Editar classe #{EditingClassId}" : "Nova classe";
     public string ClassSaveButtonText => EditingClassId > 0 ? "Salvar classe" : "Criar classe";
@@ -78,6 +86,7 @@ public partial class MainViewModel
             MessageBox.Show(err, "Erro ao listar classes");
             return;
         }
+        var previousId = EditingClassId;
         GameClasses.Clear();
         if (data.RootElement.TryGetProperty("classes", out var arr))
         {
@@ -88,6 +97,10 @@ public partial class MainViewModel
         }
         data.Dispose();
         StatusText = $"{GameClasses.Count} classe(s).";
+        if (previousId > 0)
+        {
+            SelectedGameClass = GameClasses.FirstOrDefault(c => c.ClassId == previousId);
+        }
     }
 
     [RelayCommand]
@@ -116,6 +129,14 @@ public partial class MainViewModel
         ClassFormCriticalResistance = 0;
         ClassFormDoubleAttackResistance = 0;
         ClassFormDoubleAttackRate = 0;
+        ClassFormSkeletalMeshPath = "";
+        ClassFormAnimBlueprintPath = "";
+        ClassFormTorsoMeshPath = "";
+        ClassFormArmsMeshPath = "";
+        ClassFormLegsMeshPath = "";
+        ClassFormFeetMeshPath = "";
+        ClassFormMainHandMeshPath = "";
+        ClassFormOffHandMeshPath = "";
         ClearClassAnimForm();
         ClassSkillAnims.Clear();
     }
@@ -257,6 +278,14 @@ public partial class MainViewModel
         ClassFormCriticalResistance = row.BaseCriticalResistance;
         ClassFormDoubleAttackResistance = row.BaseDoubleAttackResistance;
         ClassFormDoubleAttackRate = row.BaseDoubleAttackRate;
+        ClassFormSkeletalMeshPath = row.SkeletalMeshPath;
+        ClassFormAnimBlueprintPath = row.AnimBlueprintPath;
+        ClassFormTorsoMeshPath = row.TorsoMeshPath;
+        ClassFormArmsMeshPath = row.ArmsMeshPath;
+        ClassFormLegsMeshPath = row.LegsMeshPath;
+        ClassFormFeetMeshPath = row.FeetMeshPath;
+        ClassFormMainHandMeshPath = row.MainHandMeshPath;
+        ClassFormOffHandMeshPath = row.OffHandMeshPath;
         ApplyClassAnimJsonToForm(row.AnimSetJsonRaw);
     }
 
@@ -286,6 +315,14 @@ public partial class MainViewModel
             ["base_double_attack_resistance"] = ClassFormDoubleAttackResistance,
             ["base_double_attack_rate"] = ClassFormDoubleAttackRate,
             ["anim_set_json"] = BuildClassAnimSetJson(),
+            ["skeletal_mesh_path"] = string.IsNullOrWhiteSpace(ClassFormSkeletalMeshPath) ? null : ClassFormSkeletalMeshPath.Trim(),
+            ["anim_blueprint_path"] = string.IsNullOrWhiteSpace(ClassFormAnimBlueprintPath) ? null : ClassFormAnimBlueprintPath.Trim(),
+            ["torso_mesh_path"] = string.IsNullOrWhiteSpace(ClassFormTorsoMeshPath) ? null : ClassFormTorsoMeshPath.Trim(),
+            ["arms_mesh_path"] = string.IsNullOrWhiteSpace(ClassFormArmsMeshPath) ? null : ClassFormArmsMeshPath.Trim(),
+            ["legs_mesh_path"] = string.IsNullOrWhiteSpace(ClassFormLegsMeshPath) ? null : ClassFormLegsMeshPath.Trim(),
+            ["feet_mesh_path"] = string.IsNullOrWhiteSpace(ClassFormFeetMeshPath) ? null : ClassFormFeetMeshPath.Trim(),
+            ["main_hand_mesh_path"] = string.IsNullOrWhiteSpace(ClassFormMainHandMeshPath) ? null : ClassFormMainHandMeshPath.Trim(),
+            ["off_hand_mesh_path"] = string.IsNullOrWhiteSpace(ClassFormOffHandMeshPath) ? null : ClassFormOffHandMeshPath.Trim(),
         };
     }
 
@@ -419,7 +456,7 @@ public partial class MainViewModel
                 _ => "",
             };
         }
-        return new ClassRow
+        var row = new ClassRow
         {
             ClassId = TryGetIntProp(el, "class_id"),
             ClassName = TryGetStringProp(el, "class_name"),
@@ -444,6 +481,23 @@ public partial class MainViewModel
             BaseDoubleAttackResistance = TryGetIntProp(el, "base_double_attack_resistance"),
             BaseDoubleAttackRate = TryGetIntProp(el, "base_double_attack_rate"),
             AnimSetJsonRaw = animRaw,
+            SkeletalMeshPath = TryGetStringProp(el, "skeletal_mesh_path"),
+            AnimBlueprintPath = TryGetStringProp(el, "anim_blueprint_path"),
+            TorsoMeshPath = TryGetStringProp(el, "torso_mesh_path"),
+            ArmsMeshPath = TryGetStringProp(el, "arms_mesh_path"),
+            LegsMeshPath = TryGetStringProp(el, "legs_mesh_path"),
+            FeetMeshPath = TryGetStringProp(el, "feet_mesh_path"),
+            MainHandMeshPath = TryGetStringProp(el, "main_hand_mesh_path"),
+            OffHandMeshPath = TryGetStringProp(el, "off_hand_mesh_path"),
         };
+        if (string.IsNullOrWhiteSpace(row.ArmsMeshPath))
+        {
+            row.ArmsMeshPath = TryGetStringProp(el, "left_hand_mesh_path");
+            if (string.IsNullOrWhiteSpace(row.ArmsMeshPath))
+            {
+                row.ArmsMeshPath = TryGetStringProp(el, "right_hand_mesh_path");
+            }
+        }
+        return row;
     }
 }

@@ -125,6 +125,8 @@ try {
             intelligence,
             vitality,
             class_id,
+            COALESCE(hair, 0) AS hair,
+            COALESCE(head, 0) AS head,
             created_at,
             last_played_at
         FROM players
@@ -133,15 +135,24 @@ try {
     ");
     $stmt->execute([$account_id]);
     $players = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    require_once __DIR__ . '/../../helpers/item_visual_helper.php';
     
     // Formatar dados
     $formatted_players = [];
     foreach ($players as $player) {
+        $player_id = intval($player['id']);
+        $class_id = intval($player['class_id'] ?? 0);
+        $equipped_visual = aggregate_player_equipped_visual($pdo, $player_id, $class_id);
+
         $formatted_players[] = [
-            'player_id' => intval($player['id']),
+            'player_id' => $player_id,
             'account_id' => intval($player['account_id']),
             'character_name' => $player['character_name'],
             'class_id' => intval($player['class_id'] ?? 0),
+            'hair' => intval($player['hair'] ?? 0),
+            'head' => intval($player['head'] ?? 0),
+            'equipped_visual' => $equipped_visual,
             'level' => intval($player['level']),
             'experience' => intval($player['experience']),
             'current_zone' => $player['current_zone'],

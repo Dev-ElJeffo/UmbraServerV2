@@ -23,6 +23,8 @@ requireAdminAuth($data);
 try {
     $pdo = getConnection();
     $anim = class_has_anim_set_column($pdo) ? ', anim_set_json' : '';
+    $mesh = class_has_mesh_path_columns($pdo) ? ', skeletal_mesh_path, anim_blueprint_path' : '';
+    $modular = class_modular_mesh_select_sql($pdo);
     $stmt = $pdo->query(
         "SELECT class_id, class_name, class_description,
                 base_strength, base_dexterity, base_intelligence, base_vitality, base_luck,
@@ -32,6 +34,8 @@ try {
                 base_critical_resistance, base_double_attack_resistance, base_double_attack_rate,
                 created_at
                 $anim
+                $mesh
+                $modular
          FROM classes
          ORDER BY class_id ASC"
     );

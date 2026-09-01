@@ -120,7 +120,71 @@
                                     <TextBox Text="{Binding NewItemIconPath, UpdateSourceTrigger=PropertyChanged}"
                                              materialDesign:HintAssist.Hint="Icon path (ex: /Game/UI/Icons/Items/ICO_Sword)"
                                              materialDesign:HintAssist.IsFloating="True"
-                                             Margin="0,0,0,16"/>
+                                             Margin="0,0,0,10"/>
+                                    <TextBox Text="{Binding NewItemSkeletalMeshPath, UpdateSourceTrigger=PropertyChanged}"
+                                             materialDesign:HintAssist.Hint="SKM legado (fallback se JSON vazio)"
+                                             materialDesign:HintAssist.IsFloating="True"
+                                             Margin="0,0,0,10"/>
+
+                                    <!-- Meshes visuais (multi-slot) -->
+                                    <TextBlock Text="Meshes visuais (padrão)" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                    <DataGrid Style="{StaticResource ManagerDataGrid}"
+                                              ItemsSource="{Binding ItemDefaultVisualMeshes}"
+                                              AutoGenerateColumns="False"
+                                              CanUserAddRows="False"
+                                              MaxHeight="140" Margin="0,0,0,6">
+                                        <DataGrid.Columns>
+                                            <DataGridComboBoxColumn Header="Slot" Width="100"
+                                                ItemsSource="{Binding DataContext.ItemVisualMeshSlots, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                SelectedItemBinding="{Binding Slot, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <DataGridTextColumn Header="Path SKM/SM" Binding="{Binding Path, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                            <DataGridTemplateColumn Header="" Width="70">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Button Content="X" Padding="4,0"
+                                                                Command="{Binding DataContext.RemoveDefaultVisualMeshRowCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                CommandParameter="{Binding}"/>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                    <Button Content="+ Adicionar mesh padrão" Margin="0,0,0,12"
+                                            Command="{Binding AddDefaultVisualMeshRowCommand}"
+                                            Style="{StaticResource ManagerActionOutlinedButton}"/>
+
+                                    <TextBlock Text="Override por classe" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                    <ComboBox ItemsSource="{Binding GameClasses}"
+                                              SelectedValuePath="ClassId"
+                                              DisplayMemberPath="ClassName"
+                                              SelectedValue="{Binding SelectedVisualOverrideClassId}"
+                                              materialDesign:HintAssist.Hint="Classe"
+                                              materialDesign:HintAssist.IsFloating="True"
+                                              Margin="0,0,0,8"/>
+                                    <DataGrid Style="{StaticResource ManagerDataGrid}"
+                                              ItemsSource="{Binding ItemClassVisualMeshes}"
+                                              AutoGenerateColumns="False"
+                                              CanUserAddRows="False"
+                                              MaxHeight="120" Margin="0,0,0,6">
+                                        <DataGrid.Columns>
+                                            <DataGridComboBoxColumn Header="Slot" Width="100"
+                                                ItemsSource="{Binding DataContext.ItemVisualMeshSlots, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                SelectedItemBinding="{Binding Slot, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <DataGridTextColumn Header="Path SKM/SM" Binding="{Binding Path, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                            <DataGridTemplateColumn Header="" Width="70">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Button Content="X" Padding="4,0"
+                                                                Command="{Binding DataContext.RemoveClassVisualMeshRowCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                CommandParameter="{Binding}"/>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                    <Button Content="+ Adicionar mesh da classe" Margin="0,0,0,16"
+                                            Command="{Binding AddClassVisualMeshRowCommand}"
+                                            Style="{StaticResource ManagerActionOutlinedButton}"/>
 
                                     <!-- Bloco classificação -->
                                     <TextBlock Text="Classificação" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>

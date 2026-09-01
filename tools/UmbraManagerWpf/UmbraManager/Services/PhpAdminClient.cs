@@ -357,6 +357,26 @@ public sealed class PhpAdminClient
     public async Task<(bool Ok, string Error, JsonDocument? Data)> DeleteClassAsync(int classId, CancellationToken ct = default) =>
         await PostAsync("/admin/delete_class.php", new { admin_username = _adminUsername, class_id = classId }, ct);
 
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListAppearancePartsAsync(string? search = null, CancellationToken ct = default) =>
+        await PostAsync("/admin/list_appearance_parts.php", new { admin_username = _adminUsername, search }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> CreateAppearancePartAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/create_appearance_part.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpdateAppearancePartAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/update_appearance_part.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> DeleteAppearancePartAsync(int appearancePartId, CancellationToken ct = default) =>
+        await PostAsync("/admin/delete_appearance_part.php", new { admin_username = _adminUsername, appearance_part_id = appearancePartId }, ct);
+
     public async Task<(bool Ok, string Error, JsonDocument? Data)> ListClassSkillsAsync(int classId, CancellationToken ct = default) =>
         await PostAsync("/admin/list_class_skills.php", new { admin_username = _adminUsername, class_id = classId }, ct);
 

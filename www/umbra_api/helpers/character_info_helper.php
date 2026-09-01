@@ -10,6 +10,7 @@
  */
 require_once __DIR__ . '/stat_key_mapping.php';
 require_once __DIR__ . '/enchant_helper.php';
+require_once __DIR__ . '/item_visual_helper.php';
 
 /**
  * Lista passivas aprendidas e se health_below_percent está ativa (debug).
@@ -90,6 +91,8 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
                         p.vitality,
                         COALESCE(p.luck, 10) as luck,
                         p.class_id,
+                        COALESCE(p.hair, 0) as hair,
+                        COALESCE(p.head, 0) as head,
                         p.faction_id,
                         p.current_guild_id,
                         p.equipped_title_id,
@@ -171,6 +174,17 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
     }
 
     // 3. Buscar todos os itens equipados
+    $hasItemSkmPath = false;
+    try {
+        $chkSkm = $pdo->query("SHOW COLUMNS FROM item_templates LIKE 'skeletal_mesh_path'");
+        $hasItemSkmPath = $chkSkm && $chkSkm->rowCount() > 0;
+    } catch (Exception $e) {
+        $hasItemSkmPath = false;
+    }
+    $hasVisualJson = item_templates_has_visual_meshes_json($pdo);
+    $skmCol = $hasItemSkmPath ? "it.skeletal_mesh_path," : "";
+    $visualJsonCol = $hasVisualJson ? "it.visual_meshes_json," : "";
+
     $equipped_query = "SELECT 
                         pi.inventory_id,
                         pi.item_template_id,
@@ -185,6 +199,8 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
                         it.item_type,
                         it.item_subtype,
                         it.icon_path,
+                        {$skmCol}
+                        {$visualJsonCol}
                         it.equipment_slot,
                         it.required_level,
                         it.stats_json,
@@ -201,6 +217,8 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
     $equipped_stmt = $pdo->prepare($equipped_query);
     $equipped_stmt->execute(['player_id' => $player_id]);
     $equipped_items = $equipped_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $player_class_id = (int)($player['class_id'] ?? 0);
 
     // 4. Processar itens equipados e calcular stats totais
     $equipped_by_slot = [];
@@ -309,6 +327,8 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
         $enchantments = enchant_parse_list($item['enchantments_json'] ?? null);
         enchant_apply_flats_to_totals($enchantments, $total_stats);
 
+        $visual_entries = resolve_item_visual_entries($item, $player_class_id);
+
         $equipped_by_slot[$equipment_slot] = [
             'inventory_id' => (int)$item['inventory_id'],
             'item_template_id' => (int)$item['item_template_id'],
@@ -317,6 +337,9 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
             'item_type' => $item['item_type'],
             'item_subtype' => $item['item_subtype'],
             'icon_path' => $item['icon_path'],
+            'skeletal_mesh_path' => $item['skeletal_mesh_path'] ?? null,
+            'visual_meshes_json' => $hasVisualJson ? ($item['visual_meshes_json'] ?? null) : null,
+            'visual_entries' => $visual_entries,
             'equipment_slot' => $equipment_slot,
             'required_level' => (int)$item['required_level'],
             'durability' => (float)$item['durability'],
@@ -580,6 +603,10 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
             'title_name' => $player['title_name'] ?: ''
         ],
         'selected_class' => (int)($player['selected_class'] ?: 0),
+        'appearance' => [
+            'hair' => (int)($player['hair'] ?? 0),
+            'head' => (int)($player['head'] ?? 0),
+        ],
         'pvp_stats' => [
             'pvp' => (int)$player['pvp'],
             'chaos' => (int)$player['chaos'],
@@ -619,6 +646,7 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
             'combat' => $combat_stats
         ],
         'equipped_items' => $equipped_by_slot,
+        'resolved_visual' => aggregate_player_equipped_visual($pdo, $player_id, $player_class_id),
         'stat_points' => [
             'unspent_points' => (int)$stat_points['unspent_points'],
             'strength_points' => (int)$stat_points['strength_points'],

@@ -77,6 +77,32 @@
           <TextBox Text="{Binding ClassFormDoubleAttackResistance}" Margin="0,0,0,6" materialDesign:HintAssist.Hint="Double atk resist" materialDesign:HintAssist.IsFloating="True"/>
         </UniformGrid>
 
+        <TextBlock Text="Visual (player mesh)" FontWeight="SemiBold" Margin="0,8,0,6"/>
+        <TextBox Text="{Binding ClassFormSkeletalMeshPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="skeletal_mesh_path (rig master)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassFormAnimBlueprintPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12"
+                 materialDesign:HintAssist.Hint="anim_blueprint_path" materialDesign:HintAssist.IsFloating="True"/>
+
+        <TextBlock Text="Corpo modular" FontWeight="SemiBold" Margin="0,0,0,6"/>
+        <TextBox Text="{Binding ClassFormTorsoMeshPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="torso_mesh_path (ex. SK_Male_Torso)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassFormArmsMeshPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="arms_mesh_path (ex. SK_Male_Arms)" materialDesign:HintAssist.IsFloating="True"/>
+        <UniformGrid Columns="2">
+          <TextBox Text="{Binding ClassFormLegsMeshPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,6"
+                   materialDesign:HintAssist.Hint="legs_mesh_path (ex. SK_Male_Legs)" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormFeetMeshPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                   materialDesign:HintAssist.Hint="feet_mesh_path (ex. SK_Male_Feet)" materialDesign:HintAssist.IsFloating="True"/>
+        </UniformGrid>
+
+        <TextBlock Text="Armas default" FontWeight="SemiBold" Margin="0,4,0,6"/>
+        <UniformGrid Columns="2" Margin="0,0,0,12">
+          <TextBox Text="{Binding ClassFormMainHandMeshPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,6"
+                   materialDesign:HintAssist.Hint="main_hand_mesh_path" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassFormOffHandMeshPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                   materialDesign:HintAssist.Hint="off_hand_mesh_path" materialDesign:HintAssist.IsFloating="True"/>
+        </UniformGrid>
+
         <TextBlock Text="Animation Set (loco / hit / death)" FontWeight="SemiBold" Margin="0,12,0,6"/>
         <TextBox Text="{Binding ClassAnimIdlePath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
                  materialDesign:HintAssist.Hint="Idle" materialDesign:HintAssist.IsFloating="True"/>

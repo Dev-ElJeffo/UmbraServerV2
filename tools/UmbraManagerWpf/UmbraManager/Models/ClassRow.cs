@@ -27,6 +27,14 @@ public sealed class ClassRow
     public int BaseDoubleAttackResistance { get; set; }
     public int BaseDoubleAttackRate { get; set; }
     public string AnimSetJsonRaw { get; set; } = "";
+    public string SkeletalMeshPath { get; set; } = "";
+    public string AnimBlueprintPath { get; set; } = "";
+    public string TorsoMeshPath { get; set; } = "";
+    public string ArmsMeshPath { get; set; } = "";
+    public string LegsMeshPath { get; set; } = "";
+    public string FeetMeshPath { get; set; } = "";
+    public string MainHandMeshPath { get; set; } = "";
+    public string OffHandMeshPath { get; set; } = "";
 }
 
 public partial class ClassSkillAnimRow : ObservableObject

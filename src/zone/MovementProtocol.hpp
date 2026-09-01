@@ -103,8 +103,9 @@ enum class MovementMsgType : uint8_t {
   LootTakeItem = 113,                  // Cliente -> Servidor: loot slot selecionado
   LootTakeAll = 114,                   // Cliente -> Servidor: loot all
   LootWindowUpdate = 115,              // Servidor -> Cliente: slots restantes + gold opcional
-  QuestProgressNotify = 116,           // Servidor -> Cliente: progresso/ready de quest (kill)
-  WsKeepalive = 250                      // Servidor -> Cliente: heartbeat (1 byte); cliente ignora
+	QuestProgressNotify = 116,           // Servidor -> Cliente: progresso/ready de quest (kill)
+	PlayerEquipmentVisualUpdate = 117,   // Cliente <-> Servidor: visual de equipamento (paths por slot)
+	WsKeepalive = 250                      // Servidor -> Cliente: heartbeat (1 byte); cliente ignora
 };
 
 /** kind em slots de loot: 0=item, 1=gold */
@@ -433,13 +434,16 @@ inline std::vector<uint8_t> encodePlayerDisconnected(uint32_t playerId) {
 
 // Codificar mensagem PlayerInfoUpdate:
 // [msgType:uint8][playerId:uint32][nameLen:uint16][name:bytes][titleLen:uint16][title:bytes][guildLen:uint16][guild:bytes]
-// Compatível: clientes antigos ignoram dados extras.
+// [classId:uint32][hair:uint32][head:uint32] — opcional; clientes antigos param após guild
 inline std::vector<uint8_t> encodePlayerInfoUpdate(uint32_t playerId, 
                                                     const std::string& name, 
                                                     const std::string& title,
-                                                    const std::string& guildName = "") {
+                                                    const std::string& guildName = "",
+                                                    uint32_t classId = 0,
+                                                    uint32_t hair = 0,
+                                                    uint32_t head = 0) {
   std::vector<uint8_t> out;
-  out.reserve(1 + 4 + 2 + name.size() + 2 + title.size() + 2 + guildName.size());
+  out.reserve(1 + 4 + 2 + name.size() + 2 + title.size() + 2 + guildName.size() + 12);
   
   out.push_back(static_cast<uint8_t>(MovementMsgType::PlayerInfoUpdate));
   
@@ -462,6 +466,9 @@ inline std::vector<uint8_t> encodePlayerInfoUpdate(uint32_t playerId,
   out.insert(out.end(), title.begin(), title.end());
   write16(static_cast<uint16_t>(guildName.size()));
   out.insert(out.end(), guildName.begin(), guildName.end());
+  write32(classId);
+  write32(hair);
+  write32(head);
   
   return out;
 }
@@ -471,8 +478,14 @@ inline bool decodePlayerInfoUpdate(const std::vector<uint8_t>& data,
                                    uint32_t& playerId,
                                    std::string& name,
                                    std::string& title,
-                                   std::string& guildName) {
+                                   std::string& guildName,
+                                   uint32_t* classId = nullptr,
+                                   uint32_t* hair = nullptr,
+                                   uint32_t* head = nullptr) {
   guildName.clear();
+  if (classId) *classId = 0;
+  if (hair) *hair = 0;
+  if (head) *head = 0;
   if (data.size() < 7) return false;  // Mínimo: msgType(1) + playerId(4) + nameLen(2)
   
   size_t off = 0;
@@ -513,6 +526,15 @@ inline bool decodePlayerInfoUpdate(const std::vector<uint8_t>& data,
     guildName.assign(reinterpret_cast<const char*>(data.data() + off), guildLen);
     off += guildLen;
   }
+
+  if (data.size() >= off + 12) {
+    if (classId) *classId = read32(off);
+    else off += 4;
+    if (hair) *hair = read32(off);
+    else off += 4;
+    if (head) *head = read32(off);
+    else off += 4;
+  }
   return true;
 }
 
@@ -523,6 +545,88 @@ inline bool decodePlayerInfoUpdate(const std::vector<uint8_t>& data,
                                    std::string& title) {
   std::string ignoredGuild;
   return decodePlayerInfoUpdate(data, playerId, name, title, ignoredGuild);
+}
+
+struct EquippedVisualWireEntry {
+  uint8_t equipSlot = 0;
+  std::string meshPath;
+};
+
+// PlayerEquipmentVisualUpdate (117):
+// [msgType:uint8][playerId:uint32][count:uint8]
+// repeat count: [equipSlot:uint8][pathLen:uint16 LE][path:utf8]
+inline std::vector<uint8_t> encodePlayerEquipmentVisualUpdate(
+    uint32_t playerId,
+    const std::vector<EquippedVisualWireEntry>& entries) {
+  std::vector<uint8_t> out;
+  out.reserve(6 + entries.size() * 8);
+  out.push_back(static_cast<uint8_t>(MovementMsgType::PlayerEquipmentVisualUpdate));
+
+  auto write32 = [&out](uint32_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  auto write16 = [&out](uint16_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  };
+
+  write32(playerId);
+  const uint8_t count = static_cast<uint8_t>(std::min<size_t>(entries.size(), 255));
+  out.push_back(count);
+  for (size_t i = 0; i < count; ++i) {
+    const auto& e = entries[i];
+    out.push_back(e.equipSlot);
+    const uint16_t pathLen = static_cast<uint16_t>(std::min<size_t>(e.meshPath.size(), 65535));
+    write16(pathLen);
+    out.insert(out.end(), e.meshPath.begin(), e.meshPath.begin() + pathLen);
+  }
+  return out;
+}
+
+inline bool decodePlayerEquipmentVisualUpdate(
+    const std::vector<uint8_t>& data,
+    uint32_t& playerId,
+    std::vector<EquippedVisualWireEntry>& outEntries) {
+  outEntries.clear();
+  if (data.size() < 6) return false;
+  if (static_cast<MovementMsgType>(data[0]) != MovementMsgType::PlayerEquipmentVisualUpdate) return false;
+
+  size_t off = 1;
+  auto read32 = [&]() -> uint32_t {
+    if (off + 4 > data.size()) return 0;
+    uint32_t v = static_cast<uint32_t>(data[off])
+               | (static_cast<uint32_t>(data[off + 1]) << 8)
+               | (static_cast<uint32_t>(data[off + 2]) << 16)
+               | (static_cast<uint32_t>(data[off + 3]) << 24);
+    off += 4;
+    return v;
+  };
+  auto read16 = [&]() -> uint16_t {
+    if (off + 2 > data.size()) return 0;
+    uint16_t v = static_cast<uint16_t>(data[off])
+               | (static_cast<uint16_t>(data[off + 1]) << 8);
+    off += 2;
+    return v;
+  };
+
+  playerId = read32();
+  if (off >= data.size()) return false;
+  const uint8_t count = data[off++];
+  outEntries.reserve(count);
+  for (uint8_t i = 0; i < count; ++i) {
+    if (off >= data.size()) return false;
+    EquippedVisualWireEntry entry;
+    entry.equipSlot = data[off++];
+    const uint16_t pathLen = read16();
+    if (off + pathLen > data.size()) return false;
+    entry.meshPath.assign(reinterpret_cast<const char*>(data.data() + off), pathLen);
+    off += pathLen;
+    outEntries.push_back(std::move(entry));
+  }
+  return true;
 }
 
 inline std::vector<uint8_t> encodeGuildNotify(MovementMsgType msgType, uint32_t guildId) {

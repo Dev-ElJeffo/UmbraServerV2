@@ -16,6 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $data = json_decode(file_get_contents('php://input'), true) ?? [];
 require_once __DIR__ . '/require_admin_auth.php';
+require_once __DIR__ . '/../../helpers/item_visual_helper.php';
 requireAdminAuth($data);
 
 $itemId = (int)($data['item_id'] ?? 0);
@@ -50,6 +51,7 @@ try {
         'item_type' => 'item_type',
         'item_subtype' => 'item_subtype',
         'icon_path' => 'icon_path',
+        'skeletal_mesh_path' => 'skeletal_mesh_path',
         'max_stack_size' => 'max_stack_size',
         'equipment_slot' => 'equipment_slot',
         'required_level' => 'required_level',
@@ -126,6 +128,17 @@ try {
         $params[':stats_json'] = !empty($statsClean)
             ? json_encode($statsClean, JSON_UNESCAPED_UNICODE | JSON_NUMERIC_CHECK)
             : null;
+    }
+
+    if (array_key_exists('visual_meshes_json', $data) && item_templates_has_visual_meshes_json($pdo)) {
+        $visualValidation = validate_item_visual_meshes_for_storage($data['visual_meshes_json']);
+        if (!$visualValidation['ok']) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => $visualValidation['error'] ?? 'visual_meshes_json inválido'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $sets[] = 'visual_meshes_json = :visual_meshes_json';
+        $params[':visual_meshes_json'] = $visualValidation['json'];
     }
 
     if (empty($sets)) {
