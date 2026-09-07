@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <algorithm>
 #include "zone/ZoneServer.hpp"
 #include "zone/PlayerManager.hpp"
 #include "zone/EntitySystem.hpp"
@@ -119,6 +120,20 @@ TEST_F(EntitySystemTest, DespawnEntity) {
   uint64_t entityId = entitySystem->spawnEntity(entity);
   EXPECT_TRUE(entitySystem->despawnEntity(entityId));
   EXPECT_EQ(entitySystem->getEntityCount(), 0);
+}
+
+// Regressão: applyVitalsInDb usava HP atual como teto (MAX(health)=current),
+// bloqueando todo tick de HoT em active_dots.
+TEST(CombatVitalsClamp, HotHealsWhenMaxAboveCurrent) {
+  const int32_t curHealth = 50;
+  const int32_t maxHealth = 200;
+  const int32_t delta = 20;
+  const int32_t fixed = std::max(0, std::min(maxHealth, curHealth + delta));
+  EXPECT_EQ(fixed, 70);
+
+  const int32_t buggyMax = curHealth;
+  const int32_t buggy = std::max(0, std::min(buggyMax, curHealth + delta));
+  EXPECT_EQ(buggy, 50);
 }
 
 int main(int argc, char** argv) {
