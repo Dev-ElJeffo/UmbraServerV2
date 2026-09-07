@@ -505,9 +505,19 @@ bool CombatCoreEngine::applyPlayerDamage(uint32_t sourcePlayerId, uint32_t targe
   if (!healthOpt || !manaOpt) return false;
 
   int32_t curHealth = std::stoi(*healthOpt);
-  int32_t maxHealth = maxHOpt ? std::max(1, std::stoi(*maxHOpt)) : 100;
   int32_t curMana = std::stoi(*manaOpt);
-  int32_t maxMana = maxMOpt ? std::max(1, std::stoi(*maxMOpt)) : 50;
+
+  // Max TOTAL (base + nivel + equip/buffs), igual ao opcode 87 e character_info.
+  int32_t maxHealth = 100;
+  int32_t maxMana = 50;
+  Combat::CharacterState st;
+  if (stateLoader_ && stateLoader_->loadPlayerState(targetPlayerId, st)) {
+    maxHealth = std::max(1, st.buffedStats.maxHealth);
+    maxMana = std::max(1, st.buffedStats.maxMana);
+  } else {
+    maxHealth = maxHOpt ? std::max(1, std::stoi(*maxHOpt)) : 100;
+    maxMana = maxMOpt ? std::max(1, std::stoi(*maxMOpt)) : 50;
+  }
 
   const int32_t newHealth = std::max(0, std::min(maxHealth, curHealth + delta));
   const bool isDead = (newHealth <= 0);
@@ -521,6 +531,7 @@ bool CombatCoreEngine::applyPlayerDamage(uint32_t sourcePlayerId, uint32_t targe
         "UPDATE players SET health = ?, is_dead = 0 WHERE id = ?",
         {std::to_string(newHealth), tid});
   }
+  if (stateLoader_) stateLoader_->invalidate(targetPlayerId);
 
   PlayerVitalsPayload vitals;
   vitals.playerId = targetPlayerId;
