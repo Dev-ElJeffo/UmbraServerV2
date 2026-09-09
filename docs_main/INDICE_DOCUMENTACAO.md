@@ -69,6 +69,7 @@
 | Documento | Descrição | Dificuldade | Tempo |
 |-----------|-----------|-------------|-------|
 | [`GUIA_UI_WIDGETS_UE5.md`](GUIA_UI_WIDGETS_UE5.md) | Criar Login/Register/Dashboard | ⭐⭐⭐⭐ Avançado | 90 min |
+| [`GUIA_SISTEMA_OPCOES_UE561.md`](GUIA_SISTEMA_OPCOES_UE561.md) | Opções: gráficos, áudio, resolução, ESC | ⭐⭐⭐ Intermediário | 60 min |
 | [`GUIA_IMPLEMENTACAO_WBP_CHAT_LOCAL_GLOBAL_UE561.md`](GUIA_IMPLEMENTACAO_WBP_CHAT_LOCAL_GLOBAL_UE561.md) | Chat Local/Global (WBP + C++) | ⭐⭐⭐ Intermediário | 45 min |
 | [`FIX_BLUEPRINT_WIDGETS.md`](FIX_BLUEPRINT_WIDGETS.md) | Resolver erros de Blueprints | ⭐⭐ Fácil | 10 min |
 | [`PLANO_IMPLEMENTACAO_UE5.md`](PLANO_IMPLEMENTACAO_UE5.md) | Plano completo 5 fases | ⭐⭐⭐ Intermediário | 60 min |
@@ -193,6 +194,7 @@ UmbraEternumUE/Source/UmbraEternumUE/
 3. ✅ [`WAMP_PHP_API_SETUP.md`](WAMP_PHP_API_SETUP.md) - Setup APIs (20 min)
 4. ✅ [`UE5_QUICKSTART.md`](UE5_QUICKSTART.md) - Integração básica (5 min)
 5. ✅ [`GUIA_UI_WIDGETS_UE5.md`](GUIA_UI_WIDGETS_UE5.md) - Login/Register (90 min)
+6. ✅ [`GUIA_SISTEMA_OPCOES_UE561.md`](GUIA_SISTEMA_OPCOES_UE561.md) - Opções gráficos/áudio/ESC (60 min)
 
 **Total**: ~2h30min
 
