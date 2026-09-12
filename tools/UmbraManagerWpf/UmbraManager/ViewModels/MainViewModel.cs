@@ -240,7 +240,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>Subtipos sugeridos por tipo. O backend não valida — é só guia.</summary>
     private static readonly Dictionary<string, string[]> SubtypeByType = new()
     {
-        ["weapon"]     = new[] { "sword", "dagger", "axe", "mace", "hammer", "bow", "crossbow", "staff", "wand", "polearm", "spear", "shield", "fist" },
+        ["weapon"]     = new[] { "axe", "cestus", "scythe", "dagger", "sword", "staff", "mace", "hammer", "bow", "crossbow", "wand", "polearm", "spear", "shield", "fist" },
         ["armor"]      = new[] { "helmet", "chest", "legs", "boots", "gloves", "cloak", "belt", "ring", "amulet", "earring", "bracelet" },
         ["consumable"] = new[] { "potion", "elixir", "scroll", "food", "drink", "bandage", "stone" },
         ["material"]   = new[] { "metal", "cloth", "leather", "wood", "gem", "ore", "herb", "essence", "shard", "dust", "enchant_crystal", "enchant_extractor" },
@@ -375,6 +375,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         // Inicializa lista de subtipos com base no tipo padrão
         OnNewItemTypeChanged(NewItemType);
+        EnsureItemAllowedClassOptions();
         ProcessManager.ServiceStateChanged += (_, _) => Application.Current.Dispatcher.Invoke(RefreshServerRows);
         ProcessManager.ServiceCrashed += (id, code) => Application.Current.Dispatcher.Invoke(() =>
         {
@@ -1233,6 +1234,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 int id = TryGetIntProp(it, "item_id");
                 if (id == 0) id = TryGetIntProp(it, "id");
 
+                TryParseAllowedClassIds(it, out var allowedIds, out var allowAll);
+
                 Items.Add(new ItemRow
                 {
                     Id = id,
@@ -1253,7 +1256,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     SkeletalMeshPath = TryGetStringProp(it, "skeletal_mesh_path"),
                     VisualMeshesJson = TryGetStringProp(it, "visual_meshes_json"),
                     Description = TryGetStringProp(it, "item_description"),
-                    StatsJson = statsRaw
+                    StatsJson = statsRaw,
+                    AllowedClassIds = allowAll ? null : allowedIds,
+                    AllowAllClasses = allowAll
                 });
             }
         }
@@ -1302,7 +1307,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["tradeable"] = NewItemTradeable,
             ["use_cooldown_ms"] = NewItemUseCooldownMs,
             ["item_category"] = string.IsNullOrWhiteSpace(NewItemCategory) ? "misc" : NewItemCategory,
-            ["stats"] = stats ?? new Dictionary<string, object>()
+            ["stats"] = stats ?? new Dictionary<string, object>(),
+            ["allowed_class_ids"] = BuildAllowedClassIdsPayload()
         };
 
         SeedDefaultVisualFromLegacyPath();
@@ -1355,6 +1361,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewItemCanBeRefined = item.CanBeRefined;
         NewItemUseCooldownMs = item.UseCooldownMs <= 0 ? 5000 : item.UseCooldownMs;
         NewItemStatsJson = string.IsNullOrEmpty(item.StatsJson) ? "{}" : item.StatsJson;
+        ApplyAllowedClassesFromIds(item.AllowedClassIds, item.AllowAllClasses);
     }
 
     [RelayCommand] private void NewItem()
@@ -1378,6 +1385,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewItemCanBeRefined = false;
         NewItemUseCooldownMs = 5000;
         NewItemStatsJson = "{}";
+        ResetItemAllowedClassesToAll();
     }
 
     [RelayCommand] private async Task DeleteItemAsync(ItemRow? item)

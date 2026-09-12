@@ -78,6 +78,7 @@ try {
 
     adminQuestReplaceObjectives($pdo, $questId, $objectives);
     adminQuestReplaceRewards($pdo, $questId, $rewards);
+    adminQuestReplaceRewardChoices($pdo, $questId, is_array($data['reward_choices'] ?? null) ? $data['reward_choices'] : []);
     adminQuestReplaceAcceptGrants($pdo, $questId, is_array($data['accept_grants'] ?? null) ? $data['accept_grants'] : []);
     adminQuestReplaceStartRequirements($pdo, $questId, is_array($data['start_requirements'] ?? null) ? $data['start_requirements'] : []);
 

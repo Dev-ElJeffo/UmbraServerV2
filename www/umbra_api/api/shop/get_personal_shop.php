@@ -80,6 +80,10 @@ try {
 
     $sid = (int)$shop['shop_id'];
 
+    $allowedSelect = function_exists('item_templates_allowed_class_select_sql')
+        ? item_templates_allowed_class_select_sql($pdo, 'it')
+        : '';
+
     $lq = $pdo->prepare("
         SELECT
             psl.listing_id,
@@ -106,7 +110,7 @@ try {
             it.value,
             it.weight,
             it.can_be_refined,
-            it.tradeable
+            it.tradeable{$allowedSelect}
         FROM personal_shop_listings psl
         INNER JOIN player_inventory pi ON psl.inventory_id = pi.inventory_id
         INNER JOIN item_templates it ON pi.item_template_id = it.item_id

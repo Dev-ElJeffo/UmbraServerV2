@@ -24,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/item_weapon_class_helper.php';
 
 // Obter dados do POST
 $json = file_get_contents('php://input');
@@ -51,6 +52,9 @@ try {
     
     // ✅ BUSCAR STORAGE POR ACCOUNT_ID (compartilhado entre todos os personagens da conta)
     // Apenas itens realmente no storage (INNER JOIN) e ordenados para facilitar dedupe
+    $hasAllowedClasses = item_templates_has_allowed_class_ids($pdo);
+    $allowedSelect = $hasAllowedClasses ? ",\n                t.allowed_class_ids" : "";
+
     $query = "SELECT 
                 s.storage_id,
                 s.slot_index,
@@ -73,7 +77,7 @@ try {
                 t.rarity,
                 t.value,
                 t.weight,
-                t.stats_json
+                t.stats_json{$allowedSelect}
               FROM player_storage s
               INNER JOIN player_inventory i ON s.inventory_id = i.inventory_id
               INNER JOIN item_templates t ON i.item_template_id = t.item_id
@@ -146,7 +150,7 @@ try {
             $custom_properties = json_decode($item['custom_properties'], true) ?: [];
         }
         
-        $formatted_items[] = [
+        $row = [
             'storage_id' => (int)$item['storage_id'],
             'inventory_id' => (int)$item['inventory_id'],
             'player_id' => (int)$item['player_id'],
@@ -170,6 +174,14 @@ try {
             'weight' => (float)$item['weight'],
             'stats' => $stats
         ];
+
+        if (array_key_exists('allowed_class_ids', $item)) {
+            $parsedAllowed = parse_allowed_class_ids($item['allowed_class_ids'] ?? null);
+            $row['allowed_class_ids'] = $parsedAllowed;
+            $row['allow_all_classes'] = ($parsedAllowed === null);
+        }
+
+        $formatted_items[] = $row;
     }
     
     http_response_code(200);

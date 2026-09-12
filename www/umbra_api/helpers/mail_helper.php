@@ -6,6 +6,7 @@
 require_once __DIR__ . '/npc_vendor_helper.php';
 require_once __DIR__ . '/stat_key_mapping.php';
 require_once __DIR__ . '/enchant_helper.php';
+require_once __DIR__ . '/item_weapon_class_helper.php';
 
 const MAIL_MAX_ATTACHMENTS = 5;
 const MAIL_SUBJECT_MAX = 128;
@@ -176,19 +177,20 @@ function mailInsertMessage(
  */
 function mailFetchAttachments(PDO $pdo, int $mailId): array
 {
-    $st = $pdo->prepare('
+    $allowedSelect = item_templates_allowed_class_select_sql($pdo, 'it');
+    $st = $pdo->prepare("
         SELECT ma.id, ma.slot_index, ma.item_template_id, ma.quantity, ma.refinement_level,
                ma.durability, ma.bonus_stats_json, ma.enchantments_json, ma.claimed, ma.claimed_at,
-               it.item_name, it.icon_path, it.item_type, it.rarity, it.max_stack_size
+               it.item_name, it.icon_path, it.item_type, it.rarity, it.max_stack_size{$allowedSelect}
         FROM mail_attachments ma
         LEFT JOIN item_templates it ON it.item_id = ma.item_template_id
         WHERE ma.mail_id = ?
         ORDER BY ma.slot_index ASC
-    ');
+    ");
     $st->execute([$mailId]);
     $rows = [];
     while ($r = $st->fetch(PDO::FETCH_ASSOC)) {
-        $rows[] = [
+        $att = [
             'attachment_id' => (int)$r['id'],
             'slot_index' => (int)$r['slot_index'],
             'item_template_id' => (int)$r['item_template_id'],
@@ -206,6 +208,8 @@ function mailFetchAttachments(PDO $pdo, int $mailId): array
             'rarity' => $r['rarity'] ?? '',
             'max_stack_size' => isset($r['max_stack_size']) ? (int)$r['max_stack_size'] : 1,
         ];
+        append_allowed_class_fields($att, $r['allowed_class_ids'] ?? null);
+        $rows[] = $att;
     }
     return $rows;
 }

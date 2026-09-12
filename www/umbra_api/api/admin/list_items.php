@@ -43,6 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/item_weapon_class_helper.php';
 require_once __DIR__ . '/verify_admin.php';
 
 // Aceitar tanto POST quanto GET
@@ -160,6 +161,13 @@ try {
             unset($item['stats_json']);
         } else {
             $item['stats'] = [];
+        }
+
+        // allowed_class_ids: null = todas; array de ints = restrição
+        if (array_key_exists('allowed_class_ids', $item)) {
+            $parsedAllowed = parse_allowed_class_ids($item['allowed_class_ids'] ?? null);
+            $item['allowed_class_ids'] = $parsedAllowed; // null ou [1,2,...]
+            $item['allow_all_classes'] = ($parsedAllowed === null);
         }
         
         // Converter valores numéricos

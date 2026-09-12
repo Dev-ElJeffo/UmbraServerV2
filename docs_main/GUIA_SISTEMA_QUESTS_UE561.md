@@ -81,7 +81,23 @@ Pasta: `www/umbra_api/api/quest/`
 | `abandon_quest.php` | Abandonar |
 | `report_quest_progress.php` | `reach_area` / `use_item_at` |
 | `turn_in_quest.php` | Entrega (`needs_reward_choice` se aplicável) |
-| `choose_quest_reward.php` | Escolhe recompensa e finaliza |
+| `choose_quest_reward.php` | Escolhe recompensas (`choice_ids[]`, 1 por `choice_group_id`) e finaliza |
+
+### 2.1 Escolha multi-grupo + classes
+
+- `quest_reward_choices.choice_group_id`: **exatamente 1 pick por grupo** no turn-in.
+- Payload preferencial: `{ "token", "quest_id", "choice_ids": [idGrupo1, idGrupo2, ...] }`.
+- Compat: `choice_id` único ainda funciona para quests com **um** grupo.
+- `chosen_rewards_json`: `{"choices":[{"choice_id":N,"choice_group_id":G},...]}`.
+- Itens de choice mostram `allowed_class_ids` / `allow_all_classes` (metadado do template). **Sem filtro por classe do jogador** — todas as opções aparecem e qualquer uma pode ser escolhida.
+- Seed demo: `scripts/seed_quest_class_gear_choice.sql` (`quest_class_gear_choice`: grupo 1=armas, grupo 2=armaduras).
+- Manager: grid **Reward Choices** em create/update; admin API `reward_choices[]`.
+
+```bash
+curl -X POST http://localhost/umbra_api/api/quest/choose_quest_reward.php \
+  -H "Content-Type: application/json" \
+  -d '{"token":"TOKEN","quest_id":4,"choice_ids":[10,16]}'
+```
 
 ```bash
 curl -X POST http://localhost/umbra_api/api/quest/get_npc_quest_offers.php \
@@ -382,16 +398,16 @@ Abre quando `turn_in_quest` retorna `needs_reward_choice: true`.
 |-------|-------|
 | **Asset** | `Content/Widgets/UI/Quest/WBP_QuestRewardPicker` |
 | **Parent Class** | `UmbraQuestRewardPickerWidget` |
-| **Aberto por** | `OpenQuestRewardPicker` (ZOrder 25) |
+| **Aberto por** | `OpenQuestRewardPicker` (ZOrder **280**, acima do painel de interaction) |
 
 ### 10.1 BindWidget
 
 | Nome exato | Tipo UE | Obrigatório | Função |
 |------------|---------|-------------|--------|
-| `Text_Title` | Text Block | Opcional | Título ("Escolha sua recompensa") |
-| `Text_SelectedItem` | Text Block | **Recomendado** | Mostra `Item selecionado: {nome}` após clique |
-| `VBox_Choices` | Vertical Box | Recomendado | Linhas `WBP_QuestRewardChoiceEntry` (ícone clicável) |
-| `BTN_ConfirmReward` | Button | Recomendado | Confirma → `ChooseQuestReward` (desabilitado até selecionar) |
+| `Text_Title` | Text Block | Opcional | Título |
+| `Text_SelectedItem` | Text Block | **Recomendado** | Progresso `Selecionados: X / Y grupos` |
+| `VBox_Choices` | Vertical Box | Recomendado | Headers `Grupo N` + linhas `WBP_QuestRewardChoiceEntry` |
+| `BTN_ConfirmReward` | Button | Recomendado | Confirma → `ChooseQuestRewards` (só com **todos** os grupos preenchidos) |
 
 ### 10.1.1 WBP_QuestRewardChoiceEntry
 
@@ -403,18 +419,19 @@ Abre quando `turn_in_quest` retorna `needs_reward_choice: true`.
 
 | Nome exato | Tipo UE | Função |
 |------------|---------|--------|
-| `Btn_Select` | Button | Clique → seleciona a recompensa |
-| `Image_Icon` | Image | Ícone do item (`ItemIconsDataTable` no GI) |
-| `Text_Name` | Text Block | Nome do item / Gold / EXP |
+| `Btn_Select` | Button | Clique → seleciona a opção **daquele grupo** (substitui a anterior do mesmo grupo) |
+| `Image_Icon` | Image | Ícone do item (`ItemIconsDataTable` no GI); tint vermelho informativo se não for da classe do player |
+| `Text_Name` | Text Block | Nome + `[Classes: ...]` / `[Todas as classes]` |
 | `Text_Qty` | Text Block | Quantidade (se > 1) |
-| `Border_Highlight` | Border | Destaque da opção selecionada |
+| `Border_Highlight` | Border | Destaque da opção selecionada no grupo |
 
 > Sem WBP, o C++ monta uma linha mínima em runtime (fallback).
 
 ### 10.2 Escolha da opção
 
-1. Clique numa linha em `VBox_Choices` → `Text_SelectedItem` atualiza e `BTN_ConfirmReward` hababilita.
-2. `BTN_ConfirmReward` chama `ChooseQuestReward` com o `choice_id` selecionado.
+1. Clique numa linha → atualiza a seleção **do `choice_group_id` daquela linha**.
+2. `BTN_ConfirmReward` habilita só quando há 1 escolha em **cada** grupo.
+3. Confirmar chama `ChooseQuestRewards(quest_id, choice_ids)` → POST `choice_ids`.
 
 Não é mais necessário wiring manual no Event Graph para a seleção básica.
 

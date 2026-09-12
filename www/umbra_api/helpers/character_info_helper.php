@@ -11,6 +11,7 @@
 require_once __DIR__ . '/stat_key_mapping.php';
 require_once __DIR__ . '/enchant_helper.php';
 require_once __DIR__ . '/item_visual_helper.php';
+require_once __DIR__ . '/item_weapon_class_helper.php';
 
 /**
  * Lista passivas aprendidas e se health_below_percent está ativa (debug).
@@ -184,6 +185,7 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
     $hasVisualJson = item_templates_has_visual_meshes_json($pdo);
     $skmCol = $hasItemSkmPath ? "it.skeletal_mesh_path," : "";
     $visualJsonCol = $hasVisualJson ? "it.visual_meshes_json," : "";
+    $allowedSelect = item_templates_allowed_class_select_sql($pdo, 'it');
 
     $equipped_query = "SELECT 
                         pi.inventory_id,
@@ -208,7 +210,7 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
                         it.value,
                         it.weight,
                         it.can_be_refined,
-                        it.tradeable
+                        it.tradeable{$allowedSelect}
                       FROM player_inventory pi
                       INNER JOIN item_templates it ON pi.item_template_id = it.item_id
                       WHERE pi.player_id = :player_id
@@ -353,6 +355,7 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
             'enchantments' => $enchantments,
             'stats' => $stats
         ];
+        append_allowed_class_fields($equipped_by_slot[$equipment_slot], $item['allowed_class_ids'] ?? null);
 
         if (isset($stats['strength'])) $total_stats['strength'] += (int)$stats['strength'];
         if (isset($stats['dexterity'])) $total_stats['dexterity'] += (int)$stats['dexterity'];

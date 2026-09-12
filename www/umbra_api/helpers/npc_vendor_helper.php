@@ -170,7 +170,7 @@ function npcVendorFormatStockRow(array $stockRow, array $templateRow): array
         $stats = $templateRow['stats'];
     }
 
-    return [
+    $out = [
         'stock_id' => (int)$stockRow['stock_id'],
         'item_template_id' => (int)$stockRow['item_template_id'],
         'item_name' => $templateRow['item_name'] ?? '',
@@ -196,4 +196,10 @@ function npcVendorFormatStockRow(array $stockRow, array $templateRow): array
         'tradeable' => !isset($templateRow['tradeable']) ? true : (((int)$templateRow['tradeable']) === 1),
         'stats' => $stats,
     ];
+
+    if (function_exists('append_allowed_class_fields')) {
+        append_allowed_class_fields($out, $templateRow['allowed_class_ids'] ?? null);
+    }
+
+    return $out;
 }

@@ -226,6 +226,40 @@
                                               materialDesign:HintAssist.IsFloating="True"
                                               Margin="0,0,0,16"/>
 
+                                    <!-- Classes permitidas (armas/armaduras) -->
+                                    <TextBlock Text="Classes permitidas (armas/armaduras)" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                    <CheckBox Content="Todas as classes"
+                                              IsChecked="{Binding NewItemAllowAllClasses}"
+                                              Margin="0,0,0,8"/>
+                                    <ItemsControl ItemsSource="{Binding ItemAllowedClassOptions}"
+                                                  Margin="0,0,0,16">
+                                        <ItemsControl.Style>
+                                            <Style TargetType="ItemsControl">
+                                                <Setter Property="IsEnabled" Value="True"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding NewItemAllowAllClasses}" Value="True">
+                                                        <Setter Property="IsEnabled" Value="False"/>
+                                                        <Setter Property="Opacity" Value="0.45"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </ItemsControl.Style>
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <CheckBox Content="{Binding DisplayName}"
+                                                          IsChecked="{Binding IsSelected}"
+                                                          Margin="0,0,12,6"/>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock FontSize="10" Opacity="0.6" TextWrapping="Wrap" Margin="0,-8,0,16"
+                                               Text="Vazio / Todas = qualquer classe (armas e armaduras). Desmarque Todas e escolha classes. Em armas, o subtype pode pré-selecionar (axe→Barbarian, …)."/>
+
                                     <!-- Bloco numérico -->
                                     <TextBlock Text="Atributos" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
                                     <Grid Margin="0,0,0,10">

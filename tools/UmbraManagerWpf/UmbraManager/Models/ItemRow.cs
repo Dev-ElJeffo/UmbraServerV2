@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace UmbraManager.Models;
 
 public sealed class ItemRow
@@ -21,5 +23,8 @@ public sealed class ItemRow
     public string VisualMeshesJson { get; set; } = "";
     public string Description { get; set; } = "";
     public string StatsJson { get; set; } = "";
+    /// <summary>null = todas as classes; lista = restrição.</summary>
+    public List<int>? AllowedClassIds { get; set; }
+    public bool AllowAllClasses { get; set; } = true;
     public string Summary => $"{Type}/{Subtype} | {Rarity} | Lv {RequiredLevel} | {Value}g | CD {UseCooldownMs}ms";
 }

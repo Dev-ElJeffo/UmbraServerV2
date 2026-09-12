@@ -94,6 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
 require_once __DIR__ . '/../../helpers/item_visual_helper.php';
+require_once __DIR__ . '/../../helpers/item_weapon_class_helper.php';
 require_once __DIR__ . '/verify_admin.php';
 
 $json = file_get_contents('php://input');
@@ -187,6 +188,22 @@ try {
             exit;
         }
         $visual_meshes_json = $visualValidation['json'];
+    }
+
+    $allowed_class_ids_json = null;
+    if (array_key_exists('allowed_class_ids', $data)) {
+        $allowedNorm = normalize_allowed_class_ids_for_storage($data['allowed_class_ids']);
+        if (!$allowedNorm['ok']) {
+            ob_clean();
+            http_response_code(400);
+            echo json_encode([
+                'success' => false,
+                'message' => $allowedNorm['error'] ?? 'allowed_class_ids inválido'
+            ], JSON_UNESCAPED_UNICODE);
+            ob_end_flush();
+            exit;
+        }
+        $allowed_class_ids_json = $allowedNorm['json'];
     }
     $max_stack_size = isset($data['max_stack_size']) ? (int)$data['max_stack_size'] : 1;
     $equipment_slot = isset($data['equipment_slot']) ? $data['equipment_slot'] : 'none';
@@ -306,8 +323,11 @@ try {
     
     // Inserir item
     $hasVisualJson = item_templates_has_visual_meshes_json($pdo);
+    $hasAllowedClasses = item_templates_has_allowed_class_ids($pdo);
     $visualCol = $hasVisualJson ? ",\n        visual_meshes_json" : "";
     $visualVal = $hasVisualJson ? ",\n        :visual_meshes_json" : "";
+    $allowedCol = $hasAllowedClasses ? ",\n        allowed_class_ids" : "";
+    $allowedVal = $hasAllowedClasses ? ",\n        :allowed_class_ids" : "";
 
     $insert_query = "INSERT INTO item_templates (
         item_name,
@@ -326,7 +346,7 @@ try {
         weight,
         can_be_refined,
         tradeable,
-        item_category{$visualCol}
+        item_category{$visualCol}{$allowedCol}
     ) VALUES (
         :item_name,
         :item_description,
@@ -344,7 +364,7 @@ try {
         :weight,
         :can_be_refined,
         :tradeable,
-        :item_category{$visualVal}
+        :item_category{$visualVal}{$allowedVal}
     )";
     
     $insert_params = [
@@ -368,6 +388,9 @@ try {
     ];
     if ($hasVisualJson) {
         $insert_params['visual_meshes_json'] = $visual_meshes_json;
+    }
+    if ($hasAllowedClasses) {
+        $insert_params['allowed_class_ids'] = $allowed_class_ids_json;
     }
 
     $insert_stmt = $pdo->prepare($insert_query);
@@ -401,6 +424,12 @@ try {
         unset($created_item['stats_json']);
     } else {
         $created_item['stats'] = [];
+    }
+
+    if (array_key_exists('allowed_class_ids', $created_item)) {
+        $parsedAllowed = parse_allowed_class_ids($created_item['allowed_class_ids'] ?? null);
+        $created_item['allowed_class_ids'] = $parsedAllowed;
+        $created_item['allow_all_classes'] = ($parsedAllowed === null);
     }
     
     // Converter tipos numéricos

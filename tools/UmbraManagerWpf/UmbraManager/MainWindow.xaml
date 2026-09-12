@@ -1381,6 +1381,84 @@
                                         </DataGrid>
 
                                         <TextBlock FontSize="11" Opacity="0.65" TextWrapping="Wrap" Margin="0,0,0,6"
+                                                   Text="Reward Choices: 1 pick por choice_group_id no turn-in (ex.: grupo 1=armas, grupo 2=armaduras). Mostra todas as classes; jogador pode escolher qualquer opção."/>
+                                        <DockPanel Margin="0,0,0,6">
+                                            <TextBlock Text="Reward Choices" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                            <Button DockPanel.Dock="Right" Content="+ Choice" Command="{Binding AddQuestRewardChoiceCommand}"
+                                                    Style="{StaticResource MaterialDesignOutlinedButton}" Height="28" Padding="8,0"/>
+                                        </DockPanel>
+                                        <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding QuestRewardChoices}"
+                                                  SelectedItem="{Binding SelectedQuestRewardChoice}" CanUserAddRows="False" MinHeight="80" MaxHeight="180" Margin="0,0,0,12">
+                                            <DataGrid.Columns>
+                                                <DataGridTemplateColumn Header="Grupo" Width="55">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <TextBox Text="{Binding ChoiceGroupId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     BorderThickness="0" Background="Transparent"
+                                                                     VerticalAlignment="Center" Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="Label" Width="120">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <TextBox Text="{Binding Label, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     BorderThickness="0" Background="Transparent"
+                                                                     VerticalAlignment="Center" Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="Tipo" Width="100">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <ComboBox ItemsSource="{Binding DataContext.QuestRewardTypes, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                      SelectedItem="{Binding RewardType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                      IsEditable="False"
+                                                                      VerticalAlignment="Center"
+                                                                      Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="Amount" Width="60">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <TextBox Text="{Binding Amount, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     BorderThickness="0" Background="Transparent"
+                                                                     VerticalAlignment="Center" Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="Item ID" Width="65">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <TextBox Text="{Binding ItemTemplateId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     BorderThickness="0" Background="Transparent"
+                                                                     VerticalAlignment="Center" Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="Qty" Width="45">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <TextBox Text="{Binding Quantity, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     BorderThickness="0" Background="Transparent"
+                                                                     VerticalAlignment="Center" Margin="2,1"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                                <DataGridTemplateColumn Header="" Width="50">
+                                                    <DataGridTemplateColumn.CellTemplate>
+                                                        <DataTemplate>
+                                                            <Button Content="X" Padding="6,0" Height="24"
+                                                                    Command="{Binding DataContext.RemoveQuestRewardChoiceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    CommandParameter="{Binding}"/>
+                                                        </DataTemplate>
+                                                    </DataGridTemplateColumn.CellTemplate>
+                                                </DataGridTemplateColumn>
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+
+                                        <TextBlock FontSize="11" Opacity="0.65" TextWrapping="Wrap" Margin="0,0,0,6"
                                                    Text="Itens ao aceitar: concedidos no inventário ao Accept. Itens para iniciar: posse obrigatória (não consome)."/>
                                         <DockPanel Margin="0,0,0,6">
                                             <TextBlock Text="Itens ao aceitar" FontWeight="SemiBold" VerticalAlignment="Center"/>

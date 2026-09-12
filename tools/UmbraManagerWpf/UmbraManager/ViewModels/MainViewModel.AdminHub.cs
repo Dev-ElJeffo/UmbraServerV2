@@ -141,7 +141,11 @@ public partial class MainViewModel
     partial void OnSelectedLootNpcTemplateNameChanged(string value) => OnPropertyChanged(nameof(LootTargetLabel));
     partial void OnEditingExpZoneIdChanged(int value) => OnPropertyChanged(nameof(ExpZoneFormTitle));
 
-    partial void OnNewItemSubtypeChanged(string value) => OnPropertyChanged(nameof(ItemDesignerSummary));
+    partial void OnNewItemSubtypeChanged(string value)
+    {
+        OnPropertyChanged(nameof(ItemDesignerSummary));
+        ApplyWeaponSubtypeClassDefaults(value);
+    }
     partial void OnNewItemRarityChanged(string value) => OnPropertyChanged(nameof(ItemDesignerSummary));
     partial void OnNewItemSlotChanged(string value) => OnPropertyChanged(nameof(ItemDesignerSummary));
     partial void OnNewItemRequiredLevelChanged(int value) => OnPropertyChanged(nameof(ItemDesignerSummary));

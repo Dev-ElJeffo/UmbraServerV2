@@ -7,6 +7,7 @@ require_once __DIR__ . '/experience_helper.php';
 require_once __DIR__ . '/npc_vendor_helper.php';
 require_once __DIR__ . '/stat_key_mapping.php';
 require_once __DIR__ . '/enchant_helper.php';
+require_once __DIR__ . '/item_weapon_class_helper.php';
 
 const QUEST_AREA_MARGIN = 50.0;
 
@@ -98,65 +99,69 @@ function questLoadObjectives(PDO $pdo, int $quest_id): array
 
 function questLoadRewards(PDO $pdo, int $quest_id): array
 {
-    $stmt = $pdo->prepare('
+    $allowedSelect = item_templates_allowed_class_select_sql($pdo, 'it');
+    $stmt = $pdo->prepare("
         SELECT qr.reward_id, qr.reward_type, qr.amount, qr.item_template_id, qr.quantity,
                qr.choice_group_id, qr.sort_order,
-               it.item_name, it.icon_path
+               it.item_name, it.icon_path{$allowedSelect}
         FROM quest_rewards qr
         LEFT JOIN item_templates it ON it.item_id = qr.item_template_id
         WHERE qr.quest_id = ?
         ORDER BY qr.sort_order ASC, qr.reward_id ASC
-    ');
+    ");
     $stmt->execute([$quest_id]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
 function questLoadRewardChoices(PDO $pdo, int $quest_id): array
 {
-    $stmt = $pdo->prepare('
+    $allowedSelect = item_templates_allowed_class_select_sql($pdo, 'it');
+    $stmt = $pdo->prepare("
         SELECT qrc.choice_id, qrc.choice_group_id, qrc.label, qrc.reward_type, qrc.amount,
                qrc.item_template_id, qrc.quantity, qrc.sort_order,
-               it.item_name, it.icon_path
+               it.item_name, it.icon_path{$allowedSelect}
         FROM quest_reward_choices qrc
         LEFT JOIN item_templates it ON it.item_id = qrc.item_template_id
         WHERE qrc.quest_id = ?
         ORDER BY qrc.choice_group_id ASC, qrc.sort_order ASC, qrc.choice_id ASC
-    ');
+    ");
     $stmt->execute([$quest_id]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
 function questLoadAcceptGrants(PDO $pdo, int $quest_id): array
 {
-    $stmt = $pdo->prepare('
+    $allowedSelect = item_templates_allowed_class_select_sql($pdo, 'it');
+    $stmt = $pdo->prepare("
         SELECT g.grant_id, g.quest_id, g.item_template_id, g.quantity, g.sort_order,
-               it.item_name, it.icon_path
+               it.item_name, it.icon_path{$allowedSelect}
         FROM quest_accept_grants g
         LEFT JOIN item_templates it ON it.item_id = g.item_template_id
         WHERE g.quest_id = ?
         ORDER BY g.sort_order ASC, g.grant_id ASC
-    ');
+    ");
     $stmt->execute([$quest_id]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
 function questLoadStartRequirements(PDO $pdo, int $quest_id): array
 {
-    $stmt = $pdo->prepare('
+    $allowedSelect = item_templates_allowed_class_select_sql($pdo, 'it');
+    $stmt = $pdo->prepare("
         SELECT r.requirement_id, r.quest_id, r.item_template_id, r.quantity, r.sort_order,
-               it.item_name, it.icon_path
+               it.item_name, it.icon_path{$allowedSelect}
         FROM quest_start_requirements r
         LEFT JOIN item_templates it ON it.item_id = r.item_template_id
         WHERE r.quest_id = ?
         ORDER BY r.sort_order ASC, r.requirement_id ASC
-    ');
+    ");
     $stmt->execute([$quest_id]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
 function questFormatItemQtyRow(array $row, string $idKey): array
 {
-    return [
+    $out = [
         $idKey => (int)($row[$idKey] ?? 0),
         'item_template_id' => (int)($row['item_template_id'] ?? 0),
         'item_name' => $row['item_name'] ?? '',
@@ -164,6 +169,8 @@ function questFormatItemQtyRow(array $row, string $idKey): array
         'quantity' => max(1, (int)($row['quantity'] ?? 1)),
         'sort_order' => (int)($row['sort_order'] ?? 0),
     ];
+    append_allowed_class_fields($out, $row['allowed_class_ids'] ?? null);
+    return $out;
 }
 
 function questPlayerMeetsStartRequirements(PDO $pdo, int $player_id, int $quest_id): bool
@@ -221,7 +228,7 @@ function questCountPlayerItem(PDO $pdo, int $player_id, int $item_template_id): 
 
 function questFormatRewardRow(array $row): array
 {
-    return [
+    $out = [
         'reward_id' => (int)($row['reward_id'] ?? 0),
         'reward_type' => $row['reward_type'] ?? '',
         'amount' => (int)($row['amount'] ?? 0),
@@ -233,6 +240,8 @@ function questFormatRewardRow(array $row): array
         'label' => $row['label'] ?? '',
         'choice_id' => isset($row['choice_id']) ? (int)$row['choice_id'] : 0,
     ];
+    append_allowed_class_fields($out, $row['allowed_class_ids'] ?? null);
+    return $out;
 }
 
 function questFormatObjectiveForApi(array $objRow, ?array $progressRow = null): array
@@ -866,6 +875,45 @@ function questHasPendingChoiceRewards(PDO $pdo, int $quest_id): bool
     return (bool)$stmt->fetchColumn();
 }
 
+/** IDs distintos de choice_group_id para a quest (ordenados). */
+function questDistinctChoiceGroups(PDO $pdo, int $quest_id): array
+{
+    $stmt = $pdo->prepare('
+        SELECT DISTINCT choice_group_id
+        FROM quest_reward_choices
+        WHERE quest_id = ?
+        ORDER BY choice_group_id ASC
+    ');
+    $stmt->execute([$quest_id]);
+    $groups = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) ?: [] as $g) {
+        $groups[] = (int)$g;
+    }
+    return $groups;
+}
+
+/**
+ * Normaliza choice_ids do request (array ou choice_id único).
+ * @return int[]
+ */
+function questNormalizeChoiceIds($choice_ids, $single_choice_id = 0): array
+{
+    $out = [];
+    if (is_array($choice_ids)) {
+        foreach ($choice_ids as $id) {
+            $n = (int)$id;
+            if ($n > 0) {
+                $out[] = $n;
+            }
+        }
+    }
+    $single = (int)$single_choice_id;
+    if ($single > 0 && !in_array($single, $out, true)) {
+        $out[] = $single;
+    }
+    return array_values(array_unique($out));
+}
+
 function questTurnIn(PDO $pdo, int $player_id, int $quest_id, int $npc_template_id = 0): array
 {
     $pq = questGetPlayerQuestRow($pdo, $player_id, $quest_id);
@@ -937,37 +985,86 @@ function questTurnIn(PDO $pdo, int $player_id, int $quest_id, int $npc_template_
     }
 }
 
-function questChooseRewardAndComplete(PDO $pdo, int $player_id, int $quest_id, int $choice_id): array
+/**
+ * Completa a quest aplicando exatamente 1 choice por choice_group_id.
+ * @param int[] $choice_ids
+ */
+function questChooseRewardAndComplete(PDO $pdo, int $player_id, int $quest_id, $choice_ids): array
 {
+    // Compat: chamada antiga com int único.
+    if (!is_array($choice_ids)) {
+        $choice_ids = [(int)$choice_ids];
+    }
+    $choice_ids = questNormalizeChoiceIds($choice_ids, 0);
+    if (empty($choice_ids)) {
+        return ['ok' => false, 'message' => 'Informe choice_ids (ou choice_id).'];
+    }
+
     $pq = questGetPlayerQuestRow($pdo, $player_id, $quest_id);
     if (!$pq || $pq['status'] !== 'ready') {
         return ['ok' => false, 'message' => 'Quest não está pronta.'];
     }
-    $choiceStmt = $pdo->prepare('SELECT * FROM quest_reward_choices WHERE choice_id = ? AND quest_id = ? LIMIT 1');
-    $choiceStmt->execute([$choice_id, $quest_id]);
-    $choice = $choiceStmt->fetch(PDO::FETCH_ASSOC);
-    if (!$choice) {
+
+    $requiredGroups = questDistinctChoiceGroups($pdo, $quest_id);
+    if (empty($requiredGroups)) {
+        return ['ok' => false, 'message' => 'Esta quest não tem escolhas de recompensa.'];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($choice_ids), '?'));
+    $params = $choice_ids;
+    $params[] = $quest_id;
+    $choiceStmt = $pdo->prepare("
+        SELECT * FROM quest_reward_choices
+        WHERE choice_id IN ($placeholders) AND quest_id = ?
+    ");
+    $choiceStmt->execute($params);
+    $choices = $choiceStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    if (count($choices) !== count($choice_ids)) {
         return ['ok' => false, 'message' => 'Escolha de recompensa inválida.'];
     }
+
+    $pickedByGroup = [];
+    $chosenMeta = [];
+    foreach ($choices as $choice) {
+        $gid = (int)$choice['choice_group_id'];
+        $cid = (int)$choice['choice_id'];
+        if (isset($pickedByGroup[$gid])) {
+            return ['ok' => false, 'message' => 'Selecione apenas uma opção por grupo de recompensa.'];
+        }
+        $pickedByGroup[$gid] = $choice;
+        $chosenMeta[] = ['choice_id' => $cid, 'choice_group_id' => $gid];
+    }
+
+    sort($requiredGroups);
+    $pickedGroups = array_keys($pickedByGroup);
+    sort($pickedGroups);
+    if ($pickedGroups !== $requiredGroups) {
+        return ['ok' => false, 'message' => 'Selecione exatamente uma recompensa em cada grupo.'];
+    }
+
     $player_quest_id = (int)$pq['player_quest_id'];
     try {
         $pdo->beginTransaction();
         if (!questRemoveDeliverObjectives($pdo, $player_id, $quest_id)) {
             throw new RuntimeException('Itens insuficientes para entregar a quest.');
         }
-        $grant = questApplyReward(
-            $pdo,
-            $player_id,
-            $choice['reward_type'],
-            (int)$choice['amount'],
-            isset($choice['item_template_id']) ? (int)$choice['item_template_id'] : null,
-            (int)($choice['quantity'] ?? 1)
-        );
+        $grants = [];
+        foreach ($pickedByGroup as $choice) {
+            $grants[] = questApplyReward(
+                $pdo,
+                $player_id,
+                $choice['reward_type'],
+                (int)$choice['amount'],
+                isset($choice['item_template_id']) ? (int)$choice['item_template_id'] : null,
+                (int)($choice['quantity'] ?? 1)
+            );
+        }
+        $fixed = [];
         foreach (questLoadRewards($pdo, $quest_id) as $reward) {
             if (!empty($reward['choice_group_id'])) {
                 continue;
             }
-            $grantFixed = questApplyReward(
+            $fixed[] = questApplyReward(
                 $pdo,
                 $player_id,
                 $reward['reward_type'],
@@ -975,9 +1072,8 @@ function questChooseRewardAndComplete(PDO $pdo, int $player_id, int $quest_id, i
                 isset($reward['item_template_id']) ? (int)$reward['item_template_id'] : null,
                 (int)($reward['quantity'] ?? 1)
             );
-            $grant['fixed_rewards'][] = $grantFixed;
         }
-        $chosenJson = json_encode(['choice_id' => $choice_id, 'choice_group_id' => (int)$choice['choice_group_id']]);
+        $chosenJson = json_encode(['choices' => $chosenMeta], JSON_UNESCAPED_UNICODE);
         $pdo->prepare("
             UPDATE player_quests
             SET status = 'completed', completed_at = NOW(), chosen_rewards_json = ?
@@ -986,10 +1082,17 @@ function questChooseRewardAndComplete(PDO $pdo, int $player_id, int $quest_id, i
         $pdo->commit();
         $goldStmt = $pdo->prepare('SELECT gold FROM players WHERE id = ?');
         $goldStmt->execute([$player_id]);
+        $primary = $grants[0] ?? null;
+        if (is_array($primary)) {
+            $primary['fixed_rewards'] = $fixed;
+            $primary['choice_rewards'] = $grants;
+        }
         return [
             'ok' => true,
             'quest_id' => $quest_id,
-            'reward_granted' => $grant,
+            'reward_granted' => $primary,
+            'rewards_granted' => array_merge($grants, $fixed),
+            'chosen_rewards' => $chosenMeta,
             'new_gold' => (int)$goldStmt->fetchColumn(),
         ];
     } catch (Throwable $e) {

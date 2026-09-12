@@ -14,6 +14,7 @@ public partial class MainViewModel
     public ObservableCollection<NpcQuestOfferRow> NpcQuestOffers { get; } = new();
     public ObservableCollection<QuestObjectiveRow> QuestObjectives { get; } = new();
     public ObservableCollection<QuestRewardRow> QuestRewards { get; } = new();
+    public ObservableCollection<QuestRewardChoiceRow> QuestRewardChoices { get; } = new();
     public ObservableCollection<QuestAcceptGrantRow> QuestAcceptGrants { get; } = new();
     public ObservableCollection<QuestStartRequirementRow> QuestStartRequirements { get; } = new();
 
@@ -58,6 +59,7 @@ public partial class MainViewModel
 
     [ObservableProperty] private QuestObjectiveRow? _selectedQuestObjective;
     [ObservableProperty] private QuestRewardRow? _selectedQuestReward;
+    [ObservableProperty] private QuestRewardChoiceRow? _selectedQuestRewardChoice;
     [ObservableProperty] private QuestAcceptGrantRow? _selectedQuestAcceptGrant;
     [ObservableProperty] private QuestStartRequirementRow? _selectedQuestStartRequirement;
 
@@ -615,6 +617,31 @@ public partial class MainViewModel
             }
         }
 
+        QuestRewardChoices.Clear();
+        if (data.RootElement.TryGetProperty("reward_choices", out var choices))
+        {
+            foreach (var c in choices.EnumerateArray())
+            {
+                var itemId = TryGetIntProp(c, "item_template_id");
+                var itemName = TryGetStringProp(c, "item_name");
+                if (string.IsNullOrWhiteSpace(itemName) && itemId > 0)
+                    itemName = Items.FirstOrDefault(i => i.Id == itemId)?.Name ?? "";
+
+                QuestRewardChoices.Add(new QuestRewardChoiceRow
+                {
+                    ChoiceId = TryGetIntProp(c, "choice_id"),
+                    ChoiceGroupId = Math.Max(1, TryGetIntProp(c, "choice_group_id")),
+                    SortOrder = TryGetIntProp(c, "sort_order"),
+                    Label = TryGetStringProp(c, "label"),
+                    RewardType = TryGetStringProp(c, "reward_type") is { Length: > 0 } rt ? rt : "item",
+                    Amount = TryGetIntProp(c, "amount"),
+                    ItemTemplateId = itemId,
+                    ItemName = itemName,
+                    Quantity = Math.Max(1, TryGetIntProp(c, "quantity")),
+                });
+            }
+        }
+
         QuestAcceptGrants.Clear();
         if (data.RootElement.TryGetProperty("accept_grants", out var grants))
         {
@@ -677,10 +704,12 @@ public partial class MainViewModel
         QuestOfferSortOrder = NpcQuestOffers.Count;
         QuestObjectives.Clear();
         QuestRewards.Clear();
+        QuestRewardChoices.Clear();
         QuestAcceptGrants.Clear();
         QuestStartRequirements.Clear();
         SelectedQuestObjective = null;
         SelectedQuestReward = null;
+        SelectedQuestRewardChoice = null;
         SelectedQuestAcceptGrant = null;
         SelectedQuestStartRequirement = null;
     }
@@ -727,6 +756,28 @@ public partial class MainViewModel
         QuestRewards.Remove(row);
         if (SelectedQuestReward == row)
             SelectedQuestReward = null;
+    }
+
+    [RelayCommand]
+    private void AddQuestRewardChoice()
+    {
+        QuestRewardChoices.Add(new QuestRewardChoiceRow
+        {
+            ChoiceGroupId = 1,
+            SortOrder = QuestRewardChoices.Count,
+            RewardType = "item",
+            Quantity = 1,
+            Label = "",
+        });
+    }
+
+    [RelayCommand]
+    private void RemoveQuestRewardChoice(QuestRewardChoiceRow? row)
+    {
+        if (row == null) return;
+        QuestRewardChoices.Remove(row);
+        if (SelectedQuestRewardChoice == row)
+            SelectedQuestRewardChoice = null;
     }
 
     [RelayCommand]
@@ -845,6 +896,32 @@ public partial class MainViewModel
             ["quantity"] = r.Quantity < 1 ? 1 : r.Quantity,
         }).ToList();
 
+        var rewardChoices = QuestRewardChoices.Select((c, i) => (object)new Dictionary<string, object?>
+        {
+            ["choice_group_id"] = c.ChoiceGroupId < 1 ? 1 : c.ChoiceGroupId,
+            ["label"] = c.Label ?? "",
+            ["sort_order"] = c.SortOrder >= 0 ? c.SortOrder : i,
+            ["reward_type"] = c.RewardType,
+            ["amount"] = c.Amount,
+            ["item_template_id"] = c.RewardType == "item" ? c.ItemTemplateId : null,
+            ["quantity"] = c.Quantity < 1 ? 1 : c.Quantity,
+        }).ToList();
+
+        if (QuestRewardChoices.Count > 0)
+        {
+            var invalid = QuestRewardChoices.FirstOrDefault(c =>
+                c.ChoiceGroupId < 1 ||
+                (c.RewardType == "item" && c.ItemTemplateId <= 0) ||
+                ((c.RewardType == "gold" || c.RewardType == "experience") && c.Amount <= 0));
+            if (invalid != null)
+            {
+                MessageBox.Show(
+                    "Reward Choices: cada linha precisa de choice_group_id >= 1; item exige Item ID; gold/XP exigem Amount > 0.",
+                    "Quests");
+                return;
+            }
+        }
+
         var acceptGrants = QuestAcceptGrants
             .Where(g => g.ItemTemplateId > 0)
             .Select((g, i) => (object)new Dictionary<string, object?>
@@ -885,6 +962,7 @@ public partial class MainViewModel
                 ["turn_in_npc_template_id"] = turnIn,
                 ["objectives"] = objectives,
                 ["rewards"] = rewards,
+                ["reward_choices"] = rewardChoices,
                 ["accept_grants"] = acceptGrants,
                 ["start_requirements"] = startReqs,
             };
@@ -909,6 +987,7 @@ public partial class MainViewModel
                 ["is_quest_giver"] = 1,
                 ["objectives"] = objectives,
                 ["rewards"] = rewards,
+                ["reward_choices"] = rewardChoices,
                 ["accept_grants"] = acceptGrants,
                 ["start_requirements"] = startReqs,
             };

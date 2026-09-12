@@ -23,6 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../helpers/item_weapon_class_helper.php';
 
 // Parâmetros de filtro opcionais
 $type = $_GET['type'] ?? null;
@@ -98,6 +99,12 @@ try {
         $template['required_level'] = (int)$template['required_level'];
         $template['value'] = (int)$template['value'];
         $template['weight'] = (float)$template['weight'];
+
+        if (array_key_exists('allowed_class_ids', $template)) {
+            $parsedAllowed = parse_allowed_class_ids($template['allowed_class_ids'] ?? null);
+            $template['allowed_class_ids'] = $parsedAllowed;
+            $template['allow_all_classes'] = ($parsedAllowed === null);
+        }
     }
     
     http_response_code(200);

@@ -22,11 +22,12 @@ if (!$validation['valid']) {
 $account_id = (int)($validation['payload']['account_id'] ?? 0);
 $player_id = (int)($validation['payload']['player_id'] ?? 0);
 $quest_id = (int)($data['quest_id'] ?? 0);
-$choice_id = (int)($data['choice_id'] ?? ($data['reward_choice_id'] ?? 0));
+$single_choice_id = (int)($data['choice_id'] ?? ($data['reward_choice_id'] ?? 0));
+$choice_ids = questNormalizeChoiceIds($data['choice_ids'] ?? null, $single_choice_id);
 
-if ($player_id <= 0 || $account_id <= 0 || $quest_id <= 0 || $choice_id <= 0) {
+if ($player_id <= 0 || $account_id <= 0 || $quest_id <= 0 || empty($choice_ids)) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Informe token, quest_id e choice_id.']);
+    echo json_encode(['success' => false, 'message' => 'Informe token, quest_id e choice_ids (ou choice_id).']);
     exit;
 }
 
@@ -37,7 +38,7 @@ try {
         echo json_encode(['success' => false, 'message' => 'Personagem inválido.']);
         exit;
     }
-    $result = questChooseRewardAndComplete($pdo, $player_id, $quest_id, $choice_id);
+    $result = questChooseRewardAndComplete($pdo, $player_id, $quest_id, $choice_ids);
     if (!$result['ok']) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => $result['message'] ?? 'Falha na escolha.']);

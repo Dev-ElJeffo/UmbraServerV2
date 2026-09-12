@@ -22,3 +22,4 @@ require_once $db;
 require_once $jwt;
 require_once $psh;
 require_once $nvh;
+require_once $umbraApiRoot . DIRECTORY_SEPARATOR . 'helpers' . DIRECTORY_SEPARATOR . 'item_weapon_class_helper.php';

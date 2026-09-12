@@ -17,6 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $data = json_decode(file_get_contents('php://input'), true) ?? [];
 require_once __DIR__ . '/require_admin_auth.php';
 require_once __DIR__ . '/../../helpers/item_visual_helper.php';
+require_once __DIR__ . '/../../helpers/item_weapon_class_helper.php';
 requireAdminAuth($data);
 
 $itemId = (int)($data['item_id'] ?? 0);
@@ -139,6 +140,17 @@ try {
         }
         $sets[] = 'visual_meshes_json = :visual_meshes_json';
         $params[':visual_meshes_json'] = $visualValidation['json'];
+    }
+
+    if (array_key_exists('allowed_class_ids', $data) && item_templates_has_allowed_class_ids($pdo)) {
+        $allowedNorm = normalize_allowed_class_ids_for_storage($data['allowed_class_ids']);
+        if (!$allowedNorm['ok']) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => $allowedNorm['error'] ?? 'allowed_class_ids inválido'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $sets[] = 'allowed_class_ids = :allowed_class_ids';
+        $params[':allowed_class_ids'] = $allowedNorm['json'];
     }
 
     if (empty($sets)) {

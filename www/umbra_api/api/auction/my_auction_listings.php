@@ -71,6 +71,10 @@ try {
     $cstmt->execute($params);
     $total = (int) $cstmt->fetchColumn();
 
+    $allowedSelect = function_exists('item_templates_allowed_class_select_sql')
+        ? item_templates_allowed_class_select_sql($pdo, 'it')
+        : '';
+
     $listSql = "
         SELECT
             al.listing_id,
@@ -99,7 +103,7 @@ try {
             it.value,
             it.weight,
             it.can_be_refined,
-            it.tradeable
+            it.tradeable{$allowedSelect}
         FROM auction_listings al
         INNER JOIN player_inventory pi ON al.inventory_id = pi.inventory_id
         INNER JOIN item_templates it ON pi.item_template_id = it.item_id

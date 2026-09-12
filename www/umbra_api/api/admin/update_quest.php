@@ -121,6 +121,12 @@ try {
         }
         adminQuestReplaceRewards($pdo, $questId, $data['rewards']);
     }
+    if (array_key_exists('reward_choices', $data)) {
+        if (!is_array($data['reward_choices'])) {
+            throw new InvalidArgumentException('reward_choices deve ser array');
+        }
+        adminQuestReplaceRewardChoices($pdo, $questId, $data['reward_choices']);
+    }
     if (array_key_exists('accept_grants', $data)) {
         if (!is_array($data['accept_grants'])) {
             throw new InvalidArgumentException('accept_grants deve ser array');

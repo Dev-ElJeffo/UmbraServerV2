@@ -30,6 +30,7 @@ require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
 require_once __DIR__ . '/../../helpers/auction_helper.php';
 require_once __DIR__ . '/../../helpers/item_visual_helper.php';
+require_once __DIR__ . '/../../helpers/item_weapon_class_helper.php';
 
 // Obter dados do POST
 $json = file_get_contents('php://input');
@@ -73,11 +74,13 @@ try {
         $hasItemSkmPath = false;
     }
     $hasVisualJson = item_templates_has_visual_meshes_json($pdo);
+    $hasAllowedClasses = item_templates_has_allowed_class_ids($pdo);
     $skmSelect = $hasItemSkmPath ? ", it.skeletal_mesh_path" : "";
     $visualJsonSelect = $hasVisualJson ? ", it.visual_meshes_json" : "";
+    $allowedSelect = $hasAllowedClasses ? ", it.allowed_class_ids, it.item_subtype" : ", it.item_subtype";
 
     $item_query = "
-        SELECT pi.*, it.equipment_slot, it.item_name, it.item_type, it.required_level{$skmSelect}{$visualJsonSelect}
+        SELECT pi.*, it.equipment_slot, it.item_name, it.item_type, it.required_level{$skmSelect}{$visualJsonSelect}{$allowedSelect}
         FROM player_inventory pi
         INNER JOIN item_templates it ON pi.item_template_id = it.item_id
         WHERE pi.inventory_id = :inventory_id AND pi.player_id = :player_id
@@ -127,6 +130,17 @@ try {
         echo json_encode([
             'success' => false,
             'message' => "Nível insuficiente. Requerido: $required_level, Atual: $player_level"
+        ]);
+        exit;
+    }
+
+    // Restrição de arma por classe (allowed_class_ids; null/[] = todas)
+    if ($equip && !item_can_be_equipped_by_class($item, $player_class_id)) {
+        $pdo->rollBack();
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Este item não pode ser usado pela sua classe'
         ]);
         exit;
     }

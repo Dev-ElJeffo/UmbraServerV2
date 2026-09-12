@@ -96,4 +96,8 @@ function enrichListedInventoryItemRow(array &$row): void
             ? (int)$row['rarity']
             : strtolower(trim((string)$row['rarity']));
     }
+
+    if (function_exists('append_allowed_class_fields')) {
+        append_allowed_class_fields($row, $row['allowed_class_ids'] ?? null);
+    }
 }

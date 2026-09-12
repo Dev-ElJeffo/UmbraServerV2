@@ -42,3 +42,7 @@ if (is_readable($statMap)) {
 if (is_readable($ench)) {
     require_once $ench;
 }
+$weaponClass = $umbraApiRoot . DIRECTORY_SEPARATOR . 'helpers' . DIRECTORY_SEPARATOR . 'item_weapon_class_helper.php';
+if (is_readable($weaponClass)) {
+    require_once $weaponClass;
+}

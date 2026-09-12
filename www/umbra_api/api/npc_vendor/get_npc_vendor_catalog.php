@@ -58,12 +58,14 @@ try {
     $goldStmt->execute([$player_id]);
     $player_gold = (int)($goldStmt->fetch(PDO::FETCH_ASSOC)['gold'] ?? 0);
 
+    $allowedSelect = item_templates_allowed_class_select_sql($pdo, 'it');
+
     $stockStmt = $pdo->prepare("
         SELECT nvs.stock_id, nvs.vendor_id, nvs.item_template_id, nvs.buy_price_gold,
                nvs.stock_qty, nvs.max_buy_per_tx, nvs.sort_order, nvs.is_active,
                it.item_name, it.item_description, it.icon_path, it.item_type, it.item_subtype,
                it.equipment_slot, it.required_level, it.rarity, it.max_stack_size, it.value,
-               it.weight, it.can_be_refined, it.tradeable, it.stats_json
+               it.weight, it.can_be_refined, it.tradeable, it.stats_json{$allowedSelect}
         FROM npc_vendor_stock nvs
         INNER JOIN item_templates it ON it.item_id = nvs.item_template_id
         WHERE nvs.vendor_id = ? AND nvs.is_active = 1
@@ -90,6 +92,9 @@ try {
             'tradeable' => $row['tradeable'],
             'stats_json' => $row['stats_json'],
         ];
+        if (array_key_exists('allowed_class_ids', $row)) {
+            $template['allowed_class_ids'] = $row['allowed_class_ids'];
+        }
         $stock[] = npcVendorFormatStockRow($row, $template);
     }
 

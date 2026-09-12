@@ -83,6 +83,7 @@
 | [`SISTEMA_PERSONAGENS.md`](SISTEMA_PERSONAGENS.md) | Documentação técnica APIs | ⭐⭐⭐ Intermediário | 15 min |
 | [`GUIA_WIDGETS_PERSONAGENS_UE5.md`](GUIA_WIDGETS_PERSONAGENS_UE5.md) | Widgets de personagens (antigo) | ⭐⭐⭐ Intermediário | 60 min |
 | [`SISTEMA_PERSONAGENS_COMPLETO.md`](SISTEMA_PERSONAGENS_COMPLETO.md) | Resumo executivo | ⭐ Fácil | 5 min |
+| [`GUIA_ARMAS_POR_CLASSE.md`](GUIA_ARMAS_POR_CLASSE.md) | Armas/armaduras por classe (`allowed_class_ids`, tooltip, tint) | ⭐⭐ Fácil | 10 min |
 
 #### 🌐 Sistema de Movimento e Networking (WebSocket Binário)
 

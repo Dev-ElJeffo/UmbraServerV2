@@ -69,6 +69,18 @@ try {
     $rew->execute([':id' => $questId]);
     $rewards = $rew->fetchAll(PDO::FETCH_ASSOC);
 
+    $choices = $pdo->prepare(
+        'SELECT c.choice_id, c.quest_id, c.choice_group_id, c.label, c.reward_type, c.amount,
+                c.item_template_id, c.quantity, c.sort_order,
+                COALESCE(it.item_name, \'\') AS item_name
+         FROM quest_reward_choices c
+         LEFT JOIN item_templates it ON it.item_id = c.item_template_id
+         WHERE c.quest_id = :id
+         ORDER BY c.choice_group_id ASC, c.sort_order ASC, c.choice_id ASC'
+    );
+    $choices->execute([':id' => $questId]);
+    $rewardChoices = $choices->fetchAll(PDO::FETCH_ASSOC);
+
     $grants = $pdo->prepare(
         'SELECT g.grant_id, g.quest_id, g.item_template_id, g.quantity, g.sort_order,
                 COALESCE(it.item_name, \'\') AS item_name
@@ -100,6 +112,7 @@ try {
         'quest' => $quest,
         'objectives' => $objectives,
         'rewards' => $rewards,
+        'reward_choices' => $rewardChoices,
         'accept_grants' => $grants->fetchAll(PDO::FETCH_ASSOC),
         'start_requirements' => $reqs->fetchAll(PDO::FETCH_ASSOC),
         'offers' => $offers->fetchAll(PDO::FETCH_ASSOC),

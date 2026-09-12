@@ -154,3 +154,59 @@ function adminQuestReplaceStartRequirements(PDO $pdo, int $questId, array $rows)
 {
     adminQuestReplaceItemQtyList($pdo, $questId, 'quest_start_requirements', 'requirement_id', $rows);
 }
+
+/**
+ * Substitui todas as opções de escolha de recompensa da quest.
+ * Payload row: choice_group_id, label?, reward_type, amount?, item_template_id?, quantity?, sort_order?
+ */
+function adminQuestReplaceRewardChoices(PDO $pdo, int $questId, array $choices): void
+{
+    $pdo->prepare('DELETE FROM quest_reward_choices WHERE quest_id = :id')->execute([':id' => $questId]);
+    if (empty($choices)) {
+        return;
+    }
+    $allowed = adminQuestAllowedRewardTypes();
+    $ins = $pdo->prepare(
+        'INSERT INTO quest_reward_choices
+            (quest_id, choice_group_id, label, reward_type, amount, item_template_id, quantity, sort_order)
+         VALUES
+            (:qid, :gid, :label, :type, :amount, :item, :qty, :sort)'
+    );
+    foreach ($choices as $i => $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $type = (string)($row['reward_type'] ?? '');
+        if (!in_array($type, $allowed, true)) {
+            throw new InvalidArgumentException("reward_type inválido em reward_choices: {$type}");
+        }
+        $gid = (int)($row['choice_group_id'] ?? 0);
+        if ($gid <= 0) {
+            throw new InvalidArgumentException('choice_group_id deve ser >= 1 em reward_choices');
+        }
+        $amount = (int)($row['amount'] ?? 0);
+        $qty = (int)($row['quantity'] ?? 1);
+        if ($qty < 1) {
+            $qty = 1;
+        }
+        $itemId = null;
+        if ($type === 'item') {
+            $itemId = (int)($row['item_template_id'] ?? 0);
+            if ($itemId <= 0) {
+                throw new InvalidArgumentException('item_template_id obrigatório para reward_choices item');
+            }
+        }
+        $label = trim((string)($row['label'] ?? ''));
+        $sort = isset($row['sort_order']) ? (int)$row['sort_order'] : (int)$i;
+        $ins->execute([
+            ':qid' => $questId,
+            ':gid' => $gid,
+            ':label' => $label,
+            ':type' => $type,
+            ':amount' => $amount,
+            ':item' => $itemId,
+            ':qty' => $qty,
+            ':sort' => $sort,
+        ]);
+    }
+}
