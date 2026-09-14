@@ -417,12 +417,22 @@ public:
         PlayerVitalsPayload payload;
         if (decodeForeignVitalsNotify(data, payload)) {
           const uint32_t targetPlayerId = payload.playerId;
-          std::lock_guard<std::mutex> lock(mu_);
-          auto cidIt = clientIdToPlayerId_.find(cid);
-          uint32_t sourcePlayerId = payload.sourcePlayerId;
-          if (sourcePlayerId == 0 && cidIt != clientIdToPlayerId_.end()) {
-            sourcePlayerId = cidIt->second;
+          uint32_t senderPlayerId = 0;
+          {
+            std::lock_guard<std::mutex> lock(mu_);
+            auto cidIt = clientIdToPlayerId_.find(cid);
+            if (cidIt != clientIdToPlayerId_.end()) {
+              senderPlayerId = cidIt->second;
+            }
           }
+          if (!combatCoreEngine_ ||
+              !combatCoreEngine_->resolveForeignVitalsFromDb(senderPlayerId, payload)) {
+            Umbra::Core::Logger::getInstance().warn(
+                "ForeignVitalsNotify rejeitado: sender={} target={}", senderPlayerId, targetPlayerId);
+            return;
+          }
+          const uint32_t sourcePlayerId = payload.sourcePlayerId;
+          std::lock_guard<std::mutex> lock(mu_);
           int32_t delta = 0;
           auto prevIt = lastKnownHealth_.find(targetPlayerId);
           if (prevIt != lastKnownHealth_.end()) {

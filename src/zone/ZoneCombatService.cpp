@@ -1,4 +1,5 @@
 #include "zone/ZoneCombatService.hpp"
+#include "zone/CharacterStateLoader.hpp"
 #include "zone/MovementServer.hpp"
 #include "database/MySQLConnector.hpp"
 #include "core/Logger.hpp"
@@ -19,7 +20,7 @@ uint8_t dotTypeToByte(const std::string& dotType) {
 }  // namespace
 
 ZoneCombatService::ZoneCombatService(std::shared_ptr<Database::MySQLConnector> db, uint32_t zoneId)
-    : db_(std::move(db)), zoneId_(zoneId) {}
+    : db_(std::move(db)), stateLoader_(std::make_unique<CharacterStateLoader>(db_)), zoneId_(zoneId) {}
 
 bool ZoneCombatService::applyVitalsInDb(uint32_t sourcePlayerId, uint32_t targetPlayerId,
                                         int32_t deltaHealth, int32_t deltaMana,
@@ -35,22 +36,31 @@ bool ZoneCombatService::applyVitalsInDb(uint32_t sourcePlayerId, uint32_t target
 
   int32_t curHealth = std::stoi(*healthOpt);
   int32_t curMana = std::stoi(*manaOpt);
-  outMaxHealth = std::max(1, curHealth);
-  outMaxMana = std::max(1, curMana);
 
-  auto maxHOpt = db_->executePreparedScalar(
-      "SELECT COALESCE(MAX(health), 100) FROM players WHERE id = ?", {tid});
-  auto maxMOpt = db_->executePreparedScalar(
-      "SELECT COALESCE(MAX(mana), 50) FROM players WHERE id = ?", {tid});
-  if (maxHOpt && !maxHOpt->empty()) {
-    try { outMaxHealth = std::max(1, std::stoi(*maxHOpt)); } catch (...) {}
-  }
-  if (maxMOpt && !maxMOpt->empty()) {
-    try { outMaxMana = std::max(1, std::stoi(*maxMOpt)); } catch (...) {}
+  // Max TOTAL (base + nivel + equip/buffs), nunca usar HP/MP atual como teto.
+  int32_t maxHealth = 100;
+  int32_t maxMana = 50;
+  Combat::CharacterState st;
+  if (stateLoader_ && stateLoader_->loadPlayerState(targetPlayerId, st)) {
+    maxHealth = std::max(1, st.buffedStats.maxHealth);
+    maxMana = std::max(1, st.buffedStats.maxMana);
+  } else {
+    auto maxHOpt = db_->executePreparedScalar(
+        "SELECT COALESCE(max_health, 100) FROM players WHERE id = ? LIMIT 1", {tid});
+    auto maxMOpt = db_->executePreparedScalar(
+        "SELECT COALESCE(max_mana, 50) FROM players WHERE id = ? LIMIT 1", {tid});
+    if (maxHOpt && !maxHOpt->empty()) {
+      try { maxHealth = std::max(1, std::stoi(*maxHOpt)); } catch (...) {}
+    }
+    if (maxMOpt && !maxMOpt->empty()) {
+      try { maxMana = std::max(1, std::stoi(*maxMOpt)); } catch (...) {}
+    }
   }
 
-  outNewHealth = std::max(0, std::min(outMaxHealth, curHealth + deltaHealth));
-  outNewMana = std::max(0, std::min(outMaxMana, curMana + deltaMana));
+  outMaxHealth = maxHealth;
+  outMaxMana = maxMana;
+  outNewHealth = std::max(0, std::min(maxHealth, curHealth + deltaHealth));
+  outNewMana = std::max(0, std::min(maxMana, curMana + deltaMana));
   outIsDead = (outNewHealth <= 0);
 
   if (outIsDead) {
@@ -179,6 +189,7 @@ void ZoneCombatService::tickActiveDots(MovementServer* movementServer) {
     if (!applyVitalsInDb(sourceId, targetId, delta, deltaMana, newHp, maxHp, newMp, maxMp, isDead)) {
       continue;
     }
+    if (stateLoader_) stateLoader_->invalidate(targetId);
 
     PlayerVitalsPayload vitals;
     vitals.playerId = targetId;

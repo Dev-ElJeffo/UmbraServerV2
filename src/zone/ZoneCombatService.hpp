@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <vector>
 #include "zone/MovementProtocol.hpp"
 
 namespace Umbra {
@@ -12,6 +11,7 @@ class MySQLConnector;
 }
 namespace Zone {
 
+class CharacterStateLoader;
 class MovementServer;
 
 struct RespawnResult {
@@ -29,6 +29,7 @@ class ZoneCombatService {
 
  private:
   std::shared_ptr<Database::MySQLConnector> db_;
+  std::unique_ptr<CharacterStateLoader> stateLoader_;
   uint32_t zoneId_;
   float dotAccumulator_ = 0.0f;
 

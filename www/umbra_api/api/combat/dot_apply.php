@@ -35,6 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/personal_shop_helper.php';
 
 $json = file_get_contents('php://input');
 $data = json_decode($json, true) ?: [];
@@ -74,6 +75,21 @@ if ($source_skill_id <= 0) {
 
 try {
     $pdo = getConnection();
+
+    $account_id = (int)($validation['payload']['account_id'] ?? 0);
+    if ($account_id <= 0) {
+        http_response_code(401);
+        echo json_encode(['success' => false, 'message' => 'Token inválido (account_id ausente)']);
+        exit;
+    }
+    if ($source_player_id <= 0) {
+        $source_player_id = (int)($validation['payload']['player_id'] ?? 0);
+    }
+    if ($source_player_id <= 0 || !assertPlayerBelongsToAccount($pdo, $source_player_id, $account_id)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Sem permissão para este personagem']);
+        exit;
+    }
 
     $targetCheck = $pdo->prepare('SELECT id FROM players WHERE id = :pid LIMIT 1');
     $targetCheck->execute(['pid' => $target_player_id]);
