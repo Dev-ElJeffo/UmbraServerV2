@@ -164,6 +164,7 @@ CREATE TABLE `skills` (
     `is_interrupt` TINYINT(1) NOT NULL DEFAULT 0,
     `requires_target` TINYINT(1) NOT NULL DEFAULT 1,
     `can_move_while_casting` TINYINT(1) NOT NULL DEFAULT 0,
+    `include_caster` TINYINT(1) NOT NULL DEFAULT 0,
     
     -- Threat
     `threat_modifier` SMALLINT NOT NULL DEFAULT 100,
@@ -418,7 +419,7 @@ CREATE TABLE `combat_log` (
     `source_player_id` BIGINT UNSIGNED DEFAULT NULL,
     `target_player_id` BIGINT UNSIGNED DEFAULT NULL,
     `skill_id` INT UNSIGNED DEFAULT NULL,
-    `action_type` ENUM('DAMAGE', 'HEAL', 'BUFF', 'DEBUFF', 'DEATH', 'RESURRECT', 'MISS', 'DODGE', 'BLOCK', 'CRIT') NOT NULL,
+    `action_type` ENUM('DAMAGE', 'HEAL', 'BUFF', 'DEBUFF', 'DEATH', 'RESURRECT', 'MISS', 'DODGE', 'BLOCK', 'CRIT', 'DOUBLE', 'REACTION') NOT NULL,
     `value` INT NOT NULL DEFAULT 0,
     `is_critical` TINYINT(1) NOT NULL DEFAULT 0,
     `overkill` INT NOT NULL DEFAULT 0,

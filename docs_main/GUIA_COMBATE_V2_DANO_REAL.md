@@ -231,12 +231,16 @@ flowchart LR
   CT --> Op103[opcode 103 + 102]
 ```
 
-**Player:** `CombatCoreEngine::insertPlayerDot` espelha [`dot_apply.php`](../www/umbra_api/api/combat/dot_apply.php). Tick em `ZoneCombatService::tickActiveDots` → **87** + **92** + **93**.
+**Player:** `CombatCoreEngine::insertPlayerDot` mantém o tick no runtime da Zone e persiste
+`active_dots` por write-behind. No reconnect/restart, `hydratePlayerEffects` reidrata os ticks
+pendentes. HOT com `target_stat=mana` restaura MP; os demais HOT restauram HP.
 
 **NPC:** struct `NpcDotInstance` em memória; `tickNpcDots` no `CombatCoreEngine::tick` → `applyDamage` + **103** + **102**.
 
 **Aplicação no cast (`applySkillEffects`):**
-- Itera `skill.effects` (tipos `DOT` / `HOT` apenas; `BUFF_STAT` etc. ainda não aplicados).
+- Itera efeitos-base e `extra_effects_json` cumulativos do rank, em `effect_order`.
+- Resolve `SELF`, `ALLY`, `ENEMY`, `PARTY`, `AREA` e `AREA_ALLY`, com
+  `include_caster` geral e sobrescrita por efeito.
 - Roll `chance_percent`.
 - `tickValue`: `value_flat` ou `value_percent` × atk relevante do caster.
 - `ticksTotal = duration_ms / tick_interval_ms` (máx. 255).
@@ -411,7 +415,7 @@ mysql -u root -p umbra_eternum < www\umbra_api\scripts\add_basic_attack_skills.s
 | `player_skills` | `current_rank` |
 | `basic_attacks` | `class_id`, `power_coef`, `cooldown_ms`, `cast_anim_path` |
 | `active_dots` | `target_player_id`, `dot_type`, `tick_value`, `tick_interval_ms`, `ticks_remaining`, `next_tick_at` |
-| `combat_log` | `source_player_id`, `target_player_id`, `skill_id`, `action_type`, `value`, `is_critical` |
+| `combat_log` | `source_player_id`, `target_player_id`, `skill_id`, `action_type` (`DAMAGE`/`HEAL`/`CRIT`/`DOUBLE`/`REACTION`/…), `value`, `is_critical` |
 | `npc_templates` / `npc_instances` | HP, defesa, mesh, posição, `zone_id` |
 
 ### 7.3 Exemplo `effects_json` (DOT)
@@ -425,7 +429,18 @@ Skill **Corte Dilacerante** (`insert_all_skills.sql`):
 ]
 ```
 
-Tipos suportados no cast (`applySkillEffects`): **`DOT`**, **`HOT`**, **`BUFF_STAT`**, **`DEBUFF_STAT`**, **`SHIELD`**, **`STUN`**, **`SILENCE`**, **`ROOT`**, **`SLOW`**.
+Tipos suportados no cast (`applySkillEffects`), total de 25:
+
+- dano/recuperação: `DAMAGE`, `HEAL`, `DOT`, `HOT`, `EXECUTE`;
+- stats/defesa: `BUFF_STAT`, `DEBUFF_STAT`, `SHIELD`, `INVULNERABLE`;
+- controle: `STUN`, `SILENCE`, `SLOW`, `ROOT`, `KNOCKBACK`, `TAUNT`;
+- remoção/utilidade: `CLEANSE`, `DISPEL`, `COOLDOWN_RESET`, `RESOURCE_RESTORE`;
+- retorno/recursos: `LIFESTEAL`, `MANASTEAL`, `REFLECT`;
+- mundo: `STEALTH`, `SUMMON`, `TELEPORT`.
+
+`effects_json` em `skills`/`npc_skills` e `extra_effects_json` em
+`skill_rank_scaling` são as fontes autoritativas. A tabela relacional legada
+`skill_effects` não participa do runtime.
 
 ### 7.3.1 Rank scaling (`skill_rank_scaling`)
 
@@ -526,9 +541,41 @@ Paths auto-procurados: `/Game/Widgets/HUD/`, `/Game/UI/`, `/Game/Blueprints/UI/`
 ### 9.2 Targeting (`GetCombatTargetId`)
 
 Prioridade:
-1. `FollowTargetNpcId` → `targetType=2` (NPC)
-2. `FollowTargetID` → `targetType=1` (player follow)
-3. `UmbraPlayerSelectionComponent::GetSelectedPlayerID()` → PvP manual (se ≠ `ActivePlayerID`)
+1. `UmbraPlayerSelectionComponent::GetSelectedPlayerID()` → PvP manual (se ≠ `ActivePlayerID`)
+2. `FollowTargetNpcId` atacável e com actor remoto → `targetType=2` (NPC); se o NPC sumiu/não é atacável, o follow é limpo
+3. `FollowTargetID` → `targetType=1` (player follow)
+
+Isso evita skills ENEMY com `targetId=0` / `SkillCastRejected reason=5` quando o follow NPC está stale em cima de intenção PvP.
+
+### 9.2.1 Reações PvP (Interposição / Ripostar)
+
+- **Interposição** (`ally_damaged`): só redireciona se protector e aliado estão no **mesmo party**; o **atacante** nunca dispara a própria Interposição no alvo que ele está batendo. `ReactionEngine` libera `mu_` antes de aplicar dano (evita `resource deadlock would occur` no combat worker).
+- **Ripostar** (`on_dodge`): dispara só em miss por dodge/accuracy. Cancelamento por `on_attack_received` **não** chama `onPlayerDodge`.
+- Reações armadas deduplicam por `buffId` (evita contra-ataque duplo).
+
+### 9.2.2 Buffs de skill no cálculo de dano
+
+Buffs/debuffs/shield aplicados em combate vivem no runtime da Zone + sync 104 /
+`active_buffs` write-behind. `CharacterStateLoader` carrega somente base,
+equipamento, passivas e consumíveis; ele não aplica `active_buffs`.
+
+No hit, `CombatCoreEngine::overlayRuntimeBuffs` e `overlayNpcRuntimeBuffs` recompõem o
+estado a partir de `baseStats`, na ordem `(base + flats) × percentuais`, e recalculam
+os derivados de STR/DEX/INT/VIT. Partir sempre da base impede dupla aplicação após
+reidratação.
+
+- `BUFF_STAT` / `DEBUFF_STAT`: flat + percent via `StatKeyMapping` (ATK/DEF/accuracy/etc.).
+- `damage_reduction` com `value_percent`: soma em `damageReductionPercent` (reduz dano recebido em %; cap 90). Flat continua em `damageReduction`.
+- `SHIELD`: alimenta `currentShield`; após o hit, `consumePlayerShield` reduz/remove o buff.
+- `STUN` bloqueia ação e movimento; `SILENCE` bloqueia skills; `ROOT` bloqueia
+  deslocamento; `SLOW` altera a velocidade autoritativa de player/NPC.
+- Chance final de CC:
+  `clamp(chance + chance_do_caster - max(0, resistência - penetração), 0, 100)`.
+- O opcode **118** (`CombatControlState`) agrega flags de STUN/SILENCE/ROOT/
+  STEALTH/INVULNERABLE e velocidade. Knockback/teleport continuam corrigindo posição
+  com o frame `StateUpdate` little-endian de 25B; os frames 25B/34B não mudaram.
+
+Sem o overlay, skills como Passo Guardião / Escudo de Voto / Chama do Voto / Marca do Juramento só apareciam na UI e **não** mudavam o dano.
 
 ### 9.3 Envio autoritativo
 
@@ -559,6 +606,10 @@ Prioridade:
 | DOT não aplica | `effects_json` vazio ou tipo não DOT/HOT | `skills.effects_json`, log `applySkillEffects` |
 | Dano sempre igual | Stats não carregados | `CharacterStateLoader`, equip `is_equipped=TRUE` |
 | WebSocket cai ao atacar | Deadlock recursivo em `mu_` | `MovementServer.hpp` — lock curto antes de `processBasicAttack` |
+| Templar hit calcula e não aplica HP (PvP) | `onAllyDamaged` + Interposição → EDEADLK | Log `exceção no combat worker: resource deadlock`; `ReactionEngine` |
+| Buff DEF/ATK/DR na UI mas dano igual | Buff só em `playerBuffs_`, sem overlay no calc | `overlayRuntimeBuffs` + `damageReductionPercent` |
+| Templar toma dano “sozinha” | Ripostar no dodge do Martial | `combat_log` `REACTION` skill 38; miss legítimo |
+| Skill Martial `sem targetId` | Follow NPC stale > SelectedPlayer | `GetCombatTargetId` prioriza seleção PvP |
 | Remote actor duplicado | Dois `NetMovementClient` no Level BP | Remover spawn duplicado em `Lvl_Tutorial_` |
 
 ### Logs úteis
@@ -593,7 +644,45 @@ Inicialização (`ZoneServer::start`):
 
 ---
 
-## 12. Escopo futuro (não implementado)
+## 12. Troubleshooting: zone crash em PvP / skills
+
+### Sintomas
+
+- Log do zone corta no meio de um timestamp (`[20` → restart) sem shutdown limpo.
+- Erros repetidos: `Data truncated for column 'action_type'` com SQL contendo `'DOUBLE'` ou `'REACTION'`.
+- WER / “Parou de funcionar” apontando `libmysql.dll` / `STATUS_BREAKPOINT`.
+
+### Correções no código/schema
+
+1. ENUM de `combat_log.action_type` deve incluir `DOUBLE` e `REACTION`:
+   - script: `www/umbra_api/scripts/alter_combat_log_action_type.sql`
+   - conferir: `SHOW COLUMNS FROM combat_log LIKE 'action_type';`
+2. Hits com `castTimeMs` são enfileirados como `SkillCastHitOnly` no **combat worker** (não rodam no tick do zone).
+3. Pool MySQL: sem reconnect implícito; sem fallback à conexão primary sem lock; `mysql_thread_init` por thread.
+
+### Minidumps (obrigatório para próxima queda)
+
+Preferível no Explorer (duplo clique; pede UAC e **não fecha sozinho**):
+
+```text
+scripts_main\enable_zone_crash_dumps.bat
+```
+
+Alternativa em PowerShell já elevado:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts_main\enable_zone_crash_dumps.ps1
+```
+
+Dumps em `D:\UmbraServerV2\crash_dumps\zone\`. Preserve `.dmp` + `zone_server.exe` + `.pdb` + últimas ~200 linhas de `build/bin/Release/logs/zone_server.log`.
+
+### Stress checklist
+
+Ver `scripts_main/stress_zone_pvp_combat.ps1` (checklist manual Templar × Martial).
+
+---
+
+## 13. Escopo futuro (não implementado)
 
 - Range check server-side no basic attack (cooldown sim; `range_max` do SQL pode não ser validado em todos os paths).
 - Redesign completo de `skill_effects` normalizado (continua JSON em `effects_json` / `extra_effects_json`).
@@ -603,7 +692,7 @@ Inicialização (`ZoneServer::start`):
 
 ---
 
-## 13. Referência rápida de commits/branches
+## 14. Referência rápida de commits/branches
 
 Branch de desenvolvimento atual: `backup/local-sync-no-heavy-20260407` (repo principal e submódulo `UmbraEternumUE`).
 

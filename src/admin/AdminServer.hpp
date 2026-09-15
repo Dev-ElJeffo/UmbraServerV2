@@ -23,6 +23,7 @@ class AdminServer {
   struct Config {
     bool enabled = true;
     uint16_t port = 9100;
+    std::string bindHost = "127.0.0.1";
     std::string sharedSecret;
     std::string serviceName = "umbra";
     std::string configPath = "config/server.json";
@@ -56,9 +57,9 @@ class AdminServer {
   std::atomic<bool> running_{false};
 
   void handleMessage(uint32_t clientId, const std::vector<uint8_t>& data);
-  void handleFrame(uint32_t clientId, ClientState& state, const std::vector<uint8_t>& frame);
-  bool handleHandshake(uint32_t clientId, ClientState& state, const nlohmann::json& req);
-  void handleCommand(uint32_t clientId, ClientState& state, const nlohmann::json& req);
+  void handleFrame(uint32_t clientId, const std::vector<uint8_t>& frame);
+  bool handleHandshake(uint32_t clientId, const nlohmann::json& req);
+  void handleCommand(uint32_t clientId, const nlohmann::json& req);
   void sendJson(uint32_t clientId, const nlohmann::json& payload);
   void sendError(uint32_t clientId, const std::string& message, bool closeAfter = false);
   bool checkRateLimit(ClientState& state);

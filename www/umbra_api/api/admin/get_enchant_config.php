@@ -13,7 +13,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-$data = json_decode(file_get_contents('php://input'), true) ?: [];
+if (!function_exists('admin_decode_json_body')) {
+    require_once __DIR__ . '/require_admin_auth.php';
+}
+$data = admin_decode_json_body();
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $data['admin_username'] = $_GET['admin_username'] ?? $data['admin_username'] ?? null;
 }

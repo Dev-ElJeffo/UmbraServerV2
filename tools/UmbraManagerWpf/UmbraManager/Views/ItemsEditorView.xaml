@@ -303,16 +303,27 @@
                                         <CheckBox Content="Refinável"  IsChecked="{Binding NewItemCanBeRefined}"/>
                                     </StackPanel>
 
-                                    <!-- Stats JSON -->
-                                    <TextBlock Text="Stats (JSON)" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
-                                    <TextBox Text="{Binding NewItemStatsJson, UpdateSourceTrigger=PropertyChanged}"
-                                             FontFamily="Consolas" FontSize="11"
-                                             AcceptsReturn="True" TextWrapping="Wrap"
-                                             Height="140" VerticalScrollBarVisibility="Auto"
-                                             materialDesign:HintAssist.Hint="{}{&quot;strength&quot;:10,&quot;physical_attack&quot;:50}"
-                                             materialDesign:HintAssist.IsFloating="True"/>
-                                    <TextBlock FontSize="10" Opacity="0.6" TextWrapping="Wrap" Margin="0,4,0,0"
-                                               Text="Chaves aceitas: strength, dexterity, intelligence, vitality, physical_attack, magic_attack, physical_defense, magic_defense, accuracy, dodge, critical, resistance, double_attack_rate, double_attack_resistance, health_bonus, mana_bonus, movement"/>
+                                    <!-- Stats estruturados -->
+                                    <TextBlock Text="Atributos e combate" FontWeight="SemiBold" Margin="0,0,0,6" Opacity="0.85"/>
+                                    <ItemsControl ItemsSource="{Binding ItemStatFields}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Margin="0,0,0,6">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="160"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding Label}" VerticalAlignment="Center" Opacity="0.85"/>
+                                                    <TextBox Grid.Column="1" Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                                             materialDesign:HintAssist.Hint="valor"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock FontSize="10" Opacity="0.6" TextWrapping="Wrap" Margin="0,4,0,8"
+                                               Text="Chaves canônicas: attack/defense (não physical_attack). Zeros são gravados."/>
+                                    <TextBlock Text="Preview do tooltip" FontWeight="SemiBold" Margin="0,4,0,4"/>
+                                    <TextBlock Text="{Binding ItemTooltipPreview}" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12" Opacity="0.9" Margin="0,0,0,8"/>
                                 </StackPanel>
                             </ScrollViewer>
                         </DockPanel>

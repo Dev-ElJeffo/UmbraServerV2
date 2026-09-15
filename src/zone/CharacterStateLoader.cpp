@@ -37,19 +37,18 @@ int64_t jsonInt(const nlohmann::json& j, const char* key) {
 // character_info_helper.php. Mapeia critical_resistance/resistance -> "resistance".
 void accumulateItemStats(const nlohmann::json& stats, std::unordered_map<std::string, int64_t>& totals) {
   if (!stats.is_object()) return;
-  static const char* kDirectKeys[] = {
-      "strength", "dexterity", "intelligence", "vitality", "luck",
-      "health_bonus", "mana_bonus", "defense", "magic_defense", "attack",
-      "magic_attack", "accuracy", "dodge", "critical", "movement",
-      "double_attack_resistance", "double_attack_rate"};
-  for (const char* key : kDirectKeys) {
-    const int64_t v = jsonInt(stats, key);
-    if (v != 0) totals[key] += v;
-  }
-  if (stats.contains("critical_resistance")) {
-    totals["resistance"] += jsonInt(stats, "critical_resistance");
-  } else if (stats.contains("resistance")) {
-    totals["resistance"] += jsonInt(stats, "resistance");
+  for (auto it = stats.begin(); it != stats.end(); ++it) {
+    if (it->is_null()) continue;
+    int64_t v = 0;
+    try {
+      if (it->is_number()) v = static_cast<int64_t>(it->get<double>());
+      else if (it->is_string()) v = toInt(it->get<std::string>());
+    } catch (...) {
+      continue;
+    }
+    if (v == 0) continue;
+    const std::string canon = Combat::StatKeyMapping::mapTargetStatToCanonical(it.key());
+    totals[canon] += v;
   }
 }
 
@@ -413,7 +412,8 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
     if (it != t.end()) it->second += bonus;
   }
 
-  // Buffs/debuffs de skills (active_buffs) — flat antes dos derivados; CC/shield registrados.
+  // Efeitos de skill ativos pertencem exclusivamente ao CombatCoreEngine.
+  // Aqui permanecem apenas passivas aprendidas, base/equipamento e consumíveis.
   bool ccStunned = false;
   bool ccSilenced = false;
   bool ccRooted = false;
@@ -453,45 +453,7 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
     }
   };
 
-  auto skillBuffRows = db_->executePreparedQuery(
-      "SELECT buff_type, current_stacks, value_snapshot, COALESCE(snapshot_json,'') "
-      "FROM active_buffs WHERE target_player_id = ? AND (expires_at > NOW(3) OR is_permanent = 1)",
-      {pid});
-  // Proxmox/MySQL 8: prepared pode vir vazio por falha de bind; fallback text (playerId numérico).
-  if (skillBuffRows.empty()) {
-    skillBuffRows = db_->executeQuery(
-        "SELECT buff_type, current_stacks, value_snapshot, COALESCE(snapshot_json,'') "
-        "FROM active_buffs WHERE target_player_id = " +
-        pid + " AND (expires_at > NOW(3) OR is_permanent = 1)");
-  }
   int skillBuffsApplied = 0;
-  for (const auto& br : skillBuffRows) {
-    if (br.size() < 4) continue;
-    int stacks = 1;
-    try {
-      stacks = std::max(1, std::stoi(br[1]));
-    } catch (...) {
-    }
-    const std::string& buffTypeDb = br[0];
-    nlohmann::json snap = nlohmann::json::parse(br[3], nullptr, false);
-
-    if (buffTypeDb == "SHIELD") {
-      int32_t shieldVal = 0;
-      try {
-        shieldVal = std::stoi(br[2]);
-      } catch (...) {
-      }
-      if (shieldVal <= 0 && snap.is_object()) {
-        shieldVal = static_cast<int32_t>(jsonInt(snap, "value_flat"));
-      }
-      totalShield += shieldVal * stacks;
-      ++skillBuffsApplied;
-      continue;
-    }
-
-    applyBuffSnapshot(snap, stacks);
-    ++skillBuffsApplied;
-  }
 
   // Passivas aprendidas com condição health_below_percent (sem linha em active_buffs).
   const int64_t healthPct = (health > 0 && baseHealth + levelHp > 0)
@@ -576,8 +538,14 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
   stats.silenceChance = static_cast<int32_t>(std::clamp<int64_t>(t["silence_chance"], 0, 100));
   stats.rootChance = static_cast<int32_t>(std::clamp<int64_t>(t["root_chance"], 0, 100));
   stats.slowChance = static_cast<int32_t>(std::clamp<int64_t>(t["slow_chance"], 0, 100));
+  stats.damageReduction = static_cast<int32_t>(t["damage_reduction"]);
 
   for (const auto& pm : skillPercentMods) {
+    if (pm.key == "damage_reduction") {
+      // % DR soma no campo percentual (não multiplica flat 0).
+      stats.damageReductionPercent += pm.percent;
+      continue;
+    }
     if (!pm.applyToTotals) {
       Combat::StatKeyMapping::applyPercentToCharacterStats(pm.key, pm.percent, stats);
     }

@@ -12,6 +12,7 @@ public partial class MainViewModel
 {
     public ObservableCollection<SkillRow> Skills { get; } = new();
     public ObservableCollection<SkillRankScalingRow> SkillRankScalings { get; } = new();
+    [ObservableProperty] private SkillRankScalingRow? _selectedSkillRank;
     public ObservableCollection<SkillLookupOption> SkillClassOptions { get; } = new();
     public ObservableCollection<SkillLookupOption> SkillTypeOptions { get; } = new();
     public ObservableCollection<SkillLookupOption> SkillTargetOptions { get; } = new();
@@ -43,6 +44,19 @@ public partial class MainViewModel
     [ObservableProperty] private int _skillFormSecondaryCoef;
     [ObservableProperty] private string _skillFormResourceType = "MANA";
     [ObservableProperty] private int _skillFormResourceCost;
+    [ObservableProperty] private int _skillFormResourceCostPercent;
+    [ObservableProperty] private bool _skillFormIsStackable;
+    [ObservableProperty] private int _skillFormMaxStacks = 1;
+    [ObservableProperty] private bool _skillFormIsInterrupt;
+    [ObservableProperty] private bool _skillFormCanMoveWhileCasting;
+    [ObservableProperty] private bool _skillFormIncludeCaster;
+    [ObservableProperty] private int _skillFormThreatModifier = 100;
+    [ObservableProperty] private int _skillFormPvpModifier = 100;
+    [ObservableProperty] private string _skillFormVfxKey = "";
+    [ObservableProperty] private string _skillFormSfxKey = "";
+    [ObservableProperty] private string _skillFormSfxPath = "";
+    [ObservableProperty] private string _skillFormTooltipTemplate = "";
+    [ObservableProperty] private string _skillFormServerTags = "";
     [ObservableProperty] private int _skillFormCooldownMs;
     [ObservableProperty] private int _skillFormCastTimeMs;
     [ObservableProperty] private int _skillFormDurationMs;
@@ -58,6 +72,22 @@ public partial class MainViewModel
     [ObservableProperty] private string _skillFormHitVfxPath = "";
     [ObservableProperty] private string _skillFormDescription = "";
     [ObservableProperty] private string _skillFormEffectsJson = "[]";
+
+    partial void OnSelectedSkillRankChanged(SkillRankScalingRow? oldValue, SkillRankScalingRow? newValue)
+    {
+        if (oldValue != null)
+            oldValue.ExtraEffectsJson = StructuredJsonSerializer.SerializeEffects(SelectedRankEffects);
+        SelectedRankEffects.Clear();
+        if (newValue == null) return;
+        foreach (var row in StructuredJsonSerializer.DeserializeEffects(newValue.ExtraEffectsJson))
+            SelectedRankEffects.Add(row);
+    }
+
+    public void FlushSelectedRankEffects()
+    {
+        if (SelectedSkillRank == null) return;
+        SelectedSkillRank.ExtraEffectsJson = StructuredJsonSerializer.SerializeEffects(SelectedRankEffects);
+    }
 
     public string SkillFormTitle => EditingSkillId > 0 ? $"Editar skill #{EditingSkillId}" : "Nova skill";
     public string SkillSaveButtonText => EditingSkillId > 0 ? "Salvar skill" : "Criar skill";
@@ -93,6 +123,7 @@ public partial class MainViewModel
     [RelayCommand]
     private async Task NewSkillAsync()
     {
+        if (!ConfirmDiscardChanges()) return;
         await EnsureSkillLookupsAsync();
         EditingSkillId = 0;
         SkillFormKey = "";
@@ -116,6 +147,19 @@ public partial class MainViewModel
         SkillFormSecondaryCoef = 0;
         SkillFormResourceType = "MANA";
         SkillFormResourceCost = 0;
+        SkillFormResourceCostPercent = 0;
+        SkillFormIsStackable = false;
+        SkillFormMaxStacks = 1;
+        SkillFormIsInterrupt = false;
+        SkillFormCanMoveWhileCasting = false;
+        SkillFormIncludeCaster = false;
+        SkillFormThreatModifier = 100;
+        SkillFormPvpModifier = 100;
+        SkillFormVfxKey = "";
+        SkillFormSfxKey = "";
+        SkillFormSfxPath = "";
+        SkillFormTooltipTemplate = "";
+        SkillFormServerTags = "";
         SkillFormCooldownMs = 0;
         SkillFormCastTimeMs = 0;
         SkillFormDurationMs = 0;
@@ -132,14 +176,17 @@ public partial class MainViewModel
         SkillFormDescription = "";
         SkillFormEffectsJson = "[]";
         SkillRankScalings.Clear();
-        for (var r = 2; r <= 5; r++)
+        for (var r = 1; r <= 5; r++)
             SkillRankScalings.Add(new SkillRankScalingRow { Rank = r, ExtraEffectsJson = "[]" });
+        SyncSkillEffectsFromJson("[]");
+        MarkEditorClean();
     }
 
     [RelayCommand]
     private async Task EditSkillAsync(SkillRow? row)
     {
         if (row == null) return;
+        if (!ConfirmDiscardChanges()) return;
         await EnsureSkillLookupsAsync();
         var (ok, err, data) = await Php.GetSkillAsync(row.SkillId);
         if (!ok || data == null)
@@ -177,6 +224,24 @@ public partial class MainViewModel
         var rt = TryGetStringProp(s, "resource_type");
         SkillFormResourceType = string.IsNullOrEmpty(rt) ? "MANA" : rt;
         SkillFormResourceCost = TryGetIntProp(s, "resource_cost");
+        SkillFormResourceCostPercent = TryGetIntProp(s, "resource_cost_percent");
+        SkillFormIsStackable = TryGetBoolProp(s, "is_stackable");
+        SkillFormMaxStacks = Math.Max(1, TryGetIntProp(s, "max_stacks"));
+        SkillFormIsInterrupt = TryGetBoolProp(s, "is_interrupt");
+        SkillFormCanMoveWhileCasting = TryGetBoolProp(s, "can_move_while_casting");
+        SkillFormIncludeCaster = TryGetBoolProp(s, "include_caster");
+        SkillFormThreatModifier = TryGetIntProp(s, "threat_modifier");
+        if (SkillFormThreatModifier == 0) SkillFormThreatModifier = 100;
+        SkillFormPvpModifier = TryGetIntProp(s, "pvp_modifier");
+        if (SkillFormPvpModifier == 0) SkillFormPvpModifier = 100;
+        SkillFormVfxKey = TryGetStringProp(s, "vfx_key");
+        SkillFormSfxKey = TryGetStringProp(s, "sfx_key");
+        SkillFormSfxPath = TryGetStringProp(s, "sfx_path");
+        SkillFormTooltipTemplate = TryGetStringProp(s, "tooltip_template");
+        if (s.TryGetProperty("server_tags_decoded", out var tags) && tags.ValueKind == JsonValueKind.Array)
+            SkillFormServerTags = string.Join(",", tags.EnumerateArray().Select(x => x.GetString()).Where(x => !string.IsNullOrWhiteSpace(x)));
+        else if (s.TryGetProperty("server_tags", out var tagsRaw) && tagsRaw.ValueKind == JsonValueKind.String)
+            SkillFormServerTags = tagsRaw.GetString() ?? "";
         SkillFormCooldownMs = TryGetIntProp(s, "cooldown_ms");
         SkillFormCastTimeMs = TryGetIntProp(s, "cast_time_ms");
         SkillFormDurationMs = TryGetIntProp(s, "duration_ms");
@@ -197,6 +262,8 @@ public partial class MainViewModel
             SkillFormEffectsJson = ea.GetRawText();
         else
             SkillFormEffectsJson = "[]";
+
+        SyncSkillEffectsFromJson(SkillFormEffectsJson);
 
         SkillRankScalings.Clear();
         if (data.RootElement.TryGetProperty("rank_scalings", out var ranks))
@@ -230,6 +297,7 @@ public partial class MainViewModel
             if (SkillRankScalings.Any(x => x.Rank == r)) continue;
             SkillRankScalings.Add(new SkillRankScalingRow { SkillId = EditingSkillId, Rank = r, ExtraEffectsJson = "[]" });
         }
+        MarkEditorClean();
     }
 
     [RelayCommand]
@@ -273,6 +341,19 @@ public partial class MainViewModel
             ["secondary_coef"] = SkillFormSecondaryCoef,
             ["resource_type"] = SkillFormResourceType,
             ["resource_cost"] = SkillFormResourceCost,
+            ["resource_cost_percent"] = SkillFormResourceCostPercent,
+            ["is_stackable"] = SkillFormIsStackable,
+            ["max_stacks"] = SkillFormMaxStacks,
+            ["is_interrupt"] = SkillFormIsInterrupt,
+            ["can_move_while_casting"] = SkillFormCanMoveWhileCasting,
+            ["include_caster"] = SkillFormIncludeCaster,
+            ["threat_modifier"] = SkillFormThreatModifier,
+            ["pvp_modifier"] = SkillFormPvpModifier,
+            ["vfx_key"] = SkillFormVfxKey,
+            ["sfx_key"] = SkillFormSfxKey,
+            ["sfx_path"] = SkillFormSfxPath,
+            ["tooltip_template"] = SkillFormTooltipTemplate,
+            ["server_tags"] = SkillFormServerTags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
             ["cooldown_ms"] = SkillFormCooldownMs,
             ["cast_time_ms"] = SkillFormCastTimeMs,
             ["duration_ms"] = SkillFormDurationMs,
@@ -287,7 +368,7 @@ public partial class MainViewModel
             ["vfx_path"] = SkillFormVfxPath,
             ["hit_vfx_path"] = SkillFormHitVfxPath,
             ["description"] = SkillFormDescription,
-            ["effects_json"] = SkillFormEffectsJson
+            ["effects_json"] = FlushSkillEffectsJson()
         };
 
         bool ok;
@@ -316,6 +397,8 @@ public partial class MainViewModel
         {
             foreach (var rk in SkillRankScalings.Where(x => x.Rank >= 1))
             {
+                if (ReferenceEquals(rk, SelectedSkillRank))
+                    FlushSelectedRankEffects();
                 rk.PushResistIntoExtraJson();
                 var (rok, rerr, _) = await Php.UpsertSkillRankScalingAsync(new Dictionary<string, object?>
                 {
@@ -363,6 +446,8 @@ public partial class MainViewModel
             return;
         }
         row.SkillId = EditingSkillId;
+        if (ReferenceEquals(row, SelectedSkillRank))
+            FlushSelectedRankEffects();
         row.PushResistIntoExtraJson();
         var (ok, err, _) = await Php.UpsertSkillRankScalingAsync(new Dictionary<string, object?>
         {
@@ -410,13 +495,34 @@ public partial class MainViewModel
             else AppendGm($"[{z.Id}] reload_skills falhou: {resp}");
         }
         Audit.Log(AppConfig.Instance.AdminUsername, "reload_skills", $"zones_ok={okCount}/{zones.Count}");
-        StatusText = $"Skills recarregadas em {okCount}/{zones.Count} zone(s).";
-        MessageBox.Show(StatusText, "Reload skills");
+        StatusText = $"Skills recarregadas em {okCount}/{zones.Count} zone(s). PHP sozinho não recarrega o C++.";
+        MessageBox.Show($"{StatusText}\n\n{UeReloadHint}", "Reload skills");
     }
 
-    private async Task EnsureSkillLookupsAsync()
+    [RelayCommand]
+    private async Task ReloadLootOnZonesAsync()
     {
-        if (SkillClassOptions.Count > 0) return;
+        var zones = Definitions.Where(d => d.IsZone && AdminHub.GetClient(d.Id)?.IsAuthenticated == true).ToList();
+        if (zones.Count == 0)
+        {
+            MessageBox.Show("Nenhuma zone autenticada no AdminHub.", "Reload loot");
+            return;
+        }
+        var okCount = 0;
+        foreach (var z in zones)
+        {
+            var (ok, resp) = await AdminHub.SendCommandAndWaitAsync(z.Id, "reload_loot", null, 5000);
+            if (ok) okCount++;
+            else AppendGm($"[{z.Id}] reload_loot falhou: {resp}");
+        }
+        Audit.Log(AppConfig.Instance.AdminUsername, "reload_loot", $"zones_ok={okCount}/{zones.Count}");
+        StatusText = $"Loot recarregado em {okCount}/{zones.Count} zone(s).";
+        MessageBox.Show($"{StatusText}\n\n{UeReloadHint}", "Reload loot");
+    }
+
+    private async Task EnsureSkillLookupsAsync(bool force = false)
+    {
+        if (SkillClassOptions.Count > 0 && force != true) return;
         var (ok, _, data) = await Php.ListSkillLookupsAsync();
         if (!ok || data == null) return;
         if (!data.RootElement.TryGetProperty("lookups", out var lookups))
@@ -470,6 +576,7 @@ public partial class MainViewModel
         DurationMs = TryGetIntProp(s, "duration_ms"),
         RangeMax = TryGetIntProp(s, "range_max"),
         IsEnabled = TryGetBoolProp(s, "is_enabled"),
+        IncludeCaster = TryGetBoolProp(s, "include_caster"),
         IconPath = TryGetStringProp(s, "icon_path"),
         VfxPath = TryGetStringProp(s, "vfx_path"),
         HitVfxPath = TryGetStringProp(s, "hit_vfx_path"),

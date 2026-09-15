@@ -11,6 +11,7 @@
  */
 
 #include "SkillTypes.hpp"
+#include <algorithm>
 #include <random>
 #include <mutex>
 #include <functional>
@@ -488,17 +489,28 @@ inline DamageBreakdown CombatCalculator::calculatePhysicalDamage(
     breakdown.resistanceReduction = static_cast<int32_t>(scaledDamage * resReduction);
     scaledDamage -= breakdown.resistanceReduction;
     
-    // 9. Flat damage reduction
-    scaledDamage -= defender.buffedStats.damageReduction;
+    // 9. Damage reduction (% then flat)
+    {
+        const int32_t drPct =
+            std::clamp(defender.buffedStats.damageReductionPercent, 0, 90);
+        if (drPct > 0) {
+            scaledDamage = scaledDamage * (100 - drPct) / 100;
+        }
+        scaledDamage -= defender.buffedStats.damageReduction;
+    }
     
     // 10. Shield absorption
     if (defender.currentShield > 0) {
-        breakdown.shieldAbsorbed = std::min(defender.currentShield, scaledDamage);
+        breakdown.shieldAbsorbed = std::min(defender.currentShield, std::max(0, scaledDamage));
         scaledDamage -= breakdown.shieldAbsorbed;
     }
     
-    // Minimum 1 damage
-    breakdown.finalDamage = std::max(1, scaledDamage);
+    // Minimum 1 damage (0 permitido só se escudo absorveu tudo)
+    if (scaledDamage <= 0 && breakdown.shieldAbsorbed > 0) {
+        breakdown.finalDamage = 0;
+    } else {
+        breakdown.finalDamage = std::max(1, scaledDamage);
+    }
     
     // Overkill calculation
     if (breakdown.finalDamage > defender.buffedStats.currentHealth) {
@@ -551,14 +563,26 @@ inline DamageBreakdown CombatCalculator::calculateMagicDamage(
     breakdown.resistanceReduction = static_cast<int32_t>(scaledDamage * resReduction);
     scaledDamage -= breakdown.resistanceReduction;
     
-    scaledDamage -= defender.buffedStats.damageReduction;
+    // Damage reduction (% then flat)
+    {
+        const int32_t drPct =
+            std::clamp(defender.buffedStats.damageReductionPercent, 0, 90);
+        if (drPct > 0) {
+            scaledDamage = scaledDamage * (100 - drPct) / 100;
+        }
+        scaledDamage -= defender.buffedStats.damageReduction;
+    }
     
     if (defender.currentShield > 0) {
-        breakdown.shieldAbsorbed = std::min(defender.currentShield, scaledDamage);
+        breakdown.shieldAbsorbed = std::min(defender.currentShield, std::max(0, scaledDamage));
         scaledDamage -= breakdown.shieldAbsorbed;
     }
     
-    breakdown.finalDamage = std::max(1, scaledDamage);
+    if (scaledDamage <= 0 && breakdown.shieldAbsorbed > 0) {
+        breakdown.finalDamage = 0;
+    } else {
+        breakdown.finalDamage = std::max(1, scaledDamage);
+    }
     
     if (breakdown.finalDamage > defender.buffedStats.currentHealth) {
         breakdown.overkill = breakdown.finalDamage - defender.buffedStats.currentHealth;

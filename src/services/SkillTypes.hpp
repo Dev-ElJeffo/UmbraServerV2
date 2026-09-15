@@ -175,7 +175,8 @@ struct CharacterStats {
     int32_t arcaneRes = 0;
     
     // Modifiers
-    int32_t damageReduction = 0;     // Flat reduction
+    int32_t damageReduction = 0;          // Flat reduction
+    int32_t damageReductionPercent = 0;   // Incoming damage % reduction (0-90)
     int32_t healingBonus = 0;        // Percentual
     int32_t threatModifier = 100;    // 100 = base
     int32_t pvpDamageModifier = 100; // 100 = base
@@ -221,6 +222,7 @@ struct CharacterState {
     bool isSilenced = false;
     bool isRooted = false;
     bool isInvulnerable = false;
+    bool isStealthed = false;
     bool isInCombat = false;
     bool isPvPEnabled = false;
     
@@ -269,6 +271,10 @@ struct SkillEffect {
     uint8_t chancePercent = 100;
     /** 0-100: reduz a resistência de CC do alvo neste efeito. */
     uint8_t resistPenetration = 0;
+    /** 0 = herda SkillData::target; demais valores usam TargetType. */
+    uint8_t targetOverride = 0;
+    /** -1 = herda SkillData::includeCaster, 0 = exclui, 1 = inclui. */
+    int8_t includeCaster = -1;
     nlohmann::json conditions;
 };
 
@@ -338,6 +344,7 @@ struct SkillData {
     bool isInterrupt = false;
     bool requiresTarget = true;
     bool canMoveWhileCasting = false;
+    bool includeCaster = false;
     
     // Modifiers
     int16_t threatModifier = 100;

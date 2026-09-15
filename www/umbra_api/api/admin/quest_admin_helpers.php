@@ -2,6 +2,7 @@
 /**
  * Helpers compartilhados para create/update quest admin.
  */
+require_once __DIR__ . '/quest_schema_helpers.php';
 require_once __DIR__ . '/../../helpers/quest_helper.php';
 
 function adminQuestAllowedObjectiveTypes(): array
@@ -14,17 +15,20 @@ function adminQuestAllowedRewardTypes(): array
     return ['gold', 'experience', 'item'];
 }
 
-function adminQuestEncodeParams($params): string
+function adminQuestEncodeParams($params, string $type = ''): string
 {
     if (is_string($params)) {
         $decoded = json_decode($params, true);
-        if (json_last_error() === JSON_ERROR_NONE) {
-            return json_encode($decoded, JSON_UNESCAPED_UNICODE);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new InvalidArgumentException('params JSON inválido: ' . json_last_error_msg());
         }
-        return '{}';
+        $params = $decoded;
     }
     if (!is_array($params) && !is_object($params)) {
-        return '{}';
+        $params = [];
+    }
+    if ($type !== '') {
+        $params = quest_validate_params($type, $params);
     }
     return json_encode($params, JSON_UNESCAPED_UNICODE);
 }
@@ -54,7 +58,7 @@ function adminQuestReplaceObjectives(PDO $pdo, int $questId, array $objectives):
                 ':sort' => $sort,
                 ':type' => $type,
                 ':desc' => $desc,
-                ':params' => adminQuestEncodeParams($params),
+                ':params' => adminQuestEncodeParams($params, $type),
             ]);
         }
     }

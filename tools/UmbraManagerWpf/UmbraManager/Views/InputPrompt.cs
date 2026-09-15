@@ -1,4 +1,6 @@
 using System.Windows;
+using System.Windows.Controls;
+using MaterialDesignThemes.Wpf;
 
 namespace UmbraManager.Views;
 
@@ -9,20 +11,47 @@ public static class InputPrompt
         var w = new Window
         {
             Title = title,
-            Width = 360,
-            Height = 140,
-            WindowStartupLocation = WindowStartupLocation.CenterScreen,
-            ResizeMode = ResizeMode.NoResize
+            Width = 420,
+            Height = 200,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ResizeMode = ResizeMode.NoResize,
+            Owner = Application.Current?.MainWindow,
+            Background = Application.Current?.TryFindResource("MaterialDesign.Brush.Background") as System.Windows.Media.Brush
         };
-        var panel = new System.Windows.Controls.StackPanel { Margin = new Thickness(12) };
-        panel.Children.Add(new System.Windows.Controls.TextBlock { Text = prompt, Margin = new Thickness(0, 0, 0, 8) });
-        var box = new System.Windows.Controls.TextBox { Text = defaultValue, Margin = new Thickness(0, 0, 0, 12) };
+        var panel = new StackPanel { Margin = new Thickness(16) };
+        panel.Children.Add(new TextBlock
+        {
+            Text = prompt,
+            Margin = new Thickness(0, 0, 0, 12),
+            TextWrapping = TextWrapping.Wrap,
+            Style = Application.Current?.TryFindResource("ManagerEditorSubtitle") as Style
+        });
+        var box = new TextBox { Text = defaultValue, Margin = new Thickness(0, 0, 0, 16) };
+        HintAssist.SetHint(box, title);
+        HintAssist.SetIsFloating(box, true);
         panel.Children.Add(box);
-        var buttons = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
         string? result = null;
-        var ok = new System.Windows.Controls.Button { Content = "OK", Width = 80, Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
+        var ok = new Button
+        {
+            Content = "OK",
+            Width = 88,
+            Margin = new Thickness(0, 0, 8, 0),
+            IsDefault = true,
+            Style = Application.Current?.TryFindResource("ManagerActionButton") as Style
+        };
         ok.Click += (_, _) => { result = box.Text; w.DialogResult = true; };
-        var cancel = new System.Windows.Controls.Button { Content = "Cancelar", Width = 80, IsCancel = true };
+        var cancel = new Button
+        {
+            Content = "Cancelar",
+            Width = 88,
+            IsCancel = true,
+            Style = Application.Current?.TryFindResource("ManagerActionOutlinedButton") as Style
+        };
         cancel.Click += (_, _) => { w.DialogResult = false; };
         buttons.Children.Add(ok);
         buttons.Children.Add(cancel);

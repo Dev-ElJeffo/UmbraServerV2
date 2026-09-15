@@ -91,6 +91,8 @@ public partial class MainViewModel
         NpcSkillFormHitVfxPath = "";
         NpcSkillFormDescription = "";
         NpcSkillFormEffectsJson = "[]";
+        SyncNpcSkillEffectsFromJson("[]");
+        MarkEditorClean();
     }
 
     [RelayCommand]
@@ -131,7 +133,9 @@ public partial class MainViewModel
         NpcSkillFormEffectsJson = s.TryGetProperty("effects_json", out var ej) && ej.ValueKind == JsonValueKind.String
             ? ej.GetString() ?? "[]"
             : (s.TryGetProperty("effects", out var e) ? e.GetRawText() : "[]");
+        SyncNpcSkillEffectsFromJson(NpcSkillFormEffectsJson);
         data.Dispose();
+        MarkEditorClean();
     }
 
     [RelayCommand]
@@ -163,7 +167,7 @@ public partial class MainViewModel
             ["vfx_path"] = NpcSkillFormVfxPath,
             ["hit_vfx_path"] = NpcSkillFormHitVfxPath,
             ["description"] = NpcSkillFormDescription,
-            ["effects_json"] = string.IsNullOrWhiteSpace(NpcSkillFormEffectsJson) ? "[]" : NpcSkillFormEffectsJson
+            ["effects_json"] = FlushNpcSkillEffectsJson()
         };
         bool ok;
         string err;

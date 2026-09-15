@@ -64,6 +64,15 @@
                             <Button Content="Copiar" Command="{Binding CopyGmOutputCommand}" Margin="0,0,8,4"
                                     Style="{StaticResource ManagerActionOutlinedButton}"/>
                         </WrapPanel>
+                        <ItemsControl ItemsSource="{Binding GmCommandArgValues}" Margin="0,0,0,8">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                                             materialDesign:HintAssist.Hint="{Binding Hint}"
+                                             materialDesign:HintAssist.IsFloating="True"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                         <TextBox x:Name="GmInputBox" Margin="0,0,0,0" VerticalAlignment="Top"
                                  Text="{Binding GmInput, UpdateSourceTrigger=PropertyChanged}"
                                  materialDesign:HintAssist.Hint="comando arg=valor, suporte aspas e JSON (Tab autocomplete, ↑↓ histórico)"

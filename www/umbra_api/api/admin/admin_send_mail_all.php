@@ -11,15 +11,15 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$data = json_decode(file_get_contents('php://input'), true) ?: [];
 require_once __DIR__ . '/require_admin_auth.php';
+$data = admin_decode_json_body();
 requireAdminAuth($data);
 require_once __DIR__ . '/../../helpers/mail_helper.php';
 require_once __DIR__ . '/../../helpers/admin_audit_helper.php';
 
 $subject = (string)($data['subject'] ?? '');
 $body = (string)($data['body'] ?? '');
-$operator = !empty($data['admin_username']) ? (string)$data['admin_username'] : 'admin';
+$operator = adminOperatorName();
 $confirm = !empty($data['confirm_all']);
 [$okAtt, $errAtt, $attachments] = mailNormalizeAttachments($data['attachments'] ?? []);
 

@@ -14,8 +14,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$data = json_decode(file_get_contents('php://input'), true) ?? [];
 require_once __DIR__ . '/require_admin_auth.php';
+$data = admin_decode_json_body();
 requireAdminAuth($data);
 
 $templateId = (int)($data['npc_template_id'] ?? 0);
@@ -36,6 +36,7 @@ if ($sellRate > 100) {
 
 try {
     $pdo = getConnection();
+    $pdo->beginTransaction();
 
     $chk = $pdo->prepare('SELECT npc_template_id, npc_name, has_vendor FROM npc_templates WHERE npc_template_id = :id LIMIT 1');
     $chk->execute([':id' => $templateId]);
@@ -84,6 +85,9 @@ try {
         $flag->execute([':id' => $templateId]);
     }
 
+    $pdo->commit();
+    auditAdminWrite('ensure_npc_vendor', "template={$templateId};vendor={$vendorId}", 'npc_vendor', $vendorId);
+
     echo json_encode([
         'success' => true,
         'message' => $created ? 'Vendor criado' : 'Vendor atualizado',
@@ -94,6 +98,9 @@ try {
         'created' => $created,
     ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
+    if (isset($pdo) && $pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
     error_log('[admin/ensure_npc_vendor] ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['success' => false, 'message' => 'Erro interno'], JSON_UNESCAPED_UNICODE);

@@ -103,7 +103,9 @@ function questLoadRewards(PDO $pdo, int $quest_id): array
     $stmt = $pdo->prepare("
         SELECT qr.reward_id, qr.reward_type, qr.amount, qr.item_template_id, qr.quantity,
                qr.choice_group_id, qr.sort_order,
-               it.item_name, it.icon_path{$allowedSelect}
+               it.item_name, it.icon_path, it.item_description, it.item_type, it.item_subtype,
+               it.equipment_slot, it.rarity, it.required_level, it.max_stack_size, it.value, it.weight,
+               it.can_be_refined, it.tradeable, it.stats_json{$allowedSelect}
         FROM quest_rewards qr
         LEFT JOIN item_templates it ON it.item_id = qr.item_template_id
         WHERE qr.quest_id = ?
@@ -119,7 +121,9 @@ function questLoadRewardChoices(PDO $pdo, int $quest_id): array
     $stmt = $pdo->prepare("
         SELECT qrc.choice_id, qrc.choice_group_id, qrc.label, qrc.reward_type, qrc.amount,
                qrc.item_template_id, qrc.quantity, qrc.sort_order,
-               it.item_name, it.icon_path{$allowedSelect}
+               it.item_name, it.icon_path, it.item_description, it.item_type, it.item_subtype,
+               it.equipment_slot, it.rarity, it.required_level, it.max_stack_size, it.value, it.weight,
+               it.can_be_refined, it.tradeable, it.stats_json{$allowedSelect}
         FROM quest_reward_choices qrc
         LEFT JOIN item_templates it ON it.item_id = qrc.item_template_id
         WHERE qrc.quest_id = ?
@@ -240,6 +244,50 @@ function questFormatRewardRow(array $row): array
         'label' => $row['label'] ?? '',
         'choice_id' => isset($row['choice_id']) ? (int)$row['choice_id'] : 0,
     ];
+
+    // Catalog fields for client tooltip preview (ParseItemTemplate).
+    if (!empty($row['item_template_id'])) {
+        if (array_key_exists('item_description', $row)) {
+            $out['item_description'] = $row['item_description'] ?? '';
+        }
+        if (array_key_exists('item_type', $row) && $row['item_type'] !== null && $row['item_type'] !== '') {
+            $out['item_type'] = $row['item_type'];
+        }
+        if (array_key_exists('item_subtype', $row)) {
+            $out['item_subtype'] = $row['item_subtype'] ?? '';
+        }
+        if (array_key_exists('equipment_slot', $row) && $row['equipment_slot'] !== null && $row['equipment_slot'] !== '') {
+            $out['equipment_slot'] = $row['equipment_slot'];
+        }
+        if (array_key_exists('rarity', $row) && $row['rarity'] !== null && $row['rarity'] !== '') {
+            $out['rarity'] = $row['rarity'];
+        }
+        if (array_key_exists('required_level', $row)) {
+            $out['required_level'] = (int)($row['required_level'] ?? 1);
+        }
+        if (array_key_exists('max_stack_size', $row)) {
+            $out['max_stack_size'] = (int)($row['max_stack_size'] ?? 1);
+        }
+        if (array_key_exists('value', $row)) {
+            $out['value'] = (int)($row['value'] ?? 0);
+        }
+        if (array_key_exists('weight', $row)) {
+            $out['weight'] = (float)($row['weight'] ?? 0);
+        }
+        if (array_key_exists('can_be_refined', $row)) {
+            $out['can_be_refined'] = (bool)(int)($row['can_be_refined'] ?? 0);
+        }
+        if (array_key_exists('tradeable', $row)) {
+            $out['tradeable'] = (bool)(int)($row['tradeable'] ?? 1);
+        }
+        if (!empty($row['stats_json'])) {
+            $decoded = json_decode($row['stats_json'], true);
+            $out['stats'] = is_array($decoded) ? $decoded : new stdClass();
+        } elseif (array_key_exists('stats_json', $row)) {
+            $out['stats'] = new stdClass();
+        }
+    }
+
     append_allowed_class_fields($out, $row['allowed_class_ids'] ?? null);
     return $out;
 }

@@ -3,7 +3,51 @@
                     xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
                     xmlns:helpers="clr-namespace:UmbraManager.Helpers">
 
-    <!-- Cabeçalho das abas: MD3 esconde a barra; Auto mostra quando as opções não cabem -->
+    <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+    <SolidColorBrush x:Key="ManagerBrush.SurfaceAlt" Color="#FF252526"/>
+    <SolidColorBrush x:Key="ManagerBrush.Border" Color="#FF3F3F46"/>
+    <SolidColorBrush x:Key="ManagerBrush.Text" Color="#FFECECEC"/>
+    <SolidColorBrush x:Key="ManagerBrush.Success" Color="#FF4CAF50"/>
+    <SolidColorBrush x:Key="ManagerBrush.Warning" Color="#FFFFC107"/>
+    <SolidColorBrush x:Key="ManagerBrush.Error" Color="#FFE53935"/>
+    <SolidColorBrush x:Key="ManagerBrush.Focus" Color="#FF7E57C2"/>
+    <Thickness x:Key="ManagerSpace.Sm">8</Thickness>
+    <Thickness x:Key="ManagerSpace.Md">12</Thickness>
+    <Thickness x:Key="ManagerSpace.Lg">16</Thickness>
+
+    <Style x:Key="ManagerEditorTitle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="16"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Margin" Value="0,0,0,4"/>
+        <Setter Property="Foreground" Value="{DynamicResource MaterialDesign.Brush.Foreground}"/>
+    </Style>
+
+    <Style x:Key="ManagerEditorSubtitle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="Opacity" Value="0.75"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="Foreground" Value="{DynamicResource MaterialDesign.Brush.Foreground}"/>
+    </Style>
+
+    <Style x:Key="ManagerSectionHeader" TargetType="TextBlock">
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Margin" Value="0,0,0,6"/>
+        <Setter Property="Opacity" Value="0.9"/>
+        <Setter Property="Foreground" Value="{DynamicResource MaterialDesign.Brush.Foreground}"/>
+    </Style>
+
+    <Style x:Key="ManagerNavButton" TargetType="RadioButton" BasedOn="{StaticResource MaterialDesignTabRadioButton}">
+        <Setter Property="MinHeight" Value="36"/>
+        <Setter Property="Padding" Value="10,6"/>
+        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        <Setter Property="Margin" Value="4,2"/>
+        <Setter Property="Foreground" Value="{StaticResource ManagerBrush.Text}"/>
+    </Style>
+
+    <Style x:Key="ManagerPageHeader" TargetType="TextBlock" BasedOn="{StaticResource ManagerEditorTitle}">
+        <Setter Property="FontSize" Value="20"/>
+        <Setter Property="Margin" Value="0,0,0,4"/>
+    </Style>
     <Style TargetType="TabControl" BasedOn="{StaticResource MaterialDesignTabControl}">
         <Setter Property="helpers:TabHeaderScrollAssist.ShowHorizontalBar" Value="True"/>
     </Style>
@@ -105,27 +149,6 @@
         <Setter Property="TextElement.Foreground" Value="{DynamicResource MaterialDesign.Brush.Foreground}"/>
     </Style>
 
-    <Style x:Key="ManagerEditorTitle" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="16"/>
-        <Setter Property="FontWeight" Value="Bold"/>
-        <Setter Property="Margin" Value="0,0,0,4"/>
-        <Setter Property="Foreground" Value="{DynamicResource MaterialDesign.Brush.Foreground}"/>
-    </Style>
-
-    <Style x:Key="ManagerEditorSubtitle" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="11"/>
-        <Setter Property="Opacity" Value="0.75"/>
-        <Setter Property="TextWrapping" Value="Wrap"/>
-        <Setter Property="Foreground" Value="{DynamicResource MaterialDesign.Brush.Foreground}"/>
-    </Style>
-
-    <Style x:Key="ManagerSectionHeader" TargetType="TextBlock">
-        <Setter Property="FontWeight" Value="SemiBold"/>
-        <Setter Property="Margin" Value="0,0,0,6"/>
-        <Setter Property="Opacity" Value="0.9"/>
-        <Setter Property="Foreground" Value="{DynamicResource MaterialDesign.Brush.Foreground}"/>
-    </Style>
-
     <Style x:Key="ManagerFormPrimaryButton" TargetType="Button" BasedOn="{StaticResource MaterialDesignRaisedButton}">
         <Setter Property="Height" Value="36"/>
         <Setter Property="HorizontalAlignment" Value="Stretch"/>
@@ -136,5 +159,28 @@
         <Setter Property="Height" Value="36"/>
         <Setter Property="HorizontalAlignment" Value="Stretch"/>
         <Setter Property="MinWidth" Value="88"/>
+    </Style>
+
+    <Style x:Key="ManagerFormSection" TargetType="Expander">
+        <Setter Property="IsExpanded" Value="True"/>
+        <Setter Property="Margin" Value="0,0,0,10"/>
+        <Setter Property="Foreground" Value="{StaticResource ManagerBrush.Text}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding" Value="0,4"/>
+    </Style>
+
+    <Style x:Key="ManagerEmptyState" TargetType="TextBlock">
+        <Setter Property="Opacity" Value="0.65"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="Margin" Value="12"/>
+        <Setter Property="HorizontalAlignment" Value="Center"/>
+        <Setter Property="Foreground" Value="{StaticResource ManagerBrush.Text}"/>
+    </Style>
+
+    <Style x:Key="ManagerStatusBadge" TargetType="Border">
+        <Setter Property="CornerRadius" Value="10"/>
+        <Setter Property="Padding" Value="8,2"/>
+        <Setter Property="Background" Value="{StaticResource ManagerBrush.Success}"/>
     </Style>
 </ResourceDictionary>

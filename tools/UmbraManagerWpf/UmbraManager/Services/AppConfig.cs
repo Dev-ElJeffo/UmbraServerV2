@@ -23,7 +23,7 @@ public sealed class AppConfig
     public string AdminUsername { get; set; } = "";
     public string AdminPassword { get; set; } = "";
     public string AdminToken { get; set; } = "";
-    public string AdminRole { get; set; } = "super";
+    public string AdminRole { get; set; } = "";
 
     private JsonDocument? _serverJson;
 
@@ -203,11 +203,23 @@ public sealed class AppConfig
                     Arguments = zid.ToString(),
                     GamePort = (ushort)(zoneBase + zid),
                     AdminPort = (ushort)(adminZoneBase + zid),
-                    LogFile = "zone_server.log"
+                    LogFile = $"zone_{zid}.log"
                 });
             }
         }
 
         return list;
+    }
+
+    public string ReloadServerJsonFromDisk()
+    {
+        var previousSecret = AdminSecret;
+        var previousBindHint = "";
+        LoadServerJson();
+        var notes = new List<string>();
+        if (!string.Equals(previousSecret, AdminSecret, StringComparison.Ordinal))
+            notes.Add("admin.shared_secret mudou — reconecte os canais admin");
+        notes.Add("bind_host/portas exigem restart dos serviços C++");
+        return string.Join("; ", notes);
     }
 }

@@ -10,7 +10,8 @@ public static class GmCommandCatalogService
         new() { Scope = "common", Name = "stats", Description = "Retorna métricas de CPU, RAM, uptime e versão.", Example = "stats" },
         new() { Scope = "common", Name = "set_log_level", Description = "Ajusta o nível de log em runtime.", ArgsHint = "level=DEBUG|INFO|WARN|ERROR|CRITICAL", Example = "set_log_level level=DEBUG" },
         new() { Scope = "common", Name = "reload_config", Description = "Recarrega o arquivo de configuração do serviço.", Example = "reload_config" },
-        new() { Scope = "common", Name = "shutdown", Description = "Agenda shutdown gracioso do serviço.", ArgsHint = "grace_sec=3", Example = "shutdown grace_sec=5", IsDestructive = true },
+        new() { Scope = "common", Name = "shutdown", Description = "Agenda shutdown gracioso do serviço.", ArgsHint = "grace_sec=3", Example = "shutdown grace_sec=5", IsDestructive = true,
+            Arguments = [ new CommandArgumentDefinition { Name = "grace_sec", Kind = "int", DefaultValue = "3", Hint = "segundos de graça" } ] },
 
         new() { Scope = "auth", Name = "sessions_count", Description = "Conta sessões ativas e devolve stats do Auth.", Example = "sessions_count" },
 
@@ -26,9 +27,18 @@ public static class GmCommandCatalogService
 
         new() { Scope = "zone", Name = "zone_info", Description = "Retorna metadados da zone em execução.", Example = "zone_info" },
         new() { Scope = "zone", Name = "players", Description = "Lista jogadores ativos na zone.", Example = "players" },
-        new() { Scope = "zone", Name = "kick_player", Description = "Expulsa um jogador da zone.", ArgsHint = "player_id=42", Example = "kick_player player_id=42", IsDestructive = true },
-        new() { Scope = "zone", Name = "teleport", Description = "Teleporta um jogador para coordenadas informadas.", ArgsHint = "player_id=42 x=1000 y=2000 z=100", Example = "teleport player_id=42 x=1000 y=2000 z=100" },
-        new() { Scope = "zone", Name = "broadcast", Description = "Envia mensagem administrativa para todos da zone (chat 70 + toast 73).", ArgsHint = "message=\"Servidor reinicia em 5 min\"", Example = "broadcast message=\"Servidor reinicia em 5 min\"" },
+        new() { Scope = "zone", Name = "kick_player", Description = "Expulsa um jogador da zone.", ArgsHint = "player_id=42", Example = "kick_player player_id=42", IsDestructive = true,
+            Arguments = [ new CommandArgumentDefinition { Name = "player_id", Kind = "int", Required = true, Hint = "player_id" } ] },
+        new() { Scope = "zone", Name = "teleport", Description = "Teleporta um jogador para coordenadas informadas.", ArgsHint = "player_id=42 x=1000 y=2000 z=100", Example = "teleport player_id=42 x=1000 y=2000 z=100",
+            Arguments =
+            [
+                new CommandArgumentDefinition { Name = "player_id", Kind = "int", Required = true },
+                new CommandArgumentDefinition { Name = "x", Kind = "float", Required = true },
+                new CommandArgumentDefinition { Name = "y", Kind = "float", Required = true },
+                new CommandArgumentDefinition { Name = "z", Kind = "float", Required = true },
+            ] },
+        new() { Scope = "zone", Name = "broadcast", Description = "Envia mensagem administrativa para todos da zone (chat 70 + toast 73).", ArgsHint = "message=\"Servidor reinicia em 5 min\"", Example = "broadcast message=\"Servidor reinicia em 5 min\"",
+            Arguments = [ new CommandArgumentDefinition { Name = "message", Kind = "string", Required = true, Hint = "mensagem" } ] },
         new() { Scope = "zone", Name = "notify_mail", Description = "Notifica player online sobre nova carta (opcode 74).", ArgsHint = "player_id=1 mail_id=10 from_name=\"Sistema\" subject=\"Presente\"", Example = "notify_mail player_id=1 mail_id=10 from_name=\"Sistema\" subject=\"Presente\"" },
         new() { Scope = "zone", Name = "flush_mail_notify_queue", Description = "Consome fila mail_notify_queue e envia opcode 74 aos online.", ArgsHint = "", Example = "flush_mail_notify_queue" },
         new() { Scope = "zone", Name = "force_save_positions", Description = "Persiste posições dos jogadores imediatamente.", Example = "force_save_positions" },
@@ -39,5 +49,17 @@ public static class GmCommandCatalogService
         new() { Scope = "zone", Name = "move_npc_instance", Description = "Move NPC em runtime e rebroadcast opcode 100 (não grava MySQL).", ArgsHint = "npc_instance_id=16 pos_x=100 pos_y=200 pos_z=90 yaw=0", Example = "move_npc_instance npc_instance_id=16 pos_x=100 pos_y=200 pos_z=90" },
         new() { Scope = "zone", Name = "reload_game_rates", Description = "Recarrega multiplicadores globais EXP/drop da tabela game_rates.", Example = "reload_game_rates" },
         new() { Scope = "zone", Name = "reload_skills", Description = "Recarrega skills e skill_rank_scaling do MySQL (SkillService).", Example = "reload_skills" },
+        new() { Scope = "zone", Name = "reload_loot", Description = "Recarrega tabelas de loot de NPC em runtime.", Example = "reload_loot" },
+        new()
+        {
+            Scope = "zone", Name = "give_item", Description = "Concede item a um jogador (quando o comando existir no zone).",
+            ArgsHint = "player_id=1 item_id=10 qty=1", Example = "give_item player_id=1 item_id=10 qty=1",
+            Arguments =
+            [
+                new CommandArgumentDefinition { Name = "player_id", Kind = "int", Required = true },
+                new CommandArgumentDefinition { Name = "item_id", Kind = "int", Required = true },
+                new CommandArgumentDefinition { Name = "qty", Kind = "int", DefaultValue = "1" },
+            ]
+        },
     ];
 }

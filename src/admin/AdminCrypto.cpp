@@ -1,6 +1,7 @@
 #include "AdminCrypto.hpp"
 #include "core/Utils.hpp"
 #include <openssl/hmac.h>
+#include <openssl/crypto.h>
 #include <iomanip>
 #include <sstream>
 
@@ -21,6 +22,16 @@ std::string hmacSha256Hex(const std::string& key, const std::string& message) {
     oss << std::setw(2) << static_cast<int>(digest[i]);
   }
   return oss.str();
+}
+
+bool hmacEquals(const std::string& expected, const std::string& actual) {
+  if (expected.size() != actual.size()) {
+    return false;
+  }
+  if (expected.empty()) {
+    return false;
+  }
+  return CRYPTO_memcmp(expected.data(), actual.data(), expected.size()) == 0;
 }
 
 std::string generateNonce() {

@@ -24,6 +24,12 @@ public static class AppServices
         services.AddTransient<PlayerInspectorViewModel>();
         services.AddTransient<GmConsoleViewModel>();
         services.AddTransient<ItemsViewModel>();
+        services.AddTransient<SkillsViewModel>();
+        services.AddTransient<NpcSkillsViewModel>();
+        services.AddTransient<NpcContentViewModel>();
+        services.AddTransient<OperationsViewModel>();
+        services.AddTransient<AdminHubViewModel>();
+        services.AddTransient<SystemViewModel>();
         services.AddTransient<AuditViewModel>();
         Provider = services.BuildServiceProvider();
         return Provider;

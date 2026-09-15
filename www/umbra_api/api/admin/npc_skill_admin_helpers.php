@@ -3,54 +3,89 @@ require_once __DIR__ . '/skill_admin_helpers.php';
 
 function npc_skill_payload_fields(array $data, bool $forUpdate = false): array
 {
-    $fields = [
-        'skill_key' => trim((string)($data['skill_key'] ?? '')),
-        'skill_name' => trim((string)($data['skill_name'] ?? '')),
-        'type_id' => (int)($data['type_id'] ?? 1),
-        'target_id' => (int)($data['target_id'] ?? 2),
-        'element_id' => (int)($data['element_id'] ?? 1),
-        'scaling_stat_id' => (int)($data['scaling_stat_id'] ?? 1),
-        'str_scaling' => (int)($data['str_scaling'] ?? 0),
-        'dex_scaling' => (int)($data['dex_scaling'] ?? 0),
-        'vit_scaling' => (int)($data['vit_scaling'] ?? 0),
-        'int_scaling' => (int)($data['int_scaling'] ?? 0),
-        'lck_scaling' => (int)($data['lck_scaling'] ?? 0),
-        'power_coef' => (int)($data['power_coef'] ?? 100),
-        'secondary_coef' => (int)($data['secondary_coef'] ?? 0),
-        'resource_type' => strtoupper((string)($data['resource_type'] ?? 'NONE')),
-        'resource_cost' => (int)($data['resource_cost'] ?? 0),
-        'resource_cost_percent' => (int)($data['resource_cost_percent'] ?? 0),
-        'cooldown_ms' => (int)($data['cooldown_ms'] ?? 4000),
-        'cast_time_ms' => (int)($data['cast_time_ms'] ?? 0),
-        'duration_ms' => (int)($data['duration_ms'] ?? 0),
-        'range_min' => (int)($data['range_min'] ?? 0),
-        'range_max' => (int)($data['range_max'] ?? 200),
-        'area_radius' => (int)($data['area_radius'] ?? 0),
-        'can_crit' => skill_bool_int($data['can_crit'] ?? 1),
-        'ignores_defense' => skill_bool_int($data['ignores_defense'] ?? 0),
-        'requires_target' => skill_bool_int($data['requires_target'] ?? 1),
-        'effects_json' => skill_json_or_null($data['effects_json'] ?? ($data['effects'] ?? null)),
-        'icon_path' => $data['icon_path'] ?? null,
-        'vfx_key' => $data['vfx_key'] ?? null,
-        'vfx_path' => $data['vfx_path'] ?? null,
-        'hit_vfx_path' => $data['hit_vfx_path'] ?? null,
-        'sfx_key' => $data['sfx_key'] ?? null,
-        'description' => $data['description'] ?? null,
-        'is_enabled' => skill_bool_int($data['is_enabled'] ?? 1),
+    $defs = [
+        'skill_key' => ['trim', ''],
+        'skill_name' => ['trim', ''],
+        'type_id' => ['int', 1],
+        'target_id' => ['int', 2],
+        'element_id' => ['int', 1],
+        'scaling_stat_id' => ['int', 1],
+        'str_scaling' => ['int', 0],
+        'dex_scaling' => ['int', 0],
+        'vit_scaling' => ['int', 0],
+        'int_scaling' => ['int', 0],
+        'lck_scaling' => ['int', 0],
+        'power_coef' => ['int', 100],
+        'secondary_coef' => ['int', 0],
+        'resource_type' => ['resource', 'NONE'],
+        'resource_cost' => ['int', 0],
+        'resource_cost_percent' => ['int', 0],
+        'cooldown_ms' => ['int', 4000],
+        'cast_time_ms' => ['int', 0],
+        'duration_ms' => ['int', 0],
+        'range_min' => ['int', 0],
+        'range_max' => ['int', 200],
+        'area_radius' => ['int', 0],
+        'can_crit' => ['bool', 1],
+        'ignores_defense' => ['bool', 0],
+        'requires_target' => ['bool', 1],
+        'effects_json' => ['json', null, ['effects']],
+        'icon_path' => ['raw', null],
+        'vfx_key' => ['raw', null],
+        'vfx_path' => ['raw', null],
+        'hit_vfx_path' => ['raw', null],
+        'sfx_key' => ['raw', null],
+        'sfx_path' => ['raw', null],
+        'description' => ['raw', null],
+        'is_enabled' => ['bool', 1],
     ];
-    $allowed = ['MANA', 'HEALTH', 'STAMINA', 'NONE'];
-    if (!in_array($fields['resource_type'], $allowed, true)) {
-        $fields['resource_type'] = 'NONE';
+
+    $fields = [];
+    foreach ($defs as $col => $spec) {
+        $kind = $spec[0];
+        $default = $spec[1];
+        $aliases = $spec[2] ?? [];
+        $optionalSchema = in_array($col, ['sfx_path'], true);
+        if (($forUpdate || $optionalSchema) && !skill_has_input($data, $col, $aliases)) {
+            continue;
+        }
+        $raw = skill_has_input($data, $col, $aliases) ? skill_input_value($data, $col, $aliases) : $default;
+        switch ($kind) {
+            case 'trim':
+                $fields[$col] = trim((string)($raw ?? ''));
+                break;
+            case 'int':
+                $fields[$col] = (int)$raw;
+                break;
+            case 'bool':
+                $fields[$col] = skill_bool_int($raw ?? 0);
+                break;
+            case 'resource':
+                $rt = strtoupper((string)($raw ?? 'NONE'));
+                $fields[$col] = in_array($rt, ['MANA', 'HEALTH', 'STAMINA', 'NONE'], true) ? $rt : 'NONE';
+                break;
+            case 'json':
+                if ($col === 'effects_json' && $raw !== null && $raw !== '') {
+                    $normalized = skill_normalize_effects($raw);
+                    $fields[$col] = json_encode($normalized, JSON_UNESCAPED_UNICODE);
+                    break;
+                }
+                $fields[$col] = skill_json_or_null($raw);
+                break;
+            default:
+                $fields[$col] = $raw;
+        }
     }
+
     if (!$forUpdate) {
-        if ($fields['skill_key'] === '' || $fields['skill_name'] === '') {
+        if (($fields['skill_key'] ?? '') === '' || ($fields['skill_name'] ?? '') === '') {
             throw new InvalidArgumentException('skill_key e skill_name sao obrigatorios');
         }
     } else {
-        if ($fields['skill_key'] === '') {
+        if (array_key_exists('skill_key', $fields) && $fields['skill_key'] === '') {
             unset($fields['skill_key']);
         }
-        if ($fields['skill_name'] === '') {
+        if (array_key_exists('skill_name', $fields) && $fields['skill_name'] === '') {
             unset($fields['skill_name']);
         }
     }

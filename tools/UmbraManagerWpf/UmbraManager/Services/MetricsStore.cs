@@ -14,6 +14,11 @@ public sealed class MetricsStore : IDisposable
         Directory.CreateDirectory(dir);
         _conn = new SqliteConnection($"Data Source={Path.Combine(dir, "manager.db")}");
         _conn.Open();
+        using (var prag = _conn.CreateCommand())
+        {
+            prag.CommandText = "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;";
+            prag.ExecuteNonQuery();
+        }
         EnsureSchema();
     }
 
@@ -29,6 +34,7 @@ public sealed class MetricsStore : IDisposable
               mem_mb REAL,
               uptime_s INTEGER);
             CREATE INDEX IF NOT EXISTS idx_metrics_service_ts ON metrics(service_id, ts);
+            DELETE FROM metrics WHERE ts < strftime('%s','now') - 7*24*3600;
             """;
         cmd.ExecuteNonQuery();
     }

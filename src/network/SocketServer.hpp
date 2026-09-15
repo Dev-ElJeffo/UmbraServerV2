@@ -44,7 +44,7 @@ class SocketServer {
                                              const std::vector<uint8_t>& data)>;
   using ConnectionCallback = std::function<void(uint32_t clientId, bool connected)>;
   
-  SocketServer(ProtocolType type, uint16_t port);
+  SocketServer(ProtocolType type, uint16_t port, std::string bindHost = "");
   ~SocketServer();
   
   /**
@@ -113,6 +113,7 @@ class SocketServer {
  private:
   ProtocolType type_;
   uint16_t port_;
+  std::string bindHost_;
   int serverSocket_;
   std::atomic<bool> running_;
   std::unique_ptr<std::thread> acceptThread_;

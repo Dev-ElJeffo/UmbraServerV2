@@ -9,6 +9,8 @@
  * Payload esperado: {account_id, player_id, username, session_version, iat, exp}
  */
 
+require_once __DIR__ . '/../../config/secrets.php';
+
 /**
  * Valida um token JWT e retorna o payload
  * 
@@ -21,9 +23,11 @@ function validateJWT($token, $secret = null) {
         return false;
     }
     
-    // Usar chave secreta padrão (DEVE ser a mesma de helpers/jwt_helper.php)
     if ($secret === null) {
-        $secret = getenv('JWT_SECRET') ?: 'umbra_eternum_secret_key_2024_very_secure';
+        $secret = umbra_jwt_secret();
+        if ($secret === '') {
+            return false;
+        }
     }
     
     // Separar token em partes
@@ -160,9 +164,11 @@ function base64UrlEncode($input) {
  * @return string Token JWT completo (header.payload.signature)
  */
 function generateJWT($accountId, $playerId, $username, $expirationMinutes = 60, $secret = null, $sessionVersion = 0) {
-    // Usar chave secreta padrão (DEVE ser a mesma de helpers/jwt_helper.php)
     if ($secret === null) {
-        $secret = getenv('JWT_SECRET') ?: 'umbra_eternum_secret_key_2024_very_secure';
+        $secret = umbra_jwt_secret();
+        if ($secret === '') {
+            return false;
+        }
     }
     
     // Criar header (mesmo formato do C++)

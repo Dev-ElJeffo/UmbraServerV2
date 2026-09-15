@@ -105,6 +105,7 @@ enum class MovementMsgType : uint8_t {
   LootWindowUpdate = 115,              // Servidor -> Cliente: slots restantes + gold opcional
 	QuestProgressNotify = 116,           // Servidor -> Cliente: progresso/ready de quest (kill)
 	PlayerEquipmentVisualUpdate = 117,   // Cliente <-> Servidor: visual de equipamento (paths por slot)
+	CombatControlState = 118,            // Servidor -> Cliente: flags CC/visibilidade + velocidade autoritativa
 	WsKeepalive = 250                      // Servidor -> Cliente: heartbeat (1 byte); cliente ignora
 };
 
@@ -255,6 +256,14 @@ struct SkillBuffSyncPayload {
   uint8_t targetType = 0;
   /** STUN/SILENCE/ROOT/SLOW/BUFF_STAT/... — append após targetType (compatível). */
   std::string effectType;
+};
+
+/** Opcode 118: estado agregado derivado dos efeitos runtime. */
+struct CombatControlStatePayload {
+  uint32_t targetId = 0;
+  uint8_t targetType = 0;  // 0=player, 1=NPC
+  uint8_t flags = 0;       // bit0 stun, bit1 silence, bit2 root, bit3 stealth, bit4 invulnerable
+  uint16_t movementSpeedPercent = 100;
 };
 
 enum class ChatChannel : uint8_t {
@@ -2620,6 +2629,21 @@ inline bool decodeNpcCombatEvent(const std::vector<uint8_t>& data, NpcCombatEven
   p.isDouble = (data.size() > off) ? data[off++] : 0;
   p.animIndex = (data.size() > off) ? data[off] : 255;
   return true;
+}
+
+inline std::vector<uint8_t> encodeCombatControlState(const CombatControlStatePayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(9);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::CombatControlState));
+  data.push_back(static_cast<uint8_t>(p.targetId & 0xFF));
+  data.push_back(static_cast<uint8_t>((p.targetId >> 8) & 0xFF));
+  data.push_back(static_cast<uint8_t>((p.targetId >> 16) & 0xFF));
+  data.push_back(static_cast<uint8_t>((p.targetId >> 24) & 0xFF));
+  data.push_back(p.targetType);
+  data.push_back(p.flags);
+  data.push_back(static_cast<uint8_t>(p.movementSpeedPercent & 0xFF));
+  data.push_back(static_cast<uint8_t>((p.movementSpeedPercent >> 8) & 0xFF));
+  return data;
 }
 
 inline std::vector<uint8_t> encodeSkillBuffSync(const SkillBuffSyncPayload& p) {

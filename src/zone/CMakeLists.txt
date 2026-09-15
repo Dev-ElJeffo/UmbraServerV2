@@ -7,6 +7,7 @@ add_library(umbra_zone STATIC
   NpcManager.cpp
   NpcAiSystem.cpp
   CombatCoreEngine.cpp
+  CombatEffectRuntime.cpp
   CharacterStateLoader.cpp
   ReactionEngine.cpp
   ExperienceService.cpp
@@ -21,6 +22,7 @@ add_library(umbra_zone STATIC
   NpcManager.hpp
   NpcAiSystem.hpp
   CombatCoreEngine.hpp
+  CombatEffectRuntime.hpp
   CharacterStateLoader.hpp
   ReactionEngine.hpp
   QuestProgressService.hpp

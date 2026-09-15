@@ -11,14 +11,14 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$data = json_decode(file_get_contents('php://input'), true) ?: [];
 require_once __DIR__ . '/require_admin_auth.php';
+$data = admin_decode_json_body();
 requireAdminAuth($data);
 require_once __DIR__ . '/../../helpers/admin_audit_helper.php';
 
 $guildId = (int)($data['guild_id'] ?? 0);
 $newLeaderId = (int)($data['new_leader_player_id'] ?? 0);
-$operator = !empty($data['admin_username']) ? (string)$data['admin_username'] : 'admin';
+$operator = adminOperatorName();
 if ($guildId <= 0 || $newLeaderId <= 0) {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'guild_id e new_leader_player_id obrigatórios']);
@@ -36,9 +36,16 @@ try {
         echo json_encode(['success' => false, 'message' => 'Novo líder precisa ser membro']);
         exit;
     }
+    $prev = $pdo->prepare('SELECT guild_leader_id FROM guilds WHERE guild_id = ? FOR UPDATE');
+    $prev->execute([$guildId]);
+    $prevRow = $prev->fetch(PDO::FETCH_ASSOC);
+    $oldLeaderId = $prevRow ? (int)$prevRow['guild_leader_id'] : 0;
     $pdo->prepare('UPDATE guilds SET guild_leader_id = ? WHERE guild_id = ?')->execute([$newLeaderId, $guildId]);
-    // Best-effort rank update if column exists
     try {
+        if ($oldLeaderId > 0 && $oldLeaderId !== $newLeaderId) {
+            $pdo->prepare("UPDATE guild_members SET member_rank = 'officer' WHERE guild_id = ? AND player_id = ?")
+                ->execute([$guildId, $oldLeaderId]);
+        }
         $pdo->prepare("UPDATE guild_members SET member_rank = 'master' WHERE guild_id = ? AND player_id = ?")
             ->execute([$guildId, $newLeaderId]);
     } catch (Throwable $ignored) {

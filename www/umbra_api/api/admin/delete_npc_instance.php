@@ -21,8 +21,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$data = json_decode(file_get_contents('php://input'), true) ?? [];
 require_once __DIR__ . '/require_admin_auth.php';
+$data = admin_decode_json_body();
 requireAdminAuth($data);
 
 $instanceId = (int)($data['npc_instance_id'] ?? 0);

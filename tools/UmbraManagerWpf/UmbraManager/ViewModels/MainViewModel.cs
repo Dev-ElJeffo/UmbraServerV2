@@ -11,6 +11,7 @@ using LiveChartsCore.SkiaSharpView;
 using LiveChartsCore.SkiaSharpView.Painting;
 using SkiaSharp;
 using UmbraManager.Models;
+using UmbraManager.Models.Editors;
 using UmbraManager.Services;
 using UmbraManager.Views;
 
@@ -22,6 +23,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly DispatcherTimer _playersTimer = new();
     private readonly Dictionary<string, string> _serviceStats = new();
     private readonly Dictionary<string, List<(DateTime, double)>> _cpuSeries = new();
+    private DateTime _statusStickyUntilUtc = DateTime.MinValue;
 
     public ObservableCollection<ServerRow> Servers { get; } = new();
     public ObservableCollection<ZoneInfo> Zones { get; } = new();
@@ -37,14 +39,24 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<NpcTemplateRow> NpcTemplates { get; } = new();
     public ObservableCollection<NpcInstanceRow> NpcInstances { get; } = new();
     public ObservableCollection<LogTabViewModel> LogTabs { get; } = new();
+    public ItemsViewModel ItemsFeature { get; private set; } = null!;
+    public SkillsViewModel SkillsFeature { get; private set; } = null!;
+    public NpcSkillsViewModel NpcSkillsFeature { get; private set; } = null!;
+    public NpcContentViewModel NpcContentFeature { get; private set; } = null!;
+    public OperationsViewModel OperationsFeature { get; private set; } = null!;
+    public AdminHubViewModel AdminHubFeature { get; private set; } = null!;
+    public SystemViewModel SystemFeature { get; private set; } = null!;
+    public AuditViewModel AuditFeature { get; private set; } = null!;
+    public GmConsoleViewModel GmConsoleFeature { get; private set; } = null!;
+    public PlayerInspectorViewModel PlayerInspectorFeature { get; private set; } = null!;
 
     [ObservableProperty] private PlayerInfo? _selectedPlayer;
     [ObservableProperty] private string _auditFilter = "";
     public ObservableCollection<AuditLogRow> AuditLogs { get; } = new();
 
-    [ObservableProperty] private Visibility _tabVisibilityOps = Visibility.Visible;
-    [ObservableProperty] private Visibility _tabVisibilityContent = Visibility.Visible;
-    [ObservableProperty] private Visibility _tabVisibilitySuper = Visibility.Visible;
+    [ObservableProperty] private Visibility _tabVisibilityOps = Visibility.Collapsed;
+    [ObservableProperty] private Visibility _tabVisibilityContent = Visibility.Collapsed;
+    [ObservableProperty] private Visibility _tabVisibilitySuper = Visibility.Collapsed;
 
     [ObservableProperty] private string _statusText = "Pronto";
     [ObservableProperty] private int _totalPlayers;
@@ -331,6 +343,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
         Php = php;
         Php.Configure(config.PhpApiBase, config.AdminUsername, config.AdminToken);
         Audit.AttachPhpClient(Php);
+        ItemsFeature = new ItemsViewModel(this);
+        SkillsFeature = new SkillsViewModel(this);
+        NpcSkillsFeature = new NpcSkillsViewModel(this);
+        NpcContentFeature = new NpcContentViewModel(this);
+        OperationsFeature = new OperationsViewModel(this);
+        AdminHubFeature = new AdminHubViewModel(this);
+        SystemFeature = new SystemViewModel(this);
+        AuditFeature = new AuditViewModel(this);
+        GmConsoleFeature = new GmConsoleViewModel(this);
+        PlayerInspectorFeature = new PlayerInspectorViewModel(this);
 
         foreach (var def in Definitions)
         {
@@ -338,11 +360,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
             LogLines[def.Id] = new ObservableCollection<string>();
             LogTabs.Add(new LogTabViewModel { ServiceId = def.Id, DisplayName = def.DisplayName });
             DashboardCards.Add(new DashboardCard { ServiceId = def.Id, DisplayName = def.DisplayName });
-            var logCandidates = new[]
+            var logCandidates = new List<string>
             {
                 Path.Combine(config.BuildDirectory, "logs", def.LogFile),
                 Path.Combine(config.AbsolutePath(config.LogDir), def.LogFile),
             };
+            if (def.IsZone)
+            {
+                logCandidates.Add(Path.Combine(config.BuildDirectory, "logs", "zone_server.log"));
+                logCandidates.Add(Path.Combine(config.AbsolutePath(config.LogDir), "zone_server.log"));
+            }
             var logPath = logCandidates.FirstOrDefault(File.Exists) ?? logCandidates[0];
             LogTailer.WatchLog(def.Id, logPath);
             try
@@ -360,11 +387,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         var configPath = AppConfig.Instance.AbsolutePath(AppConfig.Instance.ConfigPath);
         if (File.Exists(configPath)) ConfigJson = File.ReadAllText(configPath);
+        try { ConfigModel = ServerConfigModel.FromJson(ConfigJson); } catch { ConfigModel = new ServerConfigModel(); }
+        ConfigPreviewJson = ConfigJson;
+        LoadItemStatFields("{}");
+        BuildNavRoutes();
+        RestorePersistedScheduler();
 
         AdminHub.ResponseReceived += OnAdminResponse;
         // Não floodar o GM Console com erros transitórios de reconexão.
         // O AdminState do card/server-row já mostra o último erro de forma estável.
-        AdminHub.ClientError += (id, err) => StatusText = $"[{id}] {err}";
+        AdminHub.ClientError += (id, err) =>
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null) return;
+            dispatcher.BeginInvoke(() => SetStickyStatus($"[{id}] {err}", 20));
+        };
         AdminHub.ClientDisconnected += id => Application.Current.Dispatcher.Invoke(() =>
         {
             // Quando o socket admin cai, atualiza UI imediatamente
@@ -401,26 +438,56 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _pollTimer.Tick += (_, _) => _ = PollStatsAsync();
         _playersTimer.Interval = TimeSpan.FromMilliseconds(AppConfig.Instance.PlayersPollMs);
         _playersTimer.Tick += (_, _) => _ = PollPlayersAsync();
+    }
 
+    private bool _runtimeStarted;
+    private bool _isDisposed;
+
+    public void StartRuntime()
+    {
+        if (_isDisposed || _runtimeStarted) return;
+        _runtimeStarted = true;
         _ = InitAsync();
     }
 
     private async Task InitAsync()
     {
+        if (_isDisposed) return;
         await AdminHub.ConnectAllAsync(Definitions);
+        if (_isDisposed) return;
         await AdminHub.SendCommandAsync("auth", "ping");
+        if (_isDisposed) return;
         _pollTimer.Start();
         _playersTimer.Start();
-        await RefreshAccountsAsync();
-        await RefreshItemsAsync();
-        await RefreshSkillsAsync();
-        await RefreshNpcTemplatesAsync();
-        await RefreshNpcInstancesAsync();
-        await RefreshExpZonesAsync();
-        await RefreshRefinementConfigsAsync();
-        await RefreshEnchantConfigAsync();
-        await RefreshGameRatesAsync();
+        await RefreshGameClassesAsync();
+        if (_isDisposed) return;
+        EnsureItemAllowedClassOptions();
+        if (TabVisibilitySuper == Visibility.Visible)
+            await RefreshAccountsAsync();
+        if (_isDisposed) return;
+        if (TabVisibilityContent == Visibility.Visible)
+        {
+            await RefreshItemsAsync();
+            if (_isDisposed) return;
+            await RefreshSkillsAsync();
+            if (_isDisposed) return;
+            await RefreshNpcTemplatesAsync();
+            if (_isDisposed) return;
+            await RefreshNpcInstancesAsync();
+            if (_isDisposed) return;
+            await RefreshExpZonesAsync();
+            if (_isDisposed) return;
+            await RefreshRefinementConfigsAsync();
+            if (_isDisposed) return;
+            await RefreshEnchantConfigAsync();
+        }
+        if (_isDisposed) return;
+        if (TabVisibilitySuper == Visibility.Visible)
+            await RefreshGameRatesAsync();
+        if (_isDisposed) return;
         await RefreshProjectStateAsync();
+        if (!_isDisposed)
+            await RefreshAudit();
     }
 
     private void OnAdminResponse(string serviceId, string cmd, JsonElement json)
@@ -519,8 +586,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (!obj.TryGetProperty(prop, out var v)) return 0;
         return v.ValueKind switch
         {
-            JsonValueKind.Number => v.TryGetInt32(out var n) ? n : 0,
-            JsonValueKind.String => int.TryParse(v.GetString(), out var n) ? n : 0,
+            JsonValueKind.Number => v.TryGetInt32(out var n) ? n : (int)v.GetDouble(),
+            JsonValueKind.String => int.TryParse(v.GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : 0,
             _ => 0
         };
     }
@@ -534,7 +601,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         return v.ValueKind switch
         {
             JsonValueKind.Number => (float)v.GetDouble(),
-            JsonValueKind.String => float.TryParse(v.GetString(), out var f) ? f : 0,
+            JsonValueKind.String => float.TryParse(v.GetString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var f) ? f : 0,
             _ => 0
         };
     }
@@ -788,23 +855,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         return m.Success && int.TryParse(m.Groups[1].Value, out var z) ? z : -1;
     }
 
-    /// <summary>Zone efetiva: player online &gt; zone admin conectada &gt; campo SpawnZoneId.</summary>
-    private int ResolveEffectiveSpawnZoneId()
-    {
-        foreach (var player in Players)
-        {
-            var z = ParseZoneIdFromService(player.ZoneService);
-            if (z >= 0) return z;
-        }
-
-        foreach (var def in Definitions.Where(d => d.IsZone))
-        {
-            if (AdminHub.GetClient(def.Id)?.IsAuthenticated != true) continue;
-            if (int.TryParse(def.Arguments, out var z)) return z;
-        }
-
-        return SpawnZoneId;
-    }
+    /// <summary>Zone efetiva para spawn: somente o campo informado.</summary>
+    private int ResolveSpawnZoneId() => SpawnZoneId;
 
     private IReadOnlyList<string> GetAuthenticatedZoneServices() =>
         Definitions.Where(d => d.IsZone && AdminHub.GetClient(d.Id)?.IsAuthenticated == true)
@@ -834,10 +886,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             }
         }
         _playersByZone[serviceId] = list;
-        Players.Clear();
-        foreach (var pl in _playersByZone.Values.SelectMany(x => x))
-            Players.Add(pl);
-        TotalPlayers = Players.Count;
+        ReconcilePlayers(_playersByZone.Values.SelectMany(x => x));
     }
 
     private async Task PollStatsAsync()
@@ -858,7 +907,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
             RefreshServerRows();
             ActiveZones = Zones.Count(z => z.Online);
             var connected = Definitions.Count(d => AdminHub.GetClient(d.Id)?.IsAuthenticated == true);
-            StatusText = $"Poll {DateTime.Now:HH:mm:ss} | Players {TotalPlayers} | Admin {connected}/{Definitions.Count}";
+            if (DateTime.UtcNow >= _statusStickyUntilUtc)
+            {
+                StatusText = $"Poll {DateTime.Now:HH:mm:ss} | Players {TotalPlayers} | Admin {connected}/{Definitions.Count}";
+            }
 
             foreach (var task in ScheduledTasks)
             {
@@ -1048,28 +1100,95 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
         Audit.Log(AppConfig.Instance.AdminUsername, "start", row.Definition.Id);
         ProcessManager.RefreshExternalProcesses(Definitions);
-        await Task.Delay(row.Definition.IsZone ? 800 : 500);
+
+        // Zone demora a carregar NPC/skills; espera porta admin + processo vivo antes do handshake.
+        var ready = await WaitServiceReadyAsync(row.Definition, row.Definition.IsZone ? 12000 : 5000);
+        if (!ready)
+        {
+            var dead = !ProcessManager.IsRunning(row.Definition.Id);
+            var msg = dead
+                ? $"{row.Definition.Id} encerrou ao iniciar. Veja logs/{row.Definition.LogFile}"
+                : $"{row.Definition.Id} iniciou mas a porta admin {row.Definition.AdminPort} não abriu a tempo";
+            SetStickyStatus(msg, 30);
+            MessageBox.Show(msg, "UmbraManager — Start", MessageBoxButton.OK, MessageBoxImage.Warning);
+            RefreshServerRows();
+            return;
+        }
+
         var timeout = row.Definition.IsZone ? 5000 : 3000;
-        await AdminHub.ForceReconnectAsync(row.Definition.Id, timeout);
+        var adminOk = false;
+        for (var attempt = 0; attempt < 5 && !adminOk; attempt++)
+        {
+            if (attempt > 0) await Task.Delay(400);
+            if (!ProcessManager.IsRunning(row.Definition.Id)) break;
+            adminOk = await AdminHub.ForceReconnectAsync(row.Definition.Id, timeout);
+        }
         RefreshServerRows();
-        StatusText = $"{row.Definition.DisplayName} iniciado.";
+        if (adminOk)
+        {
+            SetStickyStatus($"{row.Definition.DisplayName} iniciado (admin OK).", 8);
+        }
+        else
+        {
+            var last = AdminHub.GetLastError(row.Definition.Id) ?? "admin sem resposta";
+            var stillUp = ProcessManager.IsRunning(row.Definition.Id);
+            var failMsg = stillUp
+                ? $"{row.Definition.DisplayName} rodando, admin falhou: {last}"
+                : $"{row.Definition.DisplayName} caiu após o start: {last}";
+            SetStickyStatus(failMsg, 30);
+            if (!stillUp)
+            {
+                MessageBox.Show(failMsg, "UmbraManager — Start", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
     }
 
-    [RelayCommand] private void StopService(ServerRow? row)
+    private void SetStickyStatus(string message, int stickySeconds)
+    {
+        StatusText = message;
+        _statusStickyUntilUtc = DateTime.UtcNow.AddSeconds(Math.Max(1, stickySeconds));
+    }
+
+    private async Task<bool> WaitServiceReadyAsync(ServiceDefinition def, int timeoutMs)
+    {
+        var until = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < until)
+        {
+            if (!ProcessManager.IsRunning(def.Id))
+                return false;
+            if (def.AdminPort > 0 && ProcessManager.IsPortListening(def.AdminPort))
+                return true;
+            await Task.Delay(200);
+        }
+        return ProcessManager.IsRunning(def.Id) &&
+               (def.AdminPort == 0 || ProcessManager.IsPortListening(def.AdminPort));
+    }
+
+    [RelayCommand] private async Task StopService(ServerRow? row)
     {
         if (row == null) return;
         var r = MessageBox.Show(
-            $"Parar serviço {row.Definition.DisplayName} ({row.Definition.Id})?\n\nIsso vai encerrar o processo do servidor.",
+            $"Parar serviço {row.Definition.DisplayName} ({row.Definition.Id})?\n\nSerá tentado shutdown gracioso antes do kill.",
             "Confirmar Stop", MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (r != MessageBoxResult.Yes) return;
+        await StopServiceCoreAsync(row);
+    }
 
-        // Desconecta admin client antes para evitar status fantasma "Online"
+    private async Task StopServiceCoreAsync(ServerRow row)
+    {
+        var client = AdminHub.GetClient(row.Definition.Id);
+        if (client?.IsAuthenticated == true)
+        {
+            if (row.Definition.IsZone)
+                await client.SendCommandAndWaitAsync("force_save_positions", null, 4000);
+            await client.SendCommandAndWaitAsync("shutdown", new JsonObject { ["grace_sec"] = 3 }, 4000);
+            await Task.Delay(3000);
+        }
         AdminHub.GetClient(row.Definition.Id)?.Disconnect();
         _serviceStats.Remove(row.Definition.Id);
         ProcessManager.StopServiceByDefinition(row.Definition);
         Audit.Log(AppConfig.Instance.AdminUsername, "stop", row.Definition.Id);
         RefreshServerRows();
-        // Atualiza tabela de zonas imediatamente para refletir o stop
         _ = PollPlayersAsync();
         StatusText = $"{row.Definition.DisplayName} parado.";
     }
@@ -1082,9 +1201,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
             "Confirmar Restart", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (r != MessageBoxResult.Yes) return;
 
-        AdminHub.GetClient(row.Definition.Id)?.Disconnect();
-        _serviceStats.Remove(row.Definition.Id);
-        ProcessManager.RestartService(row.Definition);
+        await StopServiceCoreAsync(row);
+        await Task.Delay(400);
+        if (!ProcessManager.StartService(row.Definition, out var err))
+        {
+            StatusText = $"{row.Definition.Id}: {err}";
+            return;
+        }
         RefreshServerRows();
         StatusText = $"{row.Definition.DisplayName} reiniciando...";
         await Task.Delay(1500);
@@ -1115,7 +1238,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         foreach (var def in Definitions)
             AdminHub.GetClient(def.Id)?.Disconnect();
-        ProcessManager.StopAll();
+        ProcessManager.StopAll(Definitions);
         Audit.Log(AppConfig.Instance.AdminUsername, "stop_all", "stack");
         RefreshServerRows();
         _ = PollPlayersAsync();
@@ -1154,10 +1277,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         try
         {
+            if (ConfigModel != null)
+                ConfigJson = ConfigModel.MergeInto(ConfigJson);
             JsonDocument.Parse(ConfigJson);
             var path = AppConfig.Instance.AbsolutePath(AppConfig.Instance.ConfigPath);
             File.WriteAllText(path, ConfigJson);
-            ConfigStatus = $"Salvo: {path}";
+            var notes = AppConfig.Instance.ReloadServerJsonFromDisk();
+            ConfigPreviewJson = ConfigJson;
+            ConfigStatus = $"Salvo: {path}. {notes}";
             Audit.Log(AppConfig.Instance.AdminUsername, "save_config", path);
         }
         catch (Exception ex)
@@ -1273,21 +1400,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // Stats: tenta parsear como objeto JSON. Se inválido, manda vazio.
-        Dictionary<string, object>? stats = null;
-        if (!string.IsNullOrWhiteSpace(NewItemStatsJson))
-        {
-            try
-            {
-                stats = JsonSerializer.Deserialize<Dictionary<string, object>>(NewItemStatsJson);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"stats_json inválido: {ex.Message}\n\nEnvie JSON tipo:\n{{\"strength\":10,\"physical_attack\":50}}",
-                    "Validação");
-                return;
-            }
-        }
+        Dictionary<string, object>? stats = CurrentItemStatsMap().ToDictionary(kv => kv.Key, kv => (object)kv.Value);
 
         var payload = new Dictionary<string, object?>
         {
@@ -1312,11 +1425,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         };
 
         SeedDefaultVisualFromLegacyPath();
-        var visualPayload = BuildVisualMeshesPayload();
-        if (visualPayload != null)
-        {
-            payload["visual_meshes_json"] = visualPayload;
-        }
+        payload["visual_meshes_json"] = BuildVisualMeshesPayload();
 
         bool ok;
         string err;
@@ -1342,6 +1451,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand] private void EditItem(ItemRow? item)
     {
         if (item == null) return;
+        if (!ConfirmDiscardChanges()) return;
         EditingItemId = item.Id;
         NewItemName = item.Name;
         NewItemDescription = item.Description;
@@ -1360,12 +1470,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewItemTradeable = item.Tradeable;
         NewItemCanBeRefined = item.CanBeRefined;
         NewItemUseCooldownMs = item.UseCooldownMs <= 0 ? 5000 : item.UseCooldownMs;
-        NewItemStatsJson = string.IsNullOrEmpty(item.StatsJson) ? "{}" : item.StatsJson;
+        LoadItemStatFields(item.StatsJson);
         ApplyAllowedClassesFromIds(item.AllowedClassIds, item.AllowAllClasses);
+        MarkEditorClean();
     }
 
     [RelayCommand] private void NewItem()
     {
+        if (!ConfirmDiscardChanges()) return;
         EditingItemId = 0;
         NewItemName = "";
         NewItemDescription = "";
@@ -1384,8 +1496,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewItemTradeable = true;
         NewItemCanBeRefined = false;
         NewItemUseCooldownMs = 5000;
-        NewItemStatsJson = "{}";
+        LoadItemStatFields("{}");
         ResetItemAllowedClassesToAll();
+        MarkEditorClean();
     }
 
     [RelayCommand] private async Task DeleteItemAsync(ItemRow? item)
@@ -1400,8 +1513,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     [RelayCommand] private async Task RefreshNpcTemplatesAsync()
     {
+        if (_isDisposed) return;
         var (ok, err, data) = await Php.ListNpcTemplatesAsync();
-        if (!ok) { MessageBox.Show(err, "Erro ao listar NPCs"); return; }
+        if (!ok)
+        {
+            if (_isDisposed || err.Contains("encerrado", StringComparison.OrdinalIgnoreCase))
+                return;
+            StatusText = $"NPCs: {err}";
+            MessageBox.Show(err, "Erro ao listar NPCs");
+            return;
+        }
         NpcTemplates.Clear();
         if (data!.RootElement.TryGetProperty("templates", out var arr))
         {
@@ -1523,11 +1644,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
             p.ZoneService.Equals(zoneKey, StringComparison.OrdinalIgnoreCase) ||
             p.ZoneService.EndsWith($"_{SpawnZoneId}", StringComparison.OrdinalIgnoreCase));
 
-        player ??= Players.FirstOrDefault();
+        player ??= Players.FirstOrDefault(p =>
+            SelectedNpcInstance != null &&
+            ParseZoneIdFromService(p.ZoneService) == SelectedNpcInstance.ZoneId);
 
         if (player == null)
         {
-            MessageBox.Show("Nenhum jogador online para copiar posição.", "Spawn NPC");
+            MessageBox.Show("Nenhum jogador online na zona informada para copiar posição.", "Spawn NPC");
             return;
         }
 
@@ -1571,11 +1694,24 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var effectiveZone = ResolveEffectiveSpawnZoneId();
-        if (effectiveZone > 0)
-            SpawnZoneId = effectiveZone;
+        var instanceZone = SelectedNpcInstance?.ZoneId
+            ?? (SpawnZoneId > 0 ? SpawnZoneId : 0);
+        if (instanceZone < 0)
+            instanceZone = 0;
+        var effectiveZone = instanceZone;
+        if (SpawnZoneId != instanceZone && SpawnZoneId >= 0
+            && MessageBox.Show(
+                $"A instância está na zona {instanceZone}, mas o campo Zone está {SpawnZoneId}.\n\nAlterar a zona da instância para {SpawnZoneId}?",
+                "Mudar zona",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question) == MessageBoxResult.Yes)
+        {
+            effectiveZone = SpawnZoneId;
+        }
         else
-            effectiveZone = SpawnZoneId > 0 ? SpawnZoneId : 1;
+        {
+            SpawnZoneId = effectiveZone;
+        }
 
         var x = SpawnPosX;
         var y = SpawnPosY;
@@ -1639,22 +1775,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
             (moved, moveMsg) = await TryMoveOnZoneAsync(zoneServiceId);
         }
 
-        // Fallback: instâncias com zone_id=0 / zone errada — tenta qualquer zone online.
         if (!moved)
         {
-            foreach (var svc in onlineZones)
-            {
-                if (svc.Equals(zoneServiceId, StringComparison.OrdinalIgnoreCase)) continue;
-                if (!svc.StartsWith("zone_", StringComparison.OrdinalIgnoreCase)) continue;
-                var (okMove, msg) = await TryMoveOnZoneAsync(svc);
-                if (okMove)
-                {
-                    moved = true;
-                    moveMsg = $"{msg} (via {svc})";
-                    break;
-                }
-                moveMsg ??= msg;
-            }
+            moveMsg = $"{zoneServiceId} não moveu a instância. MySQL gravado na zona {effectiveZone}.";
         }
 
         if (!moved && onlineZones.Count == 0)
@@ -2024,7 +2147,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcAttackCooldownMs = 1500;
         NewNpcMoveSpeed = 200f;
         NewNpcRoamRadius = 800f;
-        NewNpcIsHostile = true;
+        NewNpcIsHostile = false;
     }
 
     [RelayCommand] private async Task SpawnNpcAsync()
@@ -2043,9 +2166,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var effectiveZone = ResolveEffectiveSpawnZoneId();
-        if (effectiveZone != SpawnZoneId)
-            SpawnZoneId = effectiveZone;
+        var effectiveZone = ResolveSpawnZoneId();
 
         var x = SpawnPosX;
         var y = SpawnPosY;
@@ -2377,53 +2498,20 @@ public partial class MainViewModel : ObservableObject, IDisposable
     };
 
     [RelayCommand] private void ScheduleRestartAll() =>
-        AddSchedulerTask("restart_all", "Restart stack", 360, "restart_stack", "",
-            () => Application.Current.Dispatcher.Invoke(() =>
-            {
-                foreach (var d in Definitions) AdminHub.GetClient(d.Id)?.Disconnect();
-                ProcessManager.StopAll();
-                Task.Delay(3000).ContinueWith(_ => Application.Current.Dispatcher.Invoke(
-                    () => ProcessManager.StartAll(Definitions)));
-            }));
+        AddSchedulerTask("restart_all", "Restart stack", 360, "restart_stack", "");
 
     [RelayCommand] private void ScheduleSavePositions() =>
-        AddSchedulerTask("save_positions", "Save player positions (force)", 15, "save_positions", "",
-            () => Application.Current.Dispatcher.Invoke(async () =>
-            {
-                foreach (var d in Definitions.Where(x => x.IsZone))
-                    await AdminHub.SendCommandAsync(d.Id, "force_save_positions");
-            }));
+        AddSchedulerTask("save_positions", "Save player positions (force)", 15, "save_positions", "");
 
     [RelayCommand] private void ScheduleReloadConfig() =>
-        AddSchedulerTask("reload_config", "Reload config in all services", 60, "reload_config", "",
-            () => Application.Current.Dispatcher.Invoke(async () =>
-            {
-                await AdminHub.BroadcastCommandAsync("reload_config");
-            }));
+        AddSchedulerTask("reload_config", "Reload config in all services", 60, "reload_config", "");
 
     [RelayCommand] private void ScheduleHourlyBroadcast() =>
         AddSchedulerTask("broadcast", "Broadcast '[ServerInfo] Online' a todas zonas", 30,
-            "broadcast_zones", "[ServerInfo] Servidor online — boas aventuras!",
-            () => Application.Current.Dispatcher.Invoke(async () =>
-            {
-                var args = new System.Text.Json.Nodes.JsonObject
-                {
-                    ["message"] = "[ServerInfo] Servidor online — boas aventuras!"
-                };
-                foreach (var d in Definitions.Where(x => x.IsZone))
-                    await AdminHub.SendCommandAsync(d.Id, "broadcast", args);
-            }));
+            "broadcast_zones", "[ServerInfo] Servidor online — boas aventuras!");
 
     [RelayCommand] private void ScheduleStatsLog() =>
-        AddSchedulerTask("stats_log", "Logar stats no auditoria", 5, "custom_command", "",
-            () => Application.Current.Dispatcher.Invoke(() =>
-            {
-                foreach (var d in Definitions)
-                {
-                    var s = GetServiceStat(d.Id);
-                    Audit.Log(AppConfig.Instance.AdminUsername, "stats_log", $"{d.Id}: {s}");
-                }
-            }));
+        AddSchedulerTask("stats_log", "Logar stats no auditoria", 5, "custom_command", "");
 
     [RelayCommand] private void AddCustomTask()
     {
@@ -2437,70 +2525,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
             MessageBox.Show("Intervalo deve ser maior que zero (em minutos).", "Validação");
             return;
         }
-
-        var action = NewTaskAction;
-        var target = NewTaskTarget?.Trim() ?? "";
-
-        Action runner = action switch
-        {
-            "restart_stack" => () => Application.Current.Dispatcher.Invoke(() =>
-            {
-                ProcessManager.StopAll();
-                Task.Delay(3000).ContinueWith(_ => Application.Current.Dispatcher.Invoke(
-                    () => ProcessManager.StartAll(Definitions)));
-            }),
-            "restart_service" => () => Application.Current.Dispatcher.Invoke(() =>
-            {
-                var def = Definitions.FirstOrDefault(d =>
-                    string.Equals(d.Id, target, StringComparison.OrdinalIgnoreCase));
-                if (def != null)
-                {
-                    AdminHub.GetClient(def.Id)?.Disconnect();
-                    ProcessManager.RestartService(def);
-                }
-            }),
-            "broadcast_zones" => () => Application.Current.Dispatcher.Invoke(async () =>
-            {
-                var args = new System.Text.Json.Nodes.JsonObject { ["message"] = target };
-                foreach (var d in Definitions.Where(x => x.IsZone))
-                    await AdminHub.SendCommandAsync(d.Id, "broadcast", args);
-            }),
-            "save_positions" => () => Application.Current.Dispatcher.Invoke(async () =>
-            {
-                foreach (var d in Definitions.Where(x => x.IsZone))
-                    await AdminHub.SendCommandAsync(d.Id, "force_save_positions");
-            }),
-            "reload_config" => () => Application.Current.Dispatcher.Invoke(async () =>
-            {
-                await AdminHub.BroadcastCommandAsync("reload_config");
-            }),
-            "custom_command" => () => Application.Current.Dispatcher.Invoke(async () =>
-            {
-                // formato: service|cmd|{json_args}
-                var parts = target.Split('|', 3);
-                if (parts.Length < 2) return;
-                var svc = parts[0].Trim();
-                var cmd = parts[1].Trim();
-                System.Text.Json.Nodes.JsonObject? args = null;
-                if (parts.Length == 3 && !string.IsNullOrWhiteSpace(parts[2]))
-                {
-                    try { args = System.Text.Json.Nodes.JsonNode.Parse(parts[2])?.AsObject(); } catch { }
-                }
-                await AdminHub.SendCommandAsync(svc, cmd, args);
-            }),
-            _ => () => { }
-        };
-
-        AddSchedulerTask(action, NewTaskDescription, NewTaskIntervalMinutes, action, target, runner);
-
+        AddSchedulerTask(NewTaskAction, NewTaskDescription, NewTaskIntervalMinutes, NewTaskAction, NewTaskTarget);
         NewTaskDescription = "";
         NewTaskTarget = "";
     }
 
     private void AddSchedulerTask(string baseId, string description, int minutes,
-                                  string action, string target, Action runner)
+                                  string action, string target)
     {
-        var id = Scheduler.AddTask(baseId, description, minutes, runner);
+        var runner = BuildSchedulerRunner(action, target);
+        var id = Scheduler.AddTask(baseId, description, minutes, action, target, runner);
         var item = new ScheduledTaskItem
         {
             Id = id,
@@ -2515,10 +2549,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         StatusText = $"Tarefa '{id}' agendada (a cada {minutes} min).";
     }
 
-    [RelayCommand] private void RunTaskNow(ScheduledTaskItem? task)
+    [RelayCommand] private async Task RunTaskNow(ScheduledTaskItem? task)
     {
         if (task == null) return;
-        Scheduler.RunNow(task.Id);
+        await Scheduler.RunNowAsync(task.Id);
     }
 
     [RelayCommand] private void ToggleTask(ScheduledTaskItem? task)
@@ -2544,12 +2578,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        if (_isDisposed) return;
+        _isDisposed = true;
         _pollTimer.Stop();
         _playersTimer.Stop();
-        AdminHub.Dispose();
-        LogTailer.Dispose();
-        Metrics.Dispose();
-        Audit.Dispose();
-        Scheduler.Dispose();
+        try { AdminHub.Dispose(); } catch { /* ignore */ }
+        try { LogTailer.Dispose(); } catch { /* ignore */ }
+        try { Metrics.Dispose(); } catch { /* ignore */ }
+        try { Audit.Dispose(); } catch { /* ignore */ }
+        try { Scheduler.Dispose(); } catch { /* ignore */ }
     }
 }

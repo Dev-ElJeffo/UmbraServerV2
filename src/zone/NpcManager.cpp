@@ -369,6 +369,25 @@ void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
     inst.moveSpeed = parseOptionalFloat(row[47], ov) ? ov : tplMove;
     if (inst.moveSpeed <= 0.f) inst.moveSpeed = 200.f;
     if (inst.attackRange <= 0.f) inst.attackRange = 150.f;
+    static int hasCrowdControlColumns = -1;
+    if (hasCrowdControlColumns < 0) {
+      hasCrowdControlColumns =
+          db_ && !db_->executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'stun_resist'").empty()
+              ? 1
+              : 0;
+    }
+    if (hasCrowdControlColumns == 1 && db_) {
+      auto resistanceRows = db_->executeQuery(
+          "SELECT COALESCE(stun_resist,0), COALESCE(silence_resist,0), "
+          "COALESCE(root_resist,0), COALESCE(slow_resist,0) FROM npc_templates "
+          "WHERE npc_template_id = " + std::to_string(inst.templateId) + " LIMIT 1");
+      if (!resistanceRows.empty() && resistanceRows[0].size() >= 4) {
+        inst.stunResist = std::clamp(std::stoi(resistanceRows[0][0]), 0, 100);
+        inst.silenceResist = std::clamp(std::stoi(resistanceRows[0][1]), 0, 100);
+        inst.rootResist = std::clamp(std::stoi(resistanceRows[0][2]), 0, 100);
+        inst.slowResist = std::clamp(std::stoi(resistanceRows[0][3]), 0, 100);
+      }
+    }
 
     inst.rightHandMeshPath = row.size() > 48 ? row[48] : "";
     inst.leftHandMeshPath = row.size() > 49 ? row[49] : "";

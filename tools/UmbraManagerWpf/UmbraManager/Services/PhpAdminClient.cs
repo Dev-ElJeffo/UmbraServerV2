@@ -5,12 +5,26 @@ using System.Text.Json.Nodes;
 
 namespace UmbraManager.Services;
 
-public sealed class PhpAdminClient
+public sealed class PhpAdminClient : IDisposable
 {
-    private readonly HttpClient _http = new();
+    private HttpClient _http;
     private string _baseUrl = "";
     private string _adminUsername = "";
     private string _adminToken = "";
+    private bool _disposed;
+
+    public PhpAdminClient()
+    {
+        _http = CreateHttpClient();
+    }
+
+    private static HttpClient CreateHttpClient() => new() { Timeout = TimeSpan.FromSeconds(15) };
+
+    public void ClearSession()
+    {
+        _adminUsername = "";
+        _adminToken = "";
+    }
 
     public void Configure(string baseUrl, string adminUsername, string? adminToken = null)
     {
@@ -21,20 +35,22 @@ public sealed class PhpAdminClient
 
     public void SetToken(string token) => _adminToken = token ?? "";
 
+    private HttpClient Http
+    {
+        get
+        {
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(PhpAdminClient));
+            return _http;
+        }
+    }
+
     public async Task<(bool Ok, string Error, JsonDocument? Data)> VerifyAdminAsync(string? password = null, CancellationToken ct = default)
     {
-        object body = string.IsNullOrEmpty(password)
-            ? new { admin_username = _adminUsername }
-            : new { admin_username = _adminUsername, password };
-        var result = await PostAsync("/admin/verify_admin_login.php", body, ct);
-        if (result.Ok) return result;
-
-        if (result.Error.Contains("404", StringComparison.OrdinalIgnoreCase)
-            || result.Error.Contains("HTML", StringComparison.OrdinalIgnoreCase))
-        {
-            return await PostAsync("/admin/list_accounts.php", new { admin_username = _adminUsername }, ct);
-        }
-        return result;
+        if (string.IsNullOrEmpty(password))
+            return (false, "Senha obrigatória", null);
+        return await PostAsync("/admin/verify_admin_login.php",
+            new { admin_username = _adminUsername, password }, ct);
     }
 
     public async Task<(bool Ok, string Error, JsonDocument? Data)> ListAccountsAsync(CancellationToken ct = default) =>
@@ -377,6 +393,26 @@ public sealed class PhpAdminClient
     public async Task<(bool Ok, string Error, JsonDocument? Data)> DeleteAppearancePartAsync(int appearancePartId, CancellationToken ct = default) =>
         await PostAsync("/admin/delete_appearance_part.php", new { admin_username = _adminUsername, appearance_part_id = appearancePartId }, ct);
 
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListCraftRecipesAsync(string? search = null, string? craftCategory = null, CancellationToken ct = default) =>
+        await PostAsync("/admin/list_craft_recipes.php", new { admin_username = _adminUsername, search, craft_category = craftCategory }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> CreateCraftRecipeAsync(object payload, CancellationToken ct = default)
+    {
+        var node = JsonSerializer.SerializeToNode(payload) as JsonObject ?? new JsonObject();
+        node["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/create_craft_recipe.php", node, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpdateCraftRecipeAsync(object payload, CancellationToken ct = default)
+    {
+        var node = JsonSerializer.SerializeToNode(payload) as JsonObject ?? new JsonObject();
+        node["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/update_craft_recipe.php", node, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> DeleteCraftRecipeAsync(int recipeId, CancellationToken ct = default) =>
+        await PostAsync("/admin/delete_craft_recipe.php", new { admin_username = _adminUsername, recipe_id = recipeId }, ct);
+
     public async Task<(bool Ok, string Error, JsonDocument? Data)> ListClassSkillsAsync(int classId, CancellationToken ct = default) =>
         await PostAsync("/admin/list_class_skills.php", new { admin_username = _adminUsername, class_id = classId }, ct);
 
@@ -503,7 +539,7 @@ public sealed class PhpAdminClient
             if (!string.IsNullOrWhiteSpace(_adminToken))
                 req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + _adminToken);
 
-            var resp = await _http.SendAsync(req, ct);
+            var resp = await Http.SendAsync(req, ct);
             var text = (await resp.Content.ReadAsStringAsync(ct)).TrimStart();
 
             if (text.Length == 0)
@@ -511,7 +547,10 @@ public sealed class PhpAdminClient
 
             if (text[0] == '<')
             {
-                var jsonStart = text.IndexOf('{');
+                // Preferir o primeiro objeto JSON real ({"...), evitando {main} do Xdebug.
+                var jsonStart = text.IndexOf("{\"", StringComparison.Ordinal);
+                if (jsonStart < 0)
+                    jsonStart = text.IndexOf("{\n", StringComparison.Ordinal);
                 if (jsonStart >= 0)
                     text = text[jsonStart..];
                 else
@@ -519,7 +558,7 @@ public sealed class PhpAdminClient
                     var snippet = text.Length > 180 ? text[..180] : text;
                     snippet = snippet.Replace('\n', ' ').Replace('\r', ' ');
                     return (false,
-                        $"API PHP retornou HTML em vez de JSON ({url}). Trecho: {snippet}",
+                        $"API PHP retornou HTML/erro em vez de JSON ({url}). Trecho: {snippet}",
                         null);
                 }
             }
@@ -549,6 +588,10 @@ public sealed class PhpAdminClient
             }
             return (true, "", doc);
         }
+        catch (ObjectDisposedException)
+        {
+            return (false, "Cliente HTTP encerrado (painel fechando).", null);
+        }
         catch (HttpRequestException ex)
         {
             return (false, $"Não foi possível conectar em {url}. Apache/WAMP está rodando? ({ex.Message})", null);
@@ -557,5 +600,12 @@ public sealed class PhpAdminClient
         {
             return (false, ex.Message, null);
         }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        try { _http.Dispose(); } catch { /* ignore */ }
     }
 }

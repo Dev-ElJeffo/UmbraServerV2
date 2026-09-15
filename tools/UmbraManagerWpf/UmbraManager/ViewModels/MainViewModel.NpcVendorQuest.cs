@@ -554,15 +554,26 @@ public partial class MainViewModel
                 int targetId = 0;
                 int required = 1;
                 string paramsJson = "{}";
+                var zoneId = 0;
+                double posX = 0, posY = 0, posZ = 0, radius = 200;
+                var itemTid = 0;
                 if (paramsEl.ValueKind == JsonValueKind.Object)
                 {
                     paramsJson = paramsEl.GetRawText();
                     if (paramsEl.TryGetProperty("npc_template_id", out var nt))
                         targetId = nt.GetInt32();
                     else if (paramsEl.TryGetProperty("item_template_id", out var it))
+                    {
                         targetId = it.GetInt32();
+                        itemTid = targetId;
+                    }
                     if (paramsEl.TryGetProperty("required_count", out var rc))
                         required = rc.GetInt32();
+                    if (paramsEl.TryGetProperty("zone_id", out var z)) zoneId = z.GetInt32();
+                    if (paramsEl.TryGetProperty("pos_x", out var x)) posX = x.GetDouble();
+                    if (paramsEl.TryGetProperty("pos_y", out var y)) posY = y.GetDouble();
+                    if (paramsEl.TryGetProperty("pos_z", out var zz)) posZ = zz.GetDouble();
+                    if (paramsEl.TryGetProperty("radius", out var rd)) radius = rd.GetDouble();
                 }
                 else if (paramsEl.ValueKind == JsonValueKind.String)
                 {
@@ -574,9 +585,17 @@ public partial class MainViewModel
                         if (root.TryGetProperty("npc_template_id", out var nt))
                             targetId = nt.GetInt32();
                         else if (root.TryGetProperty("item_template_id", out var it))
+                        {
                             targetId = it.GetInt32();
+                            itemTid = targetId;
+                        }
                         if (root.TryGetProperty("required_count", out var rc))
                             required = rc.GetInt32();
+                        if (root.TryGetProperty("zone_id", out var z)) zoneId = z.GetInt32();
+                        if (root.TryGetProperty("pos_x", out var x)) posX = x.GetDouble();
+                        if (root.TryGetProperty("pos_y", out var y)) posY = y.GetDouble();
+                        if (root.TryGetProperty("pos_z", out var zz)) posZ = zz.GetDouble();
+                        if (root.TryGetProperty("radius", out var rd)) radius = rd.GetDouble();
                     }
                     catch { /* keep defaults */ }
                 }
@@ -590,6 +609,12 @@ public partial class MainViewModel
                     TargetId = targetId,
                     RequiredCount = required < 1 ? 1 : required,
                     ParamsJson = paramsJson,
+                    ZoneId = zoneId,
+                    PosX = posX,
+                    PosY = posY,
+                    PosZ = posZ,
+                    Radius = radius,
+                    ItemTemplateId = itemTid,
                 });
             }
         }
@@ -818,23 +843,9 @@ public partial class MainViewModel
             SelectedQuestStartRequirement = null;
     }
 
-    private static Dictionary<string, object?> BuildObjectiveParams(QuestObjectiveRow o)
+    private Dictionary<string, object?> BuildObjectiveParams(QuestObjectiveRow o)
     {
         var type = (o.ObjectiveType ?? "talk").Trim().ToLowerInvariant();
-        if (type is "reach_area" or "use_item_at")
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(o.ParamsJson) ? "{}" : o.ParamsJson);
-                return JsonSerializer.Deserialize<Dictionary<string, object?>>(doc.RootElement.GetRawText())
-                       ?? new Dictionary<string, object?>();
-            }
-            catch
-            {
-                return new Dictionary<string, object?>();
-            }
-        }
-
         if (type == "talk")
             return new Dictionary<string, object?>();
 
@@ -847,12 +858,42 @@ public partial class MainViewModel
             };
         }
 
-        // collect / deliver
-        return new Dictionary<string, object?>
+        if (type is "collect" or "deliver")
         {
-            ["item_template_id"] = o.TargetId,
-            ["required_count"] = o.RequiredCount < 1 ? 1 : o.RequiredCount,
-        };
+            return new Dictionary<string, object?>
+            {
+                ["item_template_id"] = o.TargetId,
+                ["required_count"] = o.RequiredCount < 1 ? 1 : o.RequiredCount,
+            };
+        }
+
+        if (type == "reach_area")
+        {
+            return new Dictionary<string, object?>
+            {
+                ["zone_id"] = o.ZoneId,
+                ["pos_x"] = o.PosX,
+                ["pos_y"] = o.PosY,
+                ["pos_z"] = o.PosZ,
+                ["radius"] = o.Radius <= 0 ? 200 : o.Radius,
+            };
+        }
+
+        if (type == "use_item_at")
+        {
+            return new Dictionary<string, object?>
+            {
+                ["item_template_id"] = o.ItemTemplateId > 0 ? o.ItemTemplateId : o.TargetId,
+                ["zone_id"] = o.ZoneId,
+                ["pos_x"] = o.PosX,
+                ["pos_y"] = o.PosY,
+                ["pos_z"] = o.PosZ,
+                ["radius"] = o.Radius <= 0 ? 200 : o.Radius,
+                ["required_count"] = o.RequiredCount < 1 ? 1 : o.RequiredCount,
+            };
+        }
+
+        return new Dictionary<string, object?>();
     }
 
     [RelayCommand]
@@ -877,6 +918,31 @@ public partial class MainViewModel
         {
             MessageBox.Show("A quest não pode ser pré-requisito de si mesma.", "Quests");
             return;
+        }
+
+        foreach (var o in QuestObjectives)
+        {
+            var type = (o.ObjectiveType ?? "").Trim().ToLowerInvariant();
+            if (type is "kill" && o.TargetId <= 0)
+            {
+                MessageBox.Show("Objetivo kill exige um NPC template com ID positivo.", "Quests");
+                return;
+            }
+            if (type is "collect" or "deliver" && o.TargetId <= 0)
+            {
+                MessageBox.Show($"Objetivo {type} exige um item com ID positivo.", "Quests");
+                return;
+            }
+            if (type is "reach_area" && o.ZoneId <= 0)
+            {
+                MessageBox.Show("Objetivo reach_area exige zone_id positivo.", "Quests");
+                return;
+            }
+            if (type is "use_item_at" && (o.ItemTemplateId <= 0 && o.TargetId <= 0))
+            {
+                MessageBox.Show("Objetivo use_item_at exige item_template_id positivo.", "Quests");
+                return;
+            }
         }
 
         var objectives = QuestObjectives.Select((o, i) => (object)new Dictionary<string, object?>

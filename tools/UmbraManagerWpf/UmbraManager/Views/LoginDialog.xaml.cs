@@ -10,7 +10,7 @@ public partial class LoginDialog : Window
 
     public string Username { get; private set; } = "";
     public string Token { get; private set; } = "";
-    public string Role { get; private set; } = "super";
+    public string Role { get; private set; } = "";
 
     public LoginDialog()
     {
@@ -50,7 +50,7 @@ public partial class LoginDialog : Window
 
         try
         {
-            var php = new PhpAdminClient();
+            using var php = new PhpAdminClient();
             php.Configure(AppConfig.Instance.PhpApiBase, user);
             var (ok, err, data) = await php.VerifyAdminAsync(password);
             if (!ok)
@@ -67,10 +67,18 @@ public partial class LoginDialog : Window
                 if (root.TryGetProperty("token", out var tokenEl))
                     Token = tokenEl.GetString() ?? "";
                 if (root.TryGetProperty("role", out var roleEl))
-                    Role = roleEl.GetString() ?? "super";
+                    Role = roleEl.GetString() ?? "";
                 else if (root.TryGetProperty("admin", out var admin) && admin.TryGetProperty("role", out var ar))
-                    Role = ar.GetString() ?? "super";
+                    Role = ar.GetString() ?? "";
                 data.Dispose();
+            }
+
+            if (string.IsNullOrWhiteSpace(Token) || string.IsNullOrWhiteSpace(Role))
+            {
+                ErrorText.Text = "Login sem token ou papel administrativo.";
+                Token = "";
+                Role = "";
+                return;
             }
 
             DialogResult = true;

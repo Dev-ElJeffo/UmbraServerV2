@@ -1385,22 +1385,33 @@ public:
   }
 
   bool teleportPlayer(uint32_t playerId, float x, float y, float z) {
-    std::lock_guard<std::mutex> lock(mu_);
-    auto it = players_.find(playerId);
-    if (it == players_.end()) return false;
-    it->second.x = x;
-    it->second.y = y;
-    it->second.z = z;
-    uint32_t cid = 0;
-    for (const auto& [c, p] : clientIdToPlayerId_) {
-      if (p == playerId) {
-        cid = c;
-        break;
+    MovementFrame correction{};
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      auto it = players_.find(playerId);
+      if (it == players_.end()) return false;
+      it->second.x = x;
+      it->second.y = y;
+      it->second.z = z;
+      it->second.tsMs = static_cast<uint32_t>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::steady_clock::now().time_since_epoch())
+              .count());
+      uint32_t cid = 0;
+      for (const auto& [c, p] : clientIdToPlayerId_) {
+        if (p == playerId) {
+          cid = c;
+          break;
+        }
       }
+      if (cid > 0) {
+        aoiGrid_.updatePlayer(cid, x, y);
+      }
+      correction = {MovementMsgType::StateUpdate, playerId, x, y, z, it->second.yaw,
+                    it->second.tsMs};
     }
-    if (cid > 0) {
-      aoiGrid_.updatePlayer(cid, x, y);
-    }
+    // Correção autoritativa usando o frame little-endian existente (25B).
+    ws_.broadcastBinary(encode(correction));
     return true;
   }
 
@@ -1641,8 +1652,10 @@ private:
   void handleMoveUpdate(uint32_t cid, const MovementFrame& f, bool hasAnimation, float speed, float velocityZ, bool isInAir) {
     // loadPlayerState pode ir ao MySQL: ler fora de mu_ para não bloquear WS/combate.
     float moveSpeedPct = 100.f;
+    bool canMove = true;
     if (combatCoreEngine_) {
       moveSpeedPct = combatCoreEngine_->getPlayerMovementSpeedPercent(f.playerId);
+      canMove = combatCoreEngine_->canPlayerMove(f.playerId);
     }
 
     const int64_t tLock0 = agentNowMs();
@@ -1660,6 +1673,11 @@ private:
     auto deadIt = players_.find(f.playerId);
     if (deadIt != players_.end() && deadIt->second.isDead) {
       Umbra::Core::Logger::getInstance().debug("MoveUpdate rejected: player {} is dead", f.playerId);
+      return;
+    }
+    if (!canMove) {
+      Umbra::Core::Logger::getInstance().debug(
+          "MoveUpdate rejected: player {} under STUN/ROOT", f.playerId);
       return;
     }
 

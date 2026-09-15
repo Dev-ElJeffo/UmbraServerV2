@@ -53,6 +53,7 @@ public partial class MainViewModel
 
     [ObservableProperty] private GmCommandDefinition? _selectedGmCommandDefinition;
     [ObservableProperty] private string _gmCommandHelp = "Selecione um comando para ver descrição, argumentos e exemplo.";
+    public ObservableCollection<CommandArgumentValue> GmCommandArgValues { get; } = new();
 
     [ObservableProperty] private int _newItemUseCooldownMs = 5000;
 
@@ -73,7 +74,7 @@ public partial class MainViewModel
     [ObservableProperty] private int _newNpcAttackCooldownMs = 1500;
     [ObservableProperty] private float _newNpcMoveSpeed = 200f;
     [ObservableProperty] private float _newNpcRoamRadius = 800f;
-    [ObservableProperty] private bool _newNpcIsHostile = true;
+    [ObservableProperty] private bool _newNpcIsHostile;
 
     [ObservableProperty] private int _selectedLootNpcTemplateId;
     [ObservableProperty] private string _selectedLootNpcTemplateName = "";
@@ -125,6 +126,20 @@ public partial class MainViewModel
     public string ItemDesignerSummary =>
         $"{NewItemType}/{NewItemSubtype} | {NewItemRarity} | Slot {NewItemSlot} | Lv {NewItemRequiredLevel} | CD {NewItemUseCooldownMs}ms";
 
+    public string ItemTooltipPreview
+    {
+        get
+        {
+            var stats = string.Join("  ", ItemStatFields.Where(f => Math.Abs(f.Value) > 0.0001)
+                .Select(f => $"{f.Label} {f.Value:+0.##;-0.##}"));
+            return string.IsNullOrWhiteSpace(NewItemName)
+                ? "Informe um nome para ver o preview."
+                : $"{NewItemName}  [{NewItemRarity}]\nLv {NewItemRequiredLevel} · {NewItemType}/{NewItemSubtype}\n{(string.IsNullOrWhiteSpace(stats) ? "Sem atributos extras" : stats)}";
+        }
+    }
+
+    partial void OnNewItemNameChanged(string value) => OnPropertyChanged(nameof(ItemTooltipPreview));
+
     public string NpcDesignerSummary =>
         $"Lv {NewNpcLevel} | HP {NewNpcMaxHealth} | Roam {NewNpcRoamRadius:0} | Aggro {NewNpcAggroRadius:0} | " +
         $"AtkR {NewNpcAttackRange:0} | Vel {NewNpcMoveSpeed:0} | Hostil {(NewNpcIsHostile ? "Sim" : "Nao")} | Resp {NewNpcRespawnSeconds}s";
@@ -134,6 +149,21 @@ public partial class MainViewModel
         GmCommandHelp = value == null
             ? "Selecione um comando para ver descrição, argumentos e exemplo."
             : $"{value.ScopeLabel} | {value.Description}\nArgs: {value.ArgsHint}\nExemplo: {value.Example}";
+        GmCommandArgValues.Clear();
+        if (value?.Arguments is { Count: > 0 })
+        {
+            foreach (var arg in value.Arguments)
+            {
+                GmCommandArgValues.Add(new CommandArgumentValue
+                {
+                    Name = arg.Name,
+                    Kind = arg.Kind,
+                    Required = arg.Required,
+                    Value = arg.DefaultValue,
+                    Hint = string.IsNullOrWhiteSpace(arg.Hint) ? arg.Name : arg.Hint,
+                });
+            }
+        }
     }
 
     partial void OnEditingLootEntryIdChanged(int value) => OnPropertyChanged(nameof(LootFormTitle));
@@ -144,11 +174,24 @@ public partial class MainViewModel
     partial void OnNewItemSubtypeChanged(string value)
     {
         OnPropertyChanged(nameof(ItemDesignerSummary));
+        OnPropertyChanged(nameof(ItemTooltipPreview));
         ApplyWeaponSubtypeClassDefaults(value);
     }
-    partial void OnNewItemRarityChanged(string value) => OnPropertyChanged(nameof(ItemDesignerSummary));
-    partial void OnNewItemSlotChanged(string value) => OnPropertyChanged(nameof(ItemDesignerSummary));
-    partial void OnNewItemRequiredLevelChanged(int value) => OnPropertyChanged(nameof(ItemDesignerSummary));
+    partial void OnNewItemRarityChanged(string value)
+    {
+        OnPropertyChanged(nameof(ItemDesignerSummary));
+        OnPropertyChanged(nameof(ItemTooltipPreview));
+    }
+    partial void OnNewItemSlotChanged(string value)
+    {
+        OnPropertyChanged(nameof(ItemDesignerSummary));
+        OnPropertyChanged(nameof(ItemTooltipPreview));
+    }
+    partial void OnNewItemRequiredLevelChanged(int value)
+    {
+        OnPropertyChanged(nameof(ItemDesignerSummary));
+        OnPropertyChanged(nameof(ItemTooltipPreview));
+    }
     partial void OnNewItemUseCooldownMsChanged(int value) => OnPropertyChanged(nameof(ItemDesignerSummary));
     partial void OnNewNpcLevelChanged(int value) => OnPropertyChanged(nameof(NpcDesignerSummary));
     partial void OnNewNpcMaxHealthChanged(int value) => OnPropertyChanged(nameof(NpcDesignerSummary));
@@ -168,9 +211,20 @@ public partial class MainViewModel
             return;
 
         SelectedGmCommandDefinition = command;
+        if (GmCommandArgValues.Count > 0)
+        {
+            var args = string.Join(" ", GmCommandArgValues
+                .Where(a => !string.IsNullOrWhiteSpace(a.Value))
+                .Select(a => $"{a.Name}={QuoteGmArg(a.Value)}"));
+            GmInput = string.IsNullOrWhiteSpace(args) ? command.Name : $"{command.Name} {args}";
+            return;
+        }
         var argsSuffix = string.IsNullOrWhiteSpace(command.ArgsHint) ? "" : $" {command.ArgsHint}";
         GmInput = $"{command.Name}{argsSuffix}".TrimEnd();
     }
+
+    private static string QuoteGmArg(string value) =>
+        value.Contains(' ') || value.Contains('"') ? $"\"{value.Replace("\"", "\\\"")}\"" : value;
 
     [RelayCommand]
     private async Task RefreshProjectStateAsync()
@@ -497,6 +551,7 @@ public partial class MainViewModel
 
         var payload = new Dictionary<string, object?>
         {
+            ["exp_zone_id"] = EditingExpZoneId > 0 ? EditingExpZoneId : null,
             ["zone_id"] = ExpZoneZoneId,
             ["name"] = ExpZoneName,
             ["center_x"] = ExpZoneCenterX,
@@ -1138,15 +1193,14 @@ public partial class MainViewModel
 
     public void ApplyAdminRoleVisibility(string role)
     {
-        var r = (role ?? "super").Trim().ToLowerInvariant();
+        var r = (role ?? "").Trim().ToLowerInvariant();
+        if (r is not "super" and not "ops" and not "content")
+            r = "";
         AppConfig.Instance.AdminRole = r;
         TabVisibilitySuper = r == "super" ? Visibility.Visible : Visibility.Collapsed;
         TabVisibilityOps = r is "super" or "ops" ? Visibility.Visible : Visibility.Collapsed;
         TabVisibilityContent = r is "super" or "content" ? Visibility.Visible : Visibility.Collapsed;
-        if (r == "ops")
-            TabVisibilityContent = Visibility.Collapsed;
-        if (r == "content")
-            TabVisibilityOps = Visibility.Collapsed;
+        BuildNavRoutes();
     }
 
     private static void FillInspectorInventory(PlayerInspectorSummary summary, JsonElement root)

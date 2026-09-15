@@ -301,6 +301,8 @@ public sealed class ProcessManagerService
   public void StopService(string serviceId, int graceMs = 3000)
   {
     var hadEntry = _processes.TryGetValue(serviceId, out var entry);
+    if (hadEntry && entry != null)
+      entry.AutoRestart = false;
 
     try
     {
@@ -364,11 +366,10 @@ public sealed class ProcessManagerService
       try
       {
         if (!IsProcessAlive(p)) continue;
-        if (!string.IsNullOrEmpty(def.Arguments))
-        {
-          var cmd = TryGetCommandLine(p.Id);
-          if (!MatchesDefinition(def, cmd)) continue;
-        }
+        if (string.IsNullOrEmpty(def.Arguments))
+          continue;
+        var cmd = TryGetCommandLine(p.Id);
+        if (!MatchesDefinition(def, cmd)) continue;
         p.Kill(entireProcessTree: true);
         p.WaitForExit(graceMs);
       }
@@ -411,20 +412,39 @@ public sealed class ProcessManagerService
            cmd.Contains(" " + arg + " ", StringComparison.Ordinal);
   }
 
-  public void RestartService(ServiceDefinition def)
-  {
-    StopService(def.Id);
-    Task.Delay(800).ContinueWith(_ => { StartService(def, out string? _); });
-  }
-
   public void StartAll(IEnumerable<ServiceDefinition> defs)
   {
     foreach (var d in defs)
       _ = StartService(d, out string? _);
   }
 
-  public void StopAll()
+  public void RestartService(ServiceDefinition def)
   {
+    StopServiceByDefinition(def, 4000);
+    WaitForPortFree(def.AdminPort, 4000);
+    if (!StartService(def, out var error) && !string.IsNullOrWhiteSpace(error))
+      ServiceCrashed?.Invoke(def.Id, -1);
+  }
+
+  private static void WaitForPortFree(ushort port, int timeoutMs)
+  {
+    if (port == 0) return;
+    var until = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+    while (DateTime.UtcNow < until)
+    {
+      if (TryGetListeningPid(port) <= 0) return;
+      Thread.Sleep(150);
+    }
+  }
+
+  public void StopAll(IEnumerable<ServiceDefinition>? defs = null)
+  {
+    if (defs != null)
+    {
+      foreach (var d in defs)
+        StopServiceByDefinition(d);
+      return;
+    }
     foreach (var id in _processes.Keys.ToList()) StopService(id);
   }
 
@@ -533,6 +553,8 @@ public sealed class ProcessManagerService
   }
 
   /// <summary>PID que está em LISTEN na porta TCP local (IPv4).</summary>
+  public bool IsPortListening(ushort port) => port > 0 && TryGetListeningPid(port) > 0;
+
   private static int TryGetListeningPid(ushort port)
   {
     try

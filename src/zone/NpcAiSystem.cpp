@@ -119,6 +119,11 @@ void NpcAiSystem::tick(float deltaSeconds) {
   attackQueue.reserve(8);
 
   npcManager_->forEachAlive([&](NpcRuntimeInstance& inst) {
+    // Usar overloads com `inst` — NÃO chamar findInstance aqui (forEachAlive já segura mu_).
+    const bool npcCanMove = !combat_ || combat_->canNpcMove(inst);
+    const bool npcCanAct = !combat_ || combat_->canNpcAct(inst, false);
+    const float speedMultiplier =
+        combat_ ? combat_->getNpcMovementSpeedPercent(inst) / 100.f : 1.f;
     // --- Aggro por proximidade ---
     if (inst.isHostile && inst.aggroRadius > 0.f &&
         (inst.aiState == NpcAiState::Idle || inst.aiState == NpcAiState::Wander)) {
@@ -181,8 +186,8 @@ void NpcAiSystem::tick(float deltaSeconds) {
             const float sdx = aimX - inst.x;
             const float sdy = aimY - inst.y;
             const float sdist = std::sqrt(sdx * sdx + sdy * sdy);
-            const float step = inst.moveSpeed * deltaSeconds * 0.6f;
-            if (sdist > 25.f && step > 0.f) {
+            const float step = inst.moveSpeed * speedMultiplier * deltaSeconds * 0.6f;
+            if (npcCanMove && sdist > 25.f && step > 0.f) {
               const float t = std::min(1.f, step / sdist);
               inst.x += sdx * t;
               inst.y += sdy * t;
@@ -195,18 +200,18 @@ void NpcAiSystem::tick(float deltaSeconds) {
           }
           const auto readyAt =
               inst.lastAttackAt + std::chrono::milliseconds(inst.attackCooldownMs);
-          if (now >= readyAt) {
+          if (npcCanAct && now >= readyAt) {
             const uint32_t skillId = pickBoundSkillId(inst, toPlayer2d, true, now);
             attackQueue.push_back({inst.npcInstanceId, skillId});
             inst.lastAttackAt = now;
           }
         } else {
           inst.aiState = NpcAiState::Chase;
-          const float step = inst.moveSpeed * deltaSeconds;
+          const float step = inst.moveSpeed * speedMultiplier * deltaSeconds;
           const float dx = aimX - inst.x;
           const float dy = aimY - inst.y;
           const float dist = std::sqrt(dx * dx + dy * dy);
-          if (dist > 1.f && step > 0.f) {
+          if (npcCanMove && dist > 1.f && step > 0.f) {
             const float t = std::min(1.f, step / dist);
             inst.x += dx * t;
             inst.y += dy * t;
@@ -214,7 +219,8 @@ void NpcAiSystem::tick(float deltaSeconds) {
             inst.z = inst.homeZ;
             inst.yaw = yawFromDir(tx - inst.x, ty - inst.y);
           }
-          if (now >= inst.lastAttackAt + std::chrono::milliseconds(inst.attackCooldownMs)) {
+          if (npcCanAct &&
+              now >= inst.lastAttackAt + std::chrono::milliseconds(inst.attackCooldownMs)) {
             const uint32_t skillId = pickBoundSkillId(inst, toPlayer2d, false, now);
             if (skillId > 0) {
               attackQueue.push_back({inst.npcInstanceId, skillId});
@@ -247,8 +253,9 @@ void NpcAiSystem::tick(float deltaSeconds) {
                                       static_cast<int>(randFloat(kWanderPauseMinSec, kWanderPauseMaxSec) * 1000.f));
         forceBroadcast(combat_, npcManager_, inst, now);
       } else {
-        const float step = inst.moveSpeed * deltaSeconds * 1.15f;  // volta um pouco mais rápido
-        if (dist > 1.f && step > 0.f) {
+        const float step =
+            inst.moveSpeed * speedMultiplier * deltaSeconds * 1.15f;  // volta um pouco mais rápido
+        if (npcCanMove && dist > 1.f && step > 0.f) {
           const float t = std::min(1.f, step / dist);
           inst.x += dx * t;
           inst.y += dy * t;
@@ -285,8 +292,8 @@ void NpcAiSystem::tick(float deltaSeconds) {
             inst.nextWanderAt = now + std::chrono::milliseconds(
                                           static_cast<int>(randFloat(kWanderPauseMinSec, kWanderPauseMaxSec) * 1000.f));
           } else {
-            const float step = inst.moveSpeed * deltaSeconds;
-            if (dist > 1.f && step > 0.f) {
+            const float step = inst.moveSpeed * speedMultiplier * deltaSeconds;
+            if (npcCanMove && dist > 1.f && step > 0.f) {
               const float t = std::min(1.f, step / dist);
               inst.x += dx * t;
               inst.y += dy * t;
@@ -306,7 +313,7 @@ void NpcAiSystem::tick(float deltaSeconds) {
       }
     }
 
-    if (inst.aiState != NpcAiState::Dying) {
+    if (npcCanMove && inst.aiState != NpcAiState::Dying) {
       const float minDist = inst.bodyMinDist();
       for (const auto& kv : players) {
         const PlayerStateNet& p = kv.second;

@@ -9,7 +9,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-$data = json_decode(file_get_contents('php://input'), true) ?: [];
+if (!function_exists('admin_decode_json_body')) {
+    require_once __DIR__ . '/require_admin_auth.php';
+}
+$data = admin_decode_json_body();
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     foreach (['admin_username', 'class_id', 'type_id', 'search'] as $k) {
         if (isset($_GET[$k])) $data[$k] = $_GET[$k];

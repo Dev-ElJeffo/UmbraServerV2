@@ -30,6 +30,12 @@ int64_t jsonIntLocal(const nlohmann::json& j, const char* key, int64_t fallback 
   return fallback;
 }
 
+void appendUniqueBuffId(std::vector<uint64_t>& out, std::unordered_set<uint64_t>& seen,
+                        uint64_t buffId) {
+  if (buffId == 0 || !seen.insert(buffId).second) return;
+  out.push_back(buffId);
+}
+
 }  // namespace
 
 ReactionTrigger ReactionEngine::parseTrigger(const nlohmann::json& conditions) {
@@ -43,6 +49,61 @@ ReactionTrigger ReactionEngine::parseTrigger(const nlohmann::json& conditions) {
 std::vector<ArmedReaction>* ReactionEngine::findArmedList(uint32_t playerId) {
   auto it = armedByPlayer_.find(playerId);
   return it != armedByPlayer_.end() ? &it->second : nullptr;
+}
+
+bool ReactionEngine::arePartyAllies(uint32_t a, uint32_t b) const {
+  if (a == 0 || b == 0 || a == b) return false;
+  if (!resolvePartyMembers_) return false;
+  const auto members = resolvePartyMembers_(a);
+  return std::find(members.begin(), members.end(), b) != members.end();
+}
+
+void ReactionEngine::fireReactionsByBuffId(uint32_t ownerPlayerId, uint32_t triggerSourceId,
+                                           const std::vector<uint64_t>& buffIds) {
+  for (uint64_t buffId : buffIds) {
+    ArmedReaction copy;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      auto* list = findArmedList(ownerPlayerId);
+      if (!list) continue;
+      bool found = false;
+      for (const auto& live : *list) {
+        if (live.buffId == buffId) {
+          copy = live;
+          found = true;
+          break;
+        }
+      }
+      if (!found) continue;
+    }
+    // Efeitos fora de mu_; disarm re-localiza por buffId (evita ponteiro dangling).
+    if (!combatEngine_) continue;
+    const auto& eff = copy.effect;
+    if (eff.effectType == Combat::EffectType::BUFF_STAT) {
+      combatEngine_->applyReactionBuff(ownerPlayerId, ownerPlayerId, copy.skillId, eff);
+      Core::Logger::getInstance().info("[ReactionEngine] buff reacao player={} skill={}",
+                                       ownerPlayerId, copy.skillId);
+    } else if (eff.effectType == Combat::EffectType::DAMAGE ||
+               eff.effectType == Combat::EffectType::REFLECT) {
+      if (triggerSourceId != 0 && triggerSourceId != ownerPlayerId) {
+        combatEngine_->applyReactionCounterDamage(ownerPlayerId, triggerSourceId, copy.skillId, eff);
+        Core::Logger::getInstance().info(
+            "[ReactionEngine] contra-dano player={} -> source={} skill={}", ownerPlayerId,
+            triggerSourceId, copy.skillId);
+      }
+    }
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      auto* list = findArmedList(ownerPlayerId);
+      if (!list) continue;
+      for (auto& live : *list) {
+        if (live.buffId == buffId) {
+          disarm(ownerPlayerId, live, true);
+          break;
+        }
+      }
+    }
+  }
 }
 
 void ReactionEngine::reloadArmedForPlayer(uint32_t playerId) {
@@ -160,7 +221,12 @@ uint64_t ReactionEngine::armReaction(uint32_t ownerPlayerId, uint32_t sourcePlay
 
   {
     std::lock_guard<std::mutex> lock(mu_);
-    armedByPlayer_[ownerPlayerId].push_back(std::move(ar));
+    auto& list = armedByPlayer_[ownerPlayerId];
+    // Substitui entrada com o mesmo buffId (evita Ripostar/Interposição duplicados).
+    list.erase(std::remove_if(list.begin(), list.end(),
+                              [buffId](const ArmedReaction& e) { return e.buffId == buffId; }),
+               list.end());
+    list.push_back(std::move(ar));
   }
 
   Core::Logger::getInstance().debug(
@@ -238,115 +304,108 @@ bool ReactionEngine::onPlayerHitReceived(uint32_t targetPlayerId, uint32_t sourc
   }
   if (fireBuffId == 0) return false;
 
-  // Mesmo padrão de onPlayerDodge: localizar reação sob lock curto e executar SEM mu_
-  // (executeReaction -> applyPlayerDamage -> onPlayerDamaged re-travaria mu_ -> EDEADLK).
-  std::unique_lock<std::mutex> lock(mu_);
-  auto* list = findArmedList(targetPlayerId);
-  if (!list) return false;
-  for (auto& live : *list) {
-    if (live.buffId == fireBuffId) {
-      lock.unlock();
-      executeReaction(targetPlayerId, sourcePlayerId, live);
-      return true;
-    }
-  }
-  return false;
+  fireReactionsByBuffId(targetPlayerId, sourcePlayerId, {fireBuffId});
+  return true;
 }
 
 void ReactionEngine::onPlayerDamaged(uint32_t targetPlayerId, uint32_t sourcePlayerId, int32_t delta,
                                      bool isCrit) {
-  if (delta >= 0) return;
+  if (delta >= 0 || !isCrit) return;
 
-  std::vector<ArmedReaction> toFire;
-  {
-    std::lock_guard<std::mutex> lock(mu_);
-    if (isCrit) {
-      if (auto* list = findArmedList(targetPlayerId)) {
-        for (auto& ar : *list) {
-          if (ar.buffId != 0 && ar.trigger == ReactionTrigger::OnCritReceived) {
-            toFire.push_back(ar);
-          }
-        }
-      }
-    }
-  }
-
-  for (auto& ar : toFire) {
-    std::lock_guard<std::mutex> lock(mu_);
-    auto* list = findArmedList(targetPlayerId);
-    if (!list) continue;
-    for (auto& live : *list) {
-      if (live.buffId == ar.buffId) {
-        executeReaction(targetPlayerId, sourcePlayerId, live);
-        break;
-      }
-    }
-  }
-}
-
-void ReactionEngine::onPlayerDodge(uint32_t targetPlayerId, uint32_t sourcePlayerId) {
-  std::vector<ArmedReaction> toFire;
+  std::vector<uint64_t> buffIds;
+  std::unordered_set<uint64_t> seen;
   {
     std::lock_guard<std::mutex> lock(mu_);
     if (auto* list = findArmedList(targetPlayerId)) {
-      for (auto& ar : *list) {
-        if (ar.buffId != 0 && ar.trigger == ReactionTrigger::OnDodge) {
-          toFire.push_back(ar);
+      for (const auto& ar : *list) {
+        if (ar.buffId != 0 && ar.trigger == ReactionTrigger::OnCritReceived) {
+          appendUniqueBuffId(buffIds, seen, ar.buffId);
         }
       }
     }
   }
+  fireReactionsByBuffId(targetPlayerId, sourcePlayerId, buffIds);
+}
 
-  for (auto& ar : toFire) {
+void ReactionEngine::onPlayerDodge(uint32_t targetPlayerId, uint32_t sourcePlayerId) {
+  std::vector<uint64_t> buffIds;
+  std::unordered_set<uint64_t> seen;
+  {
     std::lock_guard<std::mutex> lock(mu_);
-    auto* list = findArmedList(targetPlayerId);
-    if (!list) continue;
-    for (auto& live : *list) {
-      if (live.buffId == ar.buffId) {
-        executeReaction(targetPlayerId, sourcePlayerId, live);
-        break;
+    if (auto* list = findArmedList(targetPlayerId)) {
+      for (const auto& ar : *list) {
+        if (ar.buffId != 0 && ar.trigger == ReactionTrigger::OnDodge) {
+          appendUniqueBuffId(buffIds, seen, ar.buffId);
+        }
       }
     }
   }
+  fireReactionsByBuffId(targetPlayerId, sourcePlayerId, buffIds);
 }
 
 void ReactionEngine::onAllyDamaged(uint32_t allyPlayerId, uint32_t sourcePlayerId, int32_t& delta) {
   if (delta >= 0) return;
 
   struct Redirect {
-    uint32_t protectorId;
-    ArmedReaction reaction;
+    uint32_t protectorId = 0;
+    uint64_t buffId = 0;
   };
   std::vector<Redirect> redirects;
+  std::unordered_set<uint64_t> seenBuff;
 
   {
     std::lock_guard<std::mutex> lock(mu_);
     for (auto& [protectorId, list] : armedByPlayer_) {
-      if (protectorId == allyPlayerId) continue;
-      for (auto& ar : list) {
-        if (ar.buffId != 0 && ar.trigger == ReactionTrigger::AllyDamaged) {
-          redirects.push_back({protectorId, ar});
-        }
+      // Não proteger a si mesmo; atacante nunca redireciona o próprio hit (PvP).
+      if (protectorId == allyPlayerId || protectorId == sourcePlayerId) continue;
+      for (const auto& ar : list) {
+        if (ar.buffId == 0 || ar.trigger != ReactionTrigger::AllyDamaged) continue;
+        if (!seenBuff.insert(ar.buffId).second) continue;
+        redirects.push_back({protectorId, ar.buffId});
       }
     }
   }
 
-  for (auto& rd : redirects) {
-    std::lock_guard<std::mutex> lock(mu_);
-    auto* list = findArmedList(rd.protectorId);
-    if (!list) continue;
-    for (auto& live : *list) {
-      if (live.buffId != rd.reaction.buffId) continue;
-      const int32_t pct = live.effect.valuePercent > 0 ? live.effect.valuePercent : 50;
-      const int32_t redirectAmount = std::max(1, std::abs(delta) * pct / 100);
-      if (combatEngine_) {
-        combatEngine_->applyDirectPlayerDamage(sourcePlayerId, live.ownerPlayerId, redirectAmount,
-                                               static_cast<uint8_t>(CombatReason::Skill));
+  for (const auto& rd : redirects) {
+    if (!arePartyAllies(rd.protectorId, allyPlayerId)) continue;
+
+    ArmedReaction* livePtr = nullptr;
+    int16_t valuePercent = 0;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      auto* list = findArmedList(rd.protectorId);
+      if (!list) continue;
+      for (auto& live : *list) {
+        if (live.buffId == rd.buffId) {
+          livePtr = &live;
+          valuePercent = live.effect.valuePercent;
+          break;
+        }
       }
-      delta += redirectAmount;
-      disarm(live.ownerPlayerId, live, true);
-      break;
+      if (!livePtr) continue;
     }
+
+    const int32_t pct = valuePercent > 0 ? valuePercent : 50;
+    const int32_t redirectAmount = std::max(1, std::abs(delta) * pct / 100);
+    if (combatEngine_) {
+      // Fora de mu_: applyPlayerDamage → onAllyDamaged não pode re-travar.
+      combatEngine_->applyDirectPlayerDamage(sourcePlayerId, rd.protectorId, redirectAmount,
+                                             static_cast<uint8_t>(CombatReason::Skill));
+    }
+    delta += redirectAmount;
+
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      auto* list = findArmedList(rd.protectorId);
+      if (!list) continue;
+      for (auto& live : *list) {
+        if (live.buffId == rd.buffId) {
+          disarm(rd.protectorId, live, true);
+          break;
+        }
+      }
+    }
+    break;  // uma Interposição por hit
   }
 }
 

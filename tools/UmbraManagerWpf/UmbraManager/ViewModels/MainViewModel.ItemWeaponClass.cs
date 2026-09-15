@@ -35,8 +35,11 @@ public partial class MainViewModel
 
     private void EnsureItemAllowedClassOptions()
     {
-        if (ItemAllowedClassOptions.Count > 0)
+        if (ItemAllowedClassOptions.Count > 0 && GameClasses.Count == 0)
             return;
+        if (GameClasses.Count > 0 && ItemAllowedClassOptions.Count == GameClasses.Count)
+            return;
+        ItemAllowedClassOptions.Clear();
 
         if (GameClasses.Count > 0)
         {

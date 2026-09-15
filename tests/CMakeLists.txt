@@ -81,6 +81,36 @@ target_link_libraries(test_auth_playerdao
   Threads::Threads
 )
 
+add_executable(test_stat_mapping
+  test_stat_mapping.cpp
+)
+target_link_libraries(test_stat_mapping
+  umbra_core
+  Threads::Threads
+)
+
+add_executable(test_combat_effects
+  test_combat_effects.cpp
+)
+target_link_libraries(test_combat_effects
+  umbra_zone
+  gtest
+  gtest_main
+  Threads::Threads
+)
+
+find_package(OpenSSL REQUIRED)
+add_executable(test_admin_crypto
+  test_admin_crypto.cpp
+  ${CMAKE_SOURCE_DIR}/src/admin/AdminCrypto.cpp
+)
+target_include_directories(test_admin_crypto PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_admin_crypto
+  umbra_core
+  OpenSSL::Crypto
+  Threads::Threads
+)
+
 # Add tests to CTest
 add_test(NAME AuthTests COMMAND test_auth)
 add_test(NAME DatabaseTests COMMAND test_db)
@@ -89,4 +119,7 @@ add_test(NAME NetworkTests COMMAND test_network)
 add_test(NAME Fase1Tests COMMAND test_fase1)
 add_test(NAME PlayerDAOTests COMMAND test_playerdao)
 add_test(NAME AuthPlayerDAOIntegrationTests COMMAND test_auth_playerdao)
+add_test(NAME StatMappingTests COMMAND test_stat_mapping)
+add_test(NAME CombatEffectTests COMMAND test_combat_effects)
+add_test(NAME AdminCryptoTests COMMAND test_admin_crypto)
 

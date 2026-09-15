@@ -1,7 +1,8 @@
 <UserControl x:Class="UmbraManager.Views.MobSkillsEditorView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes">
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:controls="clr-namespace:UmbraManager.Controls">
   <Grid Margin="8">
     <Grid.ColumnDefinitions>
       <ColumnDefinition Width="*" MinWidth="380"/>
@@ -87,9 +88,8 @@
         <TextBox Text="{Binding NpcSkillFormDescription, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
                  AcceptsReturn="True" Height="50" TextWrapping="Wrap"
                  materialDesign:HintAssist.Hint="description" materialDesign:HintAssist.IsFloating="True"/>
-        <TextBox Text="{Binding NpcSkillFormEffectsJson, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"
-                 AcceptsReturn="True" Height="70" FontFamily="Consolas"
-                 materialDesign:HintAssist.Hint="effects_json" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBlock Text="Efeitos" FontWeight="SemiBold" Margin="0,4,0,4"/>
+        <controls:SkillEffectEditor DataContext="{Binding NpcSkillFormEffects}" Margin="0,0,0,8"/>
         <StackPanel Orientation="Horizontal">
           <Button Content="{Binding NpcSkillSaveButtonText}" Command="{Binding SaveNpcSkillCommand}"
                   Style="{StaticResource ManagerActionButton}" Margin="0,0,8,0"/>

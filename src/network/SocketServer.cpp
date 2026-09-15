@@ -22,9 +22,10 @@
 namespace Umbra {
 namespace Network {
 
-SocketServer::SocketServer(ProtocolType type, uint16_t port)
+SocketServer::SocketServer(ProtocolType type, uint16_t port, std::string bindHost)
     : type_(type),
       port_(port),
+      bindHost_(std::move(bindHost)),
       serverSocket_(INVALID_SOCKET),
       running_(false),
       nextClientId_(1),
@@ -142,18 +143,22 @@ void SocketServer::broadcast(const std::vector<uint8_t>& data) {
 }
 
 void SocketServer::disconnectClient(uint32_t clientId) {
-  std::lock_guard<std::mutex> lock(clientsMutex_);
-  
-  auto it = std::find_if(clients_.begin(), clients_.end(),
-    [clientId](const ClientConnection& c) { return c.id == clientId; });
-  
-  if (it != clients_.end()) {
-    closeSocket(it->socket);
-    clients_.erase(it);
-    
-    if (connectionCallback_) {
-      connectionCallback_(clientId, false);
+  bool found = false;
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+
+    auto it = std::find_if(clients_.begin(), clients_.end(),
+      [clientId](const ClientConnection& c) { return c.id == clientId; });
+
+    if (it != clients_.end()) {
+      closeSocket(it->socket);
+      clients_.erase(it);
+      found = true;
     }
+  }
+
+  if (found && connectionCallback_) {
+    connectionCallback_(clientId, false);
   }
 }
 
@@ -187,8 +192,14 @@ bool SocketServer::initializeSocket() {
   // Bind
   sockaddr_in address{};
   address.sin_family = AF_INET;
-  address.sin_addr.s_addr = INADDR_ANY;
   address.sin_port = htons(port_);
+  if (bindHost_.empty() || bindHost_ == "0.0.0.0") {
+    address.sin_addr.s_addr = INADDR_ANY;
+  } else if (inet_pton(AF_INET, bindHost_.c_str(), &address.sin_addr) != 1) {
+    Core::Logger::getInstance().error("Failed to parse bind host {}", bindHost_);
+    closeSocket(serverSocket_);
+    return false;
+  }
   
   if (bind(serverSocket_, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == SOCKET_ERROR) {
     Core::Logger::getInstance().error("Failed to bind socket to port {}", port_);

@@ -14,8 +14,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$data = json_decode(file_get_contents('php://input'), true) ?? [];
 require_once __DIR__ . '/require_admin_auth.php';
+$data = admin_decode_json_body();
 require_once __DIR__ . '/../../helpers/item_visual_helper.php';
 require_once __DIR__ . '/../../helpers/item_weapon_class_helper.php';
 requireAdminAuth($data);
@@ -110,24 +110,18 @@ try {
     }
 
     if (array_key_exists('stats', $data)) {
-        $stats = is_array($data['stats']) ? $data['stats'] : [];
-        if (isset($stats['physical_attack']) && !isset($stats['attack'])) {
-            $stats['attack'] = $stats['physical_attack'];
-        }
-        if (isset($stats['physical_defense']) && !isset($stats['defense'])) {
-            $stats['defense'] = $stats['physical_defense'];
-        }
-
-        $statsClean = [];
-        foreach ($stats as $key => $value) {
-            if ($value !== null && $value !== '' && $value !== 0 && $value !== 0.0) {
-                $statsClean[$key] = $value;
-            }
+        require_once __DIR__ . '/item_schema_helpers.php';
+        try {
+            $statsClean = item_canonicalize_stats($data['stats']);
+        } catch (InvalidArgumentException $e) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+            exit;
         }
 
         $sets[] = 'stats_json = :stats_json';
-        $params[':stats_json'] = !empty($statsClean)
-            ? json_encode($statsClean, JSON_UNESCAPED_UNICODE | JSON_NUMERIC_CHECK)
+        $params[':stats_json'] = $statsClean !== []
+            ? json_encode($statsClean, JSON_UNESCAPED_UNICODE)
             : null;
     }
 

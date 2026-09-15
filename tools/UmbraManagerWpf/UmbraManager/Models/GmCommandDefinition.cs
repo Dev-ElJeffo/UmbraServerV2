@@ -8,6 +8,7 @@ public sealed class GmCommandDefinition
     public string ArgsHint { get; init; } = "";
     public string Example { get; init; } = "";
     public bool IsDestructive { get; init; }
+    public IReadOnlyList<CommandArgumentDefinition> Arguments { get; init; } = [];
 
     public string ScopeLabel => Scope switch
     {

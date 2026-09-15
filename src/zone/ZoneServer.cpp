@@ -238,11 +238,8 @@ void ZoneServer::update(float deltaTime) {
     // #region agent log
     const int64_t a = agentNowMs();
     // #endregion
-    // Drain inbound ANTES de auth/snapshot: libera fila sem bloquear threads de recv.
     movementServer_->drainInboundQueue();
     movementServer_->tickSessionAuth();
-    // Reabastece o cache de party (throttle interno ~1s) fora do mu_, para o
-    // broadcast de vitals não fazer SELECT segurando o lock global da zona.
     movementServer_->refreshPartyCache();
     // #region agent log
     tDrain = agentNowMs() - a;
@@ -261,8 +258,6 @@ void ZoneServer::update(float deltaTime) {
     snapshotAccumulator_ = 0.0f;
   }
 
-  // Keepalive app-level (opcode 250). LWS também tem PingPongInterval no cliente.
-  // Intervalo curto: dual-PIE pode deixar de bombear OnRawMessage por alguns segundos.
   wsKeepaliveAccumulator_ += deltaTime;
   if (wsKeepaliveAccumulator_ >= 2.0f) {
     // #region agent log
@@ -277,14 +272,8 @@ void ZoneServer::update(float deltaTime) {
 
   dotTickAccumulator_ += deltaTime;
   if (dotTickAccumulator_ >= 0.25f) {
-    // V1 ZoneCombatService::tickActiveDots fazia SELECT/UPDATE active_dots no tick da zone
-    // (medido 122–265ms no Proxmox). DOTs de player agora são in-memory em CombatCoreEngine.
-    // Mantém respawn/outros usos do combatService_; só o poll de dots sai do hot path.
     dotTickAccumulator_ = 0.0f;
   }
-
-  // Expiração de buffs (active_buffs SELECT/DELETE) roda no dbWriter — NÃO no tick da zone.
-  // Medido até 4587ms no update → freeze + skills em cascata ao retomar.
 
   if (combatCoreEngine_) {
     // #region agent log
@@ -334,11 +323,6 @@ void ZoneServer::update(float deltaTime) {
     }
   }
   // #endregion
-
-  // Auto-save desabilitado: as posicoes sao salvas pelo PHP (update_position.php)
-  // O auto-save C++ competia por locks na tabela players com o PHP, causando
-  // "Lock wait timeout exceeded" em todas as APIs (select_character, party, trade, etc.)
-  // TODO: reabilitar quando o update_position.php for removido do fluxo do UE5
 }
 
 void ZoneServer::pumpInbound() {

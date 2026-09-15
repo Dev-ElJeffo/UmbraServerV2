@@ -1,5 +1,7 @@
 #include "SkillService.hpp"
+#include "core/Logger.hpp"
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <nlohmann/json.hpp>
 
@@ -15,18 +17,38 @@ ResourceType parseResourceType(const std::string& value) {
   return ResourceType::MANA;
 }
 
-EffectType parseEffectType(const std::string& value) {
-  if (value == "DOT") return EffectType::DOT;
-  if (value == "HOT") return EffectType::HOT;
-  if (value == "HEAL") return EffectType::HEAL;
-  if (value == "SHIELD") return EffectType::SHIELD;
-  if (value == "BUFF_STAT") return EffectType::BUFF_STAT;
-  if (value == "DEBUFF_STAT") return EffectType::DEBUFF_STAT;
-  if (value == "STUN") return EffectType::STUN;
-  if (value == "SILENCE") return EffectType::SILENCE;
-  if (value == "SLOW") return EffectType::SLOW;
-  if (value == "ROOT") return EffectType::ROOT;
-  return EffectType::DAMAGE;
+bool tryParseImplementedEffectType(const std::string& value, EffectType& out) {
+  std::string upper;
+  upper.reserve(value.size());
+  for (unsigned char c : value) {
+    upper.push_back(static_cast<char>(std::toupper(c)));
+  }
+  if (upper == "DAMAGE") { out = EffectType::DAMAGE; return true; }
+  if (upper == "HEAL") { out = EffectType::HEAL; return true; }
+  if (upper == "SHIELD") { out = EffectType::SHIELD; return true; }
+  if (upper == "BUFF_STAT") { out = EffectType::BUFF_STAT; return true; }
+  if (upper == "DEBUFF_STAT") { out = EffectType::DEBUFF_STAT; return true; }
+  if (upper == "DOT") { out = EffectType::DOT; return true; }
+  if (upper == "HOT") { out = EffectType::HOT; return true; }
+  if (upper == "CLEANSE") { out = EffectType::CLEANSE; return true; }
+  if (upper == "DISPEL") { out = EffectType::DISPEL; return true; }
+  if (upper == "STUN") { out = EffectType::STUN; return true; }
+  if (upper == "SILENCE") { out = EffectType::SILENCE; return true; }
+  if (upper == "SLOW") { out = EffectType::SLOW; return true; }
+  if (upper == "ROOT") { out = EffectType::ROOT; return true; }
+  if (upper == "KNOCKBACK") { out = EffectType::KNOCKBACK; return true; }
+  if (upper == "TAUNT") { out = EffectType::TAUNT; return true; }
+  if (upper == "STEALTH") { out = EffectType::STEALTH; return true; }
+  if (upper == "INVULNERABLE") { out = EffectType::INVULNERABLE; return true; }
+  if (upper == "LIFESTEAL") { out = EffectType::LIFESTEAL; return true; }
+  if (upper == "MANASTEAL") { out = EffectType::MANASTEAL; return true; }
+  if (upper == "SUMMON") { out = EffectType::SUMMON; return true; }
+  if (upper == "TELEPORT") { out = EffectType::TELEPORT; return true; }
+  if (upper == "EXECUTE") { out = EffectType::EXECUTE; return true; }
+  if (upper == "REFLECT") { out = EffectType::REFLECT; return true; }
+  if (upper == "COOLDOWN_RESET") { out = EffectType::COOLDOWN_RESET; return true; }
+  if (upper == "RESOURCE_RESTORE") { out = EffectType::RESOURCE_RESTORE; return true; }
+  return false;
 }
 
 int32_t jsonIntField(const nlohmann::json& j, const char* key, int32_t fallback = 0) {
@@ -67,6 +89,7 @@ BuffType effectToBuffType(EffectType effectType) {
     case EffectType::SILENCE:
     case EffectType::ROOT:
     case EffectType::SLOW:
+    case EffectType::TAUNT:
       return BuffType::DEBUFF;
     case EffectType::SHIELD:
       return BuffType::SHIELD;
@@ -77,6 +100,7 @@ BuffType effectToBuffType(EffectType effectType) {
 
 std::string effectTypeToString(EffectType t) {
   switch (t) {
+    case EffectType::DAMAGE: return "DAMAGE";
     case EffectType::DOT: return "DOT";
     case EffectType::HOT: return "HOT";
     case EffectType::HEAL: return "HEAL";
@@ -87,7 +111,21 @@ std::string effectTypeToString(EffectType t) {
     case EffectType::SILENCE: return "SILENCE";
     case EffectType::SLOW: return "SLOW";
     case EffectType::ROOT: return "ROOT";
-    default: return "DAMAGE";
+    case EffectType::CLEANSE: return "CLEANSE";
+    case EffectType::DISPEL: return "DISPEL";
+    case EffectType::KNOCKBACK: return "KNOCKBACK";
+    case EffectType::TAUNT: return "TAUNT";
+    case EffectType::STEALTH: return "STEALTH";
+    case EffectType::INVULNERABLE: return "INVULNERABLE";
+    case EffectType::LIFESTEAL: return "LIFESTEAL";
+    case EffectType::MANASTEAL: return "MANASTEAL";
+    case EffectType::SUMMON: return "SUMMON";
+    case EffectType::TELEPORT: return "TELEPORT";
+    case EffectType::EXECUTE: return "EXECUTE";
+    case EffectType::REFLECT: return "REFLECT";
+    case EffectType::COOLDOWN_RESET: return "COOLDOWN_RESET";
+    case EffectType::RESOURCE_RESTORE: return "RESOURCE_RESTORE";
+    default: return "UNKNOWN";
   }
 }
 
@@ -101,7 +139,9 @@ bool SkillService::loadSkillsFromDatabase() {
   skillIdByKey_.clear();
   skillIdsByClass_.clear();
 
-  auto rows = db_->executePreparedQuery(
+  const bool hasIncludeCaster =
+      !db_->executeQuery("SHOW COLUMNS FROM skills LIKE 'include_caster'").empty();
+  const std::string skillSelect =
       "SELECT skill_id, skill_key, skill_name, class_id, skill_order, required_level, skill_cost, max_rank, "
       "type_id, target_id, element_id, scaling_stat_id, "
       "COALESCE(str_scaling,0), COALESCE(dex_scaling,0), COALESCE(vit_scaling,0), "
@@ -111,14 +151,15 @@ bool SkillService::loadSkillsFromDatabase() {
       "COALESCE(range_min,0), range_max, COALESCE(area_radius,0), "
       "COALESCE(is_stackable,0), COALESCE(max_stacks,1), can_crit, COALESCE(ignores_defense,0), "
       "COALESCE(is_interrupt,0), COALESCE(requires_target,1), COALESCE(can_move_while_casting,0), "
-      "COALESCE(threat_modifier,100), COALESCE(pvp_modifier,100), "
+      "COALESCE(threat_modifier,100), COALESCE(pvp_modifier,100), " +
+      std::string(hasIncludeCaster ? "COALESCE(include_caster,0)" : "0") + ", "
       "COALESCE(effects_json,''), COALESCE(icon_path,''), COALESCE(vfx_key,''), COALESCE(sfx_key,''), "
       "COALESCE(description,''), COALESCE(tooltip_template,''), COALESCE(server_tags,'') "
-      "FROM skills WHERE is_enabled = 1",
-      {});
+      "FROM skills WHERE is_enabled = 1";
+  auto rows = db_->executePreparedQuery(skillSelect, {});
 
   for (const auto& row : rows) {
-    if (row.size() < 44) continue;
+    if (row.size() < 45) continue;
     SkillData skill;
     try {
       skill.skillId = static_cast<uint32_t>(std::stoul(row[0]));
@@ -158,14 +199,15 @@ bool SkillService::loadSkillsFromDatabase() {
       skill.canMoveWhileCasting = (std::stoi(row[34]) != 0);
       skill.threatModifier = static_cast<int16_t>(std::stoi(row[35]));
       skill.pvpModifier = static_cast<uint8_t>(std::stoul(row[36]));
-      skill.effects = parseEffectsFromJson(row[37]);
-      skill.iconPath = row[38];
-      skill.vfxKey = row[39];
-      skill.sfxKey = row[40];
-      skill.description = row[41];
-      skill.tooltipTemplate = row[42];
-      if (!row[43].empty() && row[43] != "null") {
-        nlohmann::json tags = nlohmann::json::parse(row[43], nullptr, false);
+      skill.includeCaster = (std::stoi(row[37]) != 0);
+      skill.effects = parseEffectsFromJson(row[38]);
+      skill.iconPath = row[39];
+      skill.vfxKey = row[40];
+      skill.sfxKey = row[41];
+      skill.description = row[42];
+      skill.tooltipTemplate = row[43];
+      if (!row[44].empty() && row[44] != "null") {
+        nlohmann::json tags = nlohmann::json::parse(row[44], nullptr, false);
         if (tags.is_array()) {
           for (const auto& t : tags) {
             if (t.is_string()) skill.serverTags.push_back(t.get<std::string>());
@@ -292,7 +334,11 @@ SkillEffect SkillService::parseEffectFromJson(const nlohmann::json& json) {
   } else if (json.contains("effect_type") && json["effect_type"].is_string()) {
     typeStr = json["effect_type"].get<std::string>();
   }
-  effect.effectType = parseEffectType(typeStr);
+  if (!tryParseImplementedEffectType(typeStr, effect.effectType)) {
+    // Tipos desconhecidos nunca viram DAMAGE. parseEffectsFromJson ignora o efeito.
+    effect.effectType = EffectType::DAMAGE;
+    effect.chancePercent = 0;
+  }
 
   if (json.contains("target_stat") && json["target_stat"].is_string()) {
     effect.targetStat = json["target_stat"].get<std::string>();
@@ -304,6 +350,27 @@ SkillEffect SkillService::parseEffectFromJson(const nlohmann::json& json) {
   effect.chancePercent = static_cast<uint8_t>(std::clamp(jsonIntField(json, "chance_percent", 100), 0, 100));
   effect.resistPenetration =
       static_cast<uint8_t>(std::clamp(jsonIntField(json, "resist_penetration", 0), 0, 100));
+  if (json.contains("target_override")) {
+    if (json["target_override"].is_number_integer()) {
+      effect.targetOverride =
+          static_cast<uint8_t>(std::clamp(json["target_override"].get<int>(), 0, 6));
+    } else if (json["target_override"].is_string()) {
+      std::string target = json["target_override"].get<std::string>();
+      std::transform(target.begin(), target.end(), target.begin(),
+                     [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+      if (target == "SELF") effect.targetOverride = static_cast<uint8_t>(TargetType::SELF);
+      else if (target == "ENEMY") effect.targetOverride = static_cast<uint8_t>(TargetType::ENEMY);
+      else if (target == "ALLY") effect.targetOverride = static_cast<uint8_t>(TargetType::ALLY);
+      else if (target == "AREA") effect.targetOverride = static_cast<uint8_t>(TargetType::AREA);
+      else if (target == "PARTY") effect.targetOverride = static_cast<uint8_t>(TargetType::PARTY);
+      else if (target == "AREA_ALLY") {
+        effect.targetOverride = static_cast<uint8_t>(TargetType::AREA_ALLY);
+      }
+    }
+  }
+  if (json.contains("include_caster") && json["include_caster"].is_boolean()) {
+    effect.includeCaster = json["include_caster"].get<bool>() ? 1 : 0;
+  }
   if (json.contains("conditions_json") && json["conditions_json"].is_object()) {
     effect.conditions = json["conditions_json"];
   }
@@ -315,11 +382,32 @@ std::vector<SkillEffect> SkillService::parseEffectsFromJson(const std::string& j
   if (jsonStr.empty() || jsonStr == "null") return effects;
 
   nlohmann::json parsed = nlohmann::json::parse(jsonStr, nullptr, false);
-  if (parsed.is_discarded() || !parsed.is_array()) return effects;
+  if (parsed.is_discarded()) return effects;
+  if (parsed.is_object()) {
+    nlohmann::json arr = nlohmann::json::array();
+    arr.push_back(parsed);
+    parsed = std::move(arr);
+  }
+  if (!parsed.is_array()) return effects;
 
   uint8_t order = 1;
   for (const auto& item : parsed) {
+    std::string typeStr;
+    if (item.is_object()) {
+      if (item.contains("type") && item["type"].is_string()) {
+        typeStr = item["type"].get<std::string>();
+      } else if (item.contains("effect_type") && item["effect_type"].is_string()) {
+        typeStr = item["effect_type"].get<std::string>();
+      }
+    }
+    EffectType parsedType = EffectType::DAMAGE;
+    if (!tryParseImplementedEffectType(typeStr, parsedType)) {
+      Core::Logger::getInstance().warn(
+          "[SkillService] efeito ignorado (tipo não implementado): '{}'", typeStr);
+      continue;
+    }
     SkillEffect effect = parseEffectFromJson(item);
+    effect.effectType = parsedType;
     effect.effectOrder = order++;
     effects.push_back(std::move(effect));
   }

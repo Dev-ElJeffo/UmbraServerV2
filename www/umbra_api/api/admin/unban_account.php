@@ -1,95 +1,57 @@
 <?php
 header('Access-Control-Allow-Origin: *');
-header('Content-Type: application/json');
-header('Access-Control-Allow-Methods: POST');
+header('Content-Type: application/json; charset=utf-8');
+header('Access-Control-Allow-Methods: POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
 
-include_once '../../config/database.php';
-include_once 'verify_admin.php';
-
-$response = array();
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $data = json_decode(file_get_contents("php://input"));
-    
-    if (!empty($data->admin_username) && !empty($data->target_user_id)) {
-        try {
-            $database = new Database();
-            $db = $database->connect();
-            
-            // Verificar se é admin
-            $adminCheck = verifyAdmin($db, $data->admin_username);
-            
-            if (!$adminCheck['success']) {
-                http_response_code(403);
-                echo json_encode($adminCheck);
-                exit();
-            }
-            
-            // Verificar se o alvo existe
-            $query = "SELECT id, username, banned FROM accounts WHERE id = :target_id";
-            $stmt = $db->prepare($query);
-            $stmt->bindParam(':target_id', $data->target_user_id);
-            $stmt->execute();
-            
-            if ($stmt->rowCount() == 0) {
-                $response['success'] = false;
-                $response['message'] = 'Conta alvo não encontrada';
-                echo json_encode($response);
-                exit();
-            }
-            
-            $target = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            // Verificar se está banido
-            if ($target['banned'] == 0) {
-                $response['success'] = false;
-                $response['message'] = 'Esta conta não está banida';
-                echo json_encode($response);
-                exit();
-            }
-            
-            // Desbanir conta
-            $query = "UPDATE accounts 
-                     SET banned = 0, ban_reason = NULL 
-                     WHERE id = :target_id";
-            $stmt = $db->prepare($query);
-            $stmt->bindParam(':target_id', $data->target_user_id);
-            
-            if ($stmt->execute()) {
-                require_once __DIR__ . '/../../helpers/admin_audit_helper.php';
-                logAdminAudit(
-                    $db,
-                    (string)$data->admin_username,
-                    'unban_account',
-                    "user={$target['username']}",
-                    'player',
-                    (int)$target['id'],
-                    isset($adminCheck['admin']['id']) ? (int)$adminCheck['admin']['id'] : null
-                );
-                $response['success'] = true;
-                $response['message'] = "Conta '{$target['username']}' foi desbanida com sucesso";
-                $response['unbanned_user'] = [
-                    'id' => $target['id'],
-                    'username' => $target['username']
-                ];
-            } else {
-                $response['success'] = false;
-                $response['message'] = 'Erro ao desbanir conta';
-            }
-            
-        } catch (Exception $e) {
-            $response['success'] = false;
-            $response['message'] = 'Erro: ' . $e->getMessage();
-        }
-    } else {
-        $response['success'] = false;
-        $response['message'] = 'admin_username e target_user_id são obrigatórios';
-    }
-} else {
-    $response['success'] = false;
-    $response['message'] = 'Método não permitido. Use POST';
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(204);
+    exit;
 }
 
-echo json_encode($response, JSON_PRETTY_PRINT);
-?>
+require_once __DIR__ . '/require_admin_auth.php';
 
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['success' => false, 'message' => 'Método não permitido. Use POST'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+$data = admin_decode_json_body();
+requireAdminAuth($data);
+$targetId = (int)($data['target_user_id'] ?? 0);
+if ($targetId <= 0) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'target_user_id é obrigatório'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+try {
+    $db = getConnection();
+    $stmt = $db->prepare('SELECT id, username, banned FROM accounts WHERE id = :target_id');
+    $stmt->execute(['target_id' => $targetId]);
+    $target = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$target) {
+        http_response_code(404);
+        echo json_encode(['success' => false, 'message' => 'Conta alvo não encontrada'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    if ((int)$target['banned'] === 0) {
+        echo json_encode(['success' => false, 'message' => 'Esta conta não está banida'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $upd = $db->prepare('UPDATE accounts SET banned = 0, ban_reason = NULL WHERE id = :target_id');
+    $upd->execute(['target_id' => $targetId]);
+    auditAdminWrite('unban_account', "user={$target['username']}", 'player', (int)$target['id']);
+
+    echo json_encode([
+        'success' => true,
+        'message' => "Conta '{$target['username']}' foi desbanida com sucesso",
+        'unbanned_user' => ['id' => $target['id'], 'username' => $target['username']],
+    ], JSON_UNESCAPED_UNICODE);
+} catch (Exception $e) {
+    error_log('[admin/unban_account] ' . $e->getMessage());
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Erro interno'], JSON_UNESCAPED_UNICODE);
+}

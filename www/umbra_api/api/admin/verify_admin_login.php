@@ -27,8 +27,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $response = ['success' => false, 'message' => 'admin_username e password são obrigatórios'];
     } else {
         try {
-            $database = new Database();
-            $db = $database->connect();
+            $db = function_exists('getConnection') ? getConnection() : null;
+            if (!$db) {
+                $database = new Database();
+                $db = $database->connect();
+            }
+            if (!$db) {
+                http_response_code(500);
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'Falha ao conectar no MySQL. Verifique secrets.local.php ou config/server.json (senha/porta).',
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
 
             $query = "SELECT id, username, email, password_hash, isadmin, banned, ban_reason,
                              COALESCE(admin_role, 'super') AS admin_role
@@ -48,24 +59,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($stmt->rowCount() === 0) {
                 http_response_code(403);
-                echo json_encode(['success' => false, 'message' => 'Usuário não encontrado'], JSON_UNESCAPED_UNICODE);
+                echo json_encode(['success' => false, 'message' => 'Credenciais inválidas'], JSON_UNESCAPED_UNICODE);
                 exit;
             }
 
             $account = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!empty($account['banned'])) {
+            if (!empty($account['banned']) || (int)$account['isadmin'] !== 1
+                || !password_verify($data->password, $account['password_hash'])) {
                 http_response_code(403);
-                echo json_encode(['success' => false, 'message' => 'Conta banida'], JSON_UNESCAPED_UNICODE);
-                exit;
-            }
-            if ((int)$account['isadmin'] !== 1) {
-                http_response_code(403);
-                echo json_encode(['success' => false, 'message' => 'Acesso negado. Apenas administradores'], JSON_UNESCAPED_UNICODE);
-                exit;
-            }
-            if (!password_verify($data->password, $account['password_hash'])) {
-                http_response_code(403);
-                echo json_encode(['success' => false, 'message' => 'Senha inválida'], JSON_UNESCAPED_UNICODE);
+                echo json_encode(['success' => false, 'message' => 'Credenciais inválidas'], JSON_UNESCAPED_UNICODE);
                 exit;
             }
 

@@ -23,10 +23,15 @@ public partial class MainViewModel
 
     private readonly Dictionary<int, List<ItemVisualMeshRow>> _itemClassVisualOverrides = new();
 
-    partial void OnSelectedVisualOverrideClassIdChanged(int value)
+    partial void OnSelectedVisualOverrideClassIdChanged(int oldValue, int newValue)
     {
-        PersistCurrentClassVisualMeshes();
-        LoadClassVisualMeshesForSelection(value);
+        if (oldValue > 0)
+        {
+            _itemClassVisualOverrides[oldValue] = ItemClassVisualMeshes
+                .Select(r => new ItemVisualMeshRow { Slot = r.Slot, Path = r.Path })
+                .ToList();
+        }
+        LoadClassVisualMeshesForSelection(newValue);
     }
 
     [RelayCommand]
@@ -155,16 +160,16 @@ public partial class MainViewModel
             if (entries.Count > 0) byClass[kv.Key.ToString()] = entries;
         }
 
-        if (defaultEntries.Count == 0 && byClass.Count == 0)
+        if (EditingItemId > 0 || defaultEntries.Count > 0 || byClass.Count > 0)
         {
-            return null;
+            return new Dictionary<string, object>
+            {
+                ["default"] = defaultEntries,
+                ["by_class"] = byClass
+            };
         }
 
-        return new Dictionary<string, object>
-        {
-            ["default"] = defaultEntries,
-            ["by_class"] = byClass
-        };
+        return null;
     }
 
     private void SeedDefaultVisualFromLegacyPath()

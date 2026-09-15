@@ -11,6 +11,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Umbra {
@@ -44,6 +45,10 @@ public:
 
   void setDatabase(std::shared_ptr<Database::MySQLConnector> db) { db_ = std::move(db); }
   void setCombatEngine(CombatCoreEngine* engine) { combatEngine_ = engine; }
+  /** Party cache (sem MySQL): usado por Interposição / ally_damaged. */
+  void setResolvePartyMembers(std::function<std::vector<uint32_t>(uint32_t)> cb) {
+    resolvePartyMembers_ = std::move(cb);
+  }
 
   /** Arma reação no cast; persiste em active_buffs (AURA + reaction_armed). */
   uint64_t armReaction(uint32_t ownerPlayerId, uint32_t sourcePlayerId, uint32_t skillId,
@@ -67,9 +72,14 @@ private:
   void executeReaction(uint32_t ownerPlayerId, uint32_t triggerSourceId, ArmedReaction& reaction);
   void broadcastDisarm(const ArmedReaction& reaction);
   std::vector<ArmedReaction>* findArmedList(uint32_t playerId);
+  bool arePartyAllies(uint32_t a, uint32_t b) const;
+  /** Dispara reações por buffId sem segurar mu_ durante apply/execute. */
+  void fireReactionsByBuffId(uint32_t ownerPlayerId, uint32_t triggerSourceId,
+                             const std::vector<uint64_t>& buffIds);
 
   std::shared_ptr<Database::MySQLConnector> db_;
   CombatCoreEngine* combatEngine_ = nullptr;
+  std::function<std::vector<uint32_t>(uint32_t)> resolvePartyMembers_;
   std::mutex mu_;
   std::unordered_map<uint32_t, std::vector<ArmedReaction>> armedByPlayer_;
 };

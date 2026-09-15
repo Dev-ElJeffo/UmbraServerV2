@@ -17,16 +17,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$data = json_decode(file_get_contents('php://input'), true) ?: [];
+$data = admin_decode_json_body();
 require_once __DIR__ . '/require_admin_auth.php';
-requireAdminAuth($data);
-require_once __DIR__ . '/../../helpers/admin_audit_helper.php';
+$admin = requireAdminAuth($data);
 
 $action = isset($data['action']) ? trim((string)$data['action']) : '';
 $details = isset($data['details']) ? (string)$data['details'] : null;
-$operatorName = !empty($data['operator_name'])
-    ? (string)$data['operator_name']
-    : (!empty($data['admin_username']) ? (string)$data['admin_username'] : 'unknown');
+$operatorName = (string)$admin['username'];
 $targetType = isset($data['target_type']) ? (string)$data['target_type'] : null;
 $targetId = isset($data['target_id']) ? (int)$data['target_id'] : null;
 $payload = isset($data['payload']) && is_array($data['payload']) ? $data['payload'] : null;
@@ -39,7 +36,7 @@ if ($action === '') {
 
 try {
     $pdo = getConnection();
-    logAdminAudit($pdo, $operatorName, $action, $details, $targetType, $targetId, null, $payload);
+    logAdminAudit($pdo, $operatorName, $action, $details, $targetType, $targetId, (int)$admin['id'], $payload);
     echo json_encode(['success' => true], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
     error_log('[admin/log_admin_audit] ' . $e->getMessage());

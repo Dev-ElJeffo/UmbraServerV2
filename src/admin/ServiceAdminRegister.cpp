@@ -330,6 +330,22 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
     if (!ok) d["message"] = "CombatCoreEngine/SkillService indisponível";
     return d;
   });
+
+  registry.registerCommand("reload_loot", [&server](const nlohmann::json&) {
+    nlohmann::json d;
+    auto* loot = server.getLootService();
+    if (loot) {
+      loot->loadFromDatabase();
+      d["ok"] = true;
+      d["reloaded"] = true;
+    } else {
+      d["ok"] = false;
+      d["reloaded"] = false;
+      d["message"] = "LootService indisponível";
+    }
+    d["zone_id"] = server.getConfig().zoneId;
+    return d;
+  });
 }
 
 void registerWorldCommands(CommandRegistry& registry, World::WorldServer& server) {

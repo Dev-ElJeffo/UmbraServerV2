@@ -42,6 +42,7 @@ public sealed class SkillRow
     public bool IsInterrupt { get; set; }
     public bool RequiresTarget { get; set; } = true;
     public bool CanMoveWhileCasting { get; set; }
+    public bool IncludeCaster { get; set; }
     public int ThreatModifier { get; set; } = 100;
     public int PvpModifier { get; set; } = 100;
     public string IconPath { get; set; } = "";

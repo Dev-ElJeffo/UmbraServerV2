@@ -1,0 +1,64 @@
+<UserControl x:Class="UmbraManager.Views.Operations.PlayersView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
+             xmlns:views="clr-namespace:UmbraManager.Views"
+             xmlns:controls="clr-namespace:UmbraManager.Controls">
+<DockPanel Margin="8">
+    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+        <TextBlock Text="{Binding Players.Count, StringFormat={}{0} online}"
+                   VerticalAlignment="Center" Margin="0,0,12,0" Opacity="0.8"/>
+        <Button Content="Kick" Style="{StaticResource ManagerActionButton}"
+                Command="{Binding KickPlayerCommand}" CommandParameter="{Binding SelectedPlayer}"/>
+        <Button Content="Teleport" Style="{StaticResource ManagerActionOutlinedButton}"
+                Command="{Binding TeleportPlayerCommand}" CommandParameter="{Binding SelectedPlayer}"/>
+        <Button Content="Broadcast" Style="{StaticResource ManagerActionOutlinedButton}"
+                Command="{Binding BroadcastToZoneCommand}" CommandParameter="{Binding SelectedPlayer}"/>
+    </WrapPanel>
+    <DataGrid Style="{StaticResource ManagerDataGrid}"
+              ItemsSource="{Binding Players}"
+              SelectedItem="{Binding SelectedPlayer}"
+              IsReadOnly="True">
+        <DataGrid.ContextMenu>
+            <ContextMenu>
+                <MenuItem Header="Kick"
+                          Command="{Binding PlacementTarget.DataContext.KickPlayerCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                          CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                <MenuItem Header="Teleport"
+                          Command="{Binding PlacementTarget.DataContext.TeleportPlayerCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                          CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                <MenuItem Header="Broadcast"
+                          Command="{Binding PlacementTarget.DataContext.BroadcastToZoneCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                          CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+            </ContextMenu>
+        </DataGrid.ContextMenu>
+        <DataGrid.Columns>
+            <DataGridTextColumn Header="ID" Binding="{Binding PlayerId}" Width="70"/>
+            <DataGridTextColumn Header="Nome" Binding="{Binding Name}" Width="*"/>
+            <DataGridTextColumn Header="Zone" Binding="{Binding ZoneService}" Width="120"/>
+            <DataGridTextColumn Header="X" Binding="{Binding X, StringFormat=F1}" Width="80"/>
+            <DataGridTextColumn Header="Y" Binding="{Binding Y, StringFormat=F1}" Width="80"/>
+            <DataGridTextColumn Header="Z" Binding="{Binding Z, StringFormat=F1}" Width="80"/>
+            <DataGridCheckBoxColumn Header="Morto" Binding="{Binding IsDead}" Width="60"/>
+            <DataGridTemplateColumn Header="Ações" Width="280" MinWidth="260">
+                <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Content="Kick" Style="{StaticResource ManagerActionButton}"
+                                    Command="{Binding DataContext.KickPlayerCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding}"/>
+                            <Button Content="Teleport" Style="{StaticResource ManagerActionOutlinedButton}"
+                                    Command="{Binding DataContext.TeleportPlayerCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding}"/>
+                            <Button Content="Broadcast" Style="{StaticResource ManagerActionOutlinedButton}"
+                                    Command="{Binding DataContext.BroadcastToZoneCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding}"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+        </DataGrid.Columns>
+    </DataGrid>
+</DockPanel>
+</UserControl>

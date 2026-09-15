@@ -152,6 +152,6 @@ public partial class MainViewModel
         PartId = TryGetIntProp(el, "part_id"),
         MeshPath = TryGetStringProp(el, "mesh_path"),
         AttachSocket = TryGetStringProp(el, "attach_socket"),
-        IsEnabled = TryGetIntProp(el, "is_enabled") != 0,
+        IsEnabled = TryGetBoolProp(el, "is_enabled"),
     };
 }

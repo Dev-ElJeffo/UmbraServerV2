@@ -9,8 +9,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-$data = json_decode(file_get_contents('php://input'), true) ?: [];
 require_once __DIR__ . '/require_admin_auth.php';
+$data = admin_decode_json_body();
 require_once __DIR__ . '/skill_admin_helpers.php';
 requireAdminAuth($data);
 
@@ -23,7 +23,10 @@ if ($skillId <= 0 || $rank < 1) {
 }
 
 try {
-    $extra = skill_json_or_null($data['extra_effects_json'] ?? ($data['extra_effects'] ?? null));
+    $extraRaw = $data['extra_effects_json'] ?? ($data['extra_effects'] ?? null);
+    $extra = $extraRaw === null || $extraRaw === ''
+        ? null
+        : json_encode(skill_normalize_effects($extraRaw), JSON_UNESCAPED_UNICODE);
     $pdo = getConnection();
     $stmt = $pdo->prepare(
         'INSERT INTO skill_rank_scaling

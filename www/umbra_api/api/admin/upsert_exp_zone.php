@@ -14,13 +14,14 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$data = json_decode(file_get_contents('php://input'), true) ?: [];
 require_once __DIR__ . '/require_admin_auth.php';
+$data = admin_decode_json_body();
 requireAdminAuth($data);
 require_once __DIR__ . '/../../config/database.php';
 
 $zone_id = isset($data['zone_id']) ? (int)$data['zone_id'] : 0;
 $name = isset($data['name']) ? trim((string)$data['name']) : '';
+$exp_zone_id = isset($data['exp_zone_id']) ? (int)$data['exp_zone_id'] : 0;
 if ($name === '') {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'name obrigatório'], JSON_UNESCAPED_UNICODE);
@@ -45,19 +46,29 @@ if ($radius <= 0 || $exp_per_tick <= 0 || $tick_interval_sec <= 0) {
 
 try {
     $pdo = getConnection();
-    $stmt = $pdo->prepare('SELECT exp_zone_id FROM exp_zones WHERE zone_id = :zid AND name = :name LIMIT 1');
-    $stmt->execute([':zid' => $zone_id, ':name' => $name]);
-    $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+    $existing = null;
+    if ($exp_zone_id > 0) {
+        $stmt = $pdo->prepare('SELECT exp_zone_id FROM exp_zones WHERE exp_zone_id = :id LIMIT 1');
+        $stmt->execute([':id' => $exp_zone_id]);
+        $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+    if (!$existing) {
+        $stmt = $pdo->prepare('SELECT exp_zone_id FROM exp_zones WHERE zone_id = :zid AND name = :name LIMIT 1');
+        $stmt->execute([':zid' => $zone_id, ':name' => $name]);
+        $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+    }
 
     if ($existing) {
         $upd = $pdo->prepare('
             UPDATE exp_zones SET
+                zone_id = :zid, name = :name,
                 center_x = :cx, center_y = :cy, center_z = :cz,
                 radius = :radius, exp_per_tick = :ept, tick_interval_sec = :tis,
                 min_player_level = :minl, max_player_level = :maxl, enabled = :en
             WHERE exp_zone_id = :id
         ');
         $upd->execute([
+            ':zid' => $zone_id, ':name' => $name,
             ':cx' => $center_x, ':cy' => $center_y, ':cz' => $center_z,
             ':radius' => $radius, ':ept' => $exp_per_tick, ':tis' => $tick_interval_sec,
             ':minl' => $min_player_level, ':maxl' => $max_player_level, ':en' => $enabled,

@@ -11,13 +11,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$data = json_decode(file_get_contents('php://input'), true) ?: [];
 require_once __DIR__ . '/require_admin_auth.php';
+$data = admin_decode_json_body();
 requireAdminAuth($data);
 require_once __DIR__ . '/../../helpers/admin_audit_helper.php';
 
 $guildId = (int)($data['guild_id'] ?? 0);
-$operator = !empty($data['admin_username']) ? (string)$data['admin_username'] : 'admin';
+$operator = adminOperatorName();
 if ($guildId <= 0) {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'guild_id obrigatório']);

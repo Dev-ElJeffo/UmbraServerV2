@@ -6,12 +6,22 @@
 #include <chrono>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+
+#ifndef CR_SERVER_GONE_ERROR
+#define CR_SERVER_GONE_ERROR 2006
+#endif
+#ifndef CR_SERVER_LOST
+#define CR_SERVER_LOST 2013
+#endif
 
 namespace {
 
 constexpr unsigned long kResultColumnBuf = 4096;
 constexpr unsigned long kClientMaxPacket = 64UL * 1024UL * 1024UL;
+constexpr size_t POOL_NONE = SIZE_MAX;
 
 bool isUnsignedIntegerParam(const std::string& value) {
   if (value.empty()) return false;
@@ -24,7 +34,12 @@ bool isUnsignedIntegerParam(const std::string& value) {
 void applyMysqlClientOptions(MYSQL* mysql, const Umbra::Database::MySQLConnector::Config& config) {
   unsigned int timeout = config.connectionTimeout;
   mysql_options(mysql, MYSQL_OPT_CONNECT_TIMEOUT, &timeout);
-  mysql_options(mysql, MYSQL_OPT_RECONNECT, &config.autoReconnect);
+  // Reconnect implícito + prepared statements = abort clássico em libmysql.
+  // MYSQL_OPT_RECONNECT está deprecated no client 8.x — só setar se explicitamente pedido.
+  if (config.autoReconnect) {
+    const char reconnectFlag = 1;
+    mysql_options(mysql, MYSQL_OPT_RECONNECT, &reconnectFlag);
+  }
   unsigned long maxPacket = kClientMaxPacket;
   mysql_options(mysql, MYSQL_OPT_MAX_ALLOWED_PACKET, &maxPacket);
 }
@@ -145,30 +160,102 @@ bool bindPreparedParams(MYSQL_STMT* stmt, const std::vector<std::string>& params
   return true;
 }
 
+std::once_flag gMysqlLibraryOnce;
+
 }  // namespace
 
 namespace Umbra {
 namespace Database {
 
-static const size_t POOL_NONE = SIZE_MAX;
+// ---------------------------------------------------------------------------
+// ConnectionLease
+// ---------------------------------------------------------------------------
+
+MySQLConnector::ConnectionLease::ConnectionLease(MySQLConnector* owner, size_t index)
+    : owner_(owner), index_(index) {
+  if (owner_ && index_ != kNone) {
+    owner_->activeLeases_.fetch_add(1, std::memory_order_relaxed);
+  }
+}
+
+MySQLConnector::ConnectionLease::ConnectionLease(ConnectionLease&& other) noexcept
+    : owner_(other.owner_), index_(other.index_) {
+  other.owner_ = nullptr;
+  other.index_ = kNone;
+}
+
+MySQLConnector::ConnectionLease& MySQLConnector::ConnectionLease::operator=(
+    ConnectionLease&& other) noexcept {
+  if (this != &other) {
+    release();
+    owner_ = other.owner_;
+    index_ = other.index_;
+    other.owner_ = nullptr;
+    other.index_ = kNone;
+  }
+  return *this;
+}
+
+MySQLConnector::ConnectionLease::~ConnectionLease() {
+  release();
+}
+
+void* MySQLConnector::ConnectionLease::mysql() const {
+  if (!valid()) return nullptr;
+  return owner_->pool_[index_].mysql;
+}
+
+void MySQLConnector::ConnectionLease::markNeedsRecreate() {
+  if (valid()) {
+    owner_->markConnectionNeedsRecreate(index_);
+  }
+}
+
+void MySQLConnector::ConnectionLease::release() {
+  if (!owner_ || index_ == kNone) return;
+  MySQLConnector* owner = owner_;
+  const size_t idx = index_;
+  owner_ = nullptr;
+  index_ = kNone;
+  owner->releaseConnection(idx);
+  owner->activeLeases_.fetch_sub(1, std::memory_order_relaxed);
+}
+
+// ---------------------------------------------------------------------------
+// ctor / dtor / thread helpers
+// ---------------------------------------------------------------------------
 
 MySQLConnector::MySQLConnector(const Config& config)
     : config_(config),
       connection_(nullptr),
       connected_(false) {
-  static bool mysqlInitialized = false;
-  if (!mysqlInitialized) {
+  std::call_once(gMysqlLibraryOnce, []() {
     if (mysql_library_init(0, nullptr, nullptr) != 0) {
       Core::Logger::getInstance().error("MySQL library initialization failed");
     } else {
-      mysqlInitialized = true;
       Core::Logger::getInstance().debug("MySQL library initialized");
     }
-  }
+  });
 }
 
 MySQLConnector::~MySQLConnector() {
   disconnect();
+}
+
+void MySQLConnector::ensureMysqlThreadLocal() {
+  // mysql_thread_init na 1ª operação C API desta thread.
+  // NÃO chamar mysql_thread_end no dtor thread_local: no client 8.0.x (Windows)
+  // isso aborta com 0x80000003 (STATUS_BREAKPOINT) quando a thread termina enquanto
+  // o pool ainda usa a lib — sintoma típico: zone sobe ~1s e cai em libmysql.dll.
+  thread_local bool inited = false;
+  if (!inited) {
+    mysql_thread_init();
+    inited = true;
+  }
+}
+
+bool MySQLConnector::isServerLostError(unsigned int err) {
+  return err == CR_SERVER_GONE_ERROR || err == CR_SERVER_LOST;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +263,7 @@ MySQLConnector::~MySQLConnector() {
 // ---------------------------------------------------------------------------
 
 bool MySQLConnector::createPooledConnection(PooledConnection& conn) {
+  ensureMysqlThreadLocal();
   MYSQL* mysql = mysql_init(nullptr);
   if (!mysql) {
     Core::Logger::getInstance().error("Pool: mysql_init failed");
@@ -185,9 +273,9 @@ bool MySQLConnector::createPooledConnection(PooledConnection& conn) {
   applyMysqlClientOptions(mysql, config_);
 
   MYSQL* result = mysql_real_connect(
-    mysql, config_.host.c_str(), config_.username.c_str(),
-    config_.password.c_str(), config_.database.c_str(),
-    config_.port, nullptr, 0);
+      mysql, config_.host.c_str(), config_.username.c_str(),
+      config_.password.c_str(), config_.database.c_str(),
+      config_.port, nullptr, 0);
 
   if (!result) {
     Core::Logger::getInstance().error("Pool: connection failed: {}", mysql_error(mysql));
@@ -199,28 +287,41 @@ bool MySQLConnector::createPooledConnection(PooledConnection& conn) {
   mysql_autocommit(mysql, 1);
   conn.mysql = mysql;
   conn.inUse = false;
+  conn.needsRecreate = false;
   conn.lastUsed = std::chrono::steady_clock::now();
   return true;
 }
 
-size_t MySQLConnector::acquireConnection(uint32_t timeoutMs) {
+MySQLConnector::ConnectionLease MySQLConnector::acquireLease(uint32_t timeoutMs) {
+  ensureMysqlThreadLocal();
+
+  if (shuttingDown_.load(std::memory_order_acquire)) {
+    return ConnectionLease{};
+  }
+
   size_t idx = POOL_NONE;
   std::chrono::steady_clock::time_point lastUsed{};
   void* mysqlRaw = nullptr;
+  bool needsRecreate = false;
 
   {
     std::unique_lock<std::mutex> lock(poolMutex_);
 
     if (!poolInitialized_ || pool_.empty()) {
-      return POOL_NONE;
+      return ConnectionLease{};
     }
 
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
 
     while (available_.empty()) {
+      if (shuttingDown_.load(std::memory_order_acquire)) {
+        return ConnectionLease{};
+      }
       if (poolCond_.wait_until(lock, deadline) == std::cv_status::timeout) {
-        Core::Logger::getInstance().warn("Pool: acquire timed out after {}ms", timeoutMs);
-        return POOL_NONE;
+        Core::Logger::getInstance().warn(
+            "Pool: acquire timed out after {}ms (Pool exhausted — sem fallback à primary)",
+            timeoutMs);
+        return ConnectionLease{};
       }
     }
 
@@ -229,33 +330,39 @@ size_t MySQLConnector::acquireConnection(uint32_t timeoutMs) {
     pool_[idx].inUse = true;
     lastUsed = pool_[idx].lastUsed;
     mysqlRaw = pool_[idx].mysql;
+    needsRecreate = pool_[idx].needsRecreate || (mysqlRaw == nullptr);
   }
 
-  // Ping só fora do poolMutex_ e só se a conexão ficou ociosa (>30s).
-  // Conexões quentes (uso constante em jogo) nunca pagam RTT de ping.
   constexpr auto kIdlePingThreshold = std::chrono::seconds(30);
   const auto now = std::chrono::steady_clock::now();
   const bool idleTooLong =
       (lastUsed.time_since_epoch().count() == 0) || ((now - lastUsed) > kIdlePingThreshold);
 
-  if (mysqlRaw && idleTooLong) {
+  if (needsRecreate || (mysqlRaw && idleTooLong)) {
     MYSQL* mysql = static_cast<MYSQL*>(mysqlRaw);
-    if (mysql_ping(mysql) != 0) {
+    bool mustRecreate = needsRecreate;
+    if (!mustRecreate && mysql && mysql_ping(mysql) != 0) {
+      mustRecreate = true;
+    }
+    if (mustRecreate) {
       std::lock_guard<std::mutex> lock(poolMutex_);
-      Core::Logger::getInstance().warn("Pool: connection {} lost, reconnecting...", idx);
-      mysql_close(mysql);
-      pool_[idx].mysql = nullptr;
+      Core::Logger::getInstance().warn("Pool: connection {} lost/stale, recreating...", idx);
+      if (pool_[idx].mysql) {
+        mysql_close(static_cast<MYSQL*>(pool_[idx].mysql));
+        pool_[idx].mysql = nullptr;
+      }
+      pool_[idx].needsRecreate = false;
       if (!createPooledConnection(pool_[idx])) {
         pool_[idx].inUse = false;
         available_.push(idx);
         poolCond_.notify_one();
-        return POOL_NONE;
+        return ConnectionLease{};
       }
       pool_[idx].inUse = true;
     }
   }
 
-  return idx;
+  return ConnectionLease(this, idx);
 }
 
 void MySQLConnector::releaseConnection(size_t index) {
@@ -268,14 +375,23 @@ void MySQLConnector::releaseConnection(size_t index) {
   }
 }
 
+void MySQLConnector::markConnectionNeedsRecreate(size_t index) {
+  std::lock_guard<std::mutex> lock(poolMutex_);
+  if (index < pool_.size()) {
+    pool_[index].needsRecreate = true;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // connect / disconnect
 // ---------------------------------------------------------------------------
 
 bool MySQLConnector::connect() {
+  ensureMysqlThreadLocal();
   std::lock_guard<std::mutex> lock(mutex_);
 
   if (connected_) return true;
+  shuttingDown_.store(false, std::memory_order_release);
 
   Core::Logger::getInstance().info("Connecting to MySQL: {}:{}/{}",
                                    config_.host, config_.port, config_.database);
@@ -289,9 +405,9 @@ bool MySQLConnector::connect() {
   applyMysqlClientOptions(mysql, config_);
 
   MYSQL* result = mysql_real_connect(
-    mysql, config_.host.c_str(), config_.username.c_str(),
-    config_.password.c_str(), config_.database.c_str(),
-    config_.port, nullptr, 0);
+      mysql, config_.host.c_str(), config_.username.c_str(),
+      config_.password.c_str(), config_.database.c_str(),
+      config_.port, nullptr, 0);
 
   if (!result) {
     std::string error = mysql_error(mysql);
@@ -324,13 +440,27 @@ bool MySQLConnector::connect() {
       }
     }
     poolInitialized_ = true;
-    Core::Logger::getInstance().info("MySQL connection pool: {}/{} connections created", created, poolSize);
+    Core::Logger::getInstance().info("MySQL connection pool: {}/{} connections created", created,
+                                     poolSize);
   }
 
   return true;
 }
 
 void MySQLConnector::disconnect() {
+  shuttingDown_.store(true, std::memory_order_release);
+  poolCond_.notify_all();
+
+  // Aguarda leases ativos (máx ~5s) para não fechar MYSQL* em uso.
+  for (int i = 0; i < 50 && activeLeases_.load(std::memory_order_acquire) > 0; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  if (activeLeases_.load(std::memory_order_acquire) > 0) {
+    Core::Logger::getInstance().warn(
+        "MySQL disconnect: {} lease(s) ainda ativos — fechando mesmo assim",
+        activeLeases_.load());
+  }
+
   {
     std::lock_guard<std::mutex> poolLock(poolMutex_);
     for (auto& conn : pool_) {
@@ -374,7 +504,8 @@ bool MySQLConnector::executeOnConnection(void* conn, const std::string& query) {
   return true;
 }
 
-std::optional<std::string> MySQLConnector::executeScalarOnConnection(void* conn, const std::string& query) {
+std::optional<std::string> MySQLConnector::executeScalarOnConnection(void* conn,
+                                                                    const std::string& query) {
   MYSQL* mysql = static_cast<MYSQL*>(conn);
   if (mysql_real_query(mysql, query.c_str(), static_cast<unsigned long>(query.length())) != 0) {
     logError("Scalar query failed: " + std::string(mysql_error(mysql)));
@@ -396,7 +527,8 @@ std::optional<std::string> MySQLConnector::executeScalarOnConnection(void* conn,
   return value;
 }
 
-std::vector<std::vector<std::string>> MySQLConnector::executeQueryOnConnection(void* conn, const std::string& query) {
+std::vector<std::vector<std::string>> MySQLConnector::executeQueryOnConnection(
+    void* conn, const std::string& query) {
   std::vector<std::vector<std::string>> results;
   MYSQL* mysql = static_cast<MYSQL*>(conn);
   if (mysql_real_query(mysql, query.c_str(), static_cast<unsigned long>(query.length())) != 0) {
@@ -423,61 +555,56 @@ std::vector<std::vector<std::string>> MySQLConnector::executeQueryOnConnection(v
 }
 
 // ---------------------------------------------------------------------------
-// Public API — uses pool when available, falls back to primary connection
+// Public API — pool only (sem fallback à primary sem lock)
 // ---------------------------------------------------------------------------
 
 bool MySQLConnector::execute(const std::string& query) {
-  size_t idx = acquireConnection(5000);
-  if (idx != POOL_NONE) {
-    Core::Logger::getInstance().debug("Executing query (pool[{}]): {}", idx, query);
-    bool ok = executeOnConnection(pool_[idx].mysql, query);
-    releaseConnection(idx);
-    return ok;
-  }
-
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (!connected_ || !connection_) {
-    logError("Cannot execute query: not connected");
+  ConnectionLease lease = acquireLease(5000);
+  if (!lease.valid()) {
+    logError("Cannot execute query: pool exhausted or not connected");
     return false;
   }
-  Core::Logger::getInstance().debug("Executing query (primary): {}", query);
-  return executeOnConnection(connection_, query);
+  Core::Logger::getInstance().debug("Executing query (pool[{}]): {}", lease.index(), query);
+  const bool ok = executeOnConnection(lease.mysql(), query);
+  if (!ok) {
+    MYSQL* mysql = static_cast<MYSQL*>(lease.mysql());
+    if (mysql && isServerLostError(mysql_errno(mysql))) {
+      lease.markNeedsRecreate();
+    }
+  }
+  return ok;
 }
 
 std::optional<std::string> MySQLConnector::executeScalar(const std::string& query) {
-  size_t idx = acquireConnection(5000);
-  if (idx != POOL_NONE) {
-    Core::Logger::getInstance().debug("Executing scalar (pool[{}]): {}", idx, query);
-    auto result = executeScalarOnConnection(pool_[idx].mysql, query);
-    releaseConnection(idx);
-    return result;
-  }
-
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (!connected_ || !connection_) {
-    logError("Cannot execute scalar: not connected");
+  ConnectionLease lease = acquireLease(5000);
+  if (!lease.valid()) {
+    logError("Cannot execute scalar: pool exhausted or not connected");
     return std::nullopt;
   }
-  Core::Logger::getInstance().debug("Executing scalar (primary): {}", query);
-  return executeScalarOnConnection(connection_, query);
+  Core::Logger::getInstance().debug("Executing scalar (pool[{}]): {}", lease.index(), query);
+  auto result = executeScalarOnConnection(lease.mysql(), query);
+  if (!result) {
+    MYSQL* mysql = static_cast<MYSQL*>(lease.mysql());
+    if (mysql && isServerLostError(mysql_errno(mysql))) {
+      lease.markNeedsRecreate();
+    }
+  }
+  return result;
 }
 
 std::vector<std::vector<std::string>> MySQLConnector::executeQuery(const std::string& query) {
-  size_t idx = acquireConnection(5000);
-  if (idx != POOL_NONE) {
-    Core::Logger::getInstance().debug("Executing result query (pool[{}]): {}", idx, query);
-    auto result = executeQueryOnConnection(pool_[idx].mysql, query);
-    releaseConnection(idx);
-    return result;
-  }
-
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (!connected_ || !connection_) {
-    logError("Cannot execute query: not connected");
+  ConnectionLease lease = acquireLease(5000);
+  if (!lease.valid()) {
+    logError("Cannot execute query: pool exhausted or not connected");
     return {};
   }
-  Core::Logger::getInstance().debug("Executing result query (primary): {}", query);
-  return executeQueryOnConnection(connection_, query);
+  Core::Logger::getInstance().debug("Executing result query (pool[{}]): {}", lease.index(), query);
+  auto result = executeQueryOnConnection(lease.mysql(), query);
+  MYSQL* mysql = static_cast<MYSQL*>(lease.mysql());
+  if (mysql && isServerLostError(mysql_errno(mysql))) {
+    lease.markNeedsRecreate();
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -485,80 +612,78 @@ std::vector<std::vector<std::string>> MySQLConnector::executeQuery(const std::st
 // ---------------------------------------------------------------------------
 
 uint32_t MySQLConnector::prepareStatement(const std::string& query) {
-  Core::Logger::getInstance().warn("prepareStatement(id) deprecated — use executePreparedQuery/executePreparedInsert directly");
+  (void)query;
+  Core::Logger::getInstance().warn(
+      "prepareStatement(id) deprecated — use executePreparedQuery/executePreparedInsert directly");
   return 0;
 }
 
 bool MySQLConnector::executePrepared(uint32_t statementId, const std::vector<std::string>& params) {
-  Core::Logger::getInstance().warn("executePrepared(id) deprecated — use executePreparedInsert directly");
+  (void)statementId;
+  (void)params;
+  Core::Logger::getInstance().warn(
+      "executePrepared(id) deprecated — use executePreparedInsert directly");
   return false;
 }
 
-bool MySQLConnector::executePreparedInsert(const std::string& query, const std::vector<std::string>& params) {
-  size_t idx = acquireConnection(5000);
-  void* conn = nullptr;
-  bool usedPool = false;
-
-  if (idx != POOL_NONE) {
-    conn = pool_[idx].mysql;
-    usedPool = true;
-  } else {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!connected_ || !connection_) {
-      logError("Cannot execute prepared insert: not connected");
-      return false;
-    }
-    conn = connection_;
+bool MySQLConnector::executePreparedInsert(const std::string& query,
+                                           const std::vector<std::string>& params) {
+  ConnectionLease lease = acquireLease(5000);
+  if (!lease.valid()) {
+    logError("Cannot execute prepared insert: pool exhausted or not connected");
+    return false;
   }
 
-  MYSQL* mysql = static_cast<MYSQL*>(conn);
+  MYSQL* mysql = static_cast<MYSQL*>(lease.mysql());
   MYSQL_STMT* stmt = mysql_stmt_init(mysql);
   if (!stmt) {
     logError("mysql_stmt_init failed");
-    if (usedPool) releaseConnection(idx);
     return false;
   }
 
   bool ok = false;
   if (mysql_stmt_prepare(stmt, query.c_str(), static_cast<unsigned long>(query.length())) != 0) {
     logError("Prepare failed: " + std::string(mysql_stmt_error(stmt)));
+    if (isServerLostError(mysql_stmt_errno(stmt))) {
+      lease.markNeedsRecreate();
+    }
   } else {
     unsigned long paramCount = mysql_stmt_param_count(stmt);
     if (paramCount != params.size()) {
-      logError("Param count mismatch: expected " + std::to_string(paramCount) + " got " + std::to_string(params.size()));
-    } else if (paramCount > 0) {
+      logError("Param count mismatch: expected " + std::to_string(paramCount) + " got " +
+               std::to_string(params.size()));
+    } else {
+      bool bindOk = true;
       PreparedParamBind paramBind;
-      std::string bindError;
-      if (!bindPreparedParams(stmt, params, paramBind, bindError)) {
-        logError("Bind failed: " + bindError);
-      } else if (mysql_stmt_execute(stmt) != 0) {
-        logError("Execute failed: " + std::string(mysql_stmt_error(stmt)));
-      } else {
-        ok = true;
-        const uint64_t insertId = mysql_stmt_insert_id(stmt);
-        if (usedPool) pool_[idx].lastInsertId = insertId;
-        {
-          std::lock_guard<std::mutex> lock(mutex_);
-          lastInsertId_ = insertId;
+      if (paramCount > 0) {
+        std::string bindError;
+        bindOk = bindPreparedParams(stmt, params, paramBind, bindError);
+        if (!bindOk) {
+          logError("Bind failed: " + bindError);
         }
       }
-    } else {
-      if (mysql_stmt_execute(stmt) != 0) {
-        logError("Execute (no params) failed: " + std::string(mysql_stmt_error(stmt)));
-      } else {
-        ok = true;
-        const uint64_t insertId = mysql_stmt_insert_id(stmt);
-        if (usedPool) pool_[idx].lastInsertId = insertId;
-        {
-          std::lock_guard<std::mutex> lock(mutex_);
-          lastInsertId_ = insertId;
+      if (bindOk) {
+        if (mysql_stmt_execute(stmt) != 0) {
+          logError("Execute failed: " + std::string(mysql_stmt_error(stmt)));
+          if (isServerLostError(mysql_stmt_errno(stmt))) {
+            lease.markNeedsRecreate();
+          }
+        } else {
+          ok = true;
+          const uint64_t insertId = mysql_stmt_insert_id(stmt);
+          if (lease.index() < pool_.size()) {
+            pool_[lease.index()].lastInsertId = insertId;
+          }
+          {
+            std::lock_guard<std::mutex> lock(mutex_);
+            lastInsertId_ = insertId;
+          }
         }
       }
     }
   }
 
   mysql_stmt_close(stmt);
-  if (usedPool) releaseConnection(idx);
   return ok;
 }
 
@@ -566,34 +691,25 @@ std::vector<std::vector<std::string>> MySQLConnector::executePreparedQuery(
     const std::string& query, const std::vector<std::string>& params) {
   std::vector<std::vector<std::string>> results;
 
-  size_t idx = acquireConnection(5000);
-  void* conn = nullptr;
-  bool usedPool = false;
-
-  if (idx != POOL_NONE) {
-    conn = pool_[idx].mysql;
-    usedPool = true;
-  } else {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!connected_ || !connection_) {
-      logError("Cannot execute prepared query: not connected");
-      return results;
-    }
-    conn = connection_;
+  ConnectionLease lease = acquireLease(5000);
+  if (!lease.valid()) {
+    logError("Cannot execute prepared query: pool exhausted or not connected");
+    return results;
   }
 
-  MYSQL* mysql = static_cast<MYSQL*>(conn);
+  MYSQL* mysql = static_cast<MYSQL*>(lease.mysql());
   MYSQL_STMT* stmt = mysql_stmt_init(mysql);
   if (!stmt) {
     logError("mysql_stmt_init failed");
-    if (usedPool) releaseConnection(idx);
     return results;
   }
 
   if (mysql_stmt_prepare(stmt, query.c_str(), static_cast<unsigned long>(query.length())) != 0) {
     logError("Prepare failed: " + std::string(mysql_stmt_error(stmt)));
+    if (isServerLostError(mysql_stmt_errno(stmt))) {
+      lease.markNeedsRecreate();
+    }
     mysql_stmt_close(stmt);
-    if (usedPool) releaseConnection(idx);
     return results;
   }
 
@@ -604,15 +720,16 @@ std::vector<std::vector<std::string>> MySQLConnector::executePreparedQuery(
     if (!bindPreparedParams(stmt, params, paramBind, bindError)) {
       logError("Bind failed: " + bindError);
       mysql_stmt_close(stmt);
-      if (usedPool) releaseConnection(idx);
       return results;
     }
   }
 
   if (mysql_stmt_execute(stmt) != 0) {
     logError("Execute failed: " + std::string(mysql_stmt_error(stmt)));
+    if (isServerLostError(mysql_stmt_errno(stmt))) {
+      lease.markNeedsRecreate();
+    }
     mysql_stmt_close(stmt);
-    if (usedPool) releaseConnection(idx);
     return results;
   }
 
@@ -622,7 +739,6 @@ std::vector<std::vector<std::string>> MySQLConnector::executePreparedQuery(
              std::to_string(mysql_stmt_errno(stmt)) + "): " +
              std::string(mysql_stmt_error(stmt)));
     mysql_stmt_close(stmt);
-    if (usedPool) releaseConnection(idx);
     return results;
   }
 
@@ -633,7 +749,6 @@ std::vector<std::vector<std::string>> MySQLConnector::executePreparedQuery(
     logError("Bind result setup failed: " + resultBindError);
     mysql_free_result(meta);
     mysql_stmt_close(stmt);
-    if (usedPool) releaseConnection(idx);
     return results;
   }
 
@@ -641,21 +756,19 @@ std::vector<std::vector<std::string>> MySQLConnector::executePreparedQuery(
     logError("Bind result failed: " + std::string(mysql_stmt_error(stmt)));
     mysql_free_result(meta);
     mysql_stmt_close(stmt);
-    if (usedPool) releaseConnection(idx);
     return results;
   }
 
   if (mysql_stmt_store_result(stmt) != 0) {
     logError("Store result failed: " + std::string(mysql_stmt_error(stmt)));
+    if (isServerLostError(mysql_stmt_errno(stmt))) {
+      lease.markNeedsRecreate();
+    }
     mysql_free_result(meta);
     mysql_stmt_close(stmt);
-    if (usedPool) releaseConnection(idx);
     return results;
   }
 
-  // mysql_stmt_fetch retorna 0 (ok), MYSQL_NO_DATA (100, fim), 1 (erro) ou
-  // MYSQL_DATA_TRUNCATED (101, coluna nao coube no buffer). Aceitar 0 e 101:
-  // descartar 101 (comportamento antigo) fazia a linha existente sumir em silencio.
   int fetchRc = 0;
   while (true) {
     fetchRc = mysql_stmt_fetch(stmt);
@@ -664,9 +777,6 @@ std::vector<std::vector<std::string>> MySQLConnector::executePreparedQuery(
     std::vector<std::string> row;
     row.reserve(numFields);
     for (unsigned int i = 0; i < numFields; ++i) {
-      // Coluna string cujo dado real excede o buffer fixo (stats_json, snapshot_json,
-      // effects_json, refinement_bonus_stats, ...): reler a coluna inteira com um buffer
-      // do tamanho exato via mysql_stmt_fetch_column. Zero perda de dado / sem regressao.
       if (!resultBind.isInteger[i] && resultBind.lengths[i] > kResultColumnBuf) {
         std::vector<char> fullBuf(resultBind.lengths[i]);
         MYSQL_BIND rebind;
@@ -692,19 +802,17 @@ std::vector<std::vector<std::string>> MySQLConnector::executePreparedQuery(
   }
 
   if (fetchRc == 1) {
-    logError("Prepared fetch failed (stmt_errno=" +
-             std::to_string(mysql_stmt_errno(stmt)) + "): " +
-             std::string(mysql_stmt_error(stmt)));
+    logError("Prepared fetch failed (stmt_errno=" + std::to_string(mysql_stmt_errno(stmt)) +
+             "): " + std::string(mysql_stmt_error(stmt)));
   } else if (results.empty()) {
-    // Diagnostico (nivel debug: resultado vazio pode ser legitimo, ex.: sem equipamento).
     Core::Logger::getInstance().debug(
         "Prepared query 0 linhas (num_rows={}, fetch_rc={})",
         static_cast<unsigned long long>(mysql_stmt_num_rows(stmt)), fetchRc);
   }
 
+  mysql_stmt_free_result(stmt);
   mysql_free_result(meta);
   mysql_stmt_close(stmt);
-  if (usedPool) releaseConnection(idx);
   return results;
 }
 

@@ -34,6 +34,7 @@ struct NpcDotInstance {
   uint32_t skillId = 0;
   uint64_t dotBuffId = 0;
   int32_t tickValue = 0;   // negativo = dano, positivo = cura
+  bool restoresMana = false;
   uint32_t intervalMs = 1000;
   uint8_t ticksRemaining = 0;
   int64_t expiresAtMs = 0;
@@ -49,6 +50,7 @@ struct PlayerDotInstance {
   uint64_t dotBuffId = 0;
   int32_t tickValue = 0;  // sempre positivo; isHeal decide o sinal
   bool isHeal = false;
+  bool restoresMana = false;
   uint32_t intervalMs = 1000;
   uint8_t ticksRemaining = 0;
   int64_t expiresAtMs = 0;
@@ -62,6 +64,7 @@ struct PlayerBuffInstance {
   uint32_t targetPlayerId = 0;
   uint32_t sourcePlayerId = 0;
   uint32_t skillId = 0;
+  uint8_t effectOrder = 0;
   uint64_t buffId = 0;
   uint8_t buffType = 0;
   uint8_t stacks = 1;
@@ -81,6 +84,7 @@ struct NpcBuffInstance {
   uint64_t buffId = 0;
   uint32_t sourcePlayerId = 0;
   uint32_t skillId = 0;
+  uint8_t effectOrder = 0;
   uint8_t buffType = 0;
   uint8_t stacks = 1;
   int32_t valueFlat = 0;
@@ -187,7 +191,14 @@ public:
   void setLootService(LootService* loot) { lootService_ = loot; }
 
   /** Multiplicador de velocidade (100 = base) para validação de movimento. */
-  float getPlayerMovementSpeedPercent(uint32_t playerId) const;
+  float getPlayerMovementSpeedPercent(uint32_t playerId);
+  bool canPlayerMove(uint32_t playerId);
+  bool canNpcMove(uint32_t npcInstanceId);
+  bool canNpcMove(const NpcRuntimeInstance& npc);
+  bool canNpcAct(uint32_t npcInstanceId, bool usesSkill);
+  bool canNpcAct(const NpcRuntimeInstance& npc, bool usesSkill);
+  float getNpcMovementSpeedPercent(uint32_t npcInstanceId);
+  float getNpcMovementSpeedPercent(const NpcRuntimeInstance& npc);
 
 private:
   bool skillHasEffectType(const Combat::SkillData& skill, Combat::EffectType type,
@@ -220,6 +231,7 @@ private:
                          bool isCrit = false, bool isDouble = false);
   void deductPlayerMana(uint32_t playerId, int32_t cost, int32_t knownCurrentHealth = -1,
                         int32_t knownCurrentMana = -1);
+  void restorePlayerMana(uint32_t playerId, int32_t amount);
   /** Emite opcode 87. Caminho quente: usa valores conhecidos/cache (0 SELECT). */
   void broadcastPlayerVitals(uint32_t playerId, int32_t knownCurrentHealth = -1,
                              int32_t knownCurrentMana = -1);
@@ -227,17 +239,28 @@ private:
   /** Aplica os efeitos DOT/HOT de uma skill no alvo (player via active_dots, NPC in-memory). */
   void applySkillEffects(uint32_t sourcePlayerId, uint8_t targetType, uint32_t targetId,
                          const Combat::SkillData& skill, const Combat::CharacterState& attacker,
-                         bool haveAttacker);
+                         bool haveAttacker, int32_t appliedDamage = 0);
   void insertPlayerDot(uint32_t sourcePlayerId, uint32_t targetPlayerId, uint32_t skillId,
                        const char* dotType, int32_t tickValue, uint32_t tickIntervalMs,
-                       uint32_t ticksTotal, const Combat::SkillData& skill);
+                       uint32_t ticksTotal, const Combat::SkillData& skill,
+                       bool restoresMana = false);
   /** Aplica buff/debuff de player em memória + persistência write-behind (0 MySQL sync). */
   uint64_t applyPlayerBuffInMemory(uint32_t targetPlayerId, uint32_t sourcePlayerId,
                                    uint32_t skillId, const Combat::SkillEffect& effect,
                                    const Combat::SkillData& skill, uint8_t buffTypeCode);
+  /** Overlay dos buffs/debuffs/shield em memória sobre CharacterState (cálculo de combate). */
+  void overlayRuntimeBuffs(uint32_t playerId, Combat::CharacterState& state);
+  void overlayNpcRuntimeBuffs(uint32_t npcInstanceId, Combat::CharacterState& state);
+  void hydratePlayerEffects(uint32_t playerId);
+  bool hasNpcCrowdControl(uint32_t npcInstanceId, Combat::EffectType type);
+  bool hasNpcCrowdControl(const NpcRuntimeInstance& npc, Combat::EffectType type);
+  bool hasPlayerCrowdControl(uint32_t playerId, Combat::EffectType type);
+  /** Consome pontos de SHIELD em playerBuffs_ após absorção no hit. */
+  void consumePlayerShield(uint32_t playerId, int32_t absorbed);
   void tickNpcDots();
   void tickPlayerDots();
   void tickNpcBuffExpirations();
+  void tickSummonExpirations();
   uint64_t applyNpcSkillBuff(uint32_t npcInstanceId, uint32_t sourcePlayerId, uint32_t skillId,
                              uint8_t buffType, const Combat::SkillEffect& eff,
                              const Combat::SkillData& skill);
@@ -249,12 +272,14 @@ private:
   /** Cooldown server-side do ataque básico por jogador. */
   bool checkAndStampBasicCooldown(uint32_t playerId, uint32_t cooldownMs);
   /** Broadcast de "Miss" (dano 0) para alvo NPC ou player. */
-  void broadcastMiss(uint8_t targetType, uint32_t targetId, uint32_t sourcePlayerId);
+  void broadcastMiss(uint8_t targetType, uint32_t targetId, uint32_t sourcePlayerId,
+                     bool triggerDodgeReaction = true);
   void broadcastSkillCast(const SkillCastBroadcastPayload& payload);
   void broadcastBasicAttack(const BasicAttackBroadcastPayload& payload);
   void broadcastNpcCombatEvent(const NpcCombatEventPayload& payload);
   void broadcastNpcState(const NpcStatePayload& payload);
   void broadcastSkillBuffSync(const SkillBuffSyncPayload& payload);
+  void broadcastCombatControlState(uint8_t targetType, uint32_t targetId);
   /** Opcode 104 action=0 para jogador: targetType=0, enrich e broadcast. */
   void broadcastPlayerSkillBuffApply(SkillBuffSyncPayload& sync);
   void preloadSkillAnimPaths();
@@ -319,11 +344,24 @@ private:
   std::vector<NpcBuffInstance> npcBuffs_;
   std::atomic<uint32_t> npcBuffIdSeq_{1};
   std::atomic<uint32_t> npcDotIdSeq_{1};
+  struct ActiveSummon {
+    uint32_t instanceId = 0;
+    uint32_t ownerPlayerId = 0;
+    uint32_t skillId = 0;
+    std::chrono::steady_clock::time_point expiresAt{};
+  };
+  std::mutex summonsMu_;
+  std::vector<ActiveSummon> activeSummons_;
 
   /** Evita reentrância ReactionEngine::mu_ quando dano vem de contra-ataque/reação. */
   bool inReactionDispatch_ = false;
 
-  enum class CombatJobKind : uint8_t { SkillCast = 0, BasicAttack = 1 };
+  enum class CombatJobKind : uint8_t {
+    SkillCast = 0,
+    BasicAttack = 1,
+    /** Hit adiado (castTimeMs): só aplica dano/efeitos, sem re-cobrar mana/CD/anim. */
+    SkillCastHitOnly = 2
+  };
   struct CombatJob {
     CombatJobKind kind = CombatJobKind::SkillCast;
     uint32_t sourcePlayerId = 0;
@@ -334,6 +372,8 @@ private:
   };
   void combatWorkerLoop();
   void enqueueJob(CombatJob job);
+  /** Enfileira hit adiado no combat worker (nunca processa no tick do zone). */
+  void enqueueSkillCastHitOnly(uint32_t sourcePlayerId, const SkillCastPayload& payload);
   static uint64_t skillCastKey(uint32_t playerId, uint32_t skillId) {
     return (static_cast<uint64_t>(playerId) << 32) | static_cast<uint64_t>(skillId);
   }

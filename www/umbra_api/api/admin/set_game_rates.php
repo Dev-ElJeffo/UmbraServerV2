@@ -14,8 +14,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$data = json_decode(file_get_contents('php://input'), true) ?: [];
 require_once __DIR__ . '/require_admin_auth.php';
+$data = admin_decode_json_body();
 requireAdminAuth($data);
 require_once __DIR__ . '/../../config/database.php';
 
@@ -49,7 +49,7 @@ try {
     $upsert->execute([':k' => 'drop_multiplier', ':v' => $drop]);
 
     require_once __DIR__ . '/../../helpers/admin_audit_helper.php';
-    $op = !empty($data['admin_username']) ? (string)$data['admin_username'] : 'admin';
+    $op = adminOperatorName();
     logAdminAudit($pdo, $op, 'set_game_rates', "exp={$exp};drop={$drop}", 'system', null, null, [
         'exp_multiplier' => $exp,
         'drop_multiplier' => $drop,

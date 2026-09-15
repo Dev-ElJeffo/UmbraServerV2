@@ -91,52 +91,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-require_once __DIR__ . '/../../config/database.php';
-require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/require_admin_auth.php';
 require_once __DIR__ . '/../../helpers/item_visual_helper.php';
 require_once __DIR__ . '/../../helpers/item_weapon_class_helper.php';
-require_once __DIR__ . '/verify_admin.php';
 
 $json = file_get_contents('php://input');
-$data = json_decode($json, true) ?: [];
-
-// Autenticação: aceitar admin_username (UmbraManager) OU JWT (cliente UE/web)
-$auth_ok = false;
-if (!empty($data['admin_username'])) {
-    try {
-        $database = new Database();
-        $authDb = $database->connect();
-        $adminCheck = verifyAdmin($authDb, $data['admin_username']);
-        if (!empty($adminCheck['success'])) {
-            $auth_ok = true;
-        } else {
-            ob_clean();
-            http_response_code(403);
-            echo json_encode($adminCheck, JSON_UNESCAPED_UNICODE);
-            ob_end_flush();
-            exit;
-        }
-    } catch (Exception $e) {
-        ob_clean();
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Erro de autenticação: ' . $e->getMessage()], JSON_UNESCAPED_UNICODE);
-        ob_end_flush();
-        exit;
-    }
-}
-if (!$auth_ok) {
-    $validation = validateJWTRequest($data, $_SERVER);
-    if (!$validation['valid']) {
-        ob_clean();
-        http_response_code(401);
-        echo json_encode([
-            'success' => false,
-            'message' => $validation['error'] ?? 'Token inválido ou expirado (forneça admin_username ou token)'
-        ], JSON_UNESCAPED_UNICODE);
-        ob_end_flush();
-        exit;
-    }
-}
+$data = admin_decode_json_body($json);
+requireAdminAuth($data);
 
 // Validar campos obrigatórios
 $required_fields = ['item_name', 'item_type', 'rarity'];
@@ -284,27 +245,19 @@ try {
         $use_cooldown_ms = 0;
     }
     
-    // Processar stats (JSON)
-    $stats = isset($data['stats']) && is_array($data['stats']) ? $data['stats'] : [];
-    
-    // Mapear campos para compatibilidade com o banco
-    // O banco espera "attack" e "defense", mas a interface pode enviar "physical_attack" e "physical_defense"
-    if (isset($stats['physical_attack']) && !isset($stats['attack'])) {
-        $stats['attack'] = $stats['physical_attack'];
-    }
-    if (isset($stats['physical_defense']) && !isset($stats['defense'])) {
-        $stats['defense'] = $stats['physical_defense'];
-    }
-    
-    // Remover campos vazios ou zero para economizar espaço
-    $stats_clean = [];
-    foreach ($stats as $key => $value) {
-        if ($value !== null && $value !== '' && $value !== 0 && $value !== 0.0) {
-            $stats_clean[$key] = $value;
-        }
+    // Processar stats (JSON canônico; zeros são persistidos)
+    require_once __DIR__ . '/item_schema_helpers.php';
+    try {
+        $stats_clean = item_canonicalize_stats($data['stats'] ?? []);
+    } catch (InvalidArgumentException $e) {
+        ob_clean();
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+        ob_end_flush();
+        exit;
     }
     
-    $stats_json = !empty($stats_clean) ? json_encode($stats_clean, JSON_UNESCAPED_UNICODE | JSON_NUMERIC_CHECK) : null;
+    $stats_json = $stats_clean !== [] ? json_encode($stats_clean, JSON_UNESCAPED_UNICODE) : null;
     
     // Verificar se já existe item com o mesmo nome
     $check_query = "SELECT item_id FROM item_templates WHERE item_name = :item_name LIMIT 1";

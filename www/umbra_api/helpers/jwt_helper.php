@@ -18,8 +18,18 @@ if (!is_file($__umbra_vendor_autoload)) {
     exit(1);
 }
 require_once $__umbra_vendor_autoload;
+require_once __DIR__ . '/../config/secrets.php';
 use \Firebase\JWT\JWT;
 use \Firebase\JWT\Key;
+
+function jwtSecretKey(): string
+{
+    $secret = umbra_jwt_secret();
+    if ($secret === '') {
+        throw new RuntimeException('JWT_SECRET não configurado (env, secrets.local.php ou config/server.json)');
+    }
+    return $secret;
+}
 
 /**
  * Obtém o token JWT do header Authorization
@@ -67,9 +77,12 @@ function validateJWT($token) {
         return null;
     }
     
-    // Chave secreta (deve ser a mesma usada na geração do token)
-    // Esta chave está definida em www/umbra_api/auth/login.php
-    $secret_key = "umbra_eternum_secret_key_2024_very_secure";
+    try {
+        $secret_key = jwtSecretKey();
+    } catch (Exception $e) {
+        error_log("[JWT] " . $e->getMessage());
+        return null;
+    }
     
     try {
         // Decodificar token
@@ -137,7 +150,12 @@ function validateJWTRequest($data = [], $server = []) {
  * @return string O token JWT gerado
  */
 function generateJWT($payload, $expiration_hours = 1) {
-    $secret_key = "umbra_eternum_secret_key_2024_very_secure";
+    try {
+        $secret_key = jwtSecretKey();
+    } catch (Exception $e) {
+        error_log("[JWT] " . $e->getMessage());
+        return null;
+    }
     
     $issued_at = time();
     $expiration_time = $issued_at + (3600 * $expiration_hours);
@@ -165,12 +183,10 @@ function generateJWT($payload, $expiration_hours = 1) {
  */
 function getPlayerIdFromJWT() {
     $jwt_data = validateJWTRequest();
-    
-    if (!$jwt_data || !isset($jwt_data['player_id'])) {
+    if (empty($jwt_data['valid']) || empty($jwt_data['payload']['player_id'])) {
         return null;
     }
-    
-    return (int) $jwt_data['player_id'];
+    return (int) $jwt_data['payload']['player_id'];
 }
 
 /**
@@ -181,12 +197,10 @@ function getPlayerIdFromJWT() {
  */
 function getAccountIdFromJWT() {
     $jwt_data = validateJWTRequest();
-    
-    if (!$jwt_data || !isset($jwt_data['account_id'])) {
+    if (empty($jwt_data['valid']) || empty($jwt_data['payload']['account_id'])) {
         return null;
     }
-    
-    return (int) $jwt_data['account_id'];
+    return (int) $jwt_data['payload']['account_id'];
 }
 
 /**
@@ -196,7 +210,8 @@ function getAccountIdFromJWT() {
  * @return bool True se o token é válido, false caso contrário
  */
 function isJWTValid() {
-    return validateJWTRequest() !== null;
+    $jwt_data = validateJWTRequest();
+    return !empty($jwt_data['valid']);
 }
 
 /**
@@ -245,9 +260,15 @@ function verifyAdminFromJWT($data = [], $server = []) {
             ];
         }
         
-        $query = "SELECT id, username, email, isadmin, banned FROM accounts WHERE id = :account_id";
-        $stmt = $pdo->prepare($query);
-        $stmt->execute(['account_id' => $account_id]);
+        $query = "SELECT id, username, email, isadmin, banned, COALESCE(admin_role, 'content') AS admin_role
+                  FROM accounts WHERE id = :account_id";
+        try {
+            $stmt = $pdo->prepare($query);
+            $stmt->execute(['account_id' => $account_id]);
+        } catch (Exception $e) {
+            $stmt = $pdo->prepare("SELECT id, username, email, isadmin, banned FROM accounts WHERE id = :account_id");
+            $stmt->execute(['account_id' => $account_id]);
+        }
         $account = $stmt->fetch(PDO::FETCH_ASSOC);
         
         if (!$account) {
@@ -279,14 +300,23 @@ function verifyAdminFromJWT($data = [], $server = []) {
             ];
         }
         
+        $role = strtolower(trim((string)($account['admin_role'] ?? 'content')));
+        if (!in_array($role, ['super', 'ops', 'content'], true)) {
+            $role = 'content';
+        }
+        $scope = (string)($validation['payload']['scope'] ?? '');
+
         return [
             'valid' => true,
             'is_admin' => true,
             'account_id' => $account_id,
+            'admin_role' => $role,
+            'scope' => $scope,
             'account' => [
                 'id' => $account['id'],
                 'username' => $account['username'],
-                'email' => $account['email']
+                'email' => $account['email'],
+                'role' => $role,
             ],
             'error' => null
         ];

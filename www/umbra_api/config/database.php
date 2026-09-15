@@ -1,10 +1,12 @@
 <?php
-// Configuração de conexão com MySQL80
-define('DB_HOST', 'localhost');
-define('DB_PORT', 3306);
-define('DB_NAME', 'umbra_eternum');
-define('DB_USER', 'root');
-define('DB_PASS', '!Mister4126'); // Sua senha do MySQL
+require_once __DIR__ . '/secrets.php';
+
+$__umbraDb = umbra_db_settings();
+if (!defined('DB_HOST')) define('DB_HOST', $__umbraDb['host']);
+if (!defined('DB_PORT')) define('DB_PORT', $__umbraDb['port']);
+if (!defined('DB_NAME')) define('DB_NAME', $__umbraDb['name']);
+if (!defined('DB_USER')) define('DB_USER', $__umbraDb['user']);
+if (!defined('DB_PASS')) define('DB_PASS', $__umbraDb['pass']);
 
 /**
  * Função para obter conexão PDO
@@ -43,7 +45,7 @@ class Database {
             $this->conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             $this->conn->exec("set names utf8mb4");
         } catch(PDOException $e) {
-            echo "Connection Error: " . $e->getMessage();
+            error_log('Database Connection Error: ' . $e->getMessage());
         }
         
         return $this->conn;

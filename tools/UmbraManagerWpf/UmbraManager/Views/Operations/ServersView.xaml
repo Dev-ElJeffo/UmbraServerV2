@@ -1,0 +1,61 @@
+<UserControl x:Class="UmbraManager.Views.Operations.ServersView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
+             xmlns:views="clr-namespace:UmbraManager.Views"
+             xmlns:controls="clr-namespace:UmbraManager.Controls">
+<DockPanel Margin="8">
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+        <Button Content="Start All" Command="{Binding StartAllCommand}" Margin="0,0,8,0" Style="{StaticResource ManagerActionButton}"/>
+        <Button Content="Stop All" Command="{Binding StopAllCommand}" Style="{StaticResource ManagerActionOutlinedButton}"/>
+    </StackPanel>
+    <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding Servers}" IsReadOnly="True">
+        <DataGrid.Columns>
+            <DataGridTemplateColumn Header="" Width="30">
+                <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                        <Ellipse Width="10" Height="10" HorizontalAlignment="Center"
+                                 VerticalAlignment="Center">
+                            <Ellipse.Style>
+                                <Style TargetType="Ellipse">
+                                    <Setter Property="Fill" Value="#E53935"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                                            <Setter Property="Fill" Value="#4CAF50"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Ellipse.Style>
+                        </Ellipse>
+                    </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTextColumn Header="Serviço" Binding="{Binding Definition.DisplayName}" Width="*"/>
+            <DataGridTextColumn Header="Porta" Binding="{Binding Definition.GamePort}" Width="70"/>
+            <DataGridTextColumn Header="Admin" Binding="{Binding Definition.AdminPort}" Width="70"/>
+            <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="70"/>
+            <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="110"/>
+            <DataGridTextColumn Header="Admin TCP" Binding="{Binding AdminState}" Width="120"/>
+            <DataGridTextColumn Header="Métricas" Binding="{Binding Stats}" Width="220"/>
+            <DataGridTemplateColumn Header="Ações" Width="280" MinWidth="280">
+                <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Content="Start" Style="{StaticResource ManagerActionButton}"
+                                    Command="{Binding DataContext.StartServiceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding}"/>
+                            <Button Content="Stop" Style="{StaticResource ManagerActionOutlinedButton}"
+                                    Command="{Binding DataContext.StopServiceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding}"/>
+                            <Button Content="Restart" Style="{StaticResource ManagerActionOutlinedButton}"
+                                    Command="{Binding DataContext.RestartServiceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding}"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+        </DataGrid.Columns>
+    </DataGrid>
+</DockPanel>
+</UserControl>
