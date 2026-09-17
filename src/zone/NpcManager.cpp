@@ -39,42 +39,68 @@ bool parseOptionalFloat(const std::string& s, float& out) {
 }
 }  // namespace
 
+namespace {
+std::string buildNpcInstanceSelectSql(Database::MySQLConnector& db) {
+  static const char* kBase =
+      "SELECT ni.npc_instance_id, ni.npc_template_id, ni.zone_id, ni.pos_x, ni.pos_y, ni.pos_z, ni.yaw, "
+      "ni.current_health, ni.current_mana, ni.is_dead, "
+      "COALESCE(UNIX_TIMESTAMP(ni.respawn_at), 0) AS respawn_at_unix, "
+      "nt.npc_name, nt.level, nt.max_health, nt.max_mana, "
+      "nt.physical_attack, nt.magic_attack, nt.physical_defense, nt.magic_defense, "
+      "nt.accuracy, nt.dodge, nt.critical, nt.critical_resistance, "
+      "nt.double_attack_rate, nt.double_attack_resistance, "
+      "nt.skeletal_mesh_path, nt.anim_blueprint_path, "
+      "COALESCE(nt.mesh_scale, 1.0) AS mesh_scale, "
+      "nt.is_attackable, nt.interaction_radius, nt.has_vendor, nt.has_quest_dialog, "
+      "COALESCE(nv.vendor_id, 0) AS vendor_id, "
+      "COALESCE(nt.respawn_seconds, 30) AS respawn_seconds, "
+      "COALESCE(nt.aggro_radius, 0) AS tpl_aggro, "
+      "COALESCE(nt.leash_radius, 0) AS tpl_leash, "
+      "COALESCE(nt.attack_range, 150) AS tpl_attack_range, "
+      "COALESCE(nt.attack_cooldown_ms, 1500) AS tpl_attack_cd, "
+      "COALESCE(nt.move_speed, 200) AS tpl_move_speed, "
+      "COALESCE(nt.roam_radius, 0) AS tpl_roam, "
+      "COALESCE(nt.is_hostile, 1) AS is_hostile, "
+      "ni.home_x, ni.home_y, ni.home_z, "
+      "ni.roam_radius AS inst_roam, ni.aggro_radius AS inst_aggro, "
+      "ni.leash_radius AS inst_leash, ni.move_speed AS inst_move_speed, "
+      "nt.right_hand_mesh_path, nt.left_hand_mesh_path, "
+      "COALESCE(nt.right_hand_rel_x, 0), COALESCE(nt.right_hand_rel_y, 0), COALESCE(nt.right_hand_rel_z, 0), "
+      "COALESCE(nt.right_hand_rel_pitch, 0), COALESCE(nt.right_hand_rel_yaw, 0), COALESCE(nt.right_hand_rel_roll, 0), "
+      "COALESCE(nt.right_hand_rel_scale, 1), "
+      "COALESCE(nt.left_hand_rel_x, 0), COALESCE(nt.left_hand_rel_y, 0), COALESCE(nt.left_hand_rel_z, 0), "
+      "COALESCE(nt.left_hand_rel_pitch, 0), COALESCE(nt.left_hand_rel_yaw, 0), COALESCE(nt.left_hand_rel_roll, 0), "
+      "COALESCE(nt.left_hand_rel_scale, 1), "
+      "nt.anim_states_json, "
+      "COALESCE(nt.collision_radius, 45) AS collision_radius, "
+      "COALESCE(nt.nameplate_radius, 2000) AS nameplate_radius "
+      "FROM npc_instances ni "
+      "JOIN npc_templates nt ON nt.npc_template_id = ni.npc_template_id "
+      "LEFT JOIN npc_vendors nv ON nv.npc_template_id = nt.npc_template_id ";
+
+  static int hasStopChase = -1;
+  if (hasStopChase < 0) {
+    hasStopChase =
+        !db.executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'combat_stop_range'").empty() ? 1 : 0;
+  }
+  std::string sql = kBase;
+  if (hasStopChase == 1) {
+    const std::string marker = "AS nameplate_radius ";
+    const auto pos = sql.find(marker);
+    if (pos != std::string::npos) {
+      sql.insert(pos + marker.size(),
+                 ", COALESCE(nt.combat_stop_range, 0) AS tpl_combat_stop, "
+                 "COALESCE(nt.chase_speed_mult, 1.5) AS tpl_chase_mult, "
+                 "ni.combat_stop_range AS inst_combat_stop, "
+                 "ni.chase_speed_mult AS inst_chase_mult ");
+    }
+  }
+  return sql;
+}
+}  // namespace
+
 const char* NpcManager::kInstanceSelectSql =
-    "SELECT ni.npc_instance_id, ni.npc_template_id, ni.zone_id, ni.pos_x, ni.pos_y, ni.pos_z, ni.yaw, "
-    "ni.current_health, ni.current_mana, ni.is_dead, "
-    "COALESCE(UNIX_TIMESTAMP(ni.respawn_at), 0) AS respawn_at_unix, "
-    "nt.npc_name, nt.level, nt.max_health, nt.max_mana, "
-    "nt.physical_attack, nt.magic_attack, nt.physical_defense, nt.magic_defense, "
-    "nt.accuracy, nt.dodge, nt.critical, nt.critical_resistance, "
-    "nt.double_attack_rate, nt.double_attack_resistance, "
-    "nt.skeletal_mesh_path, nt.anim_blueprint_path, "
-    "COALESCE(nt.mesh_scale, 1.0) AS mesh_scale, "
-    "nt.is_attackable, nt.interaction_radius, nt.has_vendor, nt.has_quest_dialog, "
-    "COALESCE(nv.vendor_id, 0) AS vendor_id, "
-    "COALESCE(nt.respawn_seconds, 30) AS respawn_seconds, "
-    "COALESCE(nt.aggro_radius, 0) AS tpl_aggro, "
-    "COALESCE(nt.leash_radius, 0) AS tpl_leash, "
-    "COALESCE(nt.attack_range, 150) AS tpl_attack_range, "
-    "COALESCE(nt.attack_cooldown_ms, 1500) AS tpl_attack_cd, "
-    "COALESCE(nt.move_speed, 200) AS tpl_move_speed, "
-    "COALESCE(nt.roam_radius, 0) AS tpl_roam, "
-    "COALESCE(nt.is_hostile, 1) AS is_hostile, "
-    "ni.home_x, ni.home_y, ni.home_z, "
-    "ni.roam_radius AS inst_roam, ni.aggro_radius AS inst_aggro, "
-    "ni.leash_radius AS inst_leash, ni.move_speed AS inst_move_speed, "
-    "nt.right_hand_mesh_path, nt.left_hand_mesh_path, "
-    "COALESCE(nt.right_hand_rel_x, 0), COALESCE(nt.right_hand_rel_y, 0), COALESCE(nt.right_hand_rel_z, 0), "
-    "COALESCE(nt.right_hand_rel_pitch, 0), COALESCE(nt.right_hand_rel_yaw, 0), COALESCE(nt.right_hand_rel_roll, 0), "
-    "COALESCE(nt.right_hand_rel_scale, 1), "
-    "COALESCE(nt.left_hand_rel_x, 0), COALESCE(nt.left_hand_rel_y, 0), COALESCE(nt.left_hand_rel_z, 0), "
-    "COALESCE(nt.left_hand_rel_pitch, 0), COALESCE(nt.left_hand_rel_yaw, 0), COALESCE(nt.left_hand_rel_roll, 0), "
-    "COALESCE(nt.left_hand_rel_scale, 1), "
-    "nt.anim_states_json, "
-    "COALESCE(nt.collision_radius, 45) AS collision_radius, "
-    "COALESCE(nt.nameplate_radius, 2000) AS nameplate_radius "
-    "FROM npc_instances ni "
-    "JOIN npc_templates nt ON nt.npc_template_id = ni.npc_template_id "
-    "LEFT JOIN npc_vendors nv ON nv.npc_template_id = nt.npc_template_id ";
+    "SELECT ni.npc_instance_id FROM npc_instances ni ";  // legado; queries usam buildNpcInstanceSelectSql
 
 std::string NpcManager::zoneWhereClause() {
   return "WHERE (ni.zone_id = ? OR ni.zone_id = 0) ";
@@ -95,15 +121,28 @@ void NpcManager::resetAiState(NpcRuntimeInstance& inst) {
 
 namespace {
 void appendAnimPathList(std::vector<std::string>& out, const nlohmann::json& node) {
+  auto pushOne = [&out](std::string s) {
+    // Aceita "pathA;pathB" gravado como string única (legado / typo no Manager).
+    size_t start = 0;
+    while (start < s.size()) {
+      const size_t sep = s.find(';', start);
+      const size_t end = (sep == std::string::npos) ? s.size() : sep;
+      std::string part = s.substr(start, end - start);
+      // trim
+      while (!part.empty() && (part.front() == ' ' || part.front() == '\t')) part.erase(part.begin());
+      while (!part.empty() && (part.back() == ' ' || part.back() == '\t')) part.pop_back();
+      if (!part.empty()) out.push_back(std::move(part));
+      if (sep == std::string::npos) break;
+      start = sep + 1;
+    }
+  };
   if (node.is_array()) {
     for (const auto& el : node) {
       if (!el.is_string()) continue;
-      std::string s = el.get<std::string>();
-      if (!s.empty()) out.push_back(std::move(s));
+      pushOne(el.get<std::string>());
     }
   } else if (node.is_string()) {
-    std::string s = node.get<std::string>();
-    if (!s.empty()) out.push_back(std::move(s));
+    pushOne(node.get<std::string>());
   }
 }
 std::string jsonDirString(const nlohmann::json& dir, std::initializer_list<const char*> keys) {
@@ -219,7 +258,7 @@ bool NpcManager::reloadFromDatabase() {
   indexById_.clear();
 
   const std::string zoneStr = std::to_string(zoneId_);
-  auto rows = db_->executePreparedQuery(std::string(kInstanceSelectSql) + zoneWhereClause(), {zoneStr});
+  auto rows = db_->executePreparedQuery(buildNpcInstanceSelectSql(*db_) + zoneWhereClause(), {zoneStr});
 
   for (const auto& row : rows) {
     loadInstanceFromRow(row);
@@ -247,7 +286,7 @@ bool NpcManager::loadInstanceById(uint32_t npcInstanceId) {
   const std::string idStr = std::to_string(npcInstanceId);
   const std::string zoneStr = std::to_string(zoneId_);
   auto rows = db_->executePreparedQuery(
-      std::string(kInstanceSelectSql) + zoneWhereClause() + "AND ni.npc_instance_id = ? LIMIT 1",
+      buildNpcInstanceSelectSql(*db_) + zoneWhereClause() + "AND ni.npc_instance_id = ? LIMIT 1",
       {zoneStr, idStr});
 
   if (rows.empty()) return false;
@@ -262,7 +301,7 @@ size_t NpcManager::reloadMissingInstancesFromDatabase() {
   if (!db_ || !db_->isConnected()) return 0;
 
   const std::string zoneStr = std::to_string(zoneId_);
-  auto rows = db_->executePreparedQuery(std::string(kInstanceSelectSql) + zoneWhereClause(), {zoneStr});
+  auto rows = db_->executePreparedQuery(buildNpcInstanceSelectSql(*db_) + zoneWhereClause(), {zoneStr});
 
   size_t loaded = 0;
   std::lock_guard<std::mutex> lock(mu_);
@@ -424,6 +463,17 @@ void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
       inst.nameplateRadius = parseFloatOr(row[66], 2000.f);
       if (inst.nameplateRadius < 1.f) inst.nameplateRadius = 2000.f;
     }
+
+    const float tplCombatStop = (row.size() > 67) ? parseFloatOr(row[67], 0.f) : 0.f;
+    const float tplChaseMult = (row.size() > 68) ? parseFloatOr(row[68], 1.5f) : 1.5f;
+    float ovStop = 0.f;
+    float ovChase = 0.f;
+    inst.combatStopRange =
+        (row.size() > 69 && parseOptionalFloat(row[69], ovStop)) ? ovStop : tplCombatStop;
+    inst.chaseSpeedMult =
+        (row.size() > 70 && parseOptionalFloat(row[70], ovChase)) ? ovChase : tplChaseMult;
+    if (inst.combatStopRange < 0.f) inst.combatStopRange = 0.f;
+    if (inst.chaseSpeedMult <= 0.f) inst.chaseSpeedMult = 1.5f;
 
     inst.lastBroadcastX = inst.x;
     inst.lastBroadcastY = inst.y;

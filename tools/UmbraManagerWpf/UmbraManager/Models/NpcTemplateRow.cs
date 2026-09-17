@@ -59,11 +59,15 @@ public sealed class NpcTemplateRow
     public float AggroRadius { get; set; }
     public float LeashRadius { get; set; }
     public float AttackRange { get; set; } = 150f;
+    /** 0 = usa AttackRange. Distância para parar o chase e atacar. */
+    public float CombatStopRange { get; set; }
     public int AttackCooldownMs { get; set; } = 1500;
     public float MoveSpeed { get; set; } = 200f;
+    /** Multiplicador de MoveSpeed no Chase (aggro). */
+    public float ChaseSpeedMult { get; set; } = 1.5f;
     public float RoamRadius { get; set; }
     public bool IsHostile { get; set; } = true;
     public string Summary =>
         $"Lv {Level} | HP {MaxHealth} | PA {PhysicalAttack} | Roam {RoamRadius:0} | Aggro {AggroRadius:0} | " +
-        $"AtkR {AttackRange:0} | Hostil {(IsHostile ? "Sim" : "Nao")} | Resp {RespawnSeconds}s";
+        $"Stop {CombatStopRange:0} | AtkR {AttackRange:0} | Chase×{ChaseSpeedMult:0.##} | Hostil {(IsHostile ? "Sim" : "Nao")} | Resp {RespawnSeconds}s";
 }

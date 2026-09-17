@@ -77,8 +77,10 @@
           <CheckBox Content="IgnoreDef" IsChecked="{Binding NpcSkillFormIgnoresDefense}" Margin="0,0,12,0"/>
           <CheckBox Content="Enabled" IsChecked="{Binding NpcSkillFormIsEnabled}"/>
         </StackPanel>
+        <TextBox Text="{Binding NpcSkillFormCastAnimPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="cast_anim_path (montage UE do cast)" materialDesign:HintAssist.IsFloating="True"/>
         <TextBox Text="{Binding NpcSkillFormVfxKey, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
-                 materialDesign:HintAssist.Hint="anim path (montage UE)" materialDesign:HintAssist.IsFloating="True"/>
+                 materialDesign:HintAssist.Hint="vfx_key (legado; preferir cast_anim_path)" materialDesign:HintAssist.IsFloating="True"/>
         <TextBox Text="{Binding NpcSkillFormVfxPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
                  materialDesign:HintAssist.Hint="vfx_path (Niagara caster)" materialDesign:HintAssist.IsFloating="True"/>
         <TextBox Text="{Binding NpcSkillFormHitVfxPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"

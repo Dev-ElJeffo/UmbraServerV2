@@ -265,11 +265,14 @@ Só para preview/local, **não substitui** o JSON do servidor.
 
 | Ação | Slot | Fonte |
 |------|------|--------|
-| Basic | UpperBody | `attacks[i]` + `animIndex` (opcode 99) |
-| Skill | UpperBody | `casts[]` / `skill` / `attacks[0]` |
+| Basic | DefaultSlot (path do 99) | Servidor rotaciona `attacks[]` → path + `animIndex` no opcode 99 |
+| Skill | DefaultSlot se path no 97; senão UpperBody | `npc_skills.cast_anim_path` → `casts[]` → `skill` → `attacks[]` (não usar `vfx_key` como anim) |
+| Loco Chase/Return | ABP run | Opcode 102 `aiState` 3/4 → `bIsRunning=true` no `UmbraNpcAnimInstance` |
 | Buff | UpperBody | `buffs[]` |
 | Hit | DefaultSlot | `hits[]` + 103 |
 | Death | DefaultSlot | `death` + 102 Dying |
+
+Niagara de skill: `vfx_path` / `hit_vfx_path` no opcode 97 (mesmo `PlaySkillCastVfx` do player).
 
 Sem ABP (Griffon): Sequence `PlayAnimation` como antes.
 

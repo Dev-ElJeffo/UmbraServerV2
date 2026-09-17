@@ -249,7 +249,7 @@
                             <Expander Header="Animações" IsExpanded="False" Style="{StaticResource ManagerFormSection}">
                             <StackPanel>
                             <TextBox Text="{Binding NewNpcAnimAttacksCsv, UpdateSourceTrigger=PropertyChanged}"
-                                     materialDesign:HintAssist.Hint="Attacks (paths separados por ;)"
+                                     materialDesign:HintAssist.Hint="Attacks (várias montages do basic, separadas por ; — servidor rotaciona)"
                                      materialDesign:HintAssist.IsFloating="True"
                                      AcceptsReturn="True" MinHeight="40" TextWrapping="Wrap"
                                      Margin="0,0,0,6"/>
@@ -411,7 +411,7 @@
                             <Expander Header="IA e interação" IsExpanded="True" Style="{StaticResource ManagerFormSection}">
                             <StackPanel>
                             <TextBlock FontSize="11" Opacity="0.65" TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="Roam = área de passeio em torno do spawn. Aggro = raio que detecta o player. Leash = distância máxima do home (0 = aggro×2). Hostil = pode atacar."/>
+                                       Text="Roam = passeio em torno do spawn. Aggro = detecta o player. Stop range = distância para parar e atacar (0 = usa alcance de hit). Chase× = multiplicador da velocidade no aggro. Leash = distância máxima do home (0 = aggro×2)."/>
                             <Grid Margin="0,0,0,10">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
@@ -432,7 +432,18 @@
                                 <TextBox Grid.Column="0" Text="{Binding NewNpcLeashRadius, UpdateSourceTrigger=PropertyChanged}"
                                          materialDesign:HintAssist.Hint="Leash / volta ao home (0 = auto)" materialDesign:HintAssist.IsFloating="True"/>
                                 <TextBox Grid.Column="2" Text="{Binding NewNpcMoveSpeed, UpdateSourceTrigger=PropertyChanged}"
-                                         materialDesign:HintAssist.Hint="Velocidade de movimento" materialDesign:HintAssist.IsFloating="True"/>
+                                         materialDesign:HintAssist.Hint="Velocidade de roam (uu/s)" materialDesign:HintAssist.IsFloating="True"/>
+                            </Grid>
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0" Text="{Binding NewNpcChaseSpeedMult, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="Chase speed mult (ex. 1.5 = corre 50% mais)" materialDesign:HintAssist.IsFloating="True"/>
+                                <TextBox Grid.Column="2" Text="{Binding NewNpcCombatStopRange, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="Stop range (0 = usa alcance de ataque)" materialDesign:HintAssist.IsFloating="True"/>
                             </Grid>
                             <Grid Margin="0,0,0,10">
                                 <Grid.ColumnDefinitions>
@@ -441,7 +452,7 @@
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBox Grid.Column="0" Text="{Binding NewNpcAttackRange, UpdateSourceTrigger=PropertyChanged}"
-                                         materialDesign:HintAssist.Hint="Alcance de ataque" materialDesign:HintAssist.IsFloating="True"/>
+                                         materialDesign:HintAssist.Hint="Alcance de hit (basic)" materialDesign:HintAssist.IsFloating="True"/>
                                 <TextBox Grid.Column="2" Text="{Binding NewNpcAttackCooldownMs, UpdateSourceTrigger=PropertyChanged}"
                                          materialDesign:HintAssist.Hint="Cooldownown do ataque (ms)" materialDesign:HintAssist.IsFloating="True"/>
                             </Grid>

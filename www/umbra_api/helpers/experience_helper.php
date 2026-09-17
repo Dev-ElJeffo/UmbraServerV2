@@ -111,11 +111,13 @@ function umbra_grant_experience(PDO $pdo, int $player_id, int $amount, string $s
 
         if ($new_level > $old_level) {
             $total_skill = $new_level * 3;
+            // Placeholders distintos: ATTR_EMULATE_PREPARES=false não aceita :earned reutilizado.
             $pdo->prepare(
                 'UPDATE player_skill_points SET total_points_earned = :earned, '
-                . 'points_available = :earned - points_spent WHERE player_id = :id'
+                . 'points_available = :earned_for_available - points_spent WHERE player_id = :id'
             )->execute([
                 ':earned' => $total_skill,
+                ':earned_for_available' => $total_skill,
                 ':id' => $player_id,
             ]);
         }
@@ -156,7 +158,13 @@ function umbra_grant_experience(PDO $pdo, int $player_id, int $amount, string $s
         if ($startedHere && $pdo->inTransaction()) {
             $pdo->rollBack();
         }
-        error_log('[experience_helper] ' . $e->getMessage());
+        error_log(sprintf(
+            '[experience_helper] player_id=%d amount=%d source=%s: %s',
+            $player_id,
+            $amount,
+            $source,
+            $e->getMessage()
+        ));
         return null;
     }
 }

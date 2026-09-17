@@ -31,6 +31,7 @@ function npc_skill_payload_fields(array $data, bool $forUpdate = false): array
         'requires_target' => ['bool', 1],
         'effects_json' => ['json', null, ['effects']],
         'icon_path' => ['raw', null],
+        'cast_anim_path' => ['raw', null],
         'vfx_key' => ['raw', null],
         'vfx_path' => ['raw', null],
         'hit_vfx_path' => ['raw', null],
@@ -45,7 +46,7 @@ function npc_skill_payload_fields(array $data, bool $forUpdate = false): array
         $kind = $spec[0];
         $default = $spec[1];
         $aliases = $spec[2] ?? [];
-        $optionalSchema = in_array($col, ['sfx_path'], true);
+        $optionalSchema = in_array($col, ['sfx_path', 'cast_anim_path'], true);
         if (($forUpdate || $optionalSchema) && !skill_has_input($data, $col, $aliases)) {
             continue;
         }

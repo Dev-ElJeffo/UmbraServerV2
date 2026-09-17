@@ -352,6 +352,7 @@ struct SkillData {
     
     // Visual
     std::string iconPath;
+    std::string castAnimPath;
     std::string vfxKey;
     std::string vfxPath;
     std::string hitVfxPath;

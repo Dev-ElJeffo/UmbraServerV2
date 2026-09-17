@@ -36,13 +36,14 @@ float dist2dSq(float x1, float y1, float x2, float y2) {
   return dx * dx + dy * dy;
 }
 
-/** Slot 2D estável em torno do alvo — evita vários NPCs no mesmo XY no chase. */
-constexpr float kChaseSeparationRadius = 100.f;
-void chaseAimXY(uint32_t npcInstanceId, float targetX, float targetY, float& outX, float& outY) {
+/** Slot 2D estável no anel de holdRadius (combat_stop_range) — evita órbita melee ~100uu. */
+void chaseAimXY(uint32_t npcInstanceId, float targetX, float targetY, float holdRadius,
+                float& outX, float& outY) {
   const float angle =
       (static_cast<float>((npcInstanceId * 2654435761u) & 0xFFFFu) / 65535.f) * 6.28318530718f;
-  outX = targetX + std::cos(angle) * kChaseSeparationRadius;
-  outY = targetY + std::sin(angle) * kChaseSeparationRadius;
+  const float r = std::max(40.f, holdRadius);
+  outX = targetX + std::cos(angle) * r;
+  outY = targetY + std::sin(angle) * r;
 }
 
 void forceBroadcast(CombatCoreEngine* combat, NpcManager* npcManager, NpcRuntimeInstance& inst,
@@ -171,28 +172,31 @@ void NpcAiSystem::tick(float deltaSeconds) {
       if (lost) {
         enterReturn(inst);
       } else {
-        // Melee: só ataca bem perto; fora disso persegue (evita “bater de longe”).
-        const float minDist = inst.bodyMinDist();
-        const float attackR = std::max(50.f, inst.attackRange);
-        const float meleeReach = std::max(std::max(40.f, attackR * 0.75f), minDist);
+        // Para de chase em combat_stop_range (0 = attack_range) e ataca sem orbitar.
+        const float stopR = inst.effectiveCombatStopRange();
         float aimX = tx, aimY = ty;
-        chaseAimXY(inst.npcInstanceId, tx, ty, aimX, aimY);
+        chaseAimXY(inst.npcInstanceId, tx, ty, stopR, aimX, aimY);
         const float toPlayer2d = std::sqrt(dist2dSq(inst.x, inst.y, tx, ty));
-        if (toPlayer2d <= meleeReach) {
+        if (toPlayer2d <= stopR) {
           inst.aiState = NpcAiState::Combat;
           inst.z = inst.homeZ;
-          // Mantém slot de separation (não empilha no mesmo ponto do player).
-          {
-            const float sdx = aimX - inst.x;
-            const float sdy = aimY - inst.y;
-            const float sdist = std::sqrt(sdx * sdx + sdy * sdy);
-            const float step = inst.moveSpeed * speedMultiplier * deltaSeconds * 0.6f;
-            if (npcCanMove && sdist > 25.f && step > 0.f) {
-              const float t = std::min(1.f, step / sdist);
-              inst.x += sdx * t;
-              inst.y += sdy * t;
+          // Mantém distância de stop: se o player aproximou, o NPC recua até ~stopR.
+          const float holdMin = stopR * 0.92f;
+          if (npcCanMove && toPlayer2d < holdMin && toPlayer2d > 0.001f) {
+            const float awayX = inst.x - tx;
+            const float awayY = inst.y - ty;
+            const float awayLen = std::sqrt(awayX * awayX + awayY * awayY);
+            if (awayLen > 0.001f) {
+              const float chaseMult = inst.effectiveChaseSpeedMult();
+              const float step = inst.moveSpeed * chaseMult * speedMultiplier * deltaSeconds;
+              const float need = stopR - toPlayer2d;
+              const float move = std::min(need, step);
+              inst.x += (awayX / awayLen) * move;
+              inst.y += (awayY / awayLen) * move;
+              inst.z = inst.homeZ;
             }
           }
+          // Stop-and-attack: não orbita; face o player.
           const float dx = tx - inst.x;
           const float dy = ty - inst.y;
           if (dx * dx + dy * dy > 1.f) {
@@ -207,7 +211,8 @@ void NpcAiSystem::tick(float deltaSeconds) {
           }
         } else {
           inst.aiState = NpcAiState::Chase;
-          const float step = inst.moveSpeed * speedMultiplier * deltaSeconds;
+          const float chaseMult = inst.effectiveChaseSpeedMult();
+          const float step = inst.moveSpeed * chaseMult * speedMultiplier * deltaSeconds;
           const float dx = aimX - inst.x;
           const float dy = aimY - inst.y;
           const float dist = std::sqrt(dx * dx + dy * dy);
@@ -314,10 +319,15 @@ void NpcAiSystem::tick(float deltaSeconds) {
     }
 
     if (npcCanMove && inst.aiState != NpcAiState::Dying) {
-      const float minDist = inst.bodyMinDist();
       for (const auto& kv : players) {
         const PlayerStateNet& p = kv.second;
         if (p.isDead || p.playerId == 0) continue;
+        // Em Chase/Combat vs o alvo: não colapsar abaixo do combat_stop_range (evita “colar”).
+        float minDist = inst.bodyMinDist();
+        if ((inst.aiState == NpcAiState::Combat || inst.aiState == NpcAiState::Chase) &&
+            p.playerId == inst.targetPlayerId) {
+          minDist = std::max(minDist, inst.effectiveCombatStopRange());
+        }
         const float dx = inst.x - p.x;
         const float dy = inst.y - p.y;
         const float d = std::sqrt(dx * dx + dy * dy);

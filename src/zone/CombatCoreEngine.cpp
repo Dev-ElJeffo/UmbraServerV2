@@ -4441,12 +4441,35 @@ int32_t CombatCoreEngine::computeDoubleBonus(const Combat::CharacterState& attac
   return std::max(1, firstHitAbs * kDoubleAttackDamagePercent / 100);
 }
 
-std::string CombatCoreEngine::resolveNpcSkillCastAnimPath(const NpcRuntimeInstance& inst,
+std::string CombatCoreEngine::resolveNpcSkillCastAnimPath(NpcRuntimeInstance& inst,
                                                            const std::string& skillCastAnimOverride) {
   if (!skillCastAnimOverride.empty()) return skillCastAnimOverride;
+  if (!inst.castAnimPaths.empty()) {
+    const size_t n = inst.castAnimPaths.size();
+    const size_t i = static_cast<size_t>(inst.nextCastAnimIndex % n);
+    ++inst.nextCastAnimIndex;
+    return inst.castAnimPaths[i];
+  }
   if (!inst.skillAnimPath.empty()) return inst.skillAnimPath;
-  if (!inst.attackAnimPaths.empty()) return inst.attackAnimPaths.front();
+  if (!inst.attackAnimPaths.empty()) {
+    const size_t n = inst.attackAnimPaths.size();
+    const size_t i = static_cast<size_t>(inst.nextAttackAnimIndex % n);
+    ++inst.nextAttackAnimIndex;
+    return inst.attackAnimPaths[i];
+  }
   return {};
+}
+
+void CombatCoreEngine::pickNpcBasicAttackAnim(NpcRuntimeInstance& inst, std::string& outPath,
+                                               uint8_t& outAnimIndex) {
+  outPath.clear();
+  outAnimIndex = 0;
+  if (inst.attackAnimPaths.empty()) return;
+  const size_t n = inst.attackAnimPaths.size();
+  const size_t i = static_cast<size_t>(inst.nextAttackAnimIndex % n);
+  ++inst.nextAttackAnimIndex;
+  outPath = inst.attackAnimPaths[i];
+  outAnimIndex = static_cast<uint8_t>(std::min<size_t>(i, 255));
 }
 
 void CombatCoreEngine::processNpcBasicAttack(uint32_t npcInstanceId, uint32_t targetPlayerId) {
@@ -4486,10 +4509,10 @@ void CombatCoreEngine::processNpcBasicAttack(uint32_t npcInstanceId, uint32_t ta
   atkBroadcast.classId = 0;
   atkBroadcast.targetId = targetPlayerId;
   atkBroadcast.hitWindowMs = 300;
-  atkBroadcast.castAnimPath =
-      inst->attackAnimPaths.empty() ? std::string() : inst->attackAnimPaths.front();
   atkBroadcast.sourceType = static_cast<uint8_t>(CombatTargetType::Npc);
-  atkBroadcast.animIndex = 0;
+  npcManager_->mutateInstance(npcInstanceId, [&](NpcRuntimeInstance& live) {
+    pickNpcBasicAttackAnim(live, atkBroadcast.castAnimPath, atkBroadcast.animIndex);
+  });
   broadcastBasicAttack(atkBroadcast);
 
   Combat::SkillData synthetic;
@@ -4603,12 +4626,14 @@ void CombatCoreEngine::processNpcSkillCast(uint32_t npcInstanceId, uint32_t targ
   castBc.skillId = npcSkillId;
   castBc.targetId = targetPlayerId;
   castBc.castTimeMs = skill->castTimeMs;
-  castBc.castAnimPath = resolveNpcSkillCastAnimPath(*inst, skill->vfxKey.empty() ? skill->iconPath : skill->vfxKey);
   castBc.vfxPath = skill->vfxPath;
   castBc.sfxPath = skill->sfxKey;
   castBc.hitVfxPath = skill->hitVfxPath;
   castBc.sourceType = static_cast<uint8_t>(CombatTargetType::Npc);
   castBc.targetType = static_cast<uint8_t>(CombatTargetType::Player);
+  npcManager_->mutateInstance(npcInstanceId, [&](NpcRuntimeInstance& live) {
+    castBc.castAnimPath = resolveNpcSkillCastAnimPath(live, skill->castAnimPath);
+  });
   broadcastSkillCast(castBc);
 
   Combat::SkillData synthetic = *skill;

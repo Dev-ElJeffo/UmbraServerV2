@@ -1588,8 +1588,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     AggroRadius = TryGetFloatProp(t, "aggro_radius"),
                     LeashRadius = TryGetFloatProp(t, "leash_radius"),
                     AttackRange = TryGetFloatProp(t, "attack_range") is float ar && ar > 0 ? ar : 150f,
+                    CombatStopRange = TryGetFloatProp(t, "combat_stop_range"),
                     AttackCooldownMs = TryGetIntProp(t, "attack_cooldown_ms") is int cd && cd > 0 ? cd : 1500,
                     MoveSpeed = TryGetFloatProp(t, "move_speed") is float ms && ms > 0 ? ms : 200f,
+                    ChaseSpeedMult = TryGetFloatProp(t, "chase_speed_mult") is float csm && csm > 0 ? csm : 1.5f,
                     RoamRadius = TryGetFloatProp(t, "roam_radius"),
                     IsHostile = !t.TryGetProperty("is_hostile", out _) || TryGetBoolProp(t, "is_hostile"),
                 });
@@ -1900,8 +1902,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["aggro_radius"] = NewNpcAggroRadius,
             ["leash_radius"] = NewNpcLeashRadius,
             ["attack_range"] = NewNpcAttackRange,
+            ["combat_stop_range"] = NewNpcCombatStopRange,
             ["attack_cooldown_ms"] = NewNpcAttackCooldownMs,
             ["move_speed"] = NewNpcMoveSpeed,
+            ["chase_speed_mult"] = NewNpcChaseSpeedMult,
             ["roam_radius"] = NewNpcRoamRadius,
             ["is_hostile"] = NewNpcIsHostile ? 1 : 0,
         };
@@ -2066,8 +2070,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcAggroRadius = row.AggroRadius;
         NewNpcLeashRadius = row.LeashRadius;
         NewNpcAttackRange = row.AttackRange <= 0 ? 150f : row.AttackRange;
+        NewNpcCombatStopRange = row.CombatStopRange;
         NewNpcAttackCooldownMs = row.AttackCooldownMs <= 0 ? 1500 : row.AttackCooldownMs;
         NewNpcMoveSpeed = row.MoveSpeed <= 0 ? 200f : row.MoveSpeed;
+        NewNpcChaseSpeedMult = row.ChaseSpeedMult <= 0 ? 1.5f : row.ChaseSpeedMult;
         NewNpcRoamRadius = row.RoamRadius;
         NewNpcIsHostile = row.IsHostile;
     }
@@ -2144,8 +2150,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcAggroRadius = 0f;
         NewNpcLeashRadius = 0f;
         NewNpcAttackRange = 150f;
+        NewNpcCombatStopRange = 0f;
         NewNpcAttackCooldownMs = 1500;
         NewNpcMoveSpeed = 200f;
+        NewNpcChaseSpeedMult = 1.5f;
         NewNpcRoamRadius = 800f;
         NewNpcIsHostile = false;
     }

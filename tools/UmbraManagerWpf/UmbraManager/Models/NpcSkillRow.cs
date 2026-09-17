@@ -21,6 +21,7 @@ public sealed class NpcSkillRow
     public bool IsEnabled { get; set; } = true;
     public string ResourceType { get; set; } = "NONE";
     public string IconPath { get; set; } = "";
+    public string CastAnimPath { get; set; } = "";
     public string VfxKey { get; set; } = "";
     public string VfxPath { get; set; } = "";
     public string HitVfxPath { get; set; } = "";

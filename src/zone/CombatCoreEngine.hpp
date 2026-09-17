@@ -151,10 +151,14 @@ public:
   void processNpcSkillCast(uint32_t npcInstanceId, uint32_t targetPlayerId, uint32_t npcSkillId);
   /**
    * Resolve path de montage para cast de skill do NPC:
-   * skill.cast_anim_path → anim_states_json.skill → attacks[0].
+   * skill.cast_anim_path → anim_states_json.casts[] → skill → attacks[].
+   * Não usa vfx_key (Niagara separado).
    */
-  static std::string resolveNpcSkillCastAnimPath(const NpcRuntimeInstance& inst,
+  static std::string resolveNpcSkillCastAnimPath(NpcRuntimeInstance& inst,
                                                   const std::string& skillCastAnimOverride = "");
+  /** Round-robin em attacks[] para basic do NPC. */
+  static void pickNpcBasicAttackAnim(NpcRuntimeInstance& inst, std::string& outPath,
+                                      uint8_t& outAnimIndex);
   /** Broadcast opcode 102 (HP + posição) — usado pelo NpcAiSystem. */
   void broadcastNpcStatePublic(const NpcStatePayload& payload) { broadcastNpcState(payload); }
   void cancelPendingSkillHit(uint32_t sourcePlayerId);

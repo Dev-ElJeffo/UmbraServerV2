@@ -93,8 +93,12 @@ struct NpcRuntimeInstance {
   float aggroRadius = 0.f;
   float leashRadius = 0.f;
   float attackRange = 150.f;
+  /** Distância para parar o chase e atacar; 0 no load → usa attackRange. */
+  float combatStopRange = 0.f;
   uint32_t attackCooldownMs = 1500;
   float moveSpeed = 200.f;
+  /** Multiplicador de moveSpeed no Chase (clamp 0.5–5 no AI). */
+  float chaseSpeedMult = 1.5f;
   float roamRadius = 0.f;
   bool hasVendor = false;
   bool hasQuestDialog = false;
@@ -112,6 +116,9 @@ struct NpcRuntimeInstance {
   bool hasWanderDest = false;
   std::chrono::steady_clock::time_point nextWanderAt{};
   std::chrono::steady_clock::time_point lastAttackAt{};
+  /** Round-robin de attacks[] / casts[]. */
+  uint32_t nextAttackAnimIndex = 0;
+  uint32_t nextCastAnimIndex = 0;
   struct NpcBoundSkill {
     uint32_t npcSkillId = 0;
     uint8_t rank = 1;
@@ -140,6 +147,16 @@ struct NpcRuntimeInstance {
     const float leash = effectiveLeashRadius();
     if (aggroRadius > 0.f) return std::max(aggroRadius * 2.5f, leash);
     return std::max(std::max(attackRange * 3.f, 600.f), leash);
+  }
+
+  float effectiveCombatStopRange() const {
+    const float stop = combatStopRange > 0.f ? combatStopRange : attackRange;
+    return std::max(std::max(40.f, stop), bodyMinDist());
+  }
+
+  float effectiveChaseSpeedMult() const {
+    if (chaseSpeedMult <= 0.f) return 1.f;
+    return std::clamp(chaseSpeedMult, 0.5f, 5.f);
   }
 };
 

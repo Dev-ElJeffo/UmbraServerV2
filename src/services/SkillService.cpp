@@ -267,7 +267,25 @@ bool SkillService::loadNpcSkillsFromDatabase() {
   if (!db_ || !db_->isConnected()) return false;
   std::unique_lock<std::shared_mutex> lock(skillDataMutex_);
   npcSkillById_.clear();
-  auto rows = db_->executePreparedQuery(
+
+  static int hasCastAnimCol = -1;
+  if (hasCastAnimCol < 0) {
+    hasCastAnimCol =
+        !db_->executeQuery("SHOW COLUMNS FROM npc_skills LIKE 'cast_anim_path'").empty() ? 1 : 0;
+  }
+
+  const char* sqlWithCast =
+      "SELECT npc_skill_id, skill_key, skill_name, type_id, target_id, element_id, scaling_stat_id, "
+      "COALESCE(str_scaling,0), COALESCE(dex_scaling,0), COALESCE(vit_scaling,0), "
+      "COALESCE(int_scaling,0), COALESCE(lck_scaling,0), "
+      "power_coef, COALESCE(secondary_coef,0), resource_type, COALESCE(resource_cost,0), "
+      "COALESCE(resource_cost_percent,0), cooldown_ms, cast_time_ms, COALESCE(duration_ms,0), "
+      "COALESCE(range_min,0), range_max, COALESCE(area_radius,0), "
+      "can_crit, COALESCE(ignores_defense,0), COALESCE(requires_target,1), "
+      "COALESCE(effects_json,''), COALESCE(icon_path,''), COALESCE(cast_anim_path,''), COALESCE(vfx_key,''), COALESCE(sfx_key,''), "
+      "COALESCE(vfx_path,''), COALESCE(hit_vfx_path,'') "
+      "FROM npc_skills WHERE is_enabled = 1";
+  const char* sqlLegacy =
       "SELECT npc_skill_id, skill_key, skill_name, type_id, target_id, element_id, scaling_stat_id, "
       "COALESCE(str_scaling,0), COALESCE(dex_scaling,0), COALESCE(vit_scaling,0), "
       "COALESCE(int_scaling,0), COALESCE(lck_scaling,0), "
@@ -277,10 +295,12 @@ bool SkillService::loadNpcSkillsFromDatabase() {
       "can_crit, COALESCE(ignores_defense,0), COALESCE(requires_target,1), "
       "COALESCE(effects_json,''), COALESCE(icon_path,''), COALESCE(vfx_key,''), COALESCE(sfx_key,''), "
       "COALESCE(vfx_path,''), COALESCE(hit_vfx_path,'') "
-      "FROM npc_skills WHERE is_enabled = 1",
-      {});
+      "FROM npc_skills WHERE is_enabled = 1";
+
+  auto rows = db_->executePreparedQuery(hasCastAnimCol == 1 ? sqlWithCast : sqlLegacy, {});
   for (const auto& row : rows) {
-    if (row.size() < 32) continue;
+    const size_t minCols = hasCastAnimCol == 1 ? 33 : 32;
+    if (row.size() < minCols) continue;
     SkillData skill;
     try {
       skill.skillId = static_cast<uint32_t>(std::stoul(row[0]));
@@ -311,10 +331,19 @@ bool SkillService::loadNpcSkillsFromDatabase() {
       skill.requiresTarget = (std::stoi(row[25]) != 0);
       skill.effects = parseEffectsFromJson(row[26]);
       skill.iconPath = row[27];
-      skill.vfxKey = row[28];
-      skill.sfxKey = row[29];
-      skill.vfxPath = row[30];
-      skill.hitVfxPath = row[31];
+      if (hasCastAnimCol == 1) {
+        skill.castAnimPath = row[28];
+        skill.vfxKey = row[29];
+        skill.sfxKey = row[30];
+        skill.vfxPath = row[31];
+        skill.hitVfxPath = row[32];
+      } else {
+        skill.castAnimPath.clear();
+        skill.vfxKey = row[28];
+        skill.sfxKey = row[29];
+        skill.vfxPath = row[30];
+        skill.hitVfxPath = row[31];
+      }
     } catch (...) {
       continue;
     }

@@ -28,6 +28,7 @@ public partial class MainViewModel
     [ObservableProperty] private bool _npcSkillFormIgnoresDefense;
     [ObservableProperty] private bool _npcSkillFormIsEnabled = true;
     [ObservableProperty] private string _npcSkillFormIconPath = "";
+    [ObservableProperty] private string _npcSkillFormCastAnimPath = "";
     [ObservableProperty] private string _npcSkillFormVfxKey = "";
     [ObservableProperty] private string _npcSkillFormVfxPath = "";
     [ObservableProperty] private string _npcSkillFormHitVfxPath = "";
@@ -86,6 +87,7 @@ public partial class MainViewModel
         NpcSkillFormIgnoresDefense = false;
         NpcSkillFormIsEnabled = true;
         NpcSkillFormIconPath = "";
+        NpcSkillFormCastAnimPath = "";
         NpcSkillFormVfxKey = "";
         NpcSkillFormVfxPath = "";
         NpcSkillFormHitVfxPath = "";
@@ -126,6 +128,7 @@ public partial class MainViewModel
         NpcSkillFormIgnoresDefense = JsonInt(s, "ignores_defense") != 0;
         NpcSkillFormIsEnabled = JsonInt(s, "is_enabled", 1) != 0;
         NpcSkillFormIconPath = JsonStr(s, "icon_path");
+        NpcSkillFormCastAnimPath = JsonStr(s, "cast_anim_path");
         NpcSkillFormVfxKey = JsonStr(s, "vfx_key");
         NpcSkillFormVfxPath = JsonStr(s, "vfx_path");
         NpcSkillFormHitVfxPath = JsonStr(s, "hit_vfx_path");
@@ -163,6 +166,7 @@ public partial class MainViewModel
             ["ignores_defense"] = NpcSkillFormIgnoresDefense,
             ["is_enabled"] = NpcSkillFormIsEnabled,
             ["icon_path"] = NpcSkillFormIconPath,
+            ["cast_anim_path"] = NpcSkillFormCastAnimPath,
             ["vfx_key"] = NpcSkillFormVfxKey,
             ["vfx_path"] = NpcSkillFormVfxPath,
             ["hit_vfx_path"] = NpcSkillFormHitVfxPath,
@@ -312,6 +316,7 @@ public partial class MainViewModel
         IgnoresDefense = JsonInt(s, "ignores_defense") != 0,
         IsEnabled = JsonInt(s, "is_enabled", 1) != 0,
         IconPath = JsonStr(s, "icon_path"),
+        CastAnimPath = JsonStr(s, "cast_anim_path"),
         VfxKey = JsonStr(s, "vfx_key"),
         VfxPath = JsonStr(s, "vfx_path"),
         HitVfxPath = JsonStr(s, "hit_vfx_path"),
