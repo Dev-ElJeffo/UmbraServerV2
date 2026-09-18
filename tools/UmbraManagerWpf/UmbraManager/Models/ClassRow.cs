@@ -17,6 +17,8 @@ public sealed class ClassRow
     public int BaseStamina { get; set; }
     public int BasePhysicalAttack { get; set; }
     public int BaseMagicAttack { get; set; }
+    /** PHYSICAL ou MAGIC — school do basic / dano base da classe. */
+    public string DamageType { get; set; } = "PHYSICAL";
     public int BasePhysicalDefense { get; set; }
     public int BaseMagicDefense { get; set; }
     public int BaseAccuracy { get; set; }

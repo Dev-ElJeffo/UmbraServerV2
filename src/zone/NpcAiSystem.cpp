@@ -36,14 +36,20 @@ float dist2dSq(float x1, float y1, float x2, float y2) {
   return dx * dx + dy * dy;
 }
 
-/** Slot 2D estável no anel de holdRadius (combat_stop_range) — evita órbita melee ~100uu. */
-void chaseAimXY(uint32_t npcInstanceId, float targetX, float targetY, float holdRadius,
+/** Ponto do anel holdRadius na linha NPC→player (mais próximo) — sem órbita por hash. */
+void chaseAimXY(float npcX, float npcY, float targetX, float targetY, float holdRadius,
                 float& outX, float& outY) {
-  const float angle =
-      (static_cast<float>((npcInstanceId * 2654435761u) & 0xFFFFu) / 65535.f) * 6.28318530718f;
   const float r = std::max(40.f, holdRadius);
-  outX = targetX + std::cos(angle) * r;
-  outY = targetY + std::sin(angle) * r;
+  const float dx = npcX - targetX;
+  const float dy = npcY - targetY;
+  const float len = std::sqrt(dx * dx + dy * dy);
+  if (len > 0.001f) {
+    outX = targetX + (dx / len) * r;
+    outY = targetY + (dy / len) * r;
+  } else {
+    outX = targetX + r;
+    outY = targetY;
+  }
 }
 
 void forceBroadcast(CombatCoreEngine* combat, NpcManager* npcManager, NpcRuntimeInstance& inst,
@@ -172,10 +178,11 @@ void NpcAiSystem::tick(float deltaSeconds) {
       if (lost) {
         enterReturn(inst);
       } else {
-        // Para de chase em combat_stop_range (0 = attack_range) e ataca sem orbitar.
+        // Para de chase em combat_stop_range (capado ao melee reach) e ataca sem orbitar.
         const float stopR = inst.effectiveCombatStopRange();
+        const float meleeReach = inst.effectiveNpcMeleeReach2D();
         float aimX = tx, aimY = ty;
-        chaseAimXY(inst.npcInstanceId, tx, ty, stopR, aimX, aimY);
+        chaseAimXY(inst.x, inst.y, tx, ty, stopR, aimX, aimY);
         const float toPlayer2d = std::sqrt(dist2dSq(inst.x, inst.y, tx, ty));
         if (toPlayer2d <= stopR) {
           inst.aiState = NpcAiState::Combat;
@@ -204,7 +211,8 @@ void NpcAiSystem::tick(float deltaSeconds) {
           }
           const auto readyAt =
               inst.lastAttackAt + std::chrono::milliseconds(inst.attackCooldownMs);
-          if (npcCanAct && now >= readyAt) {
+          // Só enfileira basic/skills e consome CD se já estiver no reach de hit.
+          if (npcCanAct && now >= readyAt && toPlayer2d <= meleeReach) {
             const uint32_t skillId = pickBoundSkillId(inst, toPlayer2d, true, now);
             attackQueue.push_back({inst.npcInstanceId, skillId});
             inst.lastAttackAt = now;
@@ -213,9 +221,15 @@ void NpcAiSystem::tick(float deltaSeconds) {
           inst.aiState = NpcAiState::Chase;
           const float chaseMult = inst.effectiveChaseSpeedMult();
           const float step = inst.moveSpeed * chaseMult * speedMultiplier * deltaSeconds;
-          const float dx = aimX - inst.x;
-          const float dy = aimY - inst.y;
-          const float dist = std::sqrt(dx * dx + dy * dy);
+          float dx = aimX - inst.x;
+          float dy = aimY - inst.y;
+          float dist = std::sqrt(dx * dx + dy * dy);
+          // Dead zone do anel: se já no aim mas ainda fora do stop, fecha direto no player.
+          if (dist <= 1.f && toPlayer2d > stopR) {
+            dx = tx - inst.x;
+            dy = ty - inst.y;
+            dist = std::sqrt(dx * dx + dy * dy);
+          }
           if (npcCanMove && dist > 1.f && step > 0.f) {
             const float t = std::min(1.f, step / dist);
             inst.x += dx * t;

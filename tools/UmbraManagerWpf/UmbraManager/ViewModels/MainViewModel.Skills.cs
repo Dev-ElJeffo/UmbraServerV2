@@ -35,7 +35,10 @@ public partial class MainViewModel
     [ObservableProperty] private int _skillFormTargetId = 2;
     [ObservableProperty] private int _skillFormElementId = 1;
     [ObservableProperty] private int _skillFormScalingStatId = 1;
+    [ObservableProperty] private string _skillFormDamageType = "PHYSICAL";
     [ObservableProperty] private int _skillFormStrScaling;
+
+    public string[] SkillDamageTypeOptions { get; } = ["PHYSICAL", "MAGIC", "TRUE"];
     [ObservableProperty] private int _skillFormDexScaling;
     [ObservableProperty] private int _skillFormVitScaling;
     [ObservableProperty] private int _skillFormIntScaling;
@@ -138,6 +141,7 @@ public partial class MainViewModel
                             ?? SkillTargetOptions.FirstOrDefault()?.Id ?? 2;
         SkillFormElementId = SkillElementOptions.FirstOrDefault()?.Id ?? 1;
         SkillFormScalingStatId = SkillScalingOptions.FirstOrDefault()?.Id ?? 1;
+        SkillFormDamageType = "PHYSICAL";
         SkillFormStrScaling = 0;
         SkillFormDexScaling = 0;
         SkillFormVitScaling = 0;
@@ -214,6 +218,12 @@ public partial class MainViewModel
         SkillFormTargetId = TryGetIntProp(s, "target_id");
         SkillFormElementId = TryGetIntProp(s, "element_id");
         SkillFormScalingStatId = TryGetIntProp(s, "scaling_stat_id");
+        SkillFormDamageType = TryGetStringProp(s, "damage_type").ToUpperInvariant() switch
+        {
+            "MAGIC" => "MAGIC",
+            "TRUE" => "TRUE",
+            _ => "PHYSICAL",
+        };
         SkillFormStrScaling = TryGetIntProp(s, "str_scaling");
         SkillFormDexScaling = TryGetIntProp(s, "dex_scaling");
         SkillFormVitScaling = TryGetIntProp(s, "vit_scaling");
@@ -332,6 +342,7 @@ public partial class MainViewModel
             ["target_id"] = SkillFormTargetId,
             ["element_id"] = SkillFormElementId,
             ["scaling_stat_id"] = SkillFormScalingStatId,
+            ["damage_type"] = SkillFormDamageType is "MAGIC" or "TRUE" ? SkillFormDamageType : "PHYSICAL",
             ["str_scaling"] = SkillFormStrScaling,
             ["dex_scaling"] = SkillFormDexScaling,
             ["vit_scaling"] = SkillFormVitScaling,

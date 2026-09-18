@@ -28,6 +28,7 @@ try {
     $anim = class_has_anim_set_column($pdo) ? ', anim_set_json' : '';
     $mesh = class_has_mesh_path_columns($pdo) ? ', skeletal_mesh_path, anim_blueprint_path' : '';
     $modular = class_modular_mesh_select_sql($pdo);
+    $dmg = class_column_exists($pdo, 'damage_type') ? ', damage_type' : '';
     $stmt = $pdo->query(
         "SELECT class_id, class_name, class_description,
                 base_strength, base_dexterity, base_intelligence, base_vitality, base_luck,
@@ -36,6 +37,7 @@ try {
                 base_accuracy, base_dodge, base_critical, base_movement,
                 base_critical_resistance, base_double_attack_resistance, base_double_attack_rate,
                 created_at
+                $dmg
                 $anim
                 $mesh
                 $modular
@@ -51,7 +53,7 @@ try {
             }
         }
         foreach ($r as $k => $v) {
-            if (is_numeric($v) && $k !== 'class_name' && $k !== 'class_description' && $k !== 'created_at' && $k !== 'anim_set_json') {
+            if (is_numeric($v) && $k !== 'class_name' && $k !== 'class_description' && $k !== 'created_at' && $k !== 'anim_set_json' && $k !== 'damage_type') {
                 $r[$k] = (int)$v;
             }
         }

@@ -26,6 +26,7 @@
           <DataGridTextColumn Header="ID" Binding="{Binding AppearancePartId}" Width="50"/>
           <DataGridTextColumn Header="Tipo" Binding="{Binding PartType}" Width="70"/>
           <DataGridTextColumn Header="Part ID" Binding="{Binding PartId}" Width="70"/>
+          <DataGridTextColumn Header="Classe" Binding="{Binding ClassId}" Width="60"/>
           <DataGridTextColumn Header="Socket" Binding="{Binding AttachSocket}" Width="90"/>
           <DataGridTextColumn Header="Mesh path" Binding="{Binding MeshPath}" Width="*"/>
           <DataGridCheckBoxColumn Header="On" Binding="{Binding IsEnabled}" Width="40"/>
@@ -56,6 +57,8 @@
         </ComboBox>
         <TextBox Text="{Binding AppearancePartFormPartId, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
                  materialDesign:HintAssist.Hint="part_id (players.hair / players.head)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding AppearancePartFormClassId, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="class_id (0 = todas as classes)" materialDesign:HintAssist.IsFloating="True"/>
         <TextBox Text="{Binding AppearancePartFormMeshPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
                  materialDesign:HintAssist.Hint="mesh_path (UE)" materialDesign:HintAssist.IsFloating="True"/>
         <TextBox Text="{Binding AppearancePartFormAttachSocket, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"

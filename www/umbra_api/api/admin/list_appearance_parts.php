@@ -30,7 +30,7 @@ try {
         $sql .= ' AND (mesh_path LIKE :search OR attach_socket LIKE :search)';
         $params['search'] = '%' . $data['search'] . '%';
     }
-    $sql .= ' ORDER BY part_type ASC, part_id ASC';
+    $sql .= ' ORDER BY part_type ASC, part_id ASC, class_id ASC';
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);

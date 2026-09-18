@@ -103,8 +103,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private int _newNpcIntelligence = 20;
     [ObservableProperty] private int _newNpcLuck = 20;
     [ObservableProperty] private int _newNpcPhysicalAttack = 120;
-    [ObservableProperty] private int _newNpcMagicAttack = 120;
+    [ObservableProperty] private int _newNpcMagicAttack = 80;
+    [ObservableProperty] private string _newNpcDamageType = "PHYSICAL";
+    [ObservableProperty] private int _newNpcBasicPowerCoef = 100;
     [ObservableProperty] private int _newNpcPhysicalDefense = 80;
+
+    public string[] NpcDamageTypeOptions { get; } = ["PHYSICAL", "MAGIC", "TRUE"];
     [ObservableProperty] private int _newNpcMagicDefense = 80;
     [ObservableProperty] private int _newNpcAccuracy = 100;
     [ObservableProperty] private int _newNpcDodge = 20;
@@ -1544,6 +1548,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     Luck = TryGetIntProp(t, "luck"),
                     PhysicalAttack = TryGetIntProp(t, "physical_attack"),
                     MagicAttack = TryGetIntProp(t, "magic_attack"),
+                    DamageType = string.IsNullOrWhiteSpace(TryGetStringProp(t, "damage_type"))
+                        ? "PHYSICAL"
+                        : TryGetStringProp(t, "damage_type").ToUpperInvariant(),
+                    BasicPowerCoef = Math.Max(1, TryGetIntProp(t, "basic_power_coef") is var bpc && bpc > 0 ? bpc : 100),
                     PhysicalDefense = TryGetIntProp(t, "physical_defense"),
                     MagicDefense = TryGetIntProp(t, "magic_defense"),
                     Accuracy = TryGetIntProp(t, "accuracy"),
@@ -1594,6 +1602,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     ChaseSpeedMult = TryGetFloatProp(t, "chase_speed_mult") is float csm && csm > 0 ? csm : 1.5f,
                     RoamRadius = TryGetFloatProp(t, "roam_radius"),
                     IsHostile = !t.TryGetProperty("is_hostile", out _) || TryGetBoolProp(t, "is_hostile"),
+                    BasicVfxPath = TryGetStringProp(t, "basic_vfx_path"),
+                    BasicHitVfxPath = TryGetStringProp(t, "basic_hit_vfx_path"),
                 });
             }
         }
@@ -1860,6 +1870,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["luck"] = NewNpcLuck,
             ["physical_attack"] = NewNpcPhysicalAttack,
             ["magic_attack"] = NewNpcMagicAttack,
+            ["damage_type"] = NewNpcDamageType is "MAGIC" or "TRUE" ? NewNpcDamageType : "PHYSICAL",
+            ["basic_power_coef"] = NewNpcBasicPowerCoef > 0 ? NewNpcBasicPowerCoef : 100,
             ["physical_defense"] = NewNpcPhysicalDefense,
             ["magic_defense"] = NewNpcMagicDefense,
             ["accuracy"] = NewNpcAccuracy,
@@ -1908,6 +1920,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["chase_speed_mult"] = NewNpcChaseSpeedMult,
             ["roam_radius"] = NewNpcRoamRadius,
             ["is_hostile"] = NewNpcIsHostile ? 1 : 0,
+            ["basic_vfx_path"] = string.IsNullOrWhiteSpace(NewNpcBasicVfxPath) ? null : NewNpcBasicVfxPath.Trim(),
+            ["basic_hit_vfx_path"] = string.IsNullOrWhiteSpace(NewNpcBasicHitVfxPath) ? null : NewNpcBasicHitVfxPath.Trim(),
         };
     }
 
@@ -2029,6 +2043,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcLuck = row.Luck;
         NewNpcPhysicalAttack = row.PhysicalAttack;
         NewNpcMagicAttack = row.MagicAttack;
+        NewNpcDamageType = string.IsNullOrWhiteSpace(row.DamageType) ? "PHYSICAL" : row.DamageType;
+        NewNpcBasicPowerCoef = row.BasicPowerCoef > 0 ? row.BasicPowerCoef : 100;
         NewNpcPhysicalDefense = row.PhysicalDefense;
         NewNpcMagicDefense = row.MagicDefense;
         NewNpcAccuracy = row.Accuracy;
@@ -2076,6 +2092,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcChaseSpeedMult = row.ChaseSpeedMult <= 0 ? 1.5f : row.ChaseSpeedMult;
         NewNpcRoamRadius = row.RoamRadius;
         NewNpcIsHostile = row.IsHostile;
+        NewNpcBasicVfxPath = row.BasicVfxPath ?? "";
+        NewNpcBasicHitVfxPath = row.BasicHitVfxPath ?? "";
     }
 
     [RelayCommand] private void NewNpcTemplate()
@@ -2092,7 +2110,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcIntelligence = 20;
         NewNpcLuck = 20;
         NewNpcPhysicalAttack = 120;
-        NewNpcMagicAttack = 120;
+        NewNpcMagicAttack = 80;
+        NewNpcDamageType = "PHYSICAL";
+        NewNpcBasicPowerCoef = 100;
         NewNpcPhysicalDefense = 80;
         NewNpcMagicDefense = 80;
         NewNpcAccuracy = 100;
@@ -2156,6 +2176,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcChaseSpeedMult = 1.5f;
         NewNpcRoamRadius = 800f;
         NewNpcIsHostile = false;
+        NewNpcBasicVfxPath = "";
+        NewNpcBasicHitVfxPath = "";
     }
 
     [RelayCommand] private async Task SpawnNpcAsync()

@@ -83,16 +83,41 @@ std::string buildNpcInstanceSelectSql(Database::MySQLConnector& db) {
     hasStopChase =
         !db.executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'combat_stop_range'").empty() ? 1 : 0;
   }
+  static int hasBasicVfx = -1;
+  if (hasBasicVfx < 0) {
+    hasBasicVfx =
+        !db.executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'basic_vfx_path'").empty() ? 1 : 0;
+  }
+  static int hasDamageType = -1;
+  if (hasDamageType < 0) {
+    hasDamageType =
+        !db.executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'damage_type'").empty() ? 1 : 0;
+  }
   std::string sql = kBase;
+  // Colunas opcionais entram no SELECT (antes do FROM), nunca após o JOIN.
+  std::string optionalSelect;
   if (hasStopChase == 1) {
+    optionalSelect +=
+        ", COALESCE(nt.combat_stop_range, 0) AS tpl_combat_stop, "
+        "COALESCE(nt.chase_speed_mult, 1.5) AS tpl_chase_mult, "
+        "ni.combat_stop_range AS inst_combat_stop, "
+        "ni.chase_speed_mult AS inst_chase_mult ";
+  }
+  if (hasDamageType == 1) {
+    optionalSelect +=
+        ", COALESCE(nt.damage_type, 'PHYSICAL') AS damage_type, "
+        "COALESCE(nt.basic_power_coef, 100) AS basic_power_coef ";
+  }
+  if (hasBasicVfx == 1) {
+    optionalSelect +=
+        ", COALESCE(nt.basic_vfx_path, '') AS basic_vfx_path, "
+        "COALESCE(nt.basic_hit_vfx_path, '') AS basic_hit_vfx_path ";
+  }
+  if (!optionalSelect.empty()) {
     const std::string marker = "AS nameplate_radius ";
     const auto pos = sql.find(marker);
     if (pos != std::string::npos) {
-      sql.insert(pos + marker.size(),
-                 ", COALESCE(nt.combat_stop_range, 0) AS tpl_combat_stop, "
-                 "COALESCE(nt.chase_speed_mult, 1.5) AS tpl_chase_mult, "
-                 "ni.combat_stop_range AS inst_combat_stop, "
-                 "ni.chase_speed_mult AS inst_chase_mult ");
+      sql.insert(pos + marker.size(), optionalSelect);
     }
   }
   return sql;
@@ -175,6 +200,7 @@ void parseDirGroup(const nlohmann::json& root, const char* key, std::string& fwd
 
 void NpcManager::parseAnimStatesJson(NpcRuntimeInstance& inst, const std::string& jsonStr) {
   inst.attackAnimPaths.clear();
+  inst.attackVfxPaths.clear();
   inst.hitAnimPaths.clear();
   inst.deathAnimPath.clear();
   inst.skillAnimPath.clear();
@@ -200,6 +226,11 @@ void NpcManager::parseAnimStatesJson(NpcRuntimeInstance& inst, const std::string
     appendAnimPathList(inst.attackAnimPaths, root["attacks"]);
   } else if (root.contains("attack")) {
     appendAnimPathList(inst.attackAnimPaths, root["attack"]);
+  }
+  if (root.contains("attack_vfx")) {
+    appendAnimPathList(inst.attackVfxPaths, root["attack_vfx"]);
+  } else if (root.contains("attackVfx")) {
+    appendAnimPathList(inst.attackVfxPaths, root["attackVfx"]);
   }
   if (root.contains("hits")) {
     appendAnimPathList(inst.hitAnimPaths, root["hits"]);
@@ -474,6 +505,37 @@ void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
         (row.size() > 70 && parseOptionalFloat(row[70], ovChase)) ? ovChase : tplChaseMult;
     if (inst.combatStopRange < 0.f) inst.combatStopRange = 0.f;
     if (inst.chaseSpeedMult <= 0.f) inst.chaseSpeedMult = 1.5f;
+
+    // Colunas opcionais no fim do SELECT: [damage_type, basic_power_coef?][basic_vfx, basic_hit_vfx?]
+    static int sHasBasicVfxCols = -1;
+    if (sHasBasicVfxCols < 0 && db_) {
+      sHasBasicVfxCols =
+          !db_->executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'basic_vfx_path'").empty() ? 1 : 0;
+    }
+    static int sHasDamageTypeCols = -1;
+    if (sHasDamageTypeCols < 0 && db_) {
+      sHasDamageTypeCols =
+          !db_->executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'damage_type'").empty() ? 1 : 0;
+    }
+    size_t tail = row.size();
+    if (sHasBasicVfxCols == 1 && tail >= 2) {
+      inst.basicHitVfxPath = row[tail - 1];
+      inst.basicVfxPath = row[tail - 2];
+      tail -= 2;
+    }
+    if (sHasDamageTypeCols == 1 && tail >= 2) {
+      const std::string& dt = row[tail - 2];
+      const std::string& coef = row[tail - 1];
+      inst.damageType = (dt == "TRUE" || dt == "true")
+                            ? 2u
+                            : ((dt == "MAGIC" || dt == "magic") ? 1u : 0u);
+      try {
+        inst.basicPowerCoef = static_cast<uint16_t>(std::stoul(coef));
+      } catch (...) {
+        inst.basicPowerCoef = 100;
+      }
+      if (inst.basicPowerCoef == 0) inst.basicPowerCoef = 100;
+    }
 
     inst.lastBroadcastX = inst.x;
     inst.lastBroadcastY = inst.y;

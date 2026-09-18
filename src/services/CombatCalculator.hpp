@@ -66,6 +66,26 @@ public:
         uint8_t skillRank,
         bool isPvP = false
     );
+
+    /**
+     * TRUE damage: power_coef (+ secondary), sem DEF/resist; aplica DR/escudo/crit/PvP.
+     */
+    DamageBreakdown calculateTrueDamage(
+        const CharacterState& attacker,
+        const CharacterState& defender,
+        const SkillData& skill,
+        uint8_t skillRank,
+        bool isPvP = false
+    );
+
+    /** Roteia PHYSICAL / MAGIC / TRUE conforme skill.damageType. */
+    DamageBreakdown calculateDamageByType(
+        const CharacterState& attacker,
+        const CharacterState& defender,
+        const SkillData& skill,
+        uint8_t skillRank,
+        bool isPvP = false
+    );
     
     /**
      * Calcula cura
@@ -439,6 +459,37 @@ inline float CombatCalculator::calculateAttributeScaling(
     return totalScaling;
 }
 
+/** ATK da school oposta para secondary_coef (TRUE = 0). */
+inline int32_t resolveSecondaryAttackStat(const CharacterState& attacker, DamageType dt) {
+    if (dt == DamageType::PHYSICAL) return attacker.buffedStats.magicAttack;
+    if (dt == DamageType::MAGIC) return attacker.buffedStats.physicalAttack;
+    return 0;
+}
+
+inline void applySecondaryCoefBonus(int32_t& scaledDamage, const CharacterState& attacker,
+                                    const SkillData& skill, DamageType dt) {
+    if (skill.secondaryCoef == 0) return;
+    const int32_t secondaryAtk = resolveSecondaryAttackStat(attacker, dt);
+    if (secondaryAtk <= 0) return;
+    scaledDamage += (secondaryAtk * static_cast<int32_t>(skill.secondaryCoef)) / 100;
+}
+
+inline void finalizeDamageBreakdown(DamageBreakdown& breakdown, int32_t scaledDamage,
+                                    const CharacterState& defender) {
+    if (defender.currentShield > 0) {
+        breakdown.shieldAbsorbed = std::min(defender.currentShield, std::max(0, scaledDamage));
+        scaledDamage -= breakdown.shieldAbsorbed;
+    }
+    if (scaledDamage <= 0 && breakdown.shieldAbsorbed > 0) {
+        breakdown.finalDamage = 0;
+    } else {
+        breakdown.finalDamage = std::max(1, scaledDamage);
+    }
+    if (breakdown.finalDamage > defender.buffedStats.currentHealth) {
+        breakdown.overkill = breakdown.finalDamage - defender.buffedStats.currentHealth;
+    }
+}
+
 inline DamageBreakdown CombatCalculator::calculatePhysicalDamage(
     const CharacterState& attacker,
     const CharacterState& defender,
@@ -452,9 +503,10 @@ inline DamageBreakdown CombatCalculator::calculatePhysicalDamage(
     int32_t baseStat = attacker.buffedStats.physicalAttack;
     breakdown.baseDamage = baseStat;
     
-    // 2. Apply power coefficient with rank
+    // 2. Apply power coefficient with rank + secondary_coef (mag ATK)
     uint16_t effectivePowerCoef = skill.getEffectivePowerCoef(skillRank);
     int32_t scaledDamage = (baseStat * effectivePowerCoef) / 100;
+    applySecondaryCoefBonus(scaledDamage, attacker, skill, DamageType::PHYSICAL);
     
     // 3. Apply attribute scaling
     float attrScaling = calculateAttributeScaling(attacker, skill);
@@ -499,24 +551,7 @@ inline DamageBreakdown CombatCalculator::calculatePhysicalDamage(
         scaledDamage -= defender.buffedStats.damageReduction;
     }
     
-    // 10. Shield absorption
-    if (defender.currentShield > 0) {
-        breakdown.shieldAbsorbed = std::min(defender.currentShield, std::max(0, scaledDamage));
-        scaledDamage -= breakdown.shieldAbsorbed;
-    }
-    
-    // Minimum 1 damage (0 permitido só se escudo absorveu tudo)
-    if (scaledDamage <= 0 && breakdown.shieldAbsorbed > 0) {
-        breakdown.finalDamage = 0;
-    } else {
-        breakdown.finalDamage = std::max(1, scaledDamage);
-    }
-    
-    // Overkill calculation
-    if (breakdown.finalDamage > defender.buffedStats.currentHealth) {
-        breakdown.overkill = breakdown.finalDamage - defender.buffedStats.currentHealth;
-    }
-    
+    finalizeDamageBreakdown(breakdown, scaledDamage, defender);
     return breakdown;
 }
 
@@ -535,6 +570,7 @@ inline DamageBreakdown CombatCalculator::calculateMagicDamage(
     
     uint16_t effectivePowerCoef = skill.getEffectivePowerCoef(skillRank);
     int32_t scaledDamage = (baseStat * effectivePowerCoef) / 100;
+    applySecondaryCoefBonus(scaledDamage, attacker, skill, DamageType::MAGIC);
     
     float attrScaling = calculateAttributeScaling(attacker, skill);
     breakdown.scalingBonus = static_cast<int32_t>(scaledDamage * attrScaling);
@@ -573,22 +609,86 @@ inline DamageBreakdown CombatCalculator::calculateMagicDamage(
         scaledDamage -= defender.buffedStats.damageReduction;
     }
     
-    if (defender.currentShield > 0) {
-        breakdown.shieldAbsorbed = std::min(defender.currentShield, std::max(0, scaledDamage));
-        scaledDamage -= breakdown.shieldAbsorbed;
-    }
-    
-    if (scaledDamage <= 0 && breakdown.shieldAbsorbed > 0) {
-        breakdown.finalDamage = 0;
-    } else {
-        breakdown.finalDamage = std::max(1, scaledDamage);
-    }
-    
-    if (breakdown.finalDamage > defender.buffedStats.currentHealth) {
-        breakdown.overkill = breakdown.finalDamage - defender.buffedStats.currentHealth;
-    }
-    
+    finalizeDamageBreakdown(breakdown, scaledDamage, defender);
     return breakdown;
+}
+
+inline DamageBreakdown CombatCalculator::calculateTrueDamage(
+    const CharacterState& attacker,
+    const CharacterState& defender,
+    const SkillData& skill,
+    uint8_t skillRank,
+    bool isPvP
+) {
+    DamageBreakdown breakdown;
+
+    int32_t baseStat = 0;
+    switch (skill.scalingStat) {
+        case ScalingStat::MAG_ATK:
+            baseStat = attacker.buffedStats.magicAttack;
+            break;
+        case ScalingStat::PHYS_ATK:
+            baseStat = attacker.buffedStats.physicalAttack;
+            break;
+        default:
+            baseStat = std::max(attacker.buffedStats.physicalAttack,
+                                attacker.buffedStats.magicAttack);
+            break;
+    }
+    breakdown.baseDamage = baseStat;
+
+    const uint16_t effectivePowerCoef = skill.getEffectivePowerCoef(skillRank);
+    int32_t scaledDamage = (baseStat * effectivePowerCoef) / 100;
+    // TRUE: secondary_coef morto (secondaryAtk = 0)
+
+    const float attrScaling = calculateAttributeScaling(attacker, skill);
+    breakdown.scalingBonus = static_cast<int32_t>(scaledDamage * attrScaling);
+    scaledDamage += breakdown.scalingBonus;
+
+    breakdown.buffMultiplier = 100;
+
+    const int32_t critChance = calculateCritChance(attacker, defender);
+    const bool isCrit = skill.canCrit && rollCrit(critChance);
+    breakdown.critMultiplier = isCrit ? attacker.buffedStats.criticalDamage : 100;
+    scaledDamage = (scaledDamage * breakdown.critMultiplier) / 100;
+
+    breakdown.pvpModifier = isPvP ? static_cast<int32_t>(PVP_DAMAGE_REDUCTION * 100) : 100;
+    if (isPvP) {
+        scaledDamage = (scaledDamage * skill.pvpModifier) / 100;
+        scaledDamage = static_cast<int32_t>(scaledDamage * PVP_DAMAGE_REDUCTION);
+    }
+
+    // Sem DEF / sem resist elemental
+    breakdown.defenseReduction = 0;
+    breakdown.resistanceReduction = 0;
+
+    {
+        const int32_t drPct =
+            std::clamp(defender.buffedStats.damageReductionPercent, 0, 90);
+        if (drPct > 0) {
+            scaledDamage = scaledDamage * (100 - drPct) / 100;
+        }
+        scaledDamage -= defender.buffedStats.damageReduction;
+    }
+
+    finalizeDamageBreakdown(breakdown, scaledDamage, defender);
+    return breakdown;
+}
+
+inline DamageBreakdown CombatCalculator::calculateDamageByType(
+    const CharacterState& attacker,
+    const CharacterState& defender,
+    const SkillData& skill,
+    uint8_t skillRank,
+    bool isPvP
+) {
+    if (isTrueDamage(skill.damageType)) {
+        return calculateTrueDamage(attacker, defender, skill, skillRank, isPvP);
+    }
+    if (damageTypeUsesPhysicalAttack(skill.damageType)) {
+        return calculatePhysicalDamage(attacker, defender, skill, skillRank, isPvP);
+    }
+    return calculateMagicDamage(attacker, defender, skill, skillRank, isPvP);
 }
 
 inline int32_t CombatCalculator::calculateHeal(

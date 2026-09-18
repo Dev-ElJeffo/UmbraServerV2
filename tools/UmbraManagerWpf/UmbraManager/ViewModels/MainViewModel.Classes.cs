@@ -28,7 +28,10 @@ public partial class MainViewModel
     [ObservableProperty] private int _classFormStamina = 100;
     [ObservableProperty] private int _classFormPhysicalAttack;
     [ObservableProperty] private int _classFormMagicAttack;
+    [ObservableProperty] private string _classFormDamageType = "PHYSICAL";
     [ObservableProperty] private int _classFormPhysicalDefense;
+
+    public string[] ClassDamageTypeOptions { get; } = ["PHYSICAL", "MAGIC", "TRUE"];
     [ObservableProperty] private int _classFormMagicDefense;
     [ObservableProperty] private int _classFormAccuracy;
     [ObservableProperty] private int _classFormDodge;
@@ -120,6 +123,7 @@ public partial class MainViewModel
         ClassFormStamina = 100;
         ClassFormPhysicalAttack = 0;
         ClassFormMagicAttack = 0;
+        ClassFormDamageType = "PHYSICAL";
         ClassFormPhysicalDefense = 0;
         ClassFormMagicDefense = 0;
         ClassFormAccuracy = 0;
@@ -269,6 +273,7 @@ public partial class MainViewModel
         ClassFormStamina = row.BaseStamina;
         ClassFormPhysicalAttack = row.BasePhysicalAttack;
         ClassFormMagicAttack = row.BaseMagicAttack;
+        ClassFormDamageType = string.IsNullOrWhiteSpace(row.DamageType) ? "PHYSICAL" : row.DamageType;
         ClassFormPhysicalDefense = row.BasePhysicalDefense;
         ClassFormMagicDefense = row.BaseMagicDefense;
         ClassFormAccuracy = row.BaseAccuracy;
@@ -305,6 +310,7 @@ public partial class MainViewModel
             ["base_stamina"] = ClassFormStamina,
             ["base_physical_attack"] = ClassFormPhysicalAttack,
             ["base_magic_attack"] = ClassFormMagicAttack,
+            ["damage_type"] = ClassFormDamageType is "MAGIC" or "TRUE" ? ClassFormDamageType : "PHYSICAL",
             ["base_physical_defense"] = ClassFormPhysicalDefense,
             ["base_magic_defense"] = ClassFormMagicDefense,
             ["base_accuracy"] = ClassFormAccuracy,
@@ -471,6 +477,7 @@ public partial class MainViewModel
             BaseStamina = TryGetIntProp(el, "base_stamina"),
             BasePhysicalAttack = TryGetIntProp(el, "base_physical_attack"),
             BaseMagicAttack = TryGetIntProp(el, "base_magic_attack"),
+            DamageType = TryGetStringProp(el, "damage_type") is { Length: > 0 } dt ? dt.ToUpperInvariant() : "PHYSICAL",
             BasePhysicalDefense = TryGetIntProp(el, "base_physical_defense"),
             BaseMagicDefense = TryGetIntProp(el, "base_magic_defense"),
             BaseAccuracy = TryGetIntProp(el, "base_accuracy"),

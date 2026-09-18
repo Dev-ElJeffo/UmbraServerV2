@@ -34,9 +34,11 @@ Opcional em `WBP_SelectedPlayerInfo`: se o Graph chamar `Get Health Percent` →
 
 ## Defesa C++ (já aplicada)
 
-- `ShowTargetWidget` / `RefreshTargetWidget` removem qualquer `UUmbraSelectedPlayerInfoWidget` no viewport que **não** seja `TargetWidgetInstance`.
-- Log: `Removendo WBP_SelectedPlayerInfo órfão...`
+- `ShowTargetWidget` / `RefreshTargetWidget` removem `UUmbraSelectedPlayerInfoWidget` órfãos no viewport que **não** sejam `TargetWidgetInstance`.
+- O strip **filtra** `GetWorld()` + `GetOwningPlayer() == OwnerController`. `TObjectIterator` é process-wide: sem esse filtro, em **PIE com 2+ clients** um client remove o painel legítimo do outro.
+- Log: `Removendo WBP_SelectedPlayerInfo órfão...` (só cópias do **mesmo** PlayerController).
 - `UpdateDisplay` não força rebuild da buff bar a cada hit (só se a lista mudou).
+- O strip de nameplate (`StripOrphanNameplateViewportWidgets`) também restringe ao `UWorld` local pelo mesmo motivo.
 
 ---
 
@@ -46,3 +48,4 @@ Opcional em `WBP_SelectedPlayerInfo`: se o Graph chamar `Get Health Percent` →
 2. Hit → HP/MP atualizam **sem** segunda barra piscando.
 3. Buffs aparecem numa só linha sob o painel.
 4. Se o log de órfão ainda aparecer a cada hit → o `WBP_PlayerHUD` ainda tem `Create Widget` (passo 3).
+5. **PIE Number of Players ≥ 2:** Client1 seleciona Client2 e Client2 seleciona Client1 → **ambos** os painéis permanecem visíveis ao mesmo tempo (não some no outro client).

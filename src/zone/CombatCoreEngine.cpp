@@ -523,7 +523,9 @@ bool CombatCoreEngine::loadBasicAttacks() {
   basicAttacksByClass_.clear();
 
   auto rows = db_->executePreparedQuery(
-      "SELECT class_id, power_coef, cooldown_ms, range_max, COALESCE(cast_anim_path,'') "
+      "SELECT class_id, power_coef, cooldown_ms, range_max, "
+      "COALESCE(cast_anim_path,''), COALESCE(vfx_path,''), COALESCE(sfx_path,''), "
+      "COALESCE(damage_type,'PHYSICAL') "
       "FROM basic_attacks",
       {});
 
@@ -536,23 +538,44 @@ bool CombatCoreEngine::loadBasicAttacks() {
       def.cooldownMs = static_cast<uint32_t>(std::stoul(row[2]));
       def.rangeMax = static_cast<uint16_t>(std::stoul(row[3]));
       def.castAnimPath = row[4];
+      if (row.size() > 5) def.vfxPath = row[5];
+      if (row.size() > 6) def.sfxPath = row[6];
+      if (row.size() > 7) {
+        const std::string& dt = row[7];
+        def.damageType = (dt == "TRUE" || dt == "true")
+                             ? 2u
+                             : ((dt == "MAGIC" || dt == "magic") ? 1u : 0u);
+      }
       basicAttacksByClass_[def.classId] = def;
     } catch (...) {
     }
   }
 
-  // Manager grava o path em skills (Ataque Básico). Overlay em cima de basic_attacks.
+  // Manager grava path/VFX em skills (Ataque Básico). Overlay em cima de basic_attacks.
   auto skillRows = db_->executePreparedQuery(
-      "SELECT class_id, COALESCE(cast_anim_path,'') FROM skills "
-      "WHERE is_basic_attack = 1 AND is_enabled = 1",
+      "SELECT class_id, COALESCE(cast_anim_path,''), COALESCE(vfx_path,''), "
+      "COALESCE(sfx_path,''), COALESCE(hit_vfx_path,''), COALESCE(damage_type,'PHYSICAL') "
+      "FROM skills WHERE is_basic_attack = 1 AND is_enabled = 1",
       {});
   for (const auto& row : skillRows) {
-    if (row.size() < 2 || row[1].empty()) continue;
+    if (row.size() < 2) continue;
     try {
       const uint32_t cid = static_cast<uint32_t>(std::stoul(row[0]));
       auto it = basicAttacksByClass_.find(cid);
-      if (it != basicAttacksByClass_.end()) {
-        it->second.castAnimPath = row[1];
+      if (it == basicAttacksByClass_.end()) continue;
+      if (!row[1].empty()) it->second.castAnimPath = row[1];
+      if (row.size() > 2 && !row[2].empty()) it->second.vfxPath = row[2];
+      if (row.size() > 3 && !row[3].empty()) it->second.sfxPath = row[3];
+      if (row.size() > 4 && !row[4].empty()) it->second.hitVfxPath = row[4];
+      if (row.size() > 5) {
+        const std::string& dt = row[5];
+        if (dt == "TRUE" || dt == "true") {
+          it->second.damageType = 2;
+        } else if (dt == "MAGIC" || dt == "magic") {
+          it->second.damageType = 1;
+        } else if (dt == "PHYSICAL" || dt == "physical") {
+          it->second.damageType = 0;
+        }
       }
     } catch (...) {
     }
@@ -1798,8 +1821,11 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
     if (tickValue <= 0 && eff.valuePercent > 0) {
       int32_t base = 0;
       if (haveAttacker) {
-        base = (skill.element == Combat::Element::PHYSICAL) ? attacker.buffedStats.physicalAttack
-                                                            : attacker.buffedStats.magicAttack;
+        base = Combat::isTrueDamage(skill.damageType)
+                   ? std::max(attacker.buffedStats.physicalAttack, attacker.buffedStats.magicAttack)
+                   : (Combat::damageTypeUsesPhysicalAttack(skill.damageType)
+                          ? attacker.buffedStats.physicalAttack
+                          : attacker.buffedStats.magicAttack);
       }
       if (base <= 0) base = std::max<uint16_t>(1, skill.powerCoef);
       tickValue = std::max(1, base * eff.valuePercent / 100);
@@ -3924,11 +3950,8 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
         }
       }
       const Combat::DamageBreakdown bd =
-          (skill->element == Combat::Element::PHYSICAL)
-              ? Combat::CombatCalculator::getInstance().calculatePhysicalDamage(
-                    sourceState, defender, damageSkill, 1, isPvP)
-              : Combat::CombatCalculator::getInstance().calculateMagicDamage(
-                    sourceState, defender, damageSkill, 1, isPvP);
+          Combat::CombatCalculator::getInstance().calculateDamageByType(
+              sourceState, defender, damageSkill, 1, isPvP);
       int32_t effectFlatDamage = 0;
       for (const auto& effect : rankedSkill.effects) {
         if (effect.effectType == Combat::EffectType::DAMAGE) {
@@ -4185,14 +4208,29 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
   atkBroadcast.targetId = payload.targetId;
   atkBroadcast.hitWindowMs = 300;
   atkBroadcast.castAnimPath = resolveBasicAttackAnimPath(classId, basic.castAnimPath);
+  atkBroadcast.vfxPath = basic.vfxPath;
+  atkBroadcast.sfxPath = basic.sfxPath;
+  atkBroadcast.hitVfxPath = basic.hitVfxPath;
   Core::Logger::getInstance().debug(
-      "[CombatCoreEngine] BasicAttack anim class={} path={}", classId, atkBroadcast.castAnimPath);
+      "[CombatCoreEngine] BasicAttack anim class={} path={} vfx={}", classId,
+      atkBroadcast.castAnimPath, atkBroadcast.vfxPath);
   broadcastBasicAttack(atkBroadcast);
 
-  // SkillData sintética representando o ataque básico (físico, pode critar).
+  // SkillData sintética do basic (power_coef + damage_type da classe).
   Combat::SkillData synthetic;
-  synthetic.element = Combat::Element::PHYSICAL;
-  synthetic.scalingStat = Combat::ScalingStat::PHYS_ATK;
+  if (basic.damageType == 2) {
+    synthetic.damageType = Combat::DamageType::TRUE;
+    synthetic.element = Combat::Element::PHYSICAL;
+    synthetic.scalingStat = Combat::ScalingStat::PHYS_ATK;
+  } else if (basic.damageType == 1) {
+    synthetic.damageType = Combat::DamageType::MAGIC;
+    synthetic.element = Combat::Element::ARCANE;
+    synthetic.scalingStat = Combat::ScalingStat::MAG_ATK;
+  } else {
+    synthetic.damageType = Combat::DamageType::PHYSICAL;
+    synthetic.element = Combat::Element::PHYSICAL;
+    synthetic.scalingStat = Combat::ScalingStat::PHYS_ATK;
+  }
   synthetic.powerCoef = basic.powerCoef;
   synthetic.canCrit = true;
   synthetic.ignoresDefense = false;
@@ -4235,16 +4273,22 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
   int32_t shieldAbsorbed = 0;
   if (haveAttacker) {
     const Combat::DamageBreakdown bd =
-        Combat::CombatCalculator::getInstance().calculatePhysicalDamage(attacker, defender, synthetic, /*rank*/ 1, defenderIsPlayer);
+        Combat::CombatCalculator::getInstance().calculateDamageByType(
+            attacker, defender, synthetic, /*rank*/ 1, defenderIsPlayer);
     delta = -bd.finalDamage;
     isCrit = (bd.critMultiplier != 100);
     overkill = bd.overkill;
     shieldAbsorbed = bd.shieldAbsorbed;
     Core::Logger::getInstance().info(
-        "[CombatCoreEngine] BasicAttack dmg player={} haveAttacker=1 physAtk={} str={} powerCoef={} "
-        "defPhys={} finalDamage={} crit={}",
-        sourcePlayerId, attacker.buffedStats.physicalAttack, attacker.buffedStats.strength,
-        basic.powerCoef, defender.buffedStats.physicalDefense, bd.finalDamage, isCrit ? 1 : 0);
+        "[CombatCoreEngine] BasicAttack dmg player={} haveAttacker=1 atk={} powerCoef={} "
+        "dmgType={} finalDamage={} crit={}",
+        sourcePlayerId,
+        Combat::isTrueDamage(synthetic.damageType)
+            ? std::max(attacker.buffedStats.physicalAttack, attacker.buffedStats.magicAttack)
+            : (Combat::damageTypeUsesPhysicalAttack(synthetic.damageType)
+                   ? attacker.buffedStats.physicalAttack
+                   : attacker.buffedStats.magicAttack),
+        basic.powerCoef, static_cast<int>(synthetic.damageType), bd.finalDamage, isCrit ? 1 : 0);
   } else {
     Core::Logger::getInstance().warn(
         "[CombatCoreEngine] BasicAttack ABORTADO: loadPlayerState falhou player={} "
@@ -4482,10 +4526,8 @@ void CombatCoreEngine::processNpcBasicAttack(uint32_t npcInstanceId, uint32_t ta
   float px = 0.f, py = 0.f, pz = 0.f;
   if (!tryGetPlayerPosition(targetPlayerId, px, py, pz)) return;
 
-  // Melee do mob: range curto (sem margem grande de cápsula/AI — senão “bate de longe”).
-  // Se attack_range < minDist do corpo, usa minDist só no teste de hit.
-  const float minDist = inst->bodyMinDist();
-  const float attackR = std::max(50.f, std::max(inst->attackRange, minDist)) * 1.15f;
+  // Melee do mob: mesma fórmula de NpcRuntimeInstance::effectiveNpcMeleeReach2D().
+  const float attackR = inst->effectiveNpcMeleeReach2D();
   if (!isInRange2D(inst->x, inst->y, px, py, attackR)) {
     return;
   }
@@ -4512,13 +4554,32 @@ void CombatCoreEngine::processNpcBasicAttack(uint32_t npcInstanceId, uint32_t ta
   atkBroadcast.sourceType = static_cast<uint8_t>(CombatTargetType::Npc);
   npcManager_->mutateInstance(npcInstanceId, [&](NpcRuntimeInstance& live) {
     pickNpcBasicAttackAnim(live, atkBroadcast.castAnimPath, atkBroadcast.animIndex);
+    if (!live.attackVfxPaths.empty()) {
+      const size_t n = live.attackVfxPaths.size();
+      const size_t i = static_cast<size_t>(atkBroadcast.animIndex) % n;
+      atkBroadcast.vfxPath = live.attackVfxPaths[i];
+    } else {
+      atkBroadcast.vfxPath = live.basicVfxPath;
+    }
+    atkBroadcast.hitVfxPath = live.basicHitVfxPath;
   });
   broadcastBasicAttack(atkBroadcast);
 
   Combat::SkillData synthetic;
-  synthetic.element = Combat::Element::PHYSICAL;
-  synthetic.scalingStat = Combat::ScalingStat::PHYS_ATK;
-  synthetic.powerCoef = 100;
+  if (inst->damageType == 2) {
+    synthetic.damageType = Combat::DamageType::TRUE;
+    synthetic.element = Combat::Element::PHYSICAL;
+    synthetic.scalingStat = Combat::ScalingStat::PHYS_ATK;
+  } else if (inst->damageType == 1) {
+    synthetic.damageType = Combat::DamageType::MAGIC;
+    synthetic.element = Combat::Element::ARCANE;
+    synthetic.scalingStat = Combat::ScalingStat::MAG_ATK;
+  } else {
+    synthetic.damageType = Combat::DamageType::PHYSICAL;
+    synthetic.element = Combat::Element::PHYSICAL;
+    synthetic.scalingStat = Combat::ScalingStat::PHYS_ATK;
+  }
+  synthetic.powerCoef = inst->basicPowerCoef > 0 ? inst->basicPowerCoef : 100;
   synthetic.canCrit = true;
   synthetic.ignoresDefense = false;
 
@@ -4536,15 +4597,26 @@ void CombatCoreEngine::processNpcBasicAttack(uint32_t npcInstanceId, uint32_t ta
   }
 
   const Combat::DamageBreakdown bd =
-      Combat::CombatCalculator::getInstance().calculatePhysicalDamage(attacker, defender, synthetic,
-                                                                      /*rank*/ 1, false);
+      Combat::CombatCalculator::getInstance().calculateDamageByType(
+          attacker, defender, synthetic, /*rank*/ 1, false);
   const int32_t delta = -bd.finalDamage;
   const bool isCrit = (bd.critMultiplier != 100);
   Core::Logger::getInstance().info(
       "[CombatCoreEngine] NpcBasicAttack npc={} -> player={} npcAtk={} playerDef={} defReduction={} "
-      "finalDamage={} crit={}",
-      npcInstanceId, targetPlayerId, attacker.buffedStats.physicalAttack,
-      defender.buffedStats.physicalDefense, bd.defenseReduction, bd.finalDamage, isCrit ? 1 : 0);
+      "dmgType={} powerCoef={} finalDamage={} crit={}",
+      npcInstanceId, targetPlayerId,
+      Combat::isTrueDamage(synthetic.damageType)
+          ? std::max(attacker.buffedStats.physicalAttack, attacker.buffedStats.magicAttack)
+          : (Combat::damageTypeUsesPhysicalAttack(synthetic.damageType)
+                 ? attacker.buffedStats.physicalAttack
+                 : attacker.buffedStats.magicAttack),
+      Combat::isTrueDamage(synthetic.damageType)
+          ? 0
+          : (Combat::damageTypeUsesPhysicalAttack(synthetic.damageType)
+                 ? defender.buffedStats.physicalDefense
+                 : defender.buffedStats.magicDefense),
+      bd.defenseReduction, static_cast<int>(synthetic.damageType), synthetic.powerCoef,
+      bd.finalDamage, isCrit ? 1 : 0);
 
   int32_t doubleBonus = 0;
   bool isDouble = false;
@@ -4639,7 +4711,17 @@ void CombatCoreEngine::processNpcSkillCast(uint32_t npcInstanceId, uint32_t targ
   Combat::SkillData synthetic = *skill;
   synthetic.canCrit = skill->canCrit;
   synthetic.ignoresDefense = skill->ignoresDefense;
+  // Rank já embutido em powerCoef — calculator com rank=1 (igual player).
   synthetic.powerCoef = skill->getEffectivePowerCoef(rank);
+  synthetic.rankScalings.clear();
+  synthetic.effects = skill->buildEffectsForRank(rank);
+  for (const auto& effect : synthetic.effects) {
+    if (effect.effectType == Combat::EffectType::DAMAGE && effect.valuePercent > 0) {
+      synthetic.powerCoef = static_cast<uint16_t>(
+          std::clamp<int32_t>(effect.valuePercent, 1, UINT16_MAX));
+      break;
+    }
+  }
 
   const int32_t hitChance =
       Combat::CombatCalculator::getInstance().calculateHitChance(attacker, defender);
@@ -4654,19 +4736,33 @@ void CombatCoreEngine::processNpcSkillCast(uint32_t npcInstanceId, uint32_t targ
     return;
   }
 
-  const bool physical = (skill->element == Combat::Element::PHYSICAL);
   const Combat::DamageBreakdown bd =
-      physical ? Combat::CombatCalculator::getInstance().calculatePhysicalDamage(attacker, defender,
-                                                                               synthetic, rank, false)
-               : Combat::CombatCalculator::getInstance().calculateMagicDamage(attacker, defender,
-                                                                              synthetic, rank, false);
-  const int32_t totalDelta = -bd.finalDamage;
+      Combat::CombatCalculator::getInstance().calculateDamageByType(
+          attacker, defender, synthetic, /*rank*/ 1, false);
+  int32_t effectFlatDamage = 0;
+  for (const auto& effect : synthetic.effects) {
+    if (effect.effectType == Combat::EffectType::DAMAGE) {
+      effectFlatDamage += std::max(0, effect.valueFlat);
+    }
+  }
+  const int32_t totalDelta = -(bd.finalDamage + effectFlatDamage);
   const bool isCrit = (bd.critMultiplier != 100);
   Core::Logger::getInstance().info(
       "[CombatCoreEngine] NpcSkillCast npc={} skill={} -> player={} npcAtk={} playerDef={} "
-      "finalDamage={} crit={}",
-      npcInstanceId, npcSkillId, targetPlayerId, attacker.buffedStats.physicalAttack,
-      defender.buffedStats.physicalDefense, bd.finalDamage, isCrit ? 1 : 0);
+      "dmgType={} powerCoef={} flat={} finalDamage={} crit={}",
+      npcInstanceId, npcSkillId, targetPlayerId,
+      Combat::isTrueDamage(synthetic.damageType)
+          ? std::max(attacker.buffedStats.physicalAttack, attacker.buffedStats.magicAttack)
+          : (Combat::damageTypeUsesPhysicalAttack(synthetic.damageType)
+                 ? attacker.buffedStats.physicalAttack
+                 : attacker.buffedStats.magicAttack),
+      Combat::isTrueDamage(synthetic.damageType)
+          ? 0
+          : (Combat::damageTypeUsesPhysicalAttack(synthetic.damageType)
+                 ? defender.buffedStats.physicalDefense
+                 : defender.buffedStats.magicDefense),
+      static_cast<int>(synthetic.damageType), synthetic.powerCoef, effectFlatDamage,
+      bd.finalDamage, isCrit ? 1 : 0);
 
   if (bd.shieldAbsorbed > 0) {
     consumePlayerShield(targetPlayerId, bd.shieldAbsorbed);
@@ -4680,7 +4776,7 @@ void CombatCoreEngine::processNpcSkillCast(uint32_t npcInstanceId, uint32_t targ
   inReactionDispatch_ = prevReaction;
 
   Combat::SkillData rankedSkill = *skill;
-  rankedSkill.effects = skill->buildEffectsForRank(rank);
+  rankedSkill.effects = synthetic.effects;
   rankedSkill.durationMs = skill->getEffectiveDurationMs(rank);
   for (const auto& effect : rankedSkill.effects) {
     const Combat::TargetType effectTarget =

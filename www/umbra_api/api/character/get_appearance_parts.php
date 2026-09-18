@@ -16,12 +16,23 @@ try {
     if (!$pdo) {
         throw new RuntimeException('Falha na conexão');
     }
-    $stmt = $pdo->query(
-        "SELECT appearance_part_id, part_type, part_id, mesh_path, attach_socket, is_enabled
-         FROM player_appearance_parts
-         WHERE is_enabled = 1
-         ORDER BY part_type ASC, part_id ASC"
-    );
+    $classId = isset($_GET['class_id']) ? (int)$_GET['class_id'] : 0;
+    if ($classId > 0) {
+        $stmt = $pdo->prepare(
+            "SELECT appearance_part_id, part_type, part_id, class_id, mesh_path, attach_socket, is_enabled
+             FROM player_appearance_parts
+             WHERE is_enabled = 1 AND (class_id = 0 OR class_id = :cid)
+             ORDER BY part_type ASC, part_id ASC, class_id ASC"
+        );
+        $stmt->execute([':cid' => $classId]);
+    } else {
+        $stmt = $pdo->query(
+            "SELECT appearance_part_id, part_type, part_id, class_id, mesh_path, attach_socket, is_enabled
+             FROM player_appearance_parts
+             WHERE is_enabled = 1
+             ORDER BY part_type ASC, part_id ASC, class_id ASC"
+        );
+    }
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
     $parts = [];
     foreach ($rows as $row) {

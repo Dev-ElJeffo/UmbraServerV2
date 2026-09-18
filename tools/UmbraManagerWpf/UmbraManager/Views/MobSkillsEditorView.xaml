@@ -66,6 +66,9 @@
         <ComboBox ItemsSource="{Binding SkillElementOptions}" DisplayMemberPath="Display" SelectedValuePath="Id"
                   SelectedValue="{Binding NpcSkillFormElementId}" Margin="0,0,0,6"
                   materialDesign:HintAssist.Hint="Elemento" materialDesign:HintAssist.IsFloating="True"/>
+        <ComboBox ItemsSource="{Binding NpcSkillDamageTypeOptions}"
+                  SelectedItem="{Binding NpcSkillFormDamageType}" Margin="0,0,0,6"
+                  materialDesign:HintAssist.Hint="Dano base (Physical/Magic)" materialDesign:HintAssist.IsFloating="True"/>
         <UniformGrid Columns="2" Margin="0,0,0,6">
           <TextBox Text="{Binding NpcSkillFormPowerCoef}" materialDesign:HintAssist.Hint="power_coef" materialDesign:HintAssist.IsFloating="True" Margin="0,0,4,4"/>
           <TextBox Text="{Binding NpcSkillFormCooldownMs}" materialDesign:HintAssist.Hint="cooldown_ms" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,4"/>

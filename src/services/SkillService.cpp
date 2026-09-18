@@ -17,6 +17,10 @@ ResourceType parseResourceType(const std::string& value) {
   return ResourceType::MANA;
 }
 
+DamageType parseDamageType(const std::string& value) {
+  return parseDamageTypeString(value);
+}
+
 bool tryParseImplementedEffectType(const std::string& value, EffectType& out) {
   std::string upper;
   upper.reserve(value.size());
@@ -141,6 +145,8 @@ bool SkillService::loadSkillsFromDatabase() {
 
   const bool hasIncludeCaster =
       !db_->executeQuery("SHOW COLUMNS FROM skills LIKE 'include_caster'").empty();
+  const bool hasDamageType =
+      !db_->executeQuery("SHOW COLUMNS FROM skills LIKE 'damage_type'").empty();
   const std::string skillSelect =
       "SELECT skill_id, skill_key, skill_name, class_id, skill_order, required_level, skill_cost, max_rank, "
       "type_id, target_id, element_id, scaling_stat_id, "
@@ -154,12 +160,13 @@ bool SkillService::loadSkillsFromDatabase() {
       "COALESCE(threat_modifier,100), COALESCE(pvp_modifier,100), " +
       std::string(hasIncludeCaster ? "COALESCE(include_caster,0)" : "0") + ", "
       "COALESCE(effects_json,''), COALESCE(icon_path,''), COALESCE(vfx_key,''), COALESCE(sfx_key,''), "
-      "COALESCE(description,''), COALESCE(tooltip_template,''), COALESCE(server_tags,'') "
-      "FROM skills WHERE is_enabled = 1";
+      "COALESCE(description,''), COALESCE(tooltip_template,''), COALESCE(server_tags,''), " +
+      std::string(hasDamageType ? "COALESCE(damage_type,'PHYSICAL')" : "'PHYSICAL'") +
+      " FROM skills WHERE is_enabled = 1";
   auto rows = db_->executePreparedQuery(skillSelect, {});
 
   for (const auto& row : rows) {
-    if (row.size() < 45) continue;
+    if (row.size() < 46) continue;
     SkillData skill;
     try {
       skill.skillId = static_cast<uint32_t>(std::stoul(row[0]));
@@ -213,6 +220,12 @@ bool SkillService::loadSkillsFromDatabase() {
             if (t.is_string()) skill.serverTags.push_back(t.get<std::string>());
           }
         }
+      }
+      skill.damageType = parseDamageType(row[45]);
+      if (skill.damageType == DamageType::PHYSICAL &&
+          skill.scalingStat == ScalingStat::MAG_ATK) {
+        // Compat: scaling mágico sem damage_type MAGIC no seed antigo.
+        skill.damageType = DamageType::MAGIC;
       }
     } catch (...) {
       continue;
@@ -273,33 +286,46 @@ bool SkillService::loadNpcSkillsFromDatabase() {
     hasCastAnimCol =
         !db_->executeQuery("SHOW COLUMNS FROM npc_skills LIKE 'cast_anim_path'").empty() ? 1 : 0;
   }
+  static int hasDamageTypeCol = -1;
+  if (hasDamageTypeCol < 0) {
+    hasDamageTypeCol =
+        !db_->executeQuery("SHOW COLUMNS FROM npc_skills LIKE 'damage_type'").empty() ? 1 : 0;
+  }
 
-  const char* sqlWithCast =
-      "SELECT npc_skill_id, skill_key, skill_name, type_id, target_id, element_id, scaling_stat_id, "
-      "COALESCE(str_scaling,0), COALESCE(dex_scaling,0), COALESCE(vit_scaling,0), "
-      "COALESCE(int_scaling,0), COALESCE(lck_scaling,0), "
-      "power_coef, COALESCE(secondary_coef,0), resource_type, COALESCE(resource_cost,0), "
-      "COALESCE(resource_cost_percent,0), cooldown_ms, cast_time_ms, COALESCE(duration_ms,0), "
-      "COALESCE(range_min,0), range_max, COALESCE(area_radius,0), "
-      "can_crit, COALESCE(ignores_defense,0), COALESCE(requires_target,1), "
-      "COALESCE(effects_json,''), COALESCE(icon_path,''), COALESCE(cast_anim_path,''), COALESCE(vfx_key,''), COALESCE(sfx_key,''), "
-      "COALESCE(vfx_path,''), COALESCE(hit_vfx_path,'') "
-      "FROM npc_skills WHERE is_enabled = 1";
-  const char* sqlLegacy =
-      "SELECT npc_skill_id, skill_key, skill_name, type_id, target_id, element_id, scaling_stat_id, "
-      "COALESCE(str_scaling,0), COALESCE(dex_scaling,0), COALESCE(vit_scaling,0), "
-      "COALESCE(int_scaling,0), COALESCE(lck_scaling,0), "
-      "power_coef, COALESCE(secondary_coef,0), resource_type, COALESCE(resource_cost,0), "
-      "COALESCE(resource_cost_percent,0), cooldown_ms, cast_time_ms, COALESCE(duration_ms,0), "
-      "COALESCE(range_min,0), range_max, COALESCE(area_radius,0), "
-      "can_crit, COALESCE(ignores_defense,0), COALESCE(requires_target,1), "
-      "COALESCE(effects_json,''), COALESCE(icon_path,''), COALESCE(vfx_key,''), COALESCE(sfx_key,''), "
-      "COALESCE(vfx_path,''), COALESCE(hit_vfx_path,'') "
-      "FROM npc_skills WHERE is_enabled = 1";
+  std::string sql =
+      hasCastAnimCol == 1
+          ? "SELECT npc_skill_id, skill_key, skill_name, type_id, target_id, element_id, scaling_stat_id, "
+            "COALESCE(str_scaling,0), COALESCE(dex_scaling,0), COALESCE(vit_scaling,0), "
+            "COALESCE(int_scaling,0), COALESCE(lck_scaling,0), "
+            "power_coef, COALESCE(secondary_coef,0), resource_type, COALESCE(resource_cost,0), "
+            "COALESCE(resource_cost_percent,0), cooldown_ms, cast_time_ms, COALESCE(duration_ms,0), "
+            "COALESCE(range_min,0), range_max, COALESCE(area_radius,0), "
+            "can_crit, COALESCE(ignores_defense,0), COALESCE(requires_target,1), "
+            "COALESCE(effects_json,''), COALESCE(icon_path,''), COALESCE(cast_anim_path,''), "
+            "COALESCE(vfx_key,''), COALESCE(sfx_key,''), COALESCE(vfx_path,''), COALESCE(hit_vfx_path,'') "
+            "FROM npc_skills WHERE is_enabled = 1"
+          : "SELECT npc_skill_id, skill_key, skill_name, type_id, target_id, element_id, scaling_stat_id, "
+            "COALESCE(str_scaling,0), COALESCE(dex_scaling,0), COALESCE(vit_scaling,0), "
+            "COALESCE(int_scaling,0), COALESCE(lck_scaling,0), "
+            "power_coef, COALESCE(secondary_coef,0), resource_type, COALESCE(resource_cost,0), "
+            "COALESCE(resource_cost_percent,0), cooldown_ms, cast_time_ms, COALESCE(duration_ms,0), "
+            "COALESCE(range_min,0), range_max, COALESCE(area_radius,0), "
+            "can_crit, COALESCE(ignores_defense,0), COALESCE(requires_target,1), "
+            "COALESCE(effects_json,''), COALESCE(icon_path,''), COALESCE(vfx_key,''), COALESCE(sfx_key,''), "
+            "COALESCE(vfx_path,''), COALESCE(hit_vfx_path,'') "
+            "FROM npc_skills WHERE is_enabled = 1";
+  if (hasDamageTypeCol == 1) {
+    sql += " ";  // noop marker; append column before FROM
+    const std::string fromMark = " FROM npc_skills ";
+    const auto pos = sql.find(fromMark);
+    if (pos != std::string::npos) {
+      sql.insert(pos, ", COALESCE(damage_type,'PHYSICAL')");
+    }
+  }
 
-  auto rows = db_->executePreparedQuery(hasCastAnimCol == 1 ? sqlWithCast : sqlLegacy, {});
+  auto rows = db_->executePreparedQuery(sql, {});
   for (const auto& row : rows) {
-    const size_t minCols = hasCastAnimCol == 1 ? 33 : 32;
+    const size_t minCols = (hasCastAnimCol == 1 ? 33u : 32u) + (hasDamageTypeCol == 1 ? 1u : 0u);
     if (row.size() < minCols) continue;
     SkillData skill;
     try {
@@ -343,6 +369,13 @@ bool SkillService::loadNpcSkillsFromDatabase() {
         skill.sfxKey = row[29];
         skill.vfxPath = row[30];
         skill.hitVfxPath = row[31];
+      }
+      if (hasDamageTypeCol == 1 && !row.empty()) {
+        skill.damageType = parseDamageType(row.back());
+      } else if (skill.element != Element::PHYSICAL || skill.scalingStat == ScalingStat::MAG_ATK) {
+        skill.damageType = DamageType::MAGIC;
+      } else {
+        skill.damageType = DamageType::PHYSICAL;
       }
     } catch (...) {
       continue;

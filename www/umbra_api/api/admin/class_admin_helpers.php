@@ -171,6 +171,7 @@ function class_payload_fields(array $data, bool $forUpdate, bool $includeAnim, ?
         'base_stamina' => 'int',
         'base_physical_attack' => 'int',
         'base_magic_attack' => 'int',
+        'damage_type' => 'damage_type',
         'base_physical_defense' => 'int',
         'base_magic_defense' => 'int',
         'base_accuracy' => 'int',
@@ -182,11 +183,17 @@ function class_payload_fields(array $data, bool $forUpdate, bool $includeAnim, ?
         'base_double_attack_rate' => 'int',
     ];
     foreach ($map as $col => $type) {
+        if ($col === 'damage_type' && $pdo instanceof PDO && !class_column_exists($pdo, 'damage_type')) {
+            continue;
+        }
         if ($forUpdate && !array_key_exists($col, $data)) {
             continue;
         }
         if ($type === 'int') {
             $fields[$col] = (int)($data[$col] ?? 0);
+        } elseif ($type === 'damage_type') {
+            $dt = strtoupper(trim((string)($data[$col] ?? 'PHYSICAL')));
+            $fields[$col] = in_array($dt, ['MAGIC', 'TRUE'], true) ? $dt : 'PHYSICAL';
         } else {
             $val = $data[$col] ?? '';
             $fields[$col] = $val === null ? null : (string)$val;

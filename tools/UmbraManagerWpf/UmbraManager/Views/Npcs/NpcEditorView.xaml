@@ -203,6 +203,19 @@
                                     <ColumnDefinition Width="8"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
+                                <ComboBox Grid.Column="0" ItemsSource="{Binding NpcDamageTypeOptions}"
+                                          SelectedItem="{Binding NewNpcDamageType}"
+                                          materialDesign:HintAssist.Hint="Dano do basic (Physical/Magic)"
+                                          materialDesign:HintAssist.IsFloating="True"/>
+                                <TextBox Grid.Column="2" Text="{Binding NewNpcBasicPowerCoef, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="basic_power_coef" materialDesign:HintAssist.IsFloating="True"/>
+                            </Grid>
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
                                 <TextBox Grid.Column="0" Text="{Binding NewNpcPhysicalDefense, UpdateSourceTrigger=PropertyChanged}"
                                          materialDesign:HintAssist.Hint="Defesa física" materialDesign:HintAssist.IsFloating="True"/>
                                 <TextBox Grid.Column="2" Text="{Binding NewNpcMagicDefense, UpdateSourceTrigger=PropertyChanged}"
@@ -455,6 +468,17 @@
                                          materialDesign:HintAssist.Hint="Alcance de hit (basic)" materialDesign:HintAssist.IsFloating="True"/>
                                 <TextBox Grid.Column="2" Text="{Binding NewNpcAttackCooldownMs, UpdateSourceTrigger=PropertyChanged}"
                                          materialDesign:HintAssist.Hint="Cooldownown do ataque (ms)" materialDesign:HintAssist.IsFloating="True"/>
+                            </Grid>
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0" Text="{Binding NewNpcBasicVfxPath, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="Basic Niagara (caster) /Game/...System" materialDesign:HintAssist.IsFloating="True"/>
+                                <TextBox Grid.Column="2" Text="{Binding NewNpcBasicHitVfxPath, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="Basic Niagara (hit no alvo)" materialDesign:HintAssist.IsFloating="True"/>
                             </Grid>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                                 <CheckBox Content="Atacável" IsChecked="{Binding NewNpcIsAttackable}" Margin="0,0,16,0"/>

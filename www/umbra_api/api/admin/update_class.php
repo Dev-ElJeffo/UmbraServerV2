@@ -41,6 +41,15 @@ try {
     $stmt->bindValue(':class_id', $classId, PDO::PARAM_INT);
     $stmt->execute();
 
+    if (isset($fields['damage_type'])) {
+        try {
+            $sync = $pdo->prepare('UPDATE basic_attacks SET damage_type = :dt WHERE class_id = :cid');
+            $sync->execute(['dt' => $fields['damage_type'], 'cid' => $classId]);
+        } catch (Throwable $e) {
+            // tabela/coluna pode não existir em installs antigos
+        }
+    }
+
     echo json_encode([
         'success' => true,
         'message' => 'Classe atualizada',

@@ -64,6 +64,11 @@
         </UniformGrid>
 
         <TextBlock Text="Combate" FontWeight="SemiBold" Margin="0,8,0,6"/>
+        <ComboBox ItemsSource="{Binding ClassDamageTypeOptions}"
+                  SelectedItem="{Binding ClassFormDamageType}"
+                  Margin="0,0,0,6"
+                  materialDesign:HintAssist.Hint="Dano base (Physical / Magic)"
+                  materialDesign:HintAssist.IsFloating="True"/>
         <UniformGrid Columns="2">
           <TextBox Text="{Binding ClassFormPhysicalAttack}" Margin="0,0,6,6" materialDesign:HintAssist.Hint="Phys Atk" materialDesign:HintAssist.IsFloating="True"/>
           <TextBox Text="{Binding ClassFormMagicAttack}" Margin="0,0,0,6" materialDesign:HintAssist.Hint="Mag Atk" materialDesign:HintAssist.IsFloating="True"/>

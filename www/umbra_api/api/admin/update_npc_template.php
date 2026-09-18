@@ -28,7 +28,7 @@ if ($templateId <= 0) {
 $allowed = [
     'npc_name', 'level', 'max_health', 'max_mana',
     'strength', 'dexterity', 'vitality', 'intelligence', 'luck',
-    'physical_attack', 'magic_attack', 'physical_defense', 'magic_defense',
+    'physical_attack', 'magic_attack', 'damage_type', 'basic_power_coef', 'physical_defense', 'magic_defense',
     'accuracy', 'dodge', 'critical', 'critical_resistance',
     'double_attack_rate', 'double_attack_resistance',
     'skeletal_mesh_path', 'anim_blueprint_path', 'anim_states_json', 'mesh_scale', 'is_editable',
@@ -36,6 +36,7 @@ $allowed = [
     'dialog_title', 'dialog_text', 'respawn_seconds',
     'aggro_radius', 'leash_radius', 'attack_range', 'combat_stop_range', 'attack_cooldown_ms',
     'move_speed', 'chase_speed_mult', 'roam_radius', 'is_hostile',
+    'basic_vfx_path', 'basic_hit_vfx_path',
     'right_hand_mesh_path', 'left_hand_mesh_path',
     'right_hand_rel_x', 'right_hand_rel_y', 'right_hand_rel_z',
     'right_hand_rel_pitch', 'right_hand_rel_yaw', 'right_hand_rel_roll', 'right_hand_rel_scale',
@@ -75,6 +76,13 @@ foreach ($allowed as $field) {
             if ($value < 1.0) {
                 $value = 2000.0;
             }
+        }
+        if ($field === 'damage_type') {
+            $dt = strtoupper(trim((string)$value));
+            $value = in_array($dt, ['MAGIC', 'TRUE'], true) ? $dt : 'PHYSICAL';
+        }
+        if ($field === 'basic_power_coef') {
+            $value = max(1, min(1000, (int)$value));
         }
         $params[$key] = $value;
     }

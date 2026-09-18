@@ -77,6 +77,8 @@ public partial class MainViewModel
     [ObservableProperty] private float _newNpcChaseSpeedMult = 1.5f;
     [ObservableProperty] private float _newNpcRoamRadius = 800f;
     [ObservableProperty] private bool _newNpcIsHostile;
+    [ObservableProperty] private string _newNpcBasicVfxPath = "";
+    [ObservableProperty] private string _newNpcBasicHitVfxPath = "";
 
     [ObservableProperty] private int _selectedLootNpcTemplateId;
     [ObservableProperty] private string _selectedLootNpcTemplateName = "";

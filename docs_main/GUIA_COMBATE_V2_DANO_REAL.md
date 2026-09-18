@@ -149,15 +149,17 @@ cmake --build . --config Release --target zone_server
 
 **Passos no servidor (`CombatCoreEngine::processBasicAttack`):**
 
-1. Carrega `class_id` do atacante → linha em `basic_attacks`.
+1. Carrega `class_id` do atacante → linha em `basic_attacks` (inclui `vfx_path` / `sfx_path` / `hit_vfx_path` quando existirem; overlay de skill `is_basic_attack=1` pode preferir o path da skill).
 2. Cooldown server-side (`checkAndStampBasicCooldown`).
-3. Broadcast animação **opcode 99** (`BasicAttackBroadcast`).
+3. Broadcast **opcode 99** (`BasicAttackBroadcast`) com anim + `vfxPath` / `sfxPath` / `hitVfxPath` (mesmo padrão do 97; frames antigos sem strings → paths vazios).
 4. Monta `SkillData` sintética (físico, `powerCoef` da classe).
 5. `CharacterStateLoader` → atacante; `buildDefenderState` → alvo.
 6. **Hit roll:** `calculateHitChance` + `rollHit` — se falhar → `broadcastMiss` (103 NPC / 92 player) e **return**.
 7. `CombatCalculator::calculatePhysicalDamage` → `delta` negativo, `isCrit`, `overkill`.
 8. **Alvo NPC:** `NpcManager::applyDamage` → **103** + **102** (HP); **101** se morrer.
 9. **Alvo player:** `applyPlayerDamage` → UPDATE DB + **87** + **92**; **89** se morte; `writeCombatLog`.
+
+**Cliente (99):** após montage, reutiliza `PlaySkillCastVfx` / `SpawnSkillNiagaraAtActor` (como no 97), com `hitWindowMs` como delay do hit VFX.
 
 ### 3.2 Skill cast (opcode 96 → 97 → dano + efeitos)
 
@@ -356,7 +358,7 @@ Todos little-endian. Definições em [`MovementProtocol.hpp`](../src/zone/Moveme
 | **96** | SkillCastNotify | C→S | `sourceId:4` `skillId:4` `targetType:1` `targetId:4` `x,y,z:f32` | Zone: `processSkillCast` |
 | **97** | SkillCastBroadcast | S→C | `sourceId:4` `skillId:4` `targetId:4` `castMs:4` + strings anim/vfx/sfx | Cliente: `OnSkillCastBroadcast` |
 | **98** | BasicAttackNotify | C→S | `sourceId:4` `targetType:1` `targetId:4` | Zone: `processBasicAttack` |
-| **99** | BasicAttackBroadcast | S→C | `sourceId:4` `classId:4` `targetId:4` `hitMs:4` + anim | Cliente: `OnBasicAttackBroadcast` |
+| **99** | BasicAttackBroadcast | S→C | `sourceId:4` `classId:4` `targetId:4` `hitMs:4` + anim + `vfx`/`sfx`/`hitVfx` | Cliente: montage + `PlaySkillCastVfx` |
 
 ### 6.2 NPC
 
@@ -400,6 +402,8 @@ mysql -u root -p umbra_eternum < www\umbra_api\scripts\create_skill_system.sql
 mysql -u root -p umbra_eternum < www\umbra_api\scripts\combat_v2.sql
 mysql -u root -p umbra_eternum < www\umbra_api\scripts\insert_all_skills.sql
 mysql -u root -p umbra_eternum < www\umbra_api\scripts\add_basic_attack_skills.sql
+mysql -u root -p umbra_eternum < www\umbra_api\scripts\add_class_npc_damage_type.sql
+mysql -u root -p umbra_eternum < www\umbra_api\scripts\add_damage_type_true_enum.sql
 ```
 
 ### 7.2 Tabelas principais
@@ -407,16 +411,41 @@ mysql -u root -p umbra_eternum < www\umbra_api\scripts\add_basic_attack_skills.s
 | Tabela | Colunas relevantes |
 |--------|-------------------|
 | `players` | `health`, `mana`, `max_health`, `max_mana` (base), `class_id`, `level`, `is_dead` |
-| `classes` | `base_strength`…`base_luck`, `base_health`, `base_mana`, `base_physical_attack`, etc. |
+| `classes` | `base_strength`…`base_luck`, `base_health`, `base_mana`, `base_physical_attack`, `damage_type` (PHYSICAL/MAGIC — school do basic; sync em `basic_attacks`) |
+| `npc_templates` | `physical_attack`, `magic_attack`, `damage_type`, `basic_power_coef`, defesas, ranges |
+| `npc_skills` | `power_coef`, `damage_type` (PHYSICAL/MAGIC), ranges, `effects_json`, … |
 | `player_stat_points` | `strength_points`, `dexterity_points`, … |
 | `player_inventory` + `item_templates` | `is_equipped`, `stats_json`, `refinement_bonus_stats` |
 | `player_item_buffs` | `buff_key`, `bonus_value`, `expires_at_ms` |
 | `skills` | `power_coef`, `resource_cost`, `cooldown_ms`, `effects_json`, `cast_anim_path`, … |
 | `player_skills` | `current_rank` |
-| `basic_attacks` | `class_id`, `power_coef`, `cooldown_ms`, `cast_anim_path` |
+| `basic_attacks` | `class_id`, `power_coef`, `cooldown_ms`, `cast_anim_path`, `vfx_path`, `damage_type` (PHYSICAL/MAGIC) (+ sfx/hit quando colunas existirem) |
 | `active_dots` | `target_player_id`, `dot_type`, `tick_value`, `tick_interval_ms`, `ticks_remaining`, `next_tick_at` |
 | `combat_log` | `source_player_id`, `target_player_id`, `skill_id`, `action_type` (`DAMAGE`/`HEAL`/`CRIT`/`DOUBLE`/`REACTION`/…), `value`, `is_critical` |
-| `npc_templates` / `npc_instances` | HP, defesa, mesh, posição, `zone_id` |
+| `npc_instances` | HP runtime, mesh, posição, `zone_id` |
+
+### 7.2.1 School de dano (`damage_type` + `power_coef`)
+
+O Manager escolhe **PHYSICAL**, **MAGIC** ou **TRUE** como base do cálculo:
+
+| Entidade | Campo | Efeito no zone |
+|----------|-------|----------------|
+| Classe (basic) | `classes.damage_type` → sync `basic_attacks.damage_type` | Basic usa phys/mag ATK/DEF ou TRUE; `power_coef` de `basic_attacks` |
+| Skill de jogador | `skills.damage_type` | Idem no cast |
+| NPC template (basic) | `npc_templates.damage_type` + `basic_power_coef` | Auto-attack: school × `basic_power_coef` / 100 |
+| Skill de NPC | `npc_skills.damage_type` + `power_coef` (+ rank) | Paridade com player: `value_percent` sobrescreve coef; `value_flat` soma ao final |
+
+Fórmula base (antes de DEF/crit/mitigações):
+
+`(primaryATK × power_coef + secondaryATK × secondary_coef) / 100`
+
+- PHYSICAL: primary = phys ATK, secondary = mag ATK
+- MAGIC: primary = mag ATK, secondary = phys ATK
+- TRUE: primary conforme `scaling_stat` (PHYS/MAG ou max); **sem** DEF nem resist elemental; `secondary_coef` ignorado; ainda aplica DR%/flat, escudo, crit, PvP
+
+SQL: `add_class_npc_damage_type.sql` + `add_damage_type_true_enum.sql`.
+
+Floating text (cliente): números ancorados na cabeça do **alvo**; lane Incoming (esquerda, vermelho) no player local; Outgoing (direita, âmbar) quando o dano foi causado pelo player ativo.
 
 ### 7.3 Exemplo `effects_json` (DOT)
 
@@ -591,6 +620,8 @@ Sem o overlay, skills como Passo Guardião / Escudo de Voto / Chama do Voto / Ma
 - [ ] Skill com DOT em `effects_json`: dano periódico no boneco (103/102) ou em player (93).
 - [ ] Crítico: floating text com prefixo "CRIT".
 - [ ] NPC não afunda após hit (opcode 102 só HP).
+- [ ] LMB com `basic_attacks.vfx_path` preenchido: Niagara no caster (+ hit se `hit_vfx_path`); remoto vê o mesmo via **99**.
+- [ ] NPC com `basic_vfx_path`: Niagara no auto-attack (opcode **99**).
 
 ---
 

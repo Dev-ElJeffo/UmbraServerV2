@@ -90,6 +90,9 @@
         <ComboBox ItemsSource="{Binding SkillScalingOptions}" DisplayMemberPath="Display" SelectedValuePath="Id"
                   SelectedValue="{Binding SkillFormScalingStatId}" Margin="0,0,0,6"
                   materialDesign:HintAssist.Hint="Scaling" materialDesign:HintAssist.IsFloating="True"/>
+        <ComboBox ItemsSource="{Binding SkillDamageTypeOptions}"
+                  SelectedItem="{Binding SkillFormDamageType}" Margin="0,0,0,6"
+                  materialDesign:HintAssist.Hint="Dano base (Physical/Magic)" materialDesign:HintAssist.IsFloating="True"/>
         <UniformGrid Columns="3" Margin="0,0,0,6">
           <TextBox Text="{Binding SkillFormPowerCoef}" materialDesign:HintAssist.Hint="power_coef" materialDesign:HintAssist.IsFloating="True" Margin="0,0,4,4"/>
           <TextBox Text="{Binding SkillFormResourceCost}" materialDesign:HintAssist.Hint="mana" materialDesign:HintAssist.IsFloating="True" Margin="0,0,4,4"/>

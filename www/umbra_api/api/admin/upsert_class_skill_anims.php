@@ -24,13 +24,14 @@ if ($classId <= 0 || !is_array($skills)) {
 try {
     $pdo = getConnection();
     $upd = $pdo->prepare(
-        'UPDATE skills SET cast_anim_path = :path WHERE skill_id = :sid AND class_id = :cid'
+        'UPDATE skills SET cast_anim_path = :path, vfx_path = :vfx, sfx_path = :sfx, hit_vfx_path = :hit
+         WHERE skill_id = :sid AND class_id = :cid'
     );
     $isBasic = $pdo->prepare(
         'SELECT is_basic_attack FROM skills WHERE skill_id = :sid AND class_id = :cid LIMIT 1'
     );
     $updBasic = $pdo->prepare(
-        'UPDATE basic_attacks SET cast_anim_path = :path WHERE class_id = :cid'
+        'UPDATE basic_attacks SET cast_anim_path = :path, vfx_path = :vfx, sfx_path = :sfx WHERE class_id = :cid'
     );
     $updated = 0;
     foreach ($skills as $row) {
@@ -40,8 +41,17 @@ try {
         }
         $path = trim((string)($row['cast_anim_path'] ?? ''));
         $pathOrNull = $path === '' ? null : $path;
+        $vfx = trim((string)($row['vfx_path'] ?? ''));
+        $vfxOrNull = $vfx === '' ? null : $vfx;
+        $sfx = trim((string)($row['sfx_path'] ?? ''));
+        $sfxOrNull = $sfx === '' ? null : $sfx;
+        $hit = trim((string)($row['hit_vfx_path'] ?? ''));
+        $hitOrNull = $hit === '' ? null : $hit;
         $upd->execute([
             ':path' => $pathOrNull,
+            ':vfx' => $vfxOrNull,
+            ':sfx' => $sfxOrNull,
+            ':hit' => $hitOrNull,
             ':sid' => $sid,
             ':cid' => $classId,
         ]);
@@ -53,6 +63,8 @@ try {
         if ($flag !== false && (int)$flag === 1) {
             $updBasic->execute([
                 ':path' => $pathOrNull,
+                ':vfx' => $vfxOrNull,
+                ':sfx' => $sfxOrNull,
                 ':cid' => $classId,
             ]);
         }

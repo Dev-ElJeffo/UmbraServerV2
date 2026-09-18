@@ -116,6 +116,8 @@ mysql -u root -p umbra_eternum < D:\UmbraServerV2\www\umbra_api\scripts\add_basi
 
 mysql -u root -p umbra_eternum < D:\UmbraServerV2\www\umbra_api\scripts\grant_basic_attack_existing_players.sql
 
+mysql -u root -p umbra_eternum < D:\UmbraServerV2\www\umbra_api\scripts\add_npc_basic_vfx_path.sql
+
 ```
 
 
@@ -127,6 +129,8 @@ mysql -u root -p umbra_eternum < D:\UmbraServerV2\www\umbra_api\scripts\grant_ba
 | `add_basic_attack_skills.sql` | Coluna `is_basic_attack` + INSERT skills **91–96** (espelham `basic_attacks`) |
 
 | `grant_basic_attack_existing_players.sql` | Concede skill `is_basic_attack=1` da classe em `player_skills` (idempotente) |
+
+| `add_npc_basic_vfx_path.sql` | `npc_templates.basic_vfx_path` + `basic_hit_vfx_path` (Niagara no auto-attack / opcode 99) |
 
 
 
@@ -852,7 +856,7 @@ Após spawn bem-sucedido, a lista de instâncias é atualizada automaticamente.
 
 3. Batch `log_damage.php` a partir do zone
 
-4. VFX/SFX Niagara nos paths SQL
+4. VFX/SFX Niagara nos paths SQL — **feito** para basic: player via `basic_attacks.vfx_path` (+ overlay skill `is_basic_attack`); NPC via `basic_vfx_path` / `basic_hit_vfx_path` (e opcional `anim_states_json.attack_vfx[]`) no opcode **99**
 
 5. Range check + PvP modifier
 

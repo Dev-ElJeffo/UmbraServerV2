@@ -14,6 +14,7 @@ public partial class MainViewModel
     [ObservableProperty] private int _editingAppearancePartId;
     [ObservableProperty] private string _appearancePartFormType = "hair";
     [ObservableProperty] private int _appearancePartFormPartId;
+    [ObservableProperty] private int _appearancePartFormClassId;
     [ObservableProperty] private string _appearancePartFormMeshPath = "";
     [ObservableProperty] private string _appearancePartFormAttachSocket = "head";
     [ObservableProperty] private bool _appearancePartFormIsEnabled = true;
@@ -57,6 +58,7 @@ public partial class MainViewModel
         EditingAppearancePartId = 0;
         AppearancePartFormType = "hair";
         AppearancePartFormPartId = 0;
+        AppearancePartFormClassId = 0;
         AppearancePartFormMeshPath = "";
         AppearancePartFormAttachSocket = "head";
         AppearancePartFormIsEnabled = true;
@@ -69,6 +71,7 @@ public partial class MainViewModel
         EditingAppearancePartId = row.AppearancePartId;
         AppearancePartFormType = row.PartType;
         AppearancePartFormPartId = row.PartId;
+        AppearancePartFormClassId = row.ClassId;
         AppearancePartFormMeshPath = row.MeshPath;
         AppearancePartFormAttachSocket = row.AttachSocket;
         AppearancePartFormIsEnabled = row.IsEnabled;
@@ -88,10 +91,16 @@ public partial class MainViewModel
             MessageBox.Show("part_id deve ser >= 0.", "Validação");
             return;
         }
+        if (AppearancePartFormClassId < 0)
+        {
+            MessageBox.Show("class_id deve ser >= 0 (0 = todas as classes).", "Validação");
+            return;
+        }
         var payload = new Dictionary<string, object?>
         {
             ["part_type"] = type,
             ["part_id"] = AppearancePartFormPartId,
+            ["class_id"] = AppearancePartFormClassId,
             ["mesh_path"] = string.IsNullOrWhiteSpace(AppearancePartFormMeshPath) ? null : AppearancePartFormMeshPath.Trim(),
             ["attach_socket"] = string.IsNullOrWhiteSpace(AppearancePartFormAttachSocket) ? "head" : AppearancePartFormAttachSocket.Trim(),
             ["is_enabled"] = AppearancePartFormIsEnabled ? 1 : 0,
@@ -150,6 +159,7 @@ public partial class MainViewModel
         AppearancePartId = TryGetIntProp(el, "appearance_part_id"),
         PartType = TryGetStringProp(el, "part_type"),
         PartId = TryGetIntProp(el, "part_id"),
+        ClassId = TryGetIntProp(el, "class_id"),
         MeshPath = TryGetStringProp(el, "mesh_path"),
         AttachSocket = TryGetStringProp(el, "attach_socket"),
         IsEnabled = TryGetBoolProp(el, "is_enabled"),

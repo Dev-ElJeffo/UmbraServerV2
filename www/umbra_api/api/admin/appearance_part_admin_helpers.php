@@ -9,6 +9,7 @@ function appearance_part_row_normalize(array $row): array
         'appearance_part_id' => (int)($row['appearance_part_id'] ?? 0),
         'part_type' => (string)($row['part_type'] ?? ''),
         'part_id' => (int)($row['part_id'] ?? 0),
+        'class_id' => (int)($row['class_id'] ?? 0),
         'mesh_path' => $row['mesh_path'] ?? null,
         'attach_socket' => (string)($row['attach_socket'] ?? 'head'),
         'is_enabled' => (int)($row['is_enabled'] ?? 1),
@@ -37,6 +38,13 @@ function appearance_part_validate_payload(array $data, bool $forUpdate): array
         }
         $fields['part_id'] = $partId;
     }
+    if (!$forUpdate || array_key_exists('class_id', $data)) {
+        $classId = (int)($data['class_id'] ?? 0);
+        if ($classId < 0) {
+            throw new InvalidArgumentException('class_id deve ser >= 0 (0 = todas as classes)');
+        }
+        $fields['class_id'] = $classId;
+    }
     if (!$forUpdate || array_key_exists('mesh_path', $data)) {
         $path = $data['mesh_path'] ?? null;
         if ($path === null || $path === '') {
@@ -58,6 +66,9 @@ function appearance_part_validate_payload(array $data, bool $forUpdate): array
     if (!$forUpdate) {
         if (!isset($fields['part_type'], $fields['part_id'])) {
             throw new InvalidArgumentException('part_type e part_id são obrigatórios');
+        }
+        if (!isset($fields['class_id'])) {
+            $fields['class_id'] = 0;
         }
     }
     return $fields;

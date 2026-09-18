@@ -138,6 +138,7 @@
                                                 ItemsSource="{Binding DataContext.ItemVisualMeshSlots, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                 SelectedItemBinding="{Binding Slot, UpdateSourceTrigger=PropertyChanged}"/>
                                             <DataGridTextColumn Header="Path SKM/SM" Binding="{Binding Path, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                            <DataGridCheckBoxColumn Header="Esconder cabelo" Binding="{Binding HideHair, UpdateSourceTrigger=PropertyChanged}" Width="110"/>
                                             <DataGridTemplateColumn Header="" Width="70">
                                                 <DataGridTemplateColumn.CellTemplate>
                                                     <DataTemplate>
@@ -171,6 +172,7 @@
                                                 ItemsSource="{Binding DataContext.ItemVisualMeshSlots, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                 SelectedItemBinding="{Binding Slot, UpdateSourceTrigger=PropertyChanged}"/>
                                             <DataGridTextColumn Header="Path SKM/SM" Binding="{Binding Path, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                            <DataGridCheckBoxColumn Header="Esconder cabelo" Binding="{Binding HideHair, UpdateSourceTrigger=PropertyChanged}" Width="110"/>
                                             <DataGridTemplateColumn Header="" Width="70">
                                                 <DataGridTemplateColumn.CellTemplate>
                                                     <DataTemplate>

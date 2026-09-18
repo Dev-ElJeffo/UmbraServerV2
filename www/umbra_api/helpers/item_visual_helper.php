@@ -6,7 +6,7 @@
 /** Slots com mesh visual no cliente UE. */
 function item_visual_valid_slots(): array
 {
-    return ['chest', 'legs', 'feet', 'hands', 'main_hand', 'off_hand'];
+    return ['head', 'chest', 'legs', 'feet', 'hands', 'main_hand', 'off_hand'];
 }
 
 /** Ordem estável de equipment_slot para desempate. */
@@ -35,10 +35,11 @@ function item_templates_has_visual_meshes_json(PDO $pdo): bool
 }
 
 /**
- * Normaliza lista de entradas [{slot, path}] -> [['equipment_slot'=>..., 'skeletal_mesh_path'=>...]]
+ * Normaliza lista de entradas [{slot, path, hide_hair?}] ->
+ * [['equipment_slot'=>..., 'skeletal_mesh_path'=>..., 'hide_hair'=>bool]]
  *
  * @param array<int, array<string, mixed>> $entries
- * @return array<int, array<string, string>>
+ * @return array<int, array<string, mixed>>
  */
 function item_visual_normalize_entries(array $entries): array
 {
@@ -59,10 +60,19 @@ function item_visual_normalize_entries(array $entries): array
         if ($slot === '' || $path === '' || !in_array($slot, $valid, true)) {
             continue;
         }
-        $out[] = [
+        $hideHair = false;
+        if (array_key_exists('hide_hair', $entry)) {
+            $raw = $entry['hide_hair'];
+            $hideHair = ($raw === true || $raw === 1 || $raw === '1' || $raw === 'true');
+        }
+        $normalized = [
             'equipment_slot' => $slot,
             'skeletal_mesh_path' => $path,
         ];
+        if ($hideHair) {
+            $normalized['hide_hair'] = true;
+        }
+        $out[] = $normalized;
     }
     return $out;
 }
@@ -228,7 +238,7 @@ function aggregate_player_equipped_visual(PDO $pdo, int $playerId, int $classId)
     $slotOrder = item_visual_equipment_slot_order();
     $orderIndex = array_flip($slotOrder);
 
-    /** @var array<string, array<int, array{path: string, priority: int, order: int}>> $candidates */
+    /** @var array<string, array<int, array{path: string, hide_hair: bool, priority: int, order: int}>> $candidates */
     $candidates = [];
 
     foreach ($rows as $row) {
@@ -243,6 +253,7 @@ function aggregate_player_equipped_visual(PDO $pdo, int $playerId, int $classId)
             }
             $candidates[$visualSlot][] = [
                 'path' => $entry['skeletal_mesh_path'],
+                'hide_hair' => !empty($entry['hide_hair']),
                 'priority' => $priority,
                 'order' => $itemOrder,
             ];
@@ -258,10 +269,14 @@ function aggregate_player_equipped_visual(PDO $pdo, int $playerId, int $classId)
             return $b['order'] <=> $a['order'];
         });
         $winner = $list[0];
-        $result[] = [
+        $rowOut = [
             'equipment_slot' => $visualSlot,
             'skeletal_mesh_path' => $winner['path'],
         ];
+        if (!empty($winner['hide_hair'])) {
+            $rowOut['hide_hair'] = true;
+        }
+        $result[] = $rowOut;
     }
 
     usort($result, static function ($a, $b) use ($orderIndex) {

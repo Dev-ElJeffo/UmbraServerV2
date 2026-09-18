@@ -559,16 +559,18 @@ inline bool decodePlayerInfoUpdate(const std::vector<uint8_t>& data,
 struct EquippedVisualWireEntry {
   uint8_t equipSlot = 0;
   std::string meshPath;
+  uint8_t flags = 0;  // bit0 = hide_hair
 };
 
 // PlayerEquipmentVisualUpdate (117):
 // [msgType:uint8][playerId:uint32][count:uint8]
 // repeat count: [equipSlot:uint8][pathLen:uint16 LE][path:utf8]
+// trailing (opcional, legado ignora se curto): repeat count [flags:uint8]  bit0=hide_hair
 inline std::vector<uint8_t> encodePlayerEquipmentVisualUpdate(
     uint32_t playerId,
     const std::vector<EquippedVisualWireEntry>& entries) {
   std::vector<uint8_t> out;
-  out.reserve(6 + entries.size() * 8);
+  out.reserve(6 + entries.size() * 9);
   out.push_back(static_cast<uint8_t>(MovementMsgType::PlayerEquipmentVisualUpdate));
 
   auto write32 = [&out](uint32_t v) {
@@ -591,6 +593,9 @@ inline std::vector<uint8_t> encodePlayerEquipmentVisualUpdate(
     const uint16_t pathLen = static_cast<uint16_t>(std::min<size_t>(e.meshPath.size(), 65535));
     write16(pathLen);
     out.insert(out.end(), e.meshPath.begin(), e.meshPath.begin() + pathLen);
+  }
+  for (size_t i = 0; i < count; ++i) {
+    out.push_back(entries[i].flags);
   }
   return out;
 }
@@ -634,6 +639,12 @@ inline bool decodePlayerEquipmentVisualUpdate(
     entry.meshPath.assign(reinterpret_cast<const char*>(data.data() + off), pathLen);
     off += pathLen;
     outEntries.push_back(std::move(entry));
+  }
+  // Flags trailing (compat: buffer curto → flags=0)
+  if (off + count <= data.size()) {
+    for (uint8_t i = 0; i < count; ++i) {
+      outEntries[i].flags = data[off++];
+    }
   }
   return true;
 }
@@ -2056,6 +2067,10 @@ struct BasicAttackBroadcastPayload {
   uint8_t sourceType = static_cast<uint8_t>(CombatTargetType::Player);
   /** Índice em attacks[]; 255 = default (0). Byte opcional após sourceType. */
   uint8_t animIndex = 0;
+  /** Niagara (opcional após animIndex; frames antigos sem estes campos). */
+  std::string vfxPath;
+  std::string sfxPath;
+  std::string hitVfxPath;
 };
 
 struct NpcHandAttachOffset {
@@ -2141,7 +2156,12 @@ struct BasicAttackDef {
   uint16_t powerCoef = 80;
   uint32_t cooldownMs = 800;
   uint16_t rangeMax = 250;
+  /** 0=PHYSICAL, 1=MAGIC, 2=TRUE (espelha Combat::DamageType). */
+  uint8_t damageType = 0;
   std::string castAnimPath;
+  std::string vfxPath;
+  std::string sfxPath;
+  std::string hitVfxPath;
 };
 
 inline std::vector<uint8_t> encodeSkillCastNotify(const SkillCastPayload& p) {
@@ -2297,6 +2317,9 @@ inline std::vector<uint8_t> encodeBasicAttackBroadcast(const BasicAttackBroadcas
   appendStringField(data, p.castAnimPath, 255);
   data.push_back(p.sourceType == 0 ? static_cast<uint8_t>(CombatTargetType::Player) : p.sourceType);
   data.push_back(p.animIndex);
+  appendStringField(data, p.vfxPath, 255);
+  appendStringField(data, p.sfxPath, 255);
+  appendStringField(data, p.hitVfxPath, 255);
   return data;
 }
 
@@ -2319,7 +2342,19 @@ inline bool decodeBasicAttackBroadcast(const std::vector<uint8_t>& data, BasicAt
                      ? data[off++]
                      : static_cast<uint8_t>(CombatTargetType::Player);
   if (p.sourceType == 0) p.sourceType = static_cast<uint8_t>(CombatTargetType::Player);
-  p.animIndex = (off < data.size()) ? data[off] : 0;
+  p.animIndex = (off < data.size()) ? data[off++] : 0;
+  p.vfxPath.clear();
+  p.sfxPath.clear();
+  p.hitVfxPath.clear();
+  if (off < data.size()) {
+    if (!readStringField(data, off, p.vfxPath, 255)) p.vfxPath.clear();
+  }
+  if (off < data.size()) {
+    if (!readStringField(data, off, p.sfxPath, 255)) p.sfxPath.clear();
+  }
+  if (off < data.size()) {
+    if (!readStringField(data, off, p.hitVfxPath, 255)) p.hitVfxPath.clear();
+  }
   return true;
 }
 

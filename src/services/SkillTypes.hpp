@@ -69,6 +69,32 @@ enum class ScalingStat : uint8_t {
     NONE = 5
 };
 
+/** School de dano: qual ATK/DEF usar no CombatCalculator (independente do element de resistência). */
+enum class DamageType : uint8_t {
+    PHYSICAL = 0,
+    MAGIC = 1,
+    TRUE = 2
+};
+
+inline bool isTrueDamage(DamageType t) {
+    return t == DamageType::TRUE;
+}
+
+/** PHYSICAL usa phys ATK/DEF; MAGIC usa mag; TRUE não usa esta helper (sem DEF). */
+inline bool damageTypeUsesPhysicalAttack(DamageType t) {
+    return t == DamageType::PHYSICAL;
+}
+
+inline bool damageTypeUsesMagicAttack(DamageType t) {
+    return t == DamageType::MAGIC;
+}
+
+inline DamageType parseDamageTypeString(const std::string& raw) {
+    if (raw == "MAGIC" || raw == "magic" || raw == "1") return DamageType::MAGIC;
+    if (raw == "TRUE" || raw == "true" || raw == "2") return DamageType::TRUE;
+    return DamageType::PHYSICAL;
+}
+
 enum class ResourceType : uint8_t {
     MANA = 0,
     HEALTH = 1,
@@ -309,6 +335,7 @@ struct SkillData {
     TargetType target = TargetType::ENEMY;
     Element element = Element::PHYSICAL;
     ScalingStat scalingStat = ScalingStat::PHYS_ATK;
+    DamageType damageType = DamageType::PHYSICAL;
     
     // Attribute scaling (0-100)
     uint8_t strScaling = 0;

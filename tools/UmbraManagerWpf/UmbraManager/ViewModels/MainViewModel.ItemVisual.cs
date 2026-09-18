@@ -13,7 +13,7 @@ public partial class MainViewModel
 {
     public ObservableCollection<string> ItemVisualMeshSlots { get; } = new()
     {
-        "chest", "legs", "feet", "hands", "main_hand", "off_hand"
+        "head", "chest", "legs", "feet", "hands", "main_hand", "off_hand"
     };
 
     public ObservableCollection<ItemVisualMeshRow> ItemDefaultVisualMeshes { get; } = new();
@@ -28,7 +28,7 @@ public partial class MainViewModel
         if (oldValue > 0)
         {
             _itemClassVisualOverrides[oldValue] = ItemClassVisualMeshes
-                .Select(r => new ItemVisualMeshRow { Slot = r.Slot, Path = r.Path })
+                .Select(CloneVisualRow)
                 .ToList();
         }
         LoadClassVisualMeshesForSelection(newValue);
@@ -63,6 +63,40 @@ public partial class MainViewModel
         if (row != null) ItemClassVisualMeshes.Remove(row);
     }
 
+    private static ItemVisualMeshRow CloneVisualRow(ItemVisualMeshRow r) =>
+        new() { Slot = r.Slot, Path = r.Path, HideHair = r.HideHair };
+
+    private static Dictionary<string, object> VisualRowToDict(ItemVisualMeshRow r)
+    {
+        var d = new Dictionary<string, object>
+        {
+            ["slot"] = r.Slot,
+            ["path"] = r.Path.Trim()
+        };
+        if (r.HideHair)
+        {
+            d["hide_hair"] = true;
+        }
+        return d;
+    }
+
+    private static ItemVisualMeshRow ParseVisualRow(JsonObject obj)
+    {
+        var slot = obj["slot"]?.GetValue<string>() ?? obj["equipment_slot"]?.GetValue<string>() ?? "chest";
+        var path = obj["path"]?.GetValue<string>() ?? obj["skeletal_mesh_path"]?.GetValue<string>() ?? "";
+        var hideHair = false;
+        if (obj["hide_hair"] is JsonValue hv)
+        {
+            try { hideHair = hv.GetValue<bool>(); }
+            catch
+            {
+                try { hideHair = hv.GetValue<int>() != 0; }
+                catch { /* ignore */ }
+            }
+        }
+        return new ItemVisualMeshRow { Slot = slot, Path = path, HideHair = hideHair };
+    }
+
     private void ClearItemVisualMeshEditor()
     {
         ItemDefaultVisualMeshes.Clear();
@@ -75,7 +109,7 @@ public partial class MainViewModel
     {
         if (SelectedVisualOverrideClassId <= 0) return;
         _itemClassVisualOverrides[SelectedVisualOverrideClassId] = ItemClassVisualMeshes
-            .Select(r => new ItemVisualMeshRow { Slot = r.Slot, Path = r.Path })
+            .Select(CloneVisualRow)
             .ToList();
     }
 
@@ -86,7 +120,7 @@ public partial class MainViewModel
         if (!_itemClassVisualOverrides.TryGetValue(classId, out var rows)) return;
         foreach (var row in rows)
         {
-            ItemClassVisualMeshes.Add(new ItemVisualMeshRow { Slot = row.Slot, Path = row.Path });
+            ItemClassVisualMeshes.Add(CloneVisualRow(row));
         }
     }
 
@@ -105,10 +139,9 @@ public partial class MainViewModel
                 foreach (var node in defaultArr)
                 {
                     if (node is not JsonObject obj) continue;
-                    var slot = obj["slot"]?.GetValue<string>() ?? obj["equipment_slot"]?.GetValue<string>() ?? "chest";
-                    var path = obj["path"]?.GetValue<string>() ?? obj["skeletal_mesh_path"]?.GetValue<string>() ?? "";
-                    if (string.IsNullOrWhiteSpace(path)) continue;
-                    ItemDefaultVisualMeshes.Add(new ItemVisualMeshRow { Slot = slot, Path = path });
+                    var row = ParseVisualRow(obj);
+                    if (string.IsNullOrWhiteSpace(row.Path)) continue;
+                    ItemDefaultVisualMeshes.Add(row);
                 }
             }
 
@@ -122,10 +155,9 @@ public partial class MainViewModel
                     foreach (var node in arr)
                     {
                         if (node is not JsonObject obj) continue;
-                        var slot = obj["slot"]?.GetValue<string>() ?? obj["equipment_slot"]?.GetValue<string>() ?? "chest";
-                        var path = obj["path"]?.GetValue<string>() ?? obj["skeletal_mesh_path"]?.GetValue<string>() ?? "";
-                        if (string.IsNullOrWhiteSpace(path)) continue;
-                        list.Add(new ItemVisualMeshRow { Slot = slot, Path = path });
+                        var row = ParseVisualRow(obj);
+                        if (string.IsNullOrWhiteSpace(row.Path)) continue;
+                        list.Add(row);
                     }
                     if (list.Count > 0) _itemClassVisualOverrides[classId] = list;
                 }
@@ -145,7 +177,7 @@ public partial class MainViewModel
 
         var defaultEntries = ItemDefaultVisualMeshes
             .Where(r => !string.IsNullOrWhiteSpace(r.Path) && validSlots.Contains(r.Slot))
-            .Select(r => new Dictionary<string, string> { ["slot"] = r.Slot, ["path"] = r.Path.Trim() })
+            .Select(VisualRowToDict)
             .ToList();
 
         PersistCurrentClassVisualMeshes();
@@ -155,7 +187,7 @@ public partial class MainViewModel
         {
             var entries = kv.Value
                 .Where(r => !string.IsNullOrWhiteSpace(r.Path) && validSlots.Contains(r.Slot))
-                .Select(r => new Dictionary<string, string> { ["slot"] = r.Slot, ["path"] = r.Path.Trim() })
+                .Select(VisualRowToDict)
                 .ToList();
             if (entries.Count > 0) byClass[kv.Key.ToString()] = entries;
         }

@@ -10,6 +10,7 @@ function npc_skill_payload_fields(array $data, bool $forUpdate = false): array
         'target_id' => ['int', 2],
         'element_id' => ['int', 1],
         'scaling_stat_id' => ['int', 1],
+        'damage_type' => ['damage_type', 'PHYSICAL'],
         'str_scaling' => ['int', 0],
         'dex_scaling' => ['int', 0],
         'vit_scaling' => ['int', 0],
@@ -64,6 +65,10 @@ function npc_skill_payload_fields(array $data, bool $forUpdate = false): array
             case 'resource':
                 $rt = strtoupper((string)($raw ?? 'NONE'));
                 $fields[$col] = in_array($rt, ['MANA', 'HEALTH', 'STAMINA', 'NONE'], true) ? $rt : 'NONE';
+                break;
+            case 'damage_type':
+                $dt = strtoupper(trim((string)($raw ?? 'PHYSICAL')));
+                $fields[$col] = in_array($dt, ['MAGIC', 'TRUE'], true) ? $dt : 'PHYSICAL';
                 break;
             case 'json':
                 if ($col === 'effects_json' && $raw !== null && $raw !== '') {

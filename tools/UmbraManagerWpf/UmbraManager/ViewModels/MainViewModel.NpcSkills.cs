@@ -20,7 +20,10 @@ public partial class MainViewModel
     [ObservableProperty] private int _npcSkillFormTargetId = 2;
     [ObservableProperty] private int _npcSkillFormElementId = 1;
     [ObservableProperty] private int _npcSkillFormScalingStatId = 1;
+    [ObservableProperty] private string _npcSkillFormDamageType = "PHYSICAL";
     [ObservableProperty] private int _npcSkillFormPowerCoef = 150;
+
+    public string[] NpcSkillDamageTypeOptions { get; } = ["PHYSICAL", "MAGIC", "TRUE"];
     [ObservableProperty] private int _npcSkillFormCooldownMs = 4000;
     [ObservableProperty] private int _npcSkillFormCastTimeMs;
     [ObservableProperty] private int _npcSkillFormRangeMax = 200;
@@ -79,6 +82,7 @@ public partial class MainViewModel
         NpcSkillFormTargetId = SkillTargetOptions.FirstOrDefault(x => x.Id == 2)?.Id ?? 2;
         NpcSkillFormElementId = SkillElementOptions.FirstOrDefault()?.Id ?? 1;
         NpcSkillFormScalingStatId = SkillScalingOptions.FirstOrDefault()?.Id ?? 1;
+        NpcSkillFormDamageType = "PHYSICAL";
         NpcSkillFormPowerCoef = 150;
         NpcSkillFormCooldownMs = 4000;
         NpcSkillFormCastTimeMs = 0;
@@ -120,6 +124,12 @@ public partial class MainViewModel
         NpcSkillFormTargetId = JsonInt(s, "target_id", 2);
         NpcSkillFormElementId = JsonInt(s, "element_id", 1);
         NpcSkillFormScalingStatId = JsonInt(s, "scaling_stat_id", 1);
+        NpcSkillFormDamageType = JsonStr(s, "damage_type").ToUpperInvariant() switch
+        {
+            "MAGIC" => "MAGIC",
+            "TRUE" => "TRUE",
+            _ => "PHYSICAL",
+        };
         NpcSkillFormPowerCoef = JsonInt(s, "power_coef", 100);
         NpcSkillFormCooldownMs = JsonInt(s, "cooldown_ms", 4000);
         NpcSkillFormCastTimeMs = JsonInt(s, "cast_time_ms");
@@ -157,6 +167,7 @@ public partial class MainViewModel
             ["target_id"] = NpcSkillFormTargetId,
             ["element_id"] = NpcSkillFormElementId,
             ["scaling_stat_id"] = NpcSkillFormScalingStatId,
+            ["damage_type"] = NpcSkillFormDamageType is "MAGIC" or "TRUE" ? NpcSkillFormDamageType : "PHYSICAL",
             ["power_coef"] = NpcSkillFormPowerCoef,
             ["resource_type"] = "NONE",
             ["cooldown_ms"] = NpcSkillFormCooldownMs,

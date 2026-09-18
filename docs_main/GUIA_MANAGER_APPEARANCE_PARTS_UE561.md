@@ -17,6 +17,7 @@ mysql -u root -p umbra_eternum < www/umbra_api/scripts/add_hair_head_columns.sql
 mysql -u root -p umbra_eternum < www/umbra_api/scripts/create_player_appearance_parts.sql
 mysql -u root -p umbra_eternum < www/umbra_api/scripts/add_class_mesh_paths.sql
 mysql -u root -p umbra_eternum < www/umbra_api/scripts/add_class_modular_mesh_paths.sql
+mysql -u root -p umbra_eternum < www/umbra_api/scripts/add_appearance_parts_class_id.sql
 # Se ainda existir left/right_hand de run antigo, o mesmo script agora migra para arms_mesh_path.
 # Alternativa dedicada:
 mysql -u root -p umbra_eternum < www/umbra_api/scripts/rename_class_hands_to_arms.sql
@@ -52,11 +53,16 @@ Tabela: `player_appearance_parts`
 |-------|-------------|
 | `part_type` | `hair`, `head` ou `body` (ver nota sobre `body` abaixo) |
 | `part_id` | ID numérico gravado em `players.hair` ou `players.head` |
+| `class_id` | `0` = global (fallback); `>0` = mesh só para essa classe |
 | `mesh_path` | Path completo do asset UE (SKM) |
 | `attach_socket` | Nome do socket no rig master onde a peça é anexada |
 | `is_enabled` | `1` = visível no catálogo e no cliente; `0` = oculto |
 
-Índice único: `(part_type, part_id)` — não pode haver duas entradas `hair` + `part_id=3`.
+Índice único: `(part_type, part_id, class_id)` — o mesmo `hair/1` pode existir por classe com meshes distintos.
+
+**Lookup no cliente:** preferir `(part_type, part_id, class_id do personagem)`; senão cair em `(part_type, part_id, 0)`. `players.hair` / `players.head` continuam só o ID de estilo (não mudam de schema).
+
+Exemplo: classe 1 com `head` 1–5 e classe 2 com `head` 1–5 = dois conjuntos de meshes no Manager.
 
 ### `part_id = 0` (default)
 
@@ -114,6 +120,7 @@ Clique em **Atualizar** para carregar `player_appearance_parts` via API admin.
 |-------|------------|
 | `part_type` | `hair` ou `head` |
 | `part_id` | Número inteiro ≥ 0; deve bater com `players.hair` ou `players.head` |
+| `class_id` | `0` = todas as classes; senão só essa `class_id` |
 | `mesh_path` | Path UE no formato `/Game/Pasta/Asset.Asset` |
 | `attach_socket` | Socket do rig master (padrão: `head`) |
 | Habilitado | Marcado para o cliente enxergar |
@@ -305,13 +312,49 @@ Logs úteis (Output Log UE):
 
 ---
 
+## Capacete (equipamento slot `head`) vs rosto cosmético
+
+| Conceito | Onde | Componente UE |
+|----------|------|----------------|
+| Rosto / cabeça cosmética | `players.head` + Appearance Parts `part_type=head` | `HeadPartMesh` |
+| Capacete equipado | Item `equipment_slot=head` + `visual_meshes_json` | `HelmetPartMesh` |
+
+No Manager (aba **Items** → meshes visuais):
+
+1. Slot **`head`** + path SKM do capacete.
+2. Checkbox **Esconder cabelo** (`hide_hair`):
+   - `true` → capacete substitui o cabelo (`HairPartMesh` oculto).
+   - `false` / omitido → capacete + cabelo empilhados.
+
+Exemplo JSON:
+
+```json
+{ "slot": "head", "path": "/Game/.../SK_Helmet.SK_Helmet", "hide_hair": true }
+```
+
+Wire: opcode **117** (`PlayerEquipmentVisualUpdate`) envia 1 byte de flags por entrada no fim do frame (`bit0 = hide_hair`). Frame legado sem bytes extras → flags 0.
+
+---
+
+## Checklist PIE (appearance + capacete)
+
+1. Cadastrar `hair/1` com `class_id=1` e outro `hair/1` com `class_id=2` (meshes diferentes) → trocar personagem/classe e confirmar mesh.
+2. Item head com path + `hide_hair=true` → capacete aparece e cabelo some; `false` → ambos visíveis.
+3. Desequipar capacete → cabelo volta; remoto via 117 vê o mesmo.
+
+---
+
 ## Referências no repositório
 
 | Arquivo | Papel |
 |---------|--------|
 | `www/umbra_api/scripts/create_player_appearance_parts.sql` | Schema + seed |
-| `www/umbra_api/api/character/get_appearance_parts.php` | Leitura pública (cliente) |
+| `www/umbra_api/scripts/add_appearance_parts_class_id.sql` | `class_id` + unique `(part_type, part_id, class_id)` |
+| `www/umbra_api/api/character/get_appearance_parts.php` | Leitura pública (`?class_id=`) |
 | `www/umbra_api/api/admin/*_appearance_part*.php` | CRUD admin |
-| `tools/UmbraManagerWpf/.../AppearancePartsEditorView.xaml` | UI Manager |
-| `UmbraEternumUE/.../UmbraPlayerAppearanceComponent.cpp` | Aplicação no pawn |
+| `www/umbra_api/helpers/item_visual_helper.php` | Slot `head` + `hide_hair` em `visual_meshes_json` |
+| `tools/UmbraManagerWpf/.../AppearancePartsEditorView.xaml` | UI Manager (parts) |
+| `tools/UmbraManagerWpf/.../ItemsEditorView.xaml` | UI capacete / Esconder cabelo |
+| `UmbraEternumUE/.../UmbraPlayerAppearanceComponent.cpp` | Hair/Head + `HelmetPartMesh` |
+| `UmbraEternumUE/.../UmbraGameInstanceEquipmentVisual.cpp` | Agregação + opcode 117 flags |
 | `UmbraEternumUE/.../UmbraGameInstance.cpp` | `LoadAppearanceParts`, parse hair/head |

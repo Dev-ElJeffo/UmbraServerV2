@@ -31,7 +31,7 @@ try {
         "INSERT INTO npc_templates (
             npc_name, level, max_health, max_mana,
             strength, dexterity, vitality, intelligence, luck,
-            physical_attack, magic_attack, physical_defense, magic_defense,
+            physical_attack, magic_attack, damage_type, basic_power_coef, physical_defense, magic_defense,
             accuracy, dodge, critical, critical_resistance,
             double_attack_rate, double_attack_resistance,
             skeletal_mesh_path, anim_blueprint_path, anim_states_json, mesh_scale, is_editable,
@@ -39,6 +39,7 @@ try {
             dialog_title, dialog_text, respawn_seconds, kill_exp,
             aggro_radius, leash_radius, attack_range, combat_stop_range, attack_cooldown_ms,
             move_speed, chase_speed_mult, roam_radius, is_hostile,
+            basic_vfx_path, basic_hit_vfx_path,
             right_hand_mesh_path, left_hand_mesh_path,
             right_hand_rel_x, right_hand_rel_y, right_hand_rel_z,
             right_hand_rel_pitch, right_hand_rel_yaw, right_hand_rel_roll, right_hand_rel_scale,
@@ -47,7 +48,7 @@ try {
         ) VALUES (
             :npc_name, :level, :max_health, :max_mana,
             :strength, :dexterity, :vitality, :intelligence, :luck,
-            :physical_attack, :magic_attack, :physical_defense, :magic_defense,
+            :physical_attack, :magic_attack, :damage_type, :basic_power_coef, :physical_defense, :magic_defense,
             :accuracy, :dodge, :critical, :critical_resistance,
             :double_attack_rate, :double_attack_resistance,
             :skeletal_mesh_path, :anim_blueprint_path, :anim_states_json, :mesh_scale, :is_editable,
@@ -55,6 +56,7 @@ try {
             :dialog_title, :dialog_text, :respawn_seconds, :kill_exp,
             :aggro_radius, :leash_radius, :attack_range, :combat_stop_range, :attack_cooldown_ms,
             :move_speed, :chase_speed_mult, :roam_radius, :is_hostile,
+            :basic_vfx_path, :basic_hit_vfx_path,
             :right_hand_mesh_path, :left_hand_mesh_path,
             :right_hand_rel_x, :right_hand_rel_y, :right_hand_rel_z,
             :right_hand_rel_pitch, :right_hand_rel_yaw, :right_hand_rel_roll, :right_hand_rel_scale,
@@ -102,6 +104,10 @@ try {
         ':luck' => (int)($data['luck'] ?? 10),
         ':physical_attack' => (int)($data['physical_attack'] ?? 0),
         ':magic_attack' => (int)($data['magic_attack'] ?? 0),
+        ':damage_type' => in_array(strtoupper(trim((string)($data['damage_type'] ?? 'PHYSICAL'))), ['MAGIC', 'TRUE'], true)
+            ? strtoupper(trim((string)$data['damage_type']))
+            : 'PHYSICAL',
+        ':basic_power_coef' => max(1, min(1000, (int)($data['basic_power_coef'] ?? 100))),
         ':physical_defense' => (int)($data['physical_defense'] ?? 0),
         ':magic_defense' => (int)($data['magic_defense'] ?? 0),
         ':accuracy' => (int)($data['accuracy'] ?? 0),
@@ -140,6 +146,8 @@ try {
         ':chase_speed_mult' => (float)($data['chase_speed_mult'] ?? 1.5),
         ':roam_radius' => (float)($data['roam_radius'] ?? 0),
         ':is_hostile' => (int)($data['is_hostile'] ?? 1),
+        ':basic_vfx_path' => (($p = trim((string)($data['basic_vfx_path'] ?? ''))) !== '') ? $p : null,
+        ':basic_hit_vfx_path' => (($p = trim((string)($data['basic_hit_vfx_path'] ?? ''))) !== '') ? $p : null,
         ':right_hand_mesh_path' => $rightHand !== '' ? $rightHand : null,
         ':left_hand_mesh_path' => $leftHand !== '' ? $leftHand : null,
         ':right_hand_rel_x' => (float)($data['right_hand_rel_x'] ?? 0),

@@ -40,6 +40,9 @@ struct NpcRuntimeInstance {
   uint32_t level = 1;
   int32_t physicalAttack = 0;
   int32_t magicAttack = 0;
+  /** 0=PHYSICAL, 1=MAGIC — school do auto-attack. */
+  uint8_t damageType = 0;
+  uint16_t basicPowerCoef = 100;
   int32_t physicalDefense = 0;
   int32_t magicDefense = 0;
   int32_t accuracy = 0;
@@ -56,6 +59,7 @@ struct NpcRuntimeInstance {
   std::string skeletalMeshPath;
   std::string animBlueprintPath;
   std::vector<std::string> attackAnimPaths;
+  std::vector<std::string> attackVfxPaths;
   std::vector<std::string> hitAnimPaths;
   std::string deathAnimPath;
   std::string skillAnimPath;
@@ -71,6 +75,8 @@ struct NpcRuntimeInstance {
   std::string runRightPath;
   std::vector<std::string> castAnimPaths;
   std::vector<std::string> buffAnimPaths;
+  std::string basicVfxPath;
+  std::string basicHitVfxPath;
   uint16_t deathDurationMs = 0;
   bool pendingDeathDespawn = false;
   std::chrono::steady_clock::time_point deathDespawnAt{};
@@ -149,9 +155,16 @@ struct NpcRuntimeInstance {
     return std::max(std::max(attackRange * 3.f, 600.f), leash);
   }
 
+  /** Alcance 2D efetivo do basic (mesma fórmula de processNpcBasicAttack). */
+  float effectiveNpcMeleeReach2D() const {
+    return std::max(50.f, std::max(attackRange, bodyMinDist())) * 1.15f;
+  }
+
   float effectiveCombatStopRange() const {
     const float stop = combatStopRange > 0.f ? combatStopRange : attackRange;
-    return std::max(std::max(40.f, stop), bodyMinDist());
+    const float computed = std::max(std::max(40.f, stop), bodyMinDist());
+    // Nunca parar além do hit — senão Combat parado com basic rejeitado por range.
+    return std::min(computed, effectiveNpcMeleeReach2D());
   }
 
   float effectiveChaseSpeedMult() const {

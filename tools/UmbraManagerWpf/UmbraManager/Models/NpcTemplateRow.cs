@@ -14,6 +14,8 @@ public sealed class NpcTemplateRow
     public int Luck { get; set; }
     public int PhysicalAttack { get; set; }
     public int MagicAttack { get; set; }
+    public string DamageType { get; set; } = "PHYSICAL";
+    public int BasicPowerCoef { get; set; } = 100;
     public int PhysicalDefense { get; set; }
     public int MagicDefense { get; set; }
     public int Accuracy { get; set; }
@@ -67,6 +69,8 @@ public sealed class NpcTemplateRow
     public float ChaseSpeedMult { get; set; } = 1.5f;
     public float RoamRadius { get; set; }
     public bool IsHostile { get; set; } = true;
+    public string BasicVfxPath { get; set; } = "";
+    public string BasicHitVfxPath { get; set; } = "";
     public string Summary =>
         $"Lv {Level} | HP {MaxHealth} | PA {PhysicalAttack} | Roam {RoamRadius:0} | Aggro {AggroRadius:0} | " +
         $"Stop {CombatStopRange:0} | AtkR {AttackRange:0} | Chase×{ChaseSpeedMult:0.##} | Hostil {(IsHostile ? "Sim" : "Nao")} | Resp {RespawnSeconds}s";
