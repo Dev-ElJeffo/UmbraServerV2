@@ -32,6 +32,29 @@ if ($mult === null && isset($data['bonus_percentage'])) {
     $mult = 1.0 + (((float)$data['bonus_percentage']) / 100.0);
 }
 
+$slotVfxJson = null;
+if (array_key_exists('slot_vfx_json', $data)) {
+    $raw = $data['slot_vfx_json'];
+    if ($raw === null || $raw === '') {
+        $slotVfxJson = null;
+    } elseif (is_array($raw) || is_object($raw)) {
+        $slotVfxJson = json_encode($raw, JSON_UNESCAPED_UNICODE);
+    } else {
+        $s = trim((string)$raw);
+        if ($s === '' || strtolower($s) === 'null') {
+            $slotVfxJson = null;
+        } else {
+            json_decode($s);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'slot_vfx_json inválido'], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            $slotVfxJson = $s;
+        }
+    }
+}
+
 if ($level < 0 || $level > 12) {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'refinement_level inválido (0-12)'], JSON_UNESCAPED_UNICODE);
@@ -42,9 +65,9 @@ if ($successRate === null || $successRate < 0 || $successRate > 1) {
     echo json_encode(['success' => false, 'message' => 'success_rate deve estar entre 0 e 1'], JSON_UNESCAPED_UNICODE);
     exit;
 }
-if ($itemId <= 0 || $qty < 1) {
+if ($itemId <= 0 || $qty < 0) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'required_item_id e quantity obrigatórios'], JSON_UNESCAPED_UNICODE);
+    echo json_encode(['success' => false, 'message' => 'required_item_id válido e quantity >= 0 obrigatórios'], JSON_UNESCAPED_UNICODE);
     exit;
 }
 if ($mult === null || $mult <= 0) {
@@ -63,25 +86,58 @@ try {
         exit;
     }
 
-    $stmt = $pdo->prepare('
-        INSERT INTO refinement_config (
-            refinement_level, success_rate, required_item_id, required_item_quantity, stat_bonus_multiplier
-        ) VALUES (
-            :lvl, :rate, :item, :qty, :mult
-        )
-        ON DUPLICATE KEY UPDATE
-            success_rate = VALUES(success_rate),
-            required_item_id = VALUES(required_item_id),
-            required_item_quantity = VALUES(required_item_quantity),
-            stat_bonus_multiplier = VALUES(stat_bonus_multiplier)
-    ');
-    $stmt->execute([
-        ':lvl' => $level,
-        ':rate' => $successRate,
-        ':item' => $itemId,
-        ':qty' => $qty,
-        ':mult' => $mult,
-    ]);
+    $hasSlotVfx = false;
+    try {
+        $colCheck = $pdo->query("SHOW COLUMNS FROM refinement_config LIKE 'slot_vfx_json'");
+        $hasSlotVfx = $colCheck && $colCheck->rowCount() > 0;
+    } catch (Throwable $e) {
+        $hasSlotVfx = false;
+    }
+
+    if ($hasSlotVfx && array_key_exists('slot_vfx_json', $data)) {
+        $stmt = $pdo->prepare('
+            INSERT INTO refinement_config (
+                refinement_level, success_rate, required_item_id, required_item_quantity,
+                stat_bonus_multiplier, slot_vfx_json
+            ) VALUES (
+                :lvl, :rate, :item, :qty, :mult, :slot_vfx
+            )
+            ON DUPLICATE KEY UPDATE
+                success_rate = VALUES(success_rate),
+                required_item_id = VALUES(required_item_id),
+                required_item_quantity = VALUES(required_item_quantity),
+                stat_bonus_multiplier = VALUES(stat_bonus_multiplier),
+                slot_vfx_json = VALUES(slot_vfx_json)
+        ');
+        $stmt->execute([
+            ':lvl' => $level,
+            ':rate' => $successRate,
+            ':item' => $itemId,
+            ':qty' => $qty,
+            ':mult' => $mult,
+            ':slot_vfx' => $slotVfxJson,
+        ]);
+    } else {
+        $stmt = $pdo->prepare('
+            INSERT INTO refinement_config (
+                refinement_level, success_rate, required_item_id, required_item_quantity, stat_bonus_multiplier
+            ) VALUES (
+                :lvl, :rate, :item, :qty, :mult
+            )
+            ON DUPLICATE KEY UPDATE
+                success_rate = VALUES(success_rate),
+                required_item_id = VALUES(required_item_id),
+                required_item_quantity = VALUES(required_item_quantity),
+                stat_bonus_multiplier = VALUES(stat_bonus_multiplier)
+        ');
+        $stmt->execute([
+            ':lvl' => $level,
+            ':rate' => $successRate,
+            ':item' => $itemId,
+            ':qty' => $qty,
+            ':mult' => $mult,
+        ]);
+    }
 
     echo json_encode([
         'success' => true,
@@ -91,6 +147,7 @@ try {
         'required_item_id' => $itemId,
         'required_item_quantity' => $qty,
         'stat_bonus_multiplier' => $mult,
+        'slot_vfx_json' => $slotVfxJson !== null ? json_decode($slotVfxJson, true) : null,
     ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
     error_log('[admin/upsert_refinement_config] ' . $e->getMessage());

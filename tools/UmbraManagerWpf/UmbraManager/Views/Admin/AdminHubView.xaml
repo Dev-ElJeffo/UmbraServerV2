@@ -81,20 +81,85 @@
     </TabItem>
 
     <TabItem Header="Refinement">
-        <DockPanel Margin="8">
-            <Button DockPanel.Dock="Top" Content="Atualizar configuração" Command="{Binding RefreshRefinementConfigsCommand}"
-                    Margin="0,0,0,8" Style="{StaticResource MaterialDesignOutlinedButton}"/>
-            <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding RefinementConfigs}" IsReadOnly="True">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Nível" Binding="{Binding RefinementLevel}" Width="70"/>
-                    <DataGridTextColumn Header="Sucesso %" Binding="{Binding SuccessPercentage}" Width="90"/>
-                    <DataGridTextColumn Header="Item" Binding="{Binding RequiredItemName}" Width="220"/>
-                    <DataGridTextColumn Header="Qtd" Binding="{Binding RequiredItemQuantity}" Width="60"/>
-                    <DataGridTextColumn Header="Bonus %" Binding="{Binding BonusPercentage}" Width="90"/>
-                    <DataGridTextColumn Header="Multiplier" Binding="{Binding StatBonusMultiplier}" Width="90"/>
-                </DataGrid.Columns>
-            </DataGrid>
-        </DockPanel>
+        <Grid Margin="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="8"/>
+                <ColumnDefinition Width="400"/>
+            </Grid.ColumnDefinitions>
+            <DockPanel Grid.Column="0">
+                <Button DockPanel.Dock="Top" Content="Atualizar configuração" Command="{Binding RefreshRefinementConfigsCommand}"
+                        Margin="0,0,0,8" Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding RefinementConfigs}"
+                          SelectedItem="{Binding SelectedRefinementConfig}" IsReadOnly="True">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Nível" Binding="{Binding RefinementLevel}" Width="70"/>
+                        <DataGridTextColumn Header="Sucesso %" Binding="{Binding SuccessPercentage}" Width="90"/>
+                        <DataGridTextColumn Header="Item" Binding="{Binding RequiredItemName}" Width="180"/>
+                        <DataGridTextColumn Header="Qtd" Binding="{Binding RequiredItemQuantity}" Width="60"/>
+                        <DataGridTextColumn Header="Bonus %" Binding="{Binding BonusPercentage}" Width="90"/>
+                        <DataGridTextColumn Header="Multiplier" Binding="{Binding StatBonusMultiplier}" Width="90"/>
+                        <DataGridTemplateColumn Header="Editar" Width="90">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Content="Editar"
+                                            Command="{Binding DataContext.EditRefinementConfigCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch" Background="Transparent"
+                          ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
+            <Border Grid.Column="2" Style="{StaticResource ManagerEditorCard}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="{Binding RefinementFormTitle}" Style="{StaticResource ManagerEditorTitle}"/>
+                        <TextBox Margin="0,0,0,6" Text="{Binding RefineFormLevel, UpdateSourceTrigger=PropertyChanged}"
+                                 IsReadOnly="True"
+                                 materialDesign:HintAssist.Hint="Nível" materialDesign:HintAssist.IsFloating="True"/>
+                        <TextBox Margin="0,0,0,6" Text="{Binding RefineFormSuccessPercentage, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="Sucesso %" materialDesign:HintAssist.IsFloating="True"/>
+                        <TextBox Margin="0,0,0,6" Text="{Binding RefineFormRequiredItemId, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="Item ID" materialDesign:HintAssist.IsFloating="True"/>
+                        <TextBox Margin="0,0,0,6" Text="{Binding RefineFormRequiredItemName, UpdateSourceTrigger=PropertyChanged}"
+                                 IsReadOnly="True"
+                                 materialDesign:HintAssist.Hint="Item (nome)" materialDesign:HintAssist.IsFloating="True"/>
+                        <TextBox Margin="0,0,0,6" Text="{Binding RefineFormRequiredItemQuantity, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="Quantidade" materialDesign:HintAssist.IsFloating="True"/>
+                        <TextBox Margin="0,0,0,6" Text="{Binding RefineFormBonusPercentage, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="Bonus %" materialDesign:HintAssist.IsFloating="True"/>
+                        <TextBox Margin="0,0,0,6" Text="{Binding RefineFormStatBonusMultiplier, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="Multiplier" materialDesign:HintAssist.IsFloating="True"/>
+                        <TextBlock Margin="0,8,0,4" Text="Niagara por slot (níveis +7..+12)" FontWeight="SemiBold"/>
+                        <TextBlock Margin="0,0,0,8" TextWrapping="Wrap" Opacity="0.85"
+                                   Text="Edite CADA nível (+7, +8, … +12) com Niagara distinto. Preencha armadura (head/chest/hands/legs/feet) e armas (main_hand/off_hand). Paths iguais só se quiser o mesmo efeito."/>
+                        <TextBox Margin="0,0,0,6" Text="{Binding RefineFormVfxMainHand, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="main_hand /Game/...System" materialDesign:HintAssist.IsFloating="True"/>
+                        <TextBox Margin="0,0,0,6" Text="{Binding RefineFormVfxOffHand, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="off_hand /Game/...System" materialDesign:HintAssist.IsFloating="True"/>
+                        <TextBox Margin="0,0,0,6" Text="{Binding RefineFormVfxHead, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="head /Game/...System" materialDesign:HintAssist.IsFloating="True"/>
+                        <TextBox Margin="0,0,0,6" Text="{Binding RefineFormVfxChest, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="chest /Game/...System" materialDesign:HintAssist.IsFloating="True"/>
+                        <TextBox Margin="0,0,0,6" Text="{Binding RefineFormVfxHands, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="hands /Game/...System" materialDesign:HintAssist.IsFloating="True"/>
+                        <TextBox Margin="0,0,0,6" Text="{Binding RefineFormVfxLegs, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="legs /Game/...System" materialDesign:HintAssist.IsFloating="True"/>
+                        <TextBox Margin="0,0,0,6" Text="{Binding RefineFormVfxFeet, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="feet /Game/...System" materialDesign:HintAssist.IsFloating="True"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <Button Content="Salvar" Command="{Binding SaveSelectedRefinementConfigCommand}" Margin="0,0,8,0"/>
+                            <Button Content="Descartar" Command="{Binding ClearRefinementFormCommand}"
+                                    Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
     </TabItem>
 
     <TabItem Header="Guilds" Visibility="{Binding TabVisibilitySuper}">

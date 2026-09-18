@@ -383,6 +383,7 @@ struct SkillData {
     std::string vfxKey;
     std::string vfxPath;
     std::string hitVfxPath;
+    std::string buffVfxPath;
     std::string sfxKey;
     std::string description;
     std::string tooltipTemplate;

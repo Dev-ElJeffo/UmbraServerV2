@@ -73,6 +73,7 @@ public partial class MainViewModel
     [ObservableProperty] private string _skillFormIconPath = "";
     [ObservableProperty] private string _skillFormVfxPath = "";
     [ObservableProperty] private string _skillFormHitVfxPath = "";
+    [ObservableProperty] private string _skillFormBuffVfxPath = "";
     [ObservableProperty] private string _skillFormDescription = "";
     [ObservableProperty] private string _skillFormEffectsJson = "[]";
 
@@ -177,6 +178,7 @@ public partial class MainViewModel
         SkillFormIconPath = "";
         SkillFormVfxPath = "";
         SkillFormHitVfxPath = "";
+        SkillFormBuffVfxPath = "";
         SkillFormDescription = "";
         SkillFormEffectsJson = "[]";
         SkillRankScalings.Clear();
@@ -265,6 +267,7 @@ public partial class MainViewModel
         SkillFormIconPath = TryGetStringProp(s, "icon_path");
         SkillFormVfxPath = TryGetStringProp(s, "vfx_path");
         SkillFormHitVfxPath = TryGetStringProp(s, "hit_vfx_path");
+        SkillFormBuffVfxPath = TryGetStringProp(s, "buff_vfx_path");
         SkillFormDescription = TryGetStringProp(s, "description");
         if (s.TryGetProperty("effects_json", out var ej) && ej.ValueKind == JsonValueKind.String)
             SkillFormEffectsJson = ej.GetString() ?? "[]";
@@ -378,6 +381,7 @@ public partial class MainViewModel
             ["icon_path"] = SkillFormIconPath,
             ["vfx_path"] = SkillFormVfxPath,
             ["hit_vfx_path"] = SkillFormHitVfxPath,
+            ["buff_vfx_path"] = SkillFormBuffVfxPath,
             ["description"] = SkillFormDescription,
             ["effects_json"] = FlushSkillEffectsJson()
         };
@@ -591,5 +595,6 @@ public partial class MainViewModel
         IconPath = TryGetStringProp(s, "icon_path"),
         VfxPath = TryGetStringProp(s, "vfx_path"),
         HitVfxPath = TryGetStringProp(s, "hit_vfx_path"),
+        BuffVfxPath = TryGetStringProp(s, "buff_vfx_path"),
     };
 }

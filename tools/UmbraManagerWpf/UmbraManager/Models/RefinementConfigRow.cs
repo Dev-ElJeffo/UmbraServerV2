@@ -11,4 +11,6 @@ public sealed class RefinementConfigRow
     public int RequiredItemQuantity { get; set; }
     public double StatBonusMultiplier { get; set; }
     public double BonusPercentage { get; set; }
+    /** JSON object: main_hand, off_hand, head, chest, hands, legs, feet → Niagara path */
+    public string SlotVfxJson { get; set; } = "";
 }

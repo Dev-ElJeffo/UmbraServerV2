@@ -49,6 +49,7 @@ public sealed class SkillRow
     public string VfxKey { get; set; } = "";
     public string VfxPath { get; set; } = "";
     public string HitVfxPath { get; set; } = "";
+    public string BuffVfxPath { get; set; } = "";
     public string SfxKey { get; set; } = "";
     public string Description { get; set; } = "";
     public string TooltipTemplate { get; set; } = "";

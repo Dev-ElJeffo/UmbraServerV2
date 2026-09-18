@@ -47,6 +47,13 @@ public partial class MainViewModel
     [ObservableProperty] private int _refineFormRequiredItemQuantity = 1;
     [ObservableProperty] private double _refineFormBonusPercentage;
     [ObservableProperty] private double _refineFormStatBonusMultiplier = 1.0;
+    [ObservableProperty] private string _refineFormVfxMainHand = "";
+    [ObservableProperty] private string _refineFormVfxOffHand = "";
+    [ObservableProperty] private string _refineFormVfxHead = "";
+    [ObservableProperty] private string _refineFormVfxChest = "";
+    [ObservableProperty] private string _refineFormVfxHands = "";
+    [ObservableProperty] private string _refineFormVfxLegs = "";
+    [ObservableProperty] private string _refineFormVfxFeet = "";
     [ObservableProperty] private double _gameExpMultiplier = 1.0;
     [ObservableProperty] private double _gameDropMultiplier = 1.0;
     [ObservableProperty] private string _gameRatesStatus = "";
@@ -611,6 +618,7 @@ public partial class MainViewModel
                     RequiredItemQuantity = TryGetIntProp(row, "required_item_quantity"),
                     StatBonusMultiplier = TryGetDoubleProp(row, "stat_bonus_multiplier"),
                     BonusPercentage = TryGetDoubleProp(row, "bonus_percentage"),
+                    SlotVfxJson = ExtractSlotVfxJsonRaw(row),
                 });
             }
         }
@@ -657,6 +665,7 @@ public partial class MainViewModel
             ? row.BonusPercentage
             : (row.StatBonusMultiplier - 1.0) * 100.0;
         RefineFormStatBonusMultiplier = row.StatBonusMultiplier;
+        ApplySlotVfxJsonToForm(row.SlotVfxJson);
         RefinementFormTitle = $"Editar refinação — nível {row.RefinementLevel}";
     }
 
@@ -669,6 +678,7 @@ public partial class MainViewModel
         RefineFormRequiredItemQuantity = 1;
         RefineFormBonusPercentage = 0;
         RefineFormStatBonusMultiplier = 1.0;
+        ClearSlotVfxFormFields();
         RefinementFormTitle = "Editar nível de refinação";
     }
 
@@ -687,9 +697,9 @@ public partial class MainViewModel
             MessageBox.Show("Sucesso % deve estar entre 0 e 100.", "Refinement");
             return;
         }
-        if (RefineFormRequiredItemId <= 0 || RefineFormRequiredItemQuantity < 1)
+        if (RefineFormRequiredItemId <= 0 || RefineFormRequiredItemQuantity < 0)
         {
-            MessageBox.Show("Informe Item ID e quantidade válidos.", "Refinement");
+            MessageBox.Show("Informe Item ID válido e quantidade >= 0.", "Refinement");
             return;
         }
 
@@ -704,6 +714,7 @@ public partial class MainViewModel
             ["required_item_id"] = RefineFormRequiredItemId,
             ["required_item_quantity"] = RefineFormRequiredItemQuantity,
             ["stat_bonus_multiplier"] = mult,
+            ["slot_vfx_json"] = BuildSlotVfxJsonObject(),
         };
 
         var (ok, err, _) = await Php.UpsertRefinementConfigAsync(payload);
@@ -716,6 +727,70 @@ public partial class MainViewModel
         Audit.Log(AppConfig.Instance.AdminUsername, "upsert_refinement_config", $"lvl={RefineFormLevel}");
         StatusText = $"Refinação nível {RefineFormLevel} salva.";
         await RefreshRefinementConfigsAsync();
+    }
+
+    private static string ExtractSlotVfxJsonRaw(JsonElement row)
+    {
+        if (!row.TryGetProperty("slot_vfx_json", out var el))
+            return "";
+        if (el.ValueKind == JsonValueKind.String)
+            return el.GetString() ?? "";
+        if (el.ValueKind == JsonValueKind.Object || el.ValueKind == JsonValueKind.Array)
+            return el.GetRawText();
+        return "";
+    }
+
+    private void ApplySlotVfxJsonToForm(string? json)
+    {
+        ClearSlotVfxFormFields();
+        if (string.IsNullOrWhiteSpace(json)) return;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return;
+            var root = doc.RootElement;
+            RefineFormVfxMainHand = TryGetStringProp(root, "main_hand");
+            RefineFormVfxOffHand = TryGetStringProp(root, "off_hand");
+            RefineFormVfxHead = TryGetStringProp(root, "head");
+            RefineFormVfxChest = TryGetStringProp(root, "chest");
+            RefineFormVfxHands = TryGetStringProp(root, "hands");
+            RefineFormVfxLegs = TryGetStringProp(root, "legs");
+            RefineFormVfxFeet = TryGetStringProp(root, "feet");
+        }
+        catch
+        {
+            // ignore invalid JSON from DB
+        }
+    }
+
+    private void ClearSlotVfxFormFields()
+    {
+        RefineFormVfxMainHand = "";
+        RefineFormVfxOffHand = "";
+        RefineFormVfxHead = "";
+        RefineFormVfxChest = "";
+        RefineFormVfxHands = "";
+        RefineFormVfxLegs = "";
+        RefineFormVfxFeet = "";
+    }
+
+    private Dictionary<string, string> BuildSlotVfxJsonObject()
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        void Put(string key, string value)
+        {
+            var v = (value ?? "").Trim();
+            if (!string.IsNullOrEmpty(v))
+                map[key] = v;
+        }
+        Put("main_hand", RefineFormVfxMainHand);
+        Put("off_hand", RefineFormVfxOffHand);
+        Put("head", RefineFormVfxHead);
+        Put("chest", RefineFormVfxChest);
+        Put("hands", RefineFormVfxHands);
+        Put("legs", RefineFormVfxLegs);
+        Put("feet", RefineFormVfxFeet);
+        return map;
     }
 
     [RelayCommand]

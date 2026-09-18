@@ -89,6 +89,7 @@ function skill_payload_fields(array $data, bool $forUpdate = false): array
         'vfx_key' => ['raw', null],
         'vfx_path' => ['raw', null],
         'hit_vfx_path' => ['raw', null],
+        'buff_vfx_path' => ['raw', null],
         'sfx_key' => ['raw', null],
         'sfx_path' => ['raw', null],
         'cast_anim_path' => ['raw', null],
@@ -106,7 +107,7 @@ function skill_payload_fields(array $data, bool $forUpdate = false): array
         $kind = $spec[0];
         $default = $spec[1];
         $aliases = $spec[2] ?? [];
-        $optionalSchema = in_array($col, ['sfx_path', 'cast_anim_path', 'hit_window_ms', 'is_basic_attack'], true);
+        $optionalSchema = in_array($col, ['sfx_path', 'cast_anim_path', 'hit_window_ms', 'is_basic_attack', 'buff_vfx_path'], true);
         if (($forUpdate || $optionalSchema) && !skill_has_input($data, $col, $aliases)) {
             continue;
         }

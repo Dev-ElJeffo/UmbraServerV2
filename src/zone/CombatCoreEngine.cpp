@@ -3383,6 +3383,7 @@ void CombatCoreEngine::enrichSkillBuffSyncPayload(SkillBuffSyncPayload& payload)
   if (!skill) return;
   if (payload.skillName.empty()) payload.skillName = skill->skillName;
   if (payload.iconPath.empty()) payload.iconPath = skill->iconPath;
+  if (payload.buffVfxPath.empty()) payload.buffVfxPath = skill->buffVfxPath;
 }
 
 bool CombatCoreEngine::skillHasEffectType(const Combat::SkillData& skill,

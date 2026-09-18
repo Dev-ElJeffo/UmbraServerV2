@@ -46,6 +46,15 @@ try {
     
     $pdo = getConnection();
     $currentTime = microtime(true) * 1000;
+
+    $hasBuffVfx = false;
+    try {
+        $colCheck = $pdo->query("SHOW COLUMNS FROM skills LIKE 'buff_vfx_path'");
+        $hasBuffVfx = $colCheck && $colCheck->rowCount() > 0;
+    } catch (Throwable $e) {
+        $hasBuffVfx = false;
+    }
+    $buffVfxSelect = $hasBuffVfx ? ', s.buff_vfx_path' : ', NULL AS buff_vfx_path';
     
     // Limpar buffs expirados
     $stmt = $pdo->prepare("
@@ -69,7 +78,8 @@ try {
             ab.snapshot_json,
             s.skill_name,
             s.skill_key,
-            s.icon_path,
+            s.icon_path
+            {$buffVfxSelect},
             s.duration_ms as total_duration_ms,
             el.element_key as element,
             el.color_hex as element_color,
@@ -114,6 +124,7 @@ try {
             'skill_key' => (string)($buff['skill_key'] ?? ''),
             'skill_name' => $buff['skill_name'],
             'icon_path' => $buff['icon_path'],
+            'buff_vfx_path' => $buff['buff_vfx_path'] ?? null,
             'buff_type' => $buff['buff_type'],
             'element' => $buff['element'],
             'element_color' => $buff['element_color'],

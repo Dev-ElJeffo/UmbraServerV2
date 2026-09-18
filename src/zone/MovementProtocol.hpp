@@ -256,6 +256,8 @@ struct SkillBuffSyncPayload {
   uint8_t targetType = 0;
   /** STUN/SILENCE/ROOT/SLOW/BUFF_STAT/... — append após targetType (compatível). */
   std::string effectType;
+  /** Niagara loop no corpo enquanto o buff estiver ativo (compatível: frames antigos sem campo). */
+  std::string buffVfxPath;
 };
 
 /** Opcode 118: estado agregado derivado dos efeitos runtime. */
@@ -560,17 +562,19 @@ struct EquippedVisualWireEntry {
   uint8_t equipSlot = 0;
   std::string meshPath;
   uint8_t flags = 0;  // bit0 = hide_hair
+  uint8_t refinementLevel = 0;  // 0–12; frames antigos sem byte → 0
 };
 
 // PlayerEquipmentVisualUpdate (117):
 // [msgType:uint8][playerId:uint32][count:uint8]
 // repeat count: [equipSlot:uint8][pathLen:uint16 LE][path:utf8]
 // trailing (opcional, legado ignora se curto): repeat count [flags:uint8]  bit0=hide_hair
+// trailing2 (opcional): repeat count [refinementLevel:uint8]
 inline std::vector<uint8_t> encodePlayerEquipmentVisualUpdate(
     uint32_t playerId,
     const std::vector<EquippedVisualWireEntry>& entries) {
   std::vector<uint8_t> out;
-  out.reserve(6 + entries.size() * 9);
+  out.reserve(6 + entries.size() * 10);
   out.push_back(static_cast<uint8_t>(MovementMsgType::PlayerEquipmentVisualUpdate));
 
   auto write32 = [&out](uint32_t v) {
@@ -596,6 +600,9 @@ inline std::vector<uint8_t> encodePlayerEquipmentVisualUpdate(
   }
   for (size_t i = 0; i < count; ++i) {
     out.push_back(entries[i].flags);
+  }
+  for (size_t i = 0; i < count; ++i) {
+    out.push_back(entries[i].refinementLevel);
   }
   return out;
 }
@@ -644,6 +651,12 @@ inline bool decodePlayerEquipmentVisualUpdate(
   if (off + count <= data.size()) {
     for (uint8_t i = 0; i < count; ++i) {
       outEntries[i].flags = data[off++];
+    }
+  }
+  // Refinement trailing (compat: buffer curto → 0)
+  if (off + count <= data.size()) {
+    for (uint8_t i = 0; i < count; ++i) {
+      outEntries[i].refinementLevel = data[off++];
     }
   }
   return true;
@@ -2716,6 +2729,7 @@ inline std::vector<uint8_t> encodeSkillBuffSync(const SkillBuffSyncPayload& p) {
   appendStringField(data, p.iconPath, 128);
   data.push_back(p.targetType);
   appendStringField(data, p.effectType, 16);
+  appendStringField(data, p.buffVfxPath, 512);
   return data;
 }
 
@@ -2760,9 +2774,16 @@ inline bool decodeSkillBuffSync(const std::vector<uint8_t>& data, SkillBuffSyncP
   if (!readStringField(data, off, p.skillName, 64)) return false;
   if (!readStringField(data, off, p.iconPath, 128)) return false;
   p.targetType = (off < data.size()) ? data[off++] : 0;
+  p.effectType.clear();
+  p.buffVfxPath.clear();
   if (off < data.size()) {
     if (!readStringField(data, off, p.effectType, 16)) {
       p.effectType.clear();
+    }
+  }
+  if (off < data.size()) {
+    if (!readStringField(data, off, p.buffVfxPath, 512)) {
+      p.buffVfxPath.clear();
     }
   }
   return true;

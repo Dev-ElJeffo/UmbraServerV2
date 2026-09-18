@@ -134,6 +134,8 @@
                  materialDesign:HintAssist.Hint="vfx_path (Niagara caster)" materialDesign:HintAssist.IsFloating="True"/>
         <TextBox Text="{Binding SkillFormHitVfxPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
                  materialDesign:HintAssist.Hint="hit_vfx_path (Niagara no alvo)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding SkillFormBuffVfxPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="buff_vfx_path (Niagara loop no corpo)" materialDesign:HintAssist.IsFloating="True"/>
         <TextBox Text="{Binding SkillFormDescription, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
                  AcceptsReturn="True" Height="60" TextWrapping="Wrap"
                  materialDesign:HintAssist.Hint="description" materialDesign:HintAssist.IsFloating="True"/>

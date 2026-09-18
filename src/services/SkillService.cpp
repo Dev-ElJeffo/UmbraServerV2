@@ -147,6 +147,12 @@ bool SkillService::loadSkillsFromDatabase() {
       !db_->executeQuery("SHOW COLUMNS FROM skills LIKE 'include_caster'").empty();
   const bool hasDamageType =
       !db_->executeQuery("SHOW COLUMNS FROM skills LIKE 'damage_type'").empty();
+  const bool hasBuffVfxPath =
+      !db_->executeQuery("SHOW COLUMNS FROM skills LIKE 'buff_vfx_path'").empty();
+  const bool hasVfxPath =
+      !db_->executeQuery("SHOW COLUMNS FROM skills LIKE 'vfx_path'").empty();
+  const bool hasHitVfxPath =
+      !db_->executeQuery("SHOW COLUMNS FROM skills LIKE 'hit_vfx_path'").empty();
   const std::string skillSelect =
       "SELECT skill_id, skill_key, skill_name, class_id, skill_order, required_level, skill_cost, max_rank, "
       "type_id, target_id, element_id, scaling_stat_id, "
@@ -161,12 +167,15 @@ bool SkillService::loadSkillsFromDatabase() {
       std::string(hasIncludeCaster ? "COALESCE(include_caster,0)" : "0") + ", "
       "COALESCE(effects_json,''), COALESCE(icon_path,''), COALESCE(vfx_key,''), COALESCE(sfx_key,''), "
       "COALESCE(description,''), COALESCE(tooltip_template,''), COALESCE(server_tags,''), " +
-      std::string(hasDamageType ? "COALESCE(damage_type,'PHYSICAL')" : "'PHYSICAL'") +
+      std::string(hasDamageType ? "COALESCE(damage_type,'PHYSICAL')" : "'PHYSICAL'") + ", " +
+      std::string(hasVfxPath ? "COALESCE(vfx_path,'')" : "''") + ", " +
+      std::string(hasHitVfxPath ? "COALESCE(hit_vfx_path,'')" : "''") + ", " +
+      std::string(hasBuffVfxPath ? "COALESCE(buff_vfx_path,'')" : "''") +
       " FROM skills WHERE is_enabled = 1";
   auto rows = db_->executePreparedQuery(skillSelect, {});
 
   for (const auto& row : rows) {
-    if (row.size() < 46) continue;
+    if (row.size() < 49) continue;
     SkillData skill;
     try {
       skill.skillId = static_cast<uint32_t>(std::stoul(row[0]));
@@ -227,6 +236,9 @@ bool SkillService::loadSkillsFromDatabase() {
         // Compat: scaling mágico sem damage_type MAGIC no seed antigo.
         skill.damageType = DamageType::MAGIC;
       }
+      skill.vfxPath = row[46];
+      skill.hitVfxPath = row[47];
+      skill.buffVfxPath = row[48];
     } catch (...) {
       continue;
     }
