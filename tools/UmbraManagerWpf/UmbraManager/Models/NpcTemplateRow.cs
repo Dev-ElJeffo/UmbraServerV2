@@ -67,11 +67,13 @@ public sealed class NpcTemplateRow
     public float MoveSpeed { get; set; } = 200f;
     /** Multiplicador de MoveSpeed no Chase (aggro). */
     public float ChaseSpeedMult { get; set; } = 1.5f;
+    /** Multiplicador de MoveSpeed ao afastar do player (recuo/kite). 1.0 = roam. */
+    public float KiteSpeedMult { get; set; } = 1f;
     public float RoamRadius { get; set; }
     public bool IsHostile { get; set; } = true;
     public string BasicVfxPath { get; set; } = "";
     public string BasicHitVfxPath { get; set; } = "";
     public string Summary =>
         $"Lv {Level} | HP {MaxHealth} | PA {PhysicalAttack} | Roam {RoamRadius:0} | Aggro {AggroRadius:0} | " +
-        $"Stop {CombatStopRange:0} | AtkR {AttackRange:0} | Chase×{ChaseSpeedMult:0.##} | Hostil {(IsHostile ? "Sim" : "Nao")} | Resp {RespawnSeconds}s";
+        $"Stop {CombatStopRange:0} | AtkR {AttackRange:0} | Chase×{ChaseSpeedMult:0.##} | Kite×{KiteSpeedMult:0.##} | Hostil {(IsHostile ? "Sim" : "Nao")} | Resp {RespawnSeconds}s";
 }

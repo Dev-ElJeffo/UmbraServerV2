@@ -105,6 +105,8 @@ struct NpcRuntimeInstance {
   float moveSpeed = 200.f;
   /** Multiplicador de moveSpeed no Chase (clamp 0.5–5 no AI). */
   float chaseSpeedMult = 1.5f;
+  /** Multiplicador de moveSpeed no recuo/kite (clamp 0.25–5; default 1.0 = roam). */
+  float kiteSpeedMult = 1.f;
   float roamRadius = 0.f;
   bool hasVendor = false;
   bool hasQuestDialog = false;
@@ -170,6 +172,11 @@ struct NpcRuntimeInstance {
   float effectiveChaseSpeedMult() const {
     if (chaseSpeedMult <= 0.f) return 1.f;
     return std::clamp(chaseSpeedMult, 0.5f, 5.f);
+  }
+
+  float effectiveKiteSpeedMult() const {
+    if (kiteSpeedMult <= 0.f) return 1.f;
+    return std::clamp(kiteSpeedMult, 0.25f, 5.f);
   }
 };
 

@@ -1600,6 +1600,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     AttackCooldownMs = TryGetIntProp(t, "attack_cooldown_ms") is int cd && cd > 0 ? cd : 1500,
                     MoveSpeed = TryGetFloatProp(t, "move_speed") is float ms && ms > 0 ? ms : 200f,
                     ChaseSpeedMult = TryGetFloatProp(t, "chase_speed_mult") is float csm && csm > 0 ? csm : 1.5f,
+                    KiteSpeedMult = TryGetFloatProp(t, "kite_speed_mult") is float ksm && ksm > 0 ? ksm : 1f,
                     RoamRadius = TryGetFloatProp(t, "roam_radius"),
                     IsHostile = !t.TryGetProperty("is_hostile", out _) || TryGetBoolProp(t, "is_hostile"),
                     BasicVfxPath = TryGetStringProp(t, "basic_vfx_path"),
@@ -1918,6 +1919,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["attack_cooldown_ms"] = NewNpcAttackCooldownMs,
             ["move_speed"] = NewNpcMoveSpeed,
             ["chase_speed_mult"] = NewNpcChaseSpeedMult,
+            ["kite_speed_mult"] = NewNpcKiteSpeedMult,
             ["roam_radius"] = NewNpcRoamRadius,
             ["is_hostile"] = NewNpcIsHostile ? 1 : 0,
             ["basic_vfx_path"] = string.IsNullOrWhiteSpace(NewNpcBasicVfxPath) ? null : NewNpcBasicVfxPath.Trim(),
@@ -2090,6 +2092,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcAttackCooldownMs = row.AttackCooldownMs <= 0 ? 1500 : row.AttackCooldownMs;
         NewNpcMoveSpeed = row.MoveSpeed <= 0 ? 200f : row.MoveSpeed;
         NewNpcChaseSpeedMult = row.ChaseSpeedMult <= 0 ? 1.5f : row.ChaseSpeedMult;
+        NewNpcKiteSpeedMult = row.KiteSpeedMult <= 0 ? 1f : row.KiteSpeedMult;
         NewNpcRoamRadius = row.RoamRadius;
         NewNpcIsHostile = row.IsHostile;
         NewNpcBasicVfxPath = row.BasicVfxPath ?? "";
@@ -2174,6 +2177,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcAttackCooldownMs = 1500;
         NewNpcMoveSpeed = 200f;
         NewNpcChaseSpeedMult = 1.5f;
+        NewNpcKiteSpeedMult = 1f;
         NewNpcRoamRadius = 800f;
         NewNpcIsHostile = false;
         NewNpcBasicVfxPath = "";

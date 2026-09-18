@@ -194,8 +194,8 @@ void NpcAiSystem::tick(float deltaSeconds) {
             const float awayY = inst.y - ty;
             const float awayLen = std::sqrt(awayX * awayX + awayY * awayY);
             if (awayLen > 0.001f) {
-              const float chaseMult = inst.effectiveChaseSpeedMult();
-              const float step = inst.moveSpeed * chaseMult * speedMultiplier * deltaSeconds;
+              const float kiteMult = inst.effectiveKiteSpeedMult();
+              const float step = inst.moveSpeed * kiteMult * speedMultiplier * deltaSeconds;
               const float need = stopR - toPlayer2d;
               const float move = std::min(need, step);
               inst.x += (awayX / awayLen) * move;
@@ -336,12 +336,9 @@ void NpcAiSystem::tick(float deltaSeconds) {
       for (const auto& kv : players) {
         const PlayerStateNet& p = kv.second;
         if (p.isDead || p.playerId == 0) continue;
-        // Em Chase/Combat vs o alvo: não colapsar abaixo do combat_stop_range (evita “colar”).
-        float minDist = inst.bodyMinDist();
-        if ((inst.aiState == NpcAiState::Combat || inst.aiState == NpcAiState::Chase) &&
-            p.playerId == inst.targetPlayerId) {
-          minDist = std::max(minDist, inst.effectiveCombatStopRange());
-        }
+        // Separação física só por body: o anel de stop fica no recuo limitado por kite_speed_mult.
+        // Usar combat_stop_range aqui teleportava o ranged e impedia melee de fechar.
+        const float minDist = inst.bodyMinDist();
         const float dx = inst.x - p.x;
         const float dy = inst.y - p.y;
         const float d = std::sqrt(dx * dx + dy * dy);

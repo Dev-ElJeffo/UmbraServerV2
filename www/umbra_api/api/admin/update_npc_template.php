@@ -35,7 +35,7 @@ $allowed = [
     'kill_exp', 'is_attackable', 'interaction_radius', 'collision_radius', 'nameplate_radius', 'has_vendor', 'has_quest_dialog',
     'dialog_title', 'dialog_text', 'respawn_seconds',
     'aggro_radius', 'leash_radius', 'attack_range', 'combat_stop_range', 'attack_cooldown_ms',
-    'move_speed', 'chase_speed_mult', 'roam_radius', 'is_hostile',
+    'move_speed', 'chase_speed_mult', 'kite_speed_mult', 'roam_radius', 'is_hostile',
     'basic_vfx_path', 'basic_hit_vfx_path',
     'right_hand_mesh_path', 'left_hand_mesh_path',
     'right_hand_rel_x', 'right_hand_rel_y', 'right_hand_rel_z',

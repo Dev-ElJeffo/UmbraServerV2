@@ -83,6 +83,11 @@ std::string buildNpcInstanceSelectSql(Database::MySQLConnector& db) {
     hasStopChase =
         !db.executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'combat_stop_range'").empty() ? 1 : 0;
   }
+  static int hasKiteSpeed = -1;
+  if (hasKiteSpeed < 0) {
+    hasKiteSpeed =
+        !db.executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'kite_speed_mult'").empty() ? 1 : 0;
+  }
   static int hasBasicVfx = -1;
   if (hasBasicVfx < 0) {
     hasBasicVfx =
@@ -102,6 +107,11 @@ std::string buildNpcInstanceSelectSql(Database::MySQLConnector& db) {
         "COALESCE(nt.chase_speed_mult, 1.5) AS tpl_chase_mult, "
         "ni.combat_stop_range AS inst_combat_stop, "
         "ni.chase_speed_mult AS inst_chase_mult ";
+  }
+  if (hasKiteSpeed == 1) {
+    optionalSelect +=
+        ", COALESCE(nt.kite_speed_mult, 1.0) AS tpl_kite_mult, "
+        "ni.kite_speed_mult AS inst_kite_mult ";
   }
   if (hasDamageType == 1) {
     optionalSelect +=
@@ -495,16 +505,43 @@ void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
       if (inst.nameplateRadius < 1.f) inst.nameplateRadius = 2000.f;
     }
 
-    const float tplCombatStop = (row.size() > 67) ? parseFloatOr(row[67], 0.f) : 0.f;
-    const float tplChaseMult = (row.size() > 68) ? parseFloatOr(row[68], 1.5f) : 1.5f;
-    float ovStop = 0.f;
-    float ovChase = 0.f;
-    inst.combatStopRange =
-        (row.size() > 69 && parseOptionalFloat(row[69], ovStop)) ? ovStop : tplCombatStop;
-    inst.chaseSpeedMult =
-        (row.size() > 70 && parseOptionalFloat(row[70], ovChase)) ? ovChase : tplChaseMult;
+    static int sHasStopChaseCols = -1;
+    if (sHasStopChaseCols < 0 && db_) {
+      sHasStopChaseCols =
+          !db_->executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'combat_stop_range'").empty() ? 1
+                                                                                               : 0;
+    }
+    static int sHasKiteSpeedCols = -1;
+    if (sHasKiteSpeedCols < 0 && db_) {
+      sHasKiteSpeedCols =
+          !db_->executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'kite_speed_mult'").empty() ? 1 : 0;
+    }
+
+    size_t col = 67;
+    inst.combatStopRange = 0.f;
+    inst.chaseSpeedMult = 1.5f;
+    inst.kiteSpeedMult = 1.f;
+    if (sHasStopChaseCols == 1 && row.size() > col + 3) {
+      const float tplCombatStop = parseFloatOr(row[col], 0.f);
+      const float tplChaseMult = parseFloatOr(row[col + 1], 1.5f);
+      float ovStop = 0.f;
+      float ovChase = 0.f;
+      inst.combatStopRange =
+          parseOptionalFloat(row[col + 2], ovStop) ? ovStop : tplCombatStop;
+      inst.chaseSpeedMult =
+          parseOptionalFloat(row[col + 3], ovChase) ? ovChase : tplChaseMult;
+      col += 4;
+    }
+    if (sHasKiteSpeedCols == 1 && row.size() > col + 1) {
+      const float tplKiteMult = parseFloatOr(row[col], 1.f);
+      float ovKite = 0.f;
+      inst.kiteSpeedMult =
+          parseOptionalFloat(row[col + 1], ovKite) ? ovKite : tplKiteMult;
+      col += 2;
+    }
     if (inst.combatStopRange < 0.f) inst.combatStopRange = 0.f;
     if (inst.chaseSpeedMult <= 0.f) inst.chaseSpeedMult = 1.5f;
+    if (inst.kiteSpeedMult <= 0.f) inst.kiteSpeedMult = 1.f;
 
     // Colunas opcionais no fim do SELECT: [damage_type, basic_power_coef?][basic_vfx, basic_hit_vfx?]
     static int sHasBasicVfxCols = -1;

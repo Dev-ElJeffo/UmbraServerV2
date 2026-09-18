@@ -75,6 +75,7 @@ public partial class MainViewModel
     [ObservableProperty] private int _newNpcAttackCooldownMs = 1500;
     [ObservableProperty] private float _newNpcMoveSpeed = 200f;
     [ObservableProperty] private float _newNpcChaseSpeedMult = 1.5f;
+    [ObservableProperty] private float _newNpcKiteSpeedMult = 1f;
     [ObservableProperty] private float _newNpcRoamRadius = 800f;
     [ObservableProperty] private bool _newNpcIsHostile;
     [ObservableProperty] private string _newNpcBasicVfxPath = "";
@@ -146,7 +147,7 @@ public partial class MainViewModel
 
     public string NpcDesignerSummary =>
         $"Lv {NewNpcLevel} | HP {NewNpcMaxHealth} | Roam {NewNpcRoamRadius:0} | Aggro {NewNpcAggroRadius:0} | " +
-        $"Stop {NewNpcCombatStopRange:0} | AtkR {NewNpcAttackRange:0} | Vel {NewNpcMoveSpeed:0}×{NewNpcChaseSpeedMult:0.##} | Hostil {(NewNpcIsHostile ? "Sim" : "Nao")} | Resp {NewNpcRespawnSeconds}s";
+        $"Stop {NewNpcCombatStopRange:0} | AtkR {NewNpcAttackRange:0} | Vel {NewNpcMoveSpeed:0}×{NewNpcChaseSpeedMult:0.##}/kite×{NewNpcKiteSpeedMult:0.##} | Hostil {(NewNpcIsHostile ? "Sim" : "Nao")} | Resp {NewNpcRespawnSeconds}s";
 
     partial void OnSelectedGmCommandDefinitionChanged(GmCommandDefinition? value)
     {
@@ -208,6 +209,7 @@ public partial class MainViewModel
     partial void OnNewNpcAttackCooldownMsChanged(int value) => OnPropertyChanged(nameof(NpcDesignerSummary));
     partial void OnNewNpcMoveSpeedChanged(float value) => OnPropertyChanged(nameof(NpcDesignerSummary));
     partial void OnNewNpcChaseSpeedMultChanged(float value) => OnPropertyChanged(nameof(NpcDesignerSummary));
+    partial void OnNewNpcKiteSpeedMultChanged(float value) => OnPropertyChanged(nameof(NpcDesignerSummary));
     partial void OnNewNpcIsHostileChanged(bool value) => OnPropertyChanged(nameof(NpcDesignerSummary));
 
     [RelayCommand]

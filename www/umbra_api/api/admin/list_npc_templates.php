@@ -33,7 +33,7 @@ try {
                 t.is_attackable, t.interaction_radius, t.collision_radius, t.nameplate_radius, t.has_vendor, t.has_quest_dialog,
                 t.dialog_title, t.dialog_text, t.respawn_seconds, t.kill_exp,
                 t.aggro_radius, t.leash_radius, t.attack_range, t.combat_stop_range, t.attack_cooldown_ms,
-                t.move_speed, t.chase_speed_mult, t.roam_radius, t.is_hostile,
+                t.move_speed, t.chase_speed_mult, t.kite_speed_mult, t.roam_radius, t.is_hostile,
                 t.basic_vfx_path, t.basic_hit_vfx_path,
                 t.right_hand_mesh_path, t.left_hand_mesh_path,
                 t.right_hand_rel_x, t.right_hand_rel_y, t.right_hand_rel_z,
