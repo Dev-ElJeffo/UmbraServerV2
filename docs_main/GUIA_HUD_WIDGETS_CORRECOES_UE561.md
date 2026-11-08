@@ -126,7 +126,8 @@ Logs esperados: `"[UmbraPlayerHudWidget] HUD construído."` (1x por HUD).
 
 ## 8) Assets removidos e pendências
 
-- **Removidos** (sem referenciadores, conferido via MCP antes de apagar): `WBP_ItemTooltip` (substituído pelo `WBP_ItemTooltipRefined`), `WBP_login` (o mapa usa `WBP_Login2`), `WBP_SkillSlot` (o skill bar usa `WBP_SkillSlot1`) e `WBP_CharacterInfo` (a inspeção usa `WBP_CharacterInfo1`).
+- **Removidos** (sem referenciadores no Asset Registry nem no C++, conferido via MCP antes de apagar; depois, `/Game/Widgets` compilou sem erros): `WBP_ItemTooltip` (substituído pelo `WBP_ItemTooltipRefined`), `WBP_login` (o mapa usa `WBP_Login2`) e `WBP_CharacterInfo` (a inspeção usa `WBP_CharacterInfo1`).
+- **Mantido:** `WBP_SkillSlot` continua em uso. O `WBP_SkillBar1` cria os slots da barra com ele (`PopulateMainSkillBar`/`PopulateSecondarySkillBar`).
 - Removida a variável `WBPMainMenu` do `BP_ThirdPersonGameMode` (só segurava o `WBP_login`).
 - **Pendente:** 38 referências a sons de `/Engine/VREditor/...` (Login2, CreateCharacter, `WBP_SkillBookEntry`, Storage, slots). O cooker inclui esses sons, mas o ideal é trocar por SoundWaves do projeto em `/Game/Audio/UI/`.
 - **Pendente:** o botão de deletar do `WBP_Inventory` cria um `WBP_DeleteItem` novo a cada clique (mesmo padrão dos painéis do HUD antigo).
