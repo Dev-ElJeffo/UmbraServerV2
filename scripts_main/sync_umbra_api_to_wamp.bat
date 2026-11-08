@@ -146,7 +146,7 @@ if %RC% EQU 0 (
 ) else if %RC% LSS 8 (
     echo   [OK] Sincronizacao concluida com sucesso.
 ) else (
-    echo   [ERRO] Robocopy retornou codigo %RC% ^(>=8 indica falha^).
+    echo   [ERRO] Robocopy retornou codigo %RC% ^(8 ou mais indica falha^).
     exit /b 1
 )
 echo ===============================================================

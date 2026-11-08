@@ -60,7 +60,7 @@ O fluxo de execução foi religado (o que entrava no `Print String` passa direto
 |------|---------|---------------|
 | Log de yaw | `Source/UmbraEternumUE/Network/WSBinaryBPFL.cpp` | `[YawSend]`/`[YawRecv]` em `VeryVerbose`. Para ver, use o console: `log LogTemp VeryVerbose` |
 | Aviso 13 (`PartyMemberJoined`) | `Source/UmbraEternumUE/Core/UmbraGameInstance.cpp` | Sem grupo local: chama `LoadPartyState(0)`, e o servidor resolve "meu grupo" pelo token (sem 403). Mesmo grupo: recarrega. Outro grupo: ignora |
-| Avisos 14 (`PartyMemberLeft`) e 27 (`PartyStatsRefresh`) | idem | Ignora quando `PartyID != CurrentPartyID` (grupo alheio ou grupo que acabou de deixar) |
+| Avisos 14 (`PartyMemberLeft`) e 27 (`PartyStatsRefresh`) | idem | Ignora quando `PartyID != CurrentPartyID` (grupo alheio ou grupo que acabou de deixar). Quando o aviso é do próprio grupo, recarrega com `LoadPartyState(0)` ("meu grupo"): se o grupo foi desfeito, vem `in_party=false` e o painel some. Pedir pelo ID do grupo desfeito dava 403 e o painel ficava preso |
 | Resposta do `get_party_state` | idem (`OnLoadPartyStateComplete`) | `CurrentPartyID` vem só da resposta do servidor; com `in_party=true`, garante o painel (`EnsurePartyPanelToViewport`) |
 | `leave_party.php` | `www/umbra_api/api/social/leave_party.php` | Se sobrar 1 membro (ou menos), apaga o membro restante e o grupo. Erro 500 responde "Erro interno" (sem a mensagem da exceção) |
 
@@ -100,6 +100,7 @@ PIE com **Number of Players = 3** para os cenários de party.
 | Texto de debug ainda na tela | Asset fora desta rodada (login/criação de personagem) ou BP novo | Conferir na tabela da seção 1; os de login entram na R4.1 |
 | Painel de party não aparece para quem entrou | `get_party_state.php` não sincronizado ou resposta com `in_party=false` | Rodar `/sync-wamp`; conferir a tabela `party_members` |
 | Quem ficou sozinho continua no grupo | `leave_party.php` antigo no WAMP | Rodar `/sync-wamp` |
+| Quem ficou vê os 2 membros e o log mostra `LoadPartyState falhou: Você não pertence a este grupo` | Binário antigo: o cliente ainda pedia o estado pelo ID do grupo desfeito | Rebuild do editor (correção no `UmbraGameInstance.cpp`, opcodes 14/27) |
 | `Failed to load LevelInstance ... /Game/Necropolis/...` | Pasta Necropolis ausente | Restaurar com o comando da seção 3 (editor fechado) |
 | Aviso `'SavePlayerPosition' ... timer never runs` no `BP_NetMovementClient2` | Já existia: o timer aponta para uma função que esse BP não tem | Sem efeito no jogo; o salvamento de posição roda no `BP_ThirdPersonCharacter` |
 
