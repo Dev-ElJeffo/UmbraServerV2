@@ -29,17 +29,11 @@ int main(int argc, char* argv[]) {
   auto& configManager = Umbra::Core::ConfigManager::getInstance();
   configManager.loadConfig("config/server.json");
 
-  // Aplicar o nível de log do config (o initialize() acima deixa em DEBUG fixo).
-  // Sem isto, logs DEBUG por frame de movimento inundam o arquivo (I/O no hot path).
-  {
-    const std::string lvl = configManager.get<std::string>("logging.level", "INFO");
-    Umbra::Core::Logger::Level lg = Umbra::Core::Logger::Level::INFO;
-    if (lvl == "DEBUG") lg = Umbra::Core::Logger::Level::DEBUG;
-    else if (lvl == "WARN") lg = Umbra::Core::Logger::Level::WARN;
-    else if (lvl == "ERROR") lg = Umbra::Core::Logger::Level::ERROR;
-    else if (lvl == "CRITICAL") lg = Umbra::Core::Logger::Level::CRITICAL;
-    Umbra::Core::Logger::getInstance().setLevel(lg);
-  }
+  // Aplicar logging.level e logging.console_output do config (o initialize() acima
+  // deixa o arquivo em DEBUG e o console em INFO). Logs por frame ficam em TRACE.
+  Umbra::Core::Logger::getInstance().applyConfig(
+      configManager.get<std::string>("logging.level", "INFO"),
+      configManager.get<bool>("logging.console_output", true));
 
   const uint16_t zoneBase = configManager.get<uint16_t>("zone.base_port", 8082);
   uint16_t zonePort = static_cast<uint16_t>(zoneBase + zoneId);

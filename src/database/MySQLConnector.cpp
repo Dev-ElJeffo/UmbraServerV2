@@ -805,7 +805,7 @@ std::vector<std::vector<std::string>> MySQLConnector::executePreparedQuery(
     logError("Prepared fetch failed (stmt_errno=" + std::to_string(mysql_stmt_errno(stmt)) +
              "): " + std::string(mysql_stmt_error(stmt)));
   } else if (results.empty()) {
-    Core::Logger::getInstance().debug(
+    Core::Logger::getInstance().trace(
         "Prepared query 0 linhas (num_rows={}, fetch_rc={})",
         static_cast<unsigned long long>(mysql_stmt_num_rows(stmt)), fetchRc);
   }

@@ -1554,7 +1554,7 @@ private:
 
     auto deadIt = players_.find(f.playerId);
     if (deadIt != players_.end() && deadIt->second.isDead) {
-      Umbra::Core::Logger::getInstance().debug("MoveUpdate rejected: player {} is dead", f.playerId);
+      Umbra::Core::Logger::getInstance().trace("MoveUpdate rejected: player {} is dead", f.playerId);
       return;
     }
     if (!canMove) {
@@ -1788,16 +1788,16 @@ private:
     // Se o frame original tinha animação, reenviar com animação também
     if (hasAnimation) {
       broadcastBytes = encodeWithAnimation(out, speed, velocityZ, isInAir);
-      Umbra::Core::Logger::getInstance().debug("Broadcasting StateUpdate with animation: PlayerID={}, pos=({}, {}, {}), yaw={}, speed={}, velocityZ={}, isInAir={}, ts={}, frame_size={} bytes", 
+      Umbra::Core::Logger::getInstance().trace("Broadcasting StateUpdate with animation: PlayerID={}, pos=({}, {}, {}), yaw={}, speed={}, velocityZ={}, isInAir={}, ts={}, frame_size={} bytes",
                                                out.playerId, out.x, out.y, out.z, out.yaw, speed, velocityZ, isInAir, finalTimestamp, broadcastBytes.size());
     } else {
       broadcastBytes = encodeWithAnimation(out, 0.0f, 0.0f, false); // Usar encodeWithAnimation mesmo sem animação para consistência
-      Umbra::Core::Logger::getInstance().debug("Broadcasting StateUpdate (no animation): PlayerID={}, pos=({}, {}, {}), yaw={}, ts={}, frame_size={} bytes", 
+      Umbra::Core::Logger::getInstance().trace("Broadcasting StateUpdate (no animation): PlayerID={}, pos=({}, {}, {}), yaw={}, ts={}, frame_size={} bytes",
                                                out.playerId, out.x, out.y, out.z, out.yaw, finalTimestamp, broadcastBytes.size());
     }
     
     if (broadcastBytes.size() >= 5) {
-      Umbra::Core::Logger::getInstance().debug("  Frame bytes [0-4]: {:02X} {:02X} {:02X} {:02X} {:02X}", 
+      Umbra::Core::Logger::getInstance().trace("  Frame bytes [0-4]: {:02X} {:02X} {:02X} {:02X} {:02X}",
                                                broadcastBytes[0], broadcastBytes[1], broadcastBytes[2], broadcastBytes[3], broadcastBytes[4]);
     }
     
