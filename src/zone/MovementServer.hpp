@@ -6,6 +6,8 @@
 #include <chrono>
 #include <functional>
 #include <deque>
+#include <condition_variable>
+#include <thread>
 #include <cctype>
 #include <atomic>
 #include <algorithm>
@@ -304,6 +306,7 @@ public:
   }
 
   bool start() {
+    startCleanupWorker();
     ws_.setConnectionCallback([this](uint32_t cid, bool connected){
       if (connected) {
         Umbra::Core::Logger::getInstance().info("WS client {} connected", cid);
@@ -318,12 +321,14 @@ public:
         // Sob o mu_ fazemos SOMENTE as mutacoes de mapa (rapido); o trabalho pesado
         // (DB de party/sessions + broadcasts) roda DEPOIS de liberar o mu_ para nao
         // travar as threads dos outros clientes por segundos (efeito cascata de queda).
+        // Fase 2 (DB + broadcasts) vai para a thread de limpeza: o kick de login duplicado
+        // é disparado no tick e travava o loop ~250ms esperando o DELETE no MySQL.
         DisconnectCleanup cleanup;
         {
           std::lock_guard<std::mutex> lock(mu_);
           cleanup = handleClientDisconnect(cid);
         }
-        finishClientDisconnect(cid, cleanup);
+        enqueueDisconnectCleanup(cid, cleanup);
       }
     });
 
@@ -1191,7 +1196,12 @@ public:
       handleMoveUpdate(cid, f, hasAnimation, speed, velocityZ, isInAir);
   }
 
-  void stop() { ws_.stop(); }
+  void stop() {
+    ws_.stop();           // callbacks de disconnect ainda enfileiram a fase 2
+    stopCleanupWorker();  // drena a fila (DB/broadcast) e encerra
+  }
+
+  ~MovementServer() { stopCleanupWorker(); }
 
   /** PING RFC6455 a todos os clientes (evita WinHTTP HttpActivityTimeout ~30s sem tráfego). */
   void sendKeepalivePings() { ws_.broadcastPing(); }
@@ -1272,10 +1282,10 @@ public:
       it->second.x = x;
       it->second.y = y;
       it->second.z = z;
-      it->second.tsMs = static_cast<uint32_t>(
-          std::chrono::duration_cast<std::chrono::milliseconds>(
-              std::chrono::steady_clock::now().time_since_epoch())
-              .count());
+      // Antes: tsMs = relógio do SERVIDOR, mas a validação compara com o relógio do CLIENTE
+      // (game time) → caía em "timestamp regrediu", pulava a checagem e um move antigo
+      // desfazia o teleporte. Agora: trava de posição até o cliente confirmar o ponto.
+      armPositionGuardUnlocked(playerId, x, y, z);
       uint32_t cid = 0;
       for (const auto& [c, p] : clientIdToPlayerId_) {
         if (p == playerId) {
@@ -1463,6 +1473,8 @@ private:
   // Versão com lock - chamada do callback de conexão (sem lock prévio)
 
   void revokeAndDisconnectClient(uint32_t cid, SessionRevokeReason reason, const std::string& message) {
+    Umbra::Core::Logger::getInstance().info("Revogando sessão do client {} (motivo={}): {}", cid,
+                                            static_cast<int>(reason), message);
     auto pkt = encodeSessionRevokedNotify(reason, message);
     ws_.sendBinary(cid, pkt);
     ws_.disconnect(cid);
@@ -1551,11 +1563,34 @@ private:
       return;
     }
 
+    // Trava de posição pós respawn/teleporte: MoveUpdates enviados ANTES do cliente aplicar
+    // a posição autoritativa ainda estão em trânsito. Antes, o 1º deles (gap longo) era aceito
+    // e sobrescrevia o spawn; em seguida o move real do spawn virava "speed too high" (~0,5s).
+    bool acceptAuthoritativeSnap = false;
+    auto guardIt = positionGuards_.find(f.playerId);
+    if (guardIt != positionGuards_.end()) {
+      const PositionGuard& g = guardIt->second;
+      if (Umbra::Core::steadyNowMs() > g.untilMs) {
+        positionGuards_.erase(guardIt);  // cliente nunca confirmou: volta à validação normal
+      } else {
+        const float gdx = f.x - g.x;
+        const float gdy = f.y - g.y;
+        const float gdz = f.z - g.z;
+        if (gdx * gdx + gdy * gdy + gdz * gdz > kPositionGuardRadius * kPositionGuardRadius) {
+          Umbra::Core::Logger::getInstance().debug(
+              "MoveUpdate obsoleto ignorado: player {} ainda longe da posição autoritativa", f.playerId);
+          return;
+        }
+        positionGuards_.erase(guardIt);
+        acceptAuthoritativeSnap = true;  // cliente chegou ao ponto: aceita sem checar velocidade
+      }
+    }
+
     bool isNewPlayer = (players_.find(f.playerId) == players_.end());
-    
+
     // ✅ CRÍTICO: Se for um novo player OU se o player existir mas tiver posição inválida (0,0,0),
     // não validar teleporte no primeiro movimento
-    bool isFirstMovement = isNewPlayer;
+    bool isFirstMovement = isNewPlayer || acceptAuthoritativeSnap;
     if (!isNewPlayer) {
       auto it = players_.find(f.playerId);
       if (it != players_.end()) {
@@ -1804,6 +1839,7 @@ private:
         Umbra::Core::Logger::getInstance().info("Removing player {} (client {}) from players map", playerId, cid);
         aoiGrid_.removePlayer(cid);
         players_.erase(playerIt);
+        positionGuards_.erase(playerId);
         personalShopOpenByPlayerId_.erase(playerId);
         chatMessageHistoryByPlayer_.erase(playerId);
         cleanup.hasPlayer = true;
@@ -1822,6 +1858,19 @@ private:
     if (cleanup.hasPlayer) {
       const uint32_t playerId = cleanup.playerId;
 
+      // Roda na thread de limpeza: o mesmo personagem pode já ter voltado em outro client
+      // (login duplicado / relog rápido). Nesse caso NÃO sair da party nem avisar
+      // PlayerDisconnected — isso sumiria com o personagem recém-entrado para os outros.
+      auto onlineAgain = [&]() {
+        std::lock_guard<std::mutex> lock(mu_);
+        return findClientIdForPlayerUnlocked(playerId) != 0;
+      };
+      if (onlineAgain()) {
+        Umbra::Core::Logger::getInstance().info(
+            "Player {} já reconectou em outro client: limpeza do client {} ignorada", playerId, cid);
+        return;
+      }
+
       // Remover jogador do grupo no servidor (party_members no DB) e broadcast PartyMemberLeft se estava em grupo
       uint32_t partyId = 0;
       if (onPlayerDisconnect_) {
@@ -1837,6 +1886,14 @@ private:
         auto memberLeftMsg = encodePartyMemberLeft(partyId);
         ws_.broadcastBinary(memberLeftMsg);
         Umbra::Core::Logger::getInstance().info("Broadcasted PartyMemberLeft for party {} (player {} disconnected)", partyId, playerId);
+      }
+
+      // Reconectou enquanto o DB rodava: não anunciar desconexão de quem está online.
+      if (onlineAgain()) {
+        Umbra::Core::Logger::getInstance().info(
+            "Player {} reconectou durante a limpeza do client {}: PlayerDisconnected suprimido",
+            playerId, cid);
+        return;
       }
 
       // Notificar todos os OUTROS clientes que este player desconectou
@@ -1933,6 +1990,7 @@ private:
       it->second.y = payload.y;
       it->second.z = payload.z;
       it->second.yaw = payload.yaw;
+      armPositionGuardUnlocked(playerId, payload.x, payload.y, payload.z);
     } else {
       PlayerStateNet stub;
       stub.playerId = playerId;
@@ -1942,6 +2000,7 @@ private:
       stub.z = payload.z;
       stub.yaw = payload.yaw;
       players_[playerId] = stub;
+      armPositionGuardUnlocked(playerId, payload.x, payload.y, payload.z);
     }
     lastKnownHealth_[playerId] = payload.currentHealth;
 
@@ -2173,6 +2232,72 @@ private:
   /** Jogadores com loja pessoal aberta: bloqueia MoveUpdate. Par = (shop_id, nome UTF-8). */
   std::unordered_map<uint32_t, std::pair<uint32_t, std::string>> personalShopOpenByPlayerId_;
   uint64_t moveUpdateCount_ = 0;
+
+  /** Posição autoritativa (respawn/teleporte) aguardando confirmação do cliente (sob mu_). */
+  struct PositionGuard {
+    float x = 0.f, y = 0.f, z = 0.f;
+    int64_t untilMs = 0;
+  };
+  std::unordered_map<uint32_t, PositionGuard> positionGuards_;
+  /** Raio (uu) para considerar que o cliente já aplicou a posição autoritativa. */
+  static constexpr float kPositionGuardRadius = 500.0f;
+  /** Janela máx. ignorando moves obsoletos (latência + cliente processar o 91/StateUpdate). */
+  static constexpr int64_t kPositionGuardMs = 3000;
+
+  /** Arma a trava de posição (chamar sob mu_). Não mexe em tsMs (relógio do cliente). */
+  void armPositionGuardUnlocked(uint32_t playerId, float x, float y, float z) {
+    positionGuards_[playerId] = PositionGuard{x, y, z, Umbra::Core::steadyNowMs() + kPositionGuardMs};
+  }
+
+  // ---- Limpeza de disconnect (fase 2) fora do loop/threads de rede ----
+  struct PendingDisconnect {
+    uint32_t cid = 0;
+    DisconnectCleanup cleanup;
+  };
+  std::mutex cleanupMu_;
+  std::condition_variable cleanupCv_;
+  std::deque<PendingDisconnect> cleanupQueue_;
+  bool cleanupStop_ = false;
+  std::thread cleanupThread_;
+
+  void startCleanupWorker() {
+    if (cleanupThread_.joinable()) return;
+    {
+      std::lock_guard<std::mutex> lk(cleanupMu_);
+      cleanupStop_ = false;
+    }
+    cleanupThread_ = std::thread([this] {
+      while (true) {
+        PendingDisconnect job;
+        {
+          std::unique_lock<std::mutex> lk(cleanupMu_);
+          cleanupCv_.wait(lk, [this] { return cleanupStop_ || !cleanupQueue_.empty(); });
+          if (cleanupQueue_.empty()) break;  // stop pedido e fila drenada
+          job = std::move(cleanupQueue_.front());
+          cleanupQueue_.pop_front();
+        }
+        finishClientDisconnect(job.cid, job.cleanup);
+      }
+    });
+  }
+
+  void stopCleanupWorker() {
+    {
+      std::lock_guard<std::mutex> lk(cleanupMu_);
+      cleanupStop_ = true;
+    }
+    cleanupCv_.notify_all();
+    if (cleanupThread_.joinable()) cleanupThread_.join();  // drena o que falta antes de sair
+  }
+
+  void enqueueDisconnectCleanup(uint32_t cid, const DisconnectCleanup& cleanup) {
+    {
+      std::lock_guard<std::mutex> lk(cleanupMu_);
+      cleanupQueue_.push_back(PendingDisconnect{cid, cleanup});
+    }
+    cleanupCv_.notify_one();
+  }
+
   float maxSpeed_ = 1200.0f;
   float maxTeleportDist_ = 3000.0f;
   uint32_t maxDelayMs_ = 300;

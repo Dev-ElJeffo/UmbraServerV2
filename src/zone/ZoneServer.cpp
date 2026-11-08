@@ -18,7 +18,12 @@ namespace {
 void removePlayerFromSessions(Umbra::Database::MySQLConnector* db, uint32_t playerId) {
   if (!db || !db->isConnected()) return;
   std::string pid = std::to_string(playerId);
-  if (db->executePreparedInsert("DELETE FROM player_sessions WHERE player_id = ?", {pid})) {
+  // Login duplicado: o PHP (report_online) do client NOVO grava a sessão no mesmo instante
+  // em que o kick do antigo chega aqui. Sem a condição de last_seen, o DELETE (que ficava
+  // esperando o lock da linha) apagava a sessão nova → personagem online aparecia offline.
+  if (db->executePreparedInsert(
+          "DELETE FROM player_sessions WHERE player_id = ? AND last_seen < NOW() - INTERVAL 2 SECOND",
+          {pid})) {
     Core::Logger::getInstance().info("Player {} removed from player_sessions (disconnect)", playerId);
   }
 }
