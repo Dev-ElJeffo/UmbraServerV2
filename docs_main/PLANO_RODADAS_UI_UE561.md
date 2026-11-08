@@ -9,10 +9,12 @@ Cada rodada termina com guia `docs_main/GUIA_*_UE561.md`, QA no PIE com 2 player
 
 | Rodada | Tema | Itens | Status |
 |---|---|---|---|
-| 1 | Limpeza de log/tela, party e fechamento do ciclo | R1.1–R1.4 | **Feita** (guia `GUIA_LIMPEZA_LOG_PARTY_UE561.md`); falta o QA no PIE |
-| 2 | Trade, denúncia, deletar item e party na zone | R2.1, R2.2, R2.4, R2.5 | **Feita** (guia `GUIA_TRADE_REPORT_PARTY_UE561.md`); falta o QA. R2.3 (drag&drop) adiada, sob demanda |
-| 3 | Conteúdo e mapa | R3.1–R3.2 | R3.1 feita (Necropolis restaurada só no disco, sem versionar); R3.2 planejada |
-| 4 | Telas de entrada em C++ e dívida técnica | R4.1–R4.3 | Planejada |
+| 1 | Limpeza de log/tela, party e fechamento do ciclo | R1.1–R1.4 | **Feita, QA ok** (guia `GUIA_LIMPEZA_LOG_PARTY_UE561.md`) |
+| 2 | Trade, denúncia, deletar item e party na zone | R2.1, R2.2, R2.4, R2.5 | **Feita, QA ok** (guia `GUIA_TRADE_REPORT_PARTY_UE561.md`); falta só o cenário de party com 3. R2.3 (drag&drop) adiada, sob demanda |
+| 3 | Conteúdo e mapa | R3.1–R3.2 | R3.1 feita (Necropolis restaurada só no disco, sem versionar); R3.2 (sons) vai para uma **rodada dedicada** mais tarde |
+| 4 | Telas de entrada em C++ e dívida técnica | R4.1–R4.3 | **Em andamento.** Bloco 1 (R4.2 + R4.3 itens 1–2) **feito, QA ok** (guia `GUIA_JSON_DEPRECACOES_UE561.md`). R4.1 (telas) e a limpeza de assets dependem do inventário via MCP |
+
+O merge do PR #25 fica para depois das 4 rodadas e do QA geral de regressão.
 
 ---
 
