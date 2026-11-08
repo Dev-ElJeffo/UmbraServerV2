@@ -48,6 +48,7 @@ uint64_t PlayerDAO::createPlayer(const Player& player) {
     return 0;
   }
 
+  uint64_t id = 0;
   bool ok = connector_->executePreparedInsert(
     "INSERT INTO players (account_id, character_name, level, experience, "
     "pos_x, pos_y, pos_z, current_zone, "
@@ -62,10 +63,10 @@ uint64_t PlayerDAO::createPlayer(const Player& player) {
      std::to_string(player.mana), std::to_string(player.maxMana),
      std::to_string(player.stamina), std::to_string(player.maxStamina),
      std::to_string(player.strength), std::to_string(player.dexterity),
-     std::to_string(player.intelligence), std::to_string(player.vitality)});
+     std::to_string(player.intelligence), std::to_string(player.vitality)},
+    id);
 
   if (ok) {
-    uint64_t id = connector_->getLastInsertId();
     Core::Logger::getInstance().info("Created player: {} (ID: {})", player.characterName, id);
     return id;
   }

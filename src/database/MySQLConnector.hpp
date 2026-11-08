@@ -58,12 +58,17 @@ class MySQLConnector : public IDatabaseConnector {
 
   bool executePreparedInsert(const std::string& query,
                              const std::vector<std::string>& params);
+  /** Igual ao anterior, mas devolve o AUTO_INCREMENT do próprio insert (thread-safe). */
+  bool executePreparedInsert(const std::string& query,
+                             const std::vector<std::string>& params,
+                             uint64_t& outInsertId);
   std::vector<std::vector<std::string>> executePreparedQuery(
       const std::string& query, const std::vector<std::string>& params);
   std::optional<std::string> executePreparedScalar(
       const std::string& query, const std::vector<std::string>& params);
 
   std::string escapeString(const std::string& input);
+  /** Último insert de QUALQUER thread (global). Em código novo, usar o overload com outInsertId. */
   uint64_t getLastInsertId();
   std::vector<std::vector<std::string>> executeQuery(const std::string& query);
 

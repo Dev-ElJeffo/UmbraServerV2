@@ -170,6 +170,9 @@ public:
   /** Enfileira combate e retorna imediato (não bloqueia a thread de leitura WS). */
   void enqueueSkillCast(uint32_t sourcePlayerId, const SkillCastPayload& payload);
   void enqueueBasicAttack(uint32_t sourcePlayerId, const BasicAttackPayload& payload);
+  /** Opcode 88 (ForeignVitalsNotify): enfileira o rebroadcast dos vitals do alvo.
+   *  O worker relê HP/MP do DB (gravado pelo apply_vitals.php) e ignora os valores do cliente. */
+  void enqueueForeignVitals(uint32_t senderPlayerId, const PlayerVitalsPayload& payload);
 
   /** Usado por ReactionEngine para opcode 104. */
   void broadcastSkillBuffSyncPublic(const SkillBuffSyncPayload& payload);
@@ -364,14 +367,19 @@ private:
     SkillCast = 0,
     BasicAttack = 1,
     /** Hit adiado (castTimeMs): só aplica dano/efeitos, sem re-cobrar mana/CD/anim. */
-    SkillCastHitOnly = 2
+    SkillCastHitOnly = 2,
+    /** Opcode 88: rebroadcast de vitals do alvo lidos do DB (nunca do payload do cliente). */
+    ForeignVitals = 3
   };
   struct CombatJob {
     CombatJobKind kind = CombatJobKind::SkillCast;
     uint32_t sourcePlayerId = 0;
     SkillCastPayload skill{};
     BasicAttackPayload basic{};
+    PlayerVitalsPayload vitals{};
   };
+  /** Roda no combat worker: valida o sender, lê HP/MP do alvo no DB e faz o broadcast. */
+  void processForeignVitals(uint32_t senderPlayerId, const PlayerVitalsPayload& payload);
   void combatWorkerLoop();
   void enqueueJob(CombatJob job);
   /** Enfileira hit adiado no combat worker (nunca processa no tick do zone). */

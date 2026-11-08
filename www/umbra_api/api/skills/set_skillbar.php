@@ -25,6 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/personal_shop_helper.php';
 
 try {
     $data = json_decode(file_get_contents('php://input'), true);
@@ -69,6 +70,15 @@ try {
     if ($slotIndex === null || $slotIndex < 0 || $slotIndex >= 20) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'slot_index inválido (0-19)']);
+        exit;
+    }
+
+    // IDOR: o slot só pode ser alterado no personagem da própria conta.
+    $accountId = (int)($jwtResult['payload']['account_id'] ?? 0);
+    $pdo = getConnection();
+    if ($accountId <= 0 || !assertPlayerBelongsToAccount($pdo, (int)$playerId, $accountId)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Sem permissão para este personagem']);
         exit;
     }
 
