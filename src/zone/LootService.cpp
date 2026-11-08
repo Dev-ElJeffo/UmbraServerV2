@@ -351,10 +351,13 @@ bool LootService::grantItemToPlayer(uint32_t playerId, uint32_t itemTemplateId, 
   const bool isEquipment = tpl[0].size() >= 5 &&
       EnchantRoll::isEquipmentTemplate(tpl[0][2], tpl[0][3], tpl[0][4]);
 
-  // Prefer stack existing
+  // Prefer stack existing. PK é inventory_id (antes "id" → Prepare falhava, nunca
+  // empilhava e cada loot ocupava um slot novo). Mesma regra do add_item.php: não
+  // empilhar em item equipado nem anunciado no leilão.
   auto stacks = db_->executePreparedQuery(
-      "SELECT id, quantity, slot_index FROM player_inventory WHERE player_id = ? AND "
-      "item_template_id = ? AND COALESCE(is_equipped,0) = 0 ORDER BY slot_index",
+      "SELECT inventory_id, quantity, slot_index FROM player_inventory WHERE player_id = ? AND "
+      "item_template_id = ? AND COALESCE(is_equipped,0) = 0 AND auction_listing_id IS NULL "
+      "ORDER BY slot_index",
       {std::to_string(playerId), std::to_string(itemTemplateId)});
 
   uint32_t remaining = quantity;
@@ -366,7 +369,7 @@ bool LootService::grantItemToPlayer(uint32_t playerId, uint32_t itemTemplateId, 
     if (curQty >= maxStack) continue;
     const uint32_t space = maxStack - curQty;
     const uint32_t add = std::min(space, remaining);
-    db_->executePreparedInsert("UPDATE player_inventory SET quantity = quantity + ? WHERE id = ?",
+    db_->executePreparedInsert("UPDATE player_inventory SET quantity = quantity + ? WHERE inventory_id = ?",
                                {std::to_string(add), std::to_string(invId)});
     remaining -= add;
   }
