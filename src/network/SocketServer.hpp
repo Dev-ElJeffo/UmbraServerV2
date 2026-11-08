@@ -22,6 +22,19 @@ enum class ProtocolType {
 };
 
 /**
+ * @brief Estado de I/O compartilhado de um cliente.
+ *
+ * sendMu serializa envios (um frame nunca intercala com outro) e o fechamento:
+ * disconnect só fecha o socket sem nenhum send em andamento, e send após o close
+ * vê closed=true em vez de usar um handle já reaproveitado pelo SO.
+ */
+struct ClientIo {
+  std::mutex sendMu;
+  int socket = -1;
+  bool closed = false;
+};
+
+/**
  * @brief Dados de conexão do cliente
  */
 struct ClientConnection {
@@ -30,6 +43,7 @@ struct ClientConnection {
   uint16_t port;
   bool connected;
   int socket;
+  std::shared_ptr<ClientIo> io;
 };
 
 /**
@@ -93,8 +107,9 @@ class SocketServer {
   /**
    * @brief Desconecta cliente
    * @param clientId ID do cliente
+   * @return true se o cliente existia e foi desconectado
    */
-  void disconnectClient(uint32_t clientId);
+  bool disconnectClient(uint32_t clientId);
   
   /**
    * @brief Obtém número de clientes conectados
@@ -117,7 +132,13 @@ class SocketServer {
   int serverSocket_;
   std::atomic<bool> running_;
   std::unique_ptr<std::thread> acceptThread_;
-  std::vector<std::unique_ptr<std::thread>> workerThreads_;
+
+  // Thread por conexão; done=true quando handleTcpClient termina (reaproveitada no accept).
+  struct Worker {
+    std::unique_ptr<std::thread> thread;
+    std::shared_ptr<std::atomic<bool>> done;
+  };
+  std::vector<Worker> workerThreads_;
   
   std::vector<ClientConnection> clients_;
   mutable std::mutex clientsMutex_;
@@ -140,9 +161,16 @@ class SocketServer {
   
   bool initializeSocket();
   void acceptLoop();
-  void handleTcpClient(int clientSocket, const std::string& address, uint16_t port);
+  void reapFinishedWorkers();
+  void handleTcpClient(int clientSocket, const std::string& address, uint16_t port,
+                       std::shared_ptr<std::atomic<bool>> done);
   void handleUdpMessages();
   void closeSocket(int socket);
+  /** @brief shutdown + close: acorda recv()/accept() bloqueados (Windows e Linux). */
+  void shutdownAndClose(int socket);
+  /** @brief Envia tudo (repete em envio parcial). Chamar com io.sendMu travado. */
+  static bool sendAll(ClientIo& io, const uint8_t* data, size_t size);
+  bool sendToIo(const std::shared_ptr<ClientIo>& io, const std::vector<uint8_t>& data);
   
   ClientConnection* findClient(uint32_t clientId);
 };

@@ -1,6 +1,7 @@
 #include <algorithm>
 #include "SocketServer.hpp"
 #include "core/Logger.hpp"
+#include <cerrno>
 #include <cstring>
 
 #ifdef _WIN32
@@ -73,31 +74,61 @@ void SocketServer::stop() {
   }
   
   running_ = false;
-  
+
+  // 1) Fechar o socket de escuta antes do join: accept() bloqueado só retorna assim.
+  if (serverSocket_ != INVALID_SOCKET) {
+    shutdownAndClose(serverSocket_);
+    serverSocket_ = INVALID_SOCKET;
+  }
   if (acceptThread_ && acceptThread_->joinable()) {
     acceptThread_->join();
   }
-  
-  for (auto& thread : workerThreads_) {
-    if (thread && thread->joinable()) {
-      thread->join();
-    }
-  }
-  workerThreads_.clear();
-  
+
+  // 2) Acordar os recv() dos workers; cada worker fecha o próprio socket em disconnectClient.
+  std::vector<std::shared_ptr<ClientIo>> ios;
   {
     std::lock_guard<std::mutex> lock(clientsMutex_);
     for (auto& client : clients_) {
-      closeSocket(client.socket);
+      if (client.io) ios.push_back(client.io);
+    }
+  }
+  // Windows só acorda recv() bloqueado com closesocket(); Linux só com shutdown().
+  // shutdownAndClose faz os dois; closed=true evita close duplo em disconnectClient.
+  for (auto& io : ios) {
+    std::lock_guard<std::mutex> ioLock(io->sendMu);
+    if (!io->closed) {
+      io->closed = true;
+      shutdownAndClose(io->socket);
+    }
+  }
+
+  // 3) Join dos workers. Se stop() vier de dentro de um callback (ex.: comando admin
+  //    "shutdown"), a própria thread não pode se dar join.
+  const auto selfId = std::this_thread::get_id();
+  for (auto& worker : workerThreads_) {
+    if (!worker.thread || !worker.thread->joinable()) continue;
+    if (worker.thread->get_id() == selfId) {
+      worker.thread->detach();
+    } else {
+      worker.thread->join();
+    }
+  }
+  workerThreads_.clear();
+
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    for (auto& client : clients_) {
+      if (client.io) {
+        std::lock_guard<std::mutex> ioLock(client.io->sendMu);
+        if (!client.io->closed) {
+          client.io->closed = true;
+          shutdownAndClose(client.io->socket);
+        }
+      }
     }
     clients_.clear();
   }
-  
-  if (serverSocket_ != INVALID_SOCKET) {
-    closeSocket(serverSocket_);
-    serverSocket_ = INVALID_SOCKET;
-  }
-  
+
   Core::Logger::getInstance().info("SocketServer stopped");
 }
 
@@ -114,36 +145,79 @@ void SocketServer::setConnectionCallback(ConnectionCallback callback) {
 }
 
 bool SocketServer::sendToClient(uint32_t clientId, const std::vector<uint8_t>& data) {
-  std::lock_guard<std::mutex> lock(clientsMutex_);
-  
-  auto* client = findClient(clientId);
-  if (!client || !client->connected) {
-    return false;
+  std::shared_ptr<ClientIo> io;
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    auto* client = findClient(clientId);
+    if (!client || !client->connected || !client->io) {
+      return false;
+    }
+    io = client->io;
   }
-  
-  int result = send(client->socket, 
-                    reinterpret_cast<const char*>(data.data()), 
-                    static_cast<int>(data.size()), 
-                    0);
-  
-  return result != SOCKET_ERROR;
+  // Envio fora do clientsMutex_: cliente lento não trava os demais.
+  return sendToIo(io, data);
 }
 
 void SocketServer::broadcast(const std::vector<uint8_t>& data) {
-  std::lock_guard<std::mutex> lock(clientsMutex_);
-  
-  for (auto& client : clients_) {
-    if (client.connected) {
-      send(client.socket, 
-           reinterpret_cast<const char*>(data.data()), 
-           static_cast<int>(data.size()), 
-           0);
+  std::vector<std::shared_ptr<ClientIo>> ios;
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    ios.reserve(clients_.size());
+    for (auto& client : clients_) {
+      if (client.connected && client.io) ios.push_back(client.io);
     }
+  }
+  for (auto& io : ios) {
+    sendToIo(io, data);
   }
 }
 
-void SocketServer::disconnectClient(uint32_t clientId) {
+bool SocketServer::sendToIo(const std::shared_ptr<ClientIo>& io,
+                            const std::vector<uint8_t>& data) {
+  std::lock_guard<std::mutex> ioLock(io->sendMu);
+  if (io->closed) {
+    return false;
+  }
+  if (data.empty()) {
+    return true;
+  }
+  if (!sendAll(*io, data.data(), data.size())) {
+    // Frame parcial corrompe o stream: derruba a conexão; o worker acorda do recv()
+    // e faz a limpeza (disconnectClient + callback).
+    io->closed = true;
+    shutdownAndClose(io->socket);
+    Core::Logger::getInstance().warn("SocketServer: send failed on port {}, closing client", port_);
+    return false;
+  }
+  return true;
+}
+
+bool SocketServer::sendAll(ClientIo& io, const uint8_t* data, size_t size) {
+  size_t sent = 0;
+  while (sent < size) {
+    const size_t remaining = size - sent;
+    const int chunk = static_cast<int>(std::min<size_t>(remaining, 1 << 20));
+#ifdef _WIN32
+    const int result = send(static_cast<SOCKET>(io.socket),
+                            reinterpret_cast<const char*>(data + sent), chunk, 0);
+#else
+    const int result = static_cast<int>(
+        send(io.socket, reinterpret_cast<const char*>(data + sent), chunk, MSG_NOSIGNAL));
+    if (result < 0 && errno == EINTR) {
+      continue;
+    }
+#endif
+    if (result == SOCKET_ERROR || result <= 0) {
+      return false;  // erro ou SO_SNDTIMEO estourado
+    }
+    sent += static_cast<size_t>(result);
+  }
+  return true;
+}
+
+bool SocketServer::disconnectClient(uint32_t clientId) {
   bool found = false;
+  std::shared_ptr<ClientIo> io;
   {
     std::lock_guard<std::mutex> lock(clientsMutex_);
 
@@ -151,15 +225,28 @@ void SocketServer::disconnectClient(uint32_t clientId) {
       [clientId](const ClientConnection& c) { return c.id == clientId; });
 
     if (it != clients_.end()) {
-      closeSocket(it->socket);
+      io = it->io;
+      if (!io) {
+        closeSocket(it->socket);
+      }
       clients_.erase(it);
       found = true;
+    }
+  }
+
+  if (io) {
+    // Espera um send em andamento terminar (limitado por SO_SNDTIMEO) antes de fechar.
+    std::lock_guard<std::mutex> ioLock(io->sendMu);
+    if (!io->closed) {
+      io->closed = true;
+      shutdownAndClose(io->socket);
     }
   }
 
   if (found && connectionCallback_) {
     connectionCallback_(clientId, false);
   }
+  return found;
 }
 
 size_t SocketServer::getClientCount() const {
@@ -248,20 +335,55 @@ void SocketServer::acceptLoop() {
       }
     }
 
-    Core::Logger::getInstance().info("New connection from {}:{}", 
+    Core::Logger::getInstance().info("New connection from {}:{}",
                                      clientAddress, clientPort);
-    
-    auto thread = std::make_unique<std::thread>(
-      &SocketServer::handleTcpClient, this, clientSocket, clientAddress, clientPort);
-    workerThreads_.push_back(std::move(thread));
+
+    // Libera threads de conexões já encerradas (antes ficavam até o stop()).
+    reapFinishedWorkers();
+
+    Worker worker;
+    worker.done = std::make_shared<std::atomic<bool>>(false);
+    worker.thread = std::make_unique<std::thread>(
+      &SocketServer::handleTcpClient, this, clientSocket, clientAddress, clientPort,
+      worker.done);
+    workerThreads_.push_back(std::move(worker));
   }
 }
 
-void SocketServer::handleTcpClient(int clientSocket, 
-                                   const std::string& address, 
-                                   uint16_t port) {
+void SocketServer::reapFinishedWorkers() {
+  auto it = workerThreads_.begin();
+  while (it != workerThreads_.end()) {
+    if (it->done && it->done->load(std::memory_order_acquire)) {
+      if (it->thread && it->thread->joinable()) {
+        it->thread->join();  // já saiu de handleTcpClient: retorno imediato
+      }
+      it = workerThreads_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
+void SocketServer::handleTcpClient(int clientSocket,
+                                   const std::string& address,
+                                   uint16_t port,
+                                   std::shared_ptr<std::atomic<bool>> done) {
   uint32_t clientId = nextClientId_++;
-  
+
+  // Timeout de envio: um cliente que não lê não segura o sendMu para sempre.
+#ifdef _WIN32
+  const DWORD sendTimeoutMs = 5000;
+  setsockopt(static_cast<SOCKET>(clientSocket), SOL_SOCKET, SO_SNDTIMEO,
+             reinterpret_cast<const char*>(&sendTimeoutMs), sizeof(sendTimeoutMs));
+#else
+  timeval sendTimeout{};
+  sendTimeout.tv_sec = 5;
+  setsockopt(clientSocket, SOL_SOCKET, SO_SNDTIMEO, &sendTimeout, sizeof(sendTimeout));
+#endif
+
+  auto io = std::make_shared<ClientIo>();
+  io->socket = clientSocket;
+
   {
     std::lock_guard<std::mutex> lock(clientsMutex_);
     ClientConnection conn;
@@ -270,6 +392,7 @@ void SocketServer::handleTcpClient(int clientSocket,
     conn.port = port;
     conn.connected = true;
     conn.socket = clientSocket;
+    conn.io = io;
     clients_.push_back(conn);
   }
   
@@ -308,6 +431,7 @@ void SocketServer::handleTcpClient(int clientSocket,
   
   disconnectClient(clientId);
   Core::Logger::getInstance().info("Client {} disconnected", clientId);
+  done->store(true, std::memory_order_release);
 }
 
 void SocketServer::handleUdpMessages() {
@@ -341,6 +465,18 @@ void SocketServer::closeSocket(int socket) {
   if (socket != INVALID_SOCKET) {
     CLOSE_SOCKET(socket);
   }
+}
+
+void SocketServer::shutdownAndClose(int socket) {
+  if (socket == INVALID_SOCKET) {
+    return;
+  }
+#ifdef _WIN32
+  shutdown(static_cast<SOCKET>(socket), SD_BOTH);
+#else
+  shutdown(socket, SHUT_RDWR);
+#endif
+  CLOSE_SOCKET(socket);
 }
 
 bool SocketServer::checkRateLimit(uint32_t clientId) {

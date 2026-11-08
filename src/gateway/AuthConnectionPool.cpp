@@ -47,8 +47,12 @@ void AuthConnectionPool::stop() {
     return;
   }
   
-  running_ = false;
-  
+  {
+    std::lock_guard<std::mutex> lock(stopMu_);
+    running_ = false;
+  }
+  stopCv_.notify_all();
+
   // Stop health check thread
   if (healthCheckThread_ && healthCheckThread_->joinable()) {
     healthCheckThread_->join();
@@ -292,8 +296,12 @@ void AuthConnectionPool::initializeConnections() {
 
 void AuthConnectionPool::healthCheckLoop() {
   while (running_) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(config_.healthCheckIntervalMs));
-    
+    {
+      std::unique_lock<std::mutex> lock(stopMu_);
+      stopCv_.wait_for(lock, std::chrono::milliseconds(config_.healthCheckIntervalMs),
+                       [this] { return !running_.load(); });
+    }
+
     if (!running_) {
       break;
     }

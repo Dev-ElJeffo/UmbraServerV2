@@ -48,14 +48,22 @@ GatewayServer::GatewayServer(const Config& config)
   
   networkServer_->setMessageCallback(
     [this](uint32_t clientId, const std::vector<uint8_t>& data) {
-      handleClientMessage(clientId, data);
+      handleRawData(clientId, data);
     });
-  
+
   networkServer_->setConnectionCallback(
     [this](uint32_t clientId, bool connected) {
       if (connected) {
+        {
+          std::lock_guard<std::mutex> lock(framersMutex_);
+          framers_[clientId] = Network::LengthPrefixedFramer{};
+        }
         Core::Logger::getInstance().info("Client {} connected", clientId);
       } else {
+        {
+          std::lock_guard<std::mutex> lock(framersMutex_);
+          framers_.erase(clientId);
+        }
         Core::Logger::getInstance().info("Client {} disconnected", clientId);
       }
     });
@@ -443,21 +451,28 @@ void GatewayServer::handleClientMessage(uint32_t clientId,
     }
     
     std::string action = json.value("action", "");
-    
-    if (action == "authenticate") {
+
+    // "validate_token" é o que o UmbraTCPClient envia ({action, data:{token, account_id}});
+    // "authenticate" é o formato antigo (token no topo). Mesma validação.
+    if (action == "authenticate" || action == "validate_token") {
       std::string token = json.value("token", "");
-      
+      if (token.empty() && json.contains("data") && json["data"].is_object()) {
+        token = json["data"].value("token", "");
+      }
+
       if (token.empty()) {
         nlohmann::json response;
+        response["action"] = action;
         response["success"] = false;
         response["message"] = "Token required";
         sendResponse(clientId, response.dump());
         return;
       }
-      
+
       bool isValid = validateToken(token);
-      
+
       nlohmann::json response;
+      response["action"] = action;
       response["success"] = isValid;
       response["message"] = isValid ? "Authentication successful" : "Invalid token";
       
@@ -474,6 +489,7 @@ void GatewayServer::handleClientMessage(uint32_t clientId,
       
     } else if (action == "get_server_info") {
       nlohmann::json response;
+      response["action"] = action;
       response["success"] = true;
       response["server_count"] = loadBalancer_->getServerCount();
       
@@ -489,6 +505,7 @@ void GatewayServer::handleClientMessage(uint32_t clientId,
       
     } else if (action == "ping") {
       nlohmann::json response;
+      response["action"] = action;
       response["type"] = "pong";
       response["timestamp"] = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
@@ -512,8 +529,40 @@ void GatewayServer::handleClientMessage(uint32_t clientId,
   }
 }
 
+void GatewayServer::handleRawData(uint32_t clientId, const std::vector<uint8_t>& data) {
+  std::vector<std::vector<uint8_t>> messages;
+  Network::LengthPrefixedFramer::Result result = Network::LengthPrefixedFramer::Result::Ok;
+  {
+    std::lock_guard<std::mutex> lock(framersMutex_);
+    auto& framer = framers_[clientId];
+    result = framer.feed(data.data(), data.size(), messages);
+  }
+
+  if (result == Network::LengthPrefixedFramer::Result::InvalidFrameSize) {
+    Core::Logger::getInstance().warn(
+        "Gateway: invalid frame size from client {}, disconnecting", clientId);
+    networkServer_->disconnectClient(clientId);
+    return;
+  }
+
+  for (const auto& message : messages) {
+    handleClientMessage(clientId, message);
+  }
+}
+
+bool GatewayServer::isFramedClient(uint32_t clientId) const {
+  std::lock_guard<std::mutex> lock(framersMutex_);
+  auto it = framers_.find(clientId);
+  return it != framers_.end() && it->second.isFramed();
+}
+
 void GatewayServer::sendResponse(uint32_t clientId, const std::string& response) {
   std::vector<uint8_t> data(response.begin(), response.end());
+  // Cliente framed (UE) recebe no mesmo contrato [len:u32 BE][json]; Legacy recebe cru.
+  if (isFramedClient(clientId)) {
+    networkServer_->sendToClient(clientId, Network::LengthPrefixedFramer::encode(data));
+    return;
+  }
   networkServer_->sendToClient(clientId, data);
 }
 
@@ -555,8 +604,8 @@ std::string GatewayServer::getAdminClientsJson() {
 
 bool GatewayServer::kickClient(uint32_t clientId) {
   if (!networkServer_) return false;
-  networkServer_->disconnectClient(clientId);
-  return true;
+  // Antes retornava true sempre: o Manager mostrava "kicked" para id inexistente.
+  return networkServer_->disconnectClient(clientId);
 }
 
 std::string GatewayServer::getAuthStatsJson() const {
