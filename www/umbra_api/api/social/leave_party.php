@@ -60,7 +60,11 @@ try {
     $remaining->execute([$party_id]);
     $count = (int)$remaining->fetch(PDO::FETCH_ASSOC)['count'];
 
-    if ($count === 0) {
+    // Grupo com 1 membro (ou nenhum) deixa de existir: remove quem sobrou e o grupo.
+    // O cliente restante recebe o PartyMemberLeft (opcode 14), recarrega e esconde o painel.
+    if ($count <= 1) {
+        $delete_rest = $pdo->prepare("DELETE FROM party_members WHERE party_id = ?");
+        $delete_rest->execute([$party_id]);
         $delete_party = $pdo->prepare("DELETE FROM parties WHERE party_id = ?");
         $delete_party->execute([$party_id]);
     } else {
@@ -85,12 +89,11 @@ try {
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
     }
-    error_log("Erro ao sair do grupo: " . $e->getMessage());
+    error_log('[social/leave_party] ' . $e->getMessage());
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'message' => 'Erro ao processar solicitação',
-        'error' => $e->getMessage()
-    ]);
+        'message' => 'Erro interno'
+    ], JSON_UNESCAPED_UNICODE);
 }
 ?>
