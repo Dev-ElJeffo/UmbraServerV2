@@ -10,7 +10,7 @@ Cada rodada termina com guia `docs_main/GUIA_*_UE561.md`, QA no PIE com 2 player
 | Rodada | Tema | Itens | Status |
 |---|---|---|---|
 | 1 | Limpeza de log/tela, party e fechamento do ciclo | R1.1–R1.4 | **Feita** (guia `GUIA_LIMPEZA_LOG_PARTY_UE561.md`); falta o QA no PIE |
-| 2 | Trade e drag&drop em C++ | R2.1–R2.5 | **Próxima** |
+| 2 | Trade, denúncia, deletar item e party na zone | R2.1, R2.2, R2.4, R2.5 | **Feita** (guia `GUIA_TRADE_REPORT_PARTY_UE561.md`); falta o QA. R2.3 (drag&drop) adiada, sob demanda |
 | 3 | Conteúdo e mapa | R3.1–R3.2 | R3.1 feita (Necropolis restaurada só no disco, sem versionar); R3.2 planejada |
 | 4 | Telas de entrada em C++ e dívida técnica | R4.1–R4.3 | Planejada |
 
@@ -130,7 +130,9 @@ Cada rodada termina com guia `docs_main/GUIA_*_UE561.md`, QA no PIE com 2 player
 
 - `ShowReportDialog(int32, FString)` como `UFUNCTION` C++; tira a última ponte por reflexão do HUD.
 
-### R2.3 Drag&drop do inventário em C++
+### R2.3 Drag&drop do inventário em C++ — **adiada (sob demanda)**
+
+> Decisão de 2026-11-08: o BP atual funciona e foi validado no QA. A migração não corrige bug visível e tem risco alto (inventário, equipamento, storage, loja, refino, enchant, crafting, split). Fazer quando houver motivo para mexer nos slots.
 
 - Hoje o `OnDragDetected` está em BP no `WBP_InventorySlot` e no `WBP_EquipmentSlot` (com `Print String`).
 - Passar a detecção para `NativeOnMouseButtonDown` (`DetectDrag`) + `NativeOnDragDetected`, usando o `CreateItemDragOperation` que já existe. Mesmo padrão do `UUmbraSkillSlotWidget`.

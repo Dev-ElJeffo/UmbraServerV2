@@ -548,8 +548,10 @@ public:
         if (decodePartyAcceptNotify(data, partyId)) {
           Umbra::Core::Logger::getInstance().info("Received PartyAcceptNotify from client {}: partyId={}", cid, partyId);
           std::lock_guard<std::mutex> lock(mu_);
+          const uint32_t senderPlayerId = playerIdForClientUnlocked(cid);
           auto msg = encodePartyMemberJoined(partyId);
-          ws_.broadcastBinary(msg);
+          // Quem acabou de entrar ainda não está no cache: na prática cai no broadcast.
+          sendPartyNoticeUnlocked(getPartyMembersCached(senderPlayerId), senderPlayerId, msg);
         }
         return;
       }
@@ -892,7 +894,7 @@ public:
               senderPlayerId);
           std::lock_guard<std::mutex> lock(mu_);
           auto msg = encodePartyStatsRefresh(partyId);
-          ws_.broadcastBinary(msg);
+          sendPartyNoticeUnlocked(getPartyMembersCached(senderPlayerId), senderPlayerId, msg);
         }
         return;
       }
@@ -903,8 +905,10 @@ public:
         if (decodePartyMemberLeftNotify(data, partyId)) {
           Umbra::Core::Logger::getInstance().info("Received PartyMemberLeftNotify from client {}: partyId={}", cid, partyId);
           std::lock_guard<std::mutex> lock(mu_);
+          const uint32_t senderPlayerId = playerIdForClientUnlocked(cid);
           auto msg = encodePartyMemberLeft(partyId);
-          ws_.broadcastBinary(msg);
+          // O cache de quem saiu ainda lista os membros de antes da saída (TTL ~1-2 s).
+          sendPartyNoticeUnlocked(getPartyMembersCached(senderPlayerId), 0, msg);
         }
         return;
       }
@@ -1884,7 +1888,10 @@ private:
         return;
       }
 
-      // Remover jogador do grupo no servidor (party_members no DB) e broadcast PartyMemberLeft se estava em grupo
+      // Membros do grupo lidos do cache ANTES de sair: o próximo refresh tira quem desconectou.
+      const std::vector<uint32_t> partyMembersBefore = getPartyMembersCached(playerId);
+
+      // Remover jogador do grupo no servidor (party_members no DB) e avisar os membros se estava em grupo
       uint32_t partyId = 0;
       if (onPlayerDisconnect_) {
         try {
@@ -1897,8 +1904,12 @@ private:
       }
       if (partyId > 0) {
         auto memberLeftMsg = encodePartyMemberLeft(partyId);
-        ws_.broadcastBinary(memberLeftMsg);
-        Umbra::Core::Logger::getInstance().info("Broadcasted PartyMemberLeft for party {} (player {} disconnected)", partyId, playerId);
+        {
+          std::lock_guard<std::mutex> lock(mu_);
+          sendPartyNoticeUnlocked(partyMembersBefore, 0, memberLeftMsg);
+        }
+        Umbra::Core::Logger::getInstance().info("Sent PartyMemberLeft for party {} (player {} disconnected, {} membros no cache)",
+                                                partyId, playerId, partyMembersBefore.size());
       }
 
       // Reconectou enquanto o DB rodava: não anunciar desconexão de quem está online.
@@ -1959,6 +1970,34 @@ private:
   uint32_t findClientIdForPlayerUnlocked(uint32_t playerId) const {
     auto it = playerIdToClientId_.find(playerId);
     return (it != playerIdToClientId_.end()) ? it->second : 0;
+  }
+
+  uint32_t playerIdForClientUnlocked(uint32_t clientId) const {
+    auto it = clientIdToPlayerId_.find(clientId);
+    return (it != clientIdToPlayerId_.end()) ? it->second : 0;
+  }
+
+  // Aviso de party (opcodes 13/14/27) só para os membros do grupo (+ extraPlayerId).
+  // Sem membros conhecidos (cache frio ou grupo recém-criado) cai no broadcast: o cliente
+  // filtra pelo próprio CurrentPartyID. Chamar com mu_ travado (ordem mu_ -> partyCacheMu_).
+  void sendPartyNoticeUnlocked(const std::vector<uint32_t>& members, uint32_t extraPlayerId,
+                               const std::vector<uint8_t>& message) {
+    if (members.empty()) {
+      ws_.broadcastBinary(message);
+      return;
+    }
+    std::unordered_set<uint32_t> sent;
+    auto sendTo = [&](uint32_t playerId) {
+      if (playerId == 0 || !sent.insert(playerId).second) return;
+      const uint32_t targetClientId = findClientIdForPlayerUnlocked(playerId);
+      if (targetClientId != 0) {
+        ws_.sendBinary(targetClientId, message);
+      }
+    };
+    for (uint32_t memberId : members) {
+      sendTo(memberId);
+    }
+    sendTo(extraPlayerId);
   }
 
   void enqueueToPlayerUnlocked(uint32_t playerId, const std::vector<uint8_t>& message, Outbox& outbox) {
