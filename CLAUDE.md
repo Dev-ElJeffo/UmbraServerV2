@@ -11,6 +11,7 @@ As regras do `AGENTS.md` acima continuam valendo. Este arquivo acrescenta o que 
 - **Divisão de papéis:**
   - **Claude:** código C++ (servidor e cliente UE), PHP, SQL, Manager (C#/XAML) e docs.
   - **Usuário:** Editor UE (WBP/BP/assets/Niagara), compilação do editor, cadastro no UmbraManager e testes no PIE.
+- **Custo:** subagentes só de busca/leitura (Explore, localizar arquivo, ler trecho) rodam com `model: "haiku"`; reservar o modelo principal para design e código. Preferir Grep/Read direto a abrir subagente. Ao trocar de tarefa, o usuário roda `/clear` — não acumular contexto entre tarefas.
 - **Toda feature nova vem com um guia** em `docs_main/GUIA_<TEMA>_UE561.md`, seguindo `docs_main/_TEMPLATE_GUIA_UE561.md` (ver §6).
 - **Git:**
   - commit e push só quando o usuário pedir ou quando estiverem em plano aprovado;
@@ -18,6 +19,19 @@ As regras do `AGENTS.md` acima continuam valendo. Este arquivo acrescenta o que 
   - prefixos `feat:`/`fix:`/`docs:`/`refactor:`/`chore:`;
   - nunca usar `git add -A` às cegas: excluir segredos e artefatos de debug (AGENTS.md §13.5);
   - sem force push, `reset --hard` ou `--no-verify` (já bloqueados em `.claude/settings.json`).
+- **Skills do projeto** (`.claude/skills/`): usar por padrão em vez de refazer o roteiro à mão.
+
+  | Skill | Quando usar |
+  |-------|-------------|
+  | `/feature-e2e` | Feature que atravessa camadas (SQL → C++ → protocolo → PHP → Manager → UE → guia); entrega o plano para o OK |
+  | `/novo-opcode` | Opcode novo ou campo trailing no WS da zone (§4) |
+  | `/validar` | Ao terminar qualquer implementação e antes de commitar (build, ctest, `php -l`, lint, regras da zone) |
+  | `/sync-wamp` | Depois de alterar PHP: compara repo × `C:\wamp64\www\umbra_api` e sincroniza com OK |
+  | `/commit-umbra` | Commit/push/PR/merge, só quando pedido ou em plano aprovado |
+  | `/diagnosticar-zone` | Crash, lag, tick lento, queda de clients (só leitura) |
+  | `/conferir-binds-ue` | Conferir WBP/BP × C++ × guia via MCP EngineWire (só leitura) |
+  | `/auditar-php` | Auditoria de segurança das APIs PHP, só quando pedido (só leitura) |
+  | `/analisar-branches-cursor` | Rotina de análise das branches `cursor/*` da automação do Cursor |
 
 ## 2) Mapa rápido por camada
 
