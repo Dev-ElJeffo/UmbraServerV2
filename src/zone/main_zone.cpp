@@ -1,5 +1,5 @@
 #include "ZoneServer.hpp"
-#include "zone/AgentDebugLog.hpp"
+#include "core/Timer.hpp"
 #include "admin/AdminBootstrap.hpp"
 #include "admin/ServiceAdminRegister.hpp"
 #include "core/Logger.hpp"
@@ -111,84 +111,59 @@ int main(int argc, char* argv[]) {
   constexpr auto kPumpPeriod = std::chrono::milliseconds(3);
   constexpr auto kFullUpdatePeriod = std::chrono::milliseconds(16);
 
-  // #region agent log
-  int64_t lastPumpMs = Umbra::Zone::agentNowMs();
-  // #endregion
+  // Telemetria do loop (steady_clock, sem I/O no caminho normal): só loga anomalias
+  // — gap entre pumps >= 200ms (pausa do host/VM) ou fase >= 50ms — com throttle.
+  Umbra::Core::LogThrottle pumpGapThrottle(2000);
+  Umbra::Core::LogThrottle loopPhaseThrottle(2000);
+  int64_t lastPumpMs = Umbra::Core::steadyNowMs();
   auto nextPumpAt = std::chrono::steady_clock::now();
   while (running) {
     auto now = std::chrono::steady_clock::now();
 
-    // #region agent log
-    const int64_t loopT0 = Umbra::Zone::agentNowMs();
-    {
-      const int64_t gap = loopT0 - lastPumpMs;
-      if (gap >= 200) {
-        Umbra::Zone::agentDebugLog(
-            "H-PUMP-GAP", "main_zone.cpp:loop", "pump_gap_ms",
-            std::string("{\"gapMs\":") + std::to_string(gap) + "}", "post-fix");
-      }
+    const int64_t loopT0 = Umbra::Core::steadyNowMs();
+    const int64_t gap = loopT0 - lastPumpMs;
+    if (gap >= 200 && pumpGapThrottle.allow()) {
+      Umbra::Core::Logger::getInstance().warn(
+          "[Zone] loop parado {}ms entre pumps (pausa do host/VM?) +{} omitidos",
+          gap, pumpGapThrottle.takeSuppressed());
     }
-    // #endregion
     zoneServer.pumpInbound();
-    // #region agent log
-    const int64_t afterPump = Umbra::Zone::agentNowMs();
-    const int64_t pumpMs = afterPump - loopT0;
-    // #endregion
+    const int64_t pumpMs = Umbra::Core::steadyNowMs() - loopT0;
 
     int64_t updateMs = 0;
     if (now >= nextFullUpdate) {
       float deltaTime = std::chrono::duration<float>(now - lastUpdate).count();
       lastUpdate = now;
-      // #region agent log
-      const int64_t u0 = Umbra::Zone::agentNowMs();
-      // #endregion
+      const int64_t u0 = Umbra::Core::steadyNowMs();
       zoneServer.update(deltaTime);
-      // #region agent log
-      updateMs = Umbra::Zone::agentNowMs() - u0;
-      // #endregion
+      updateMs = Umbra::Core::steadyNowMs() - u0;
       // Agenda o próximo update pesado a partir do alvo (não do fim do trabalho),
       // para não acumular drift quando um update pontual passar de 16ms.
       nextFullUpdate += kFullUpdatePeriod;
       if (nextFullUpdate < now) nextFullUpdate = now + kFullUpdatePeriod;
     }
 
-    // #region agent log
-    // Instrumentação leve: NÃO ler /proc no hot path (amplificou lag no Proxmox).
-    int64_t sleepMs = 0;
-    // #endregion
     // Catch-up: evidência no Proxmox mostrou sleep_for(3ms) retornando em 2.6–3.0s
     // (sleepMs dominante; pump/update ~0) a cada ~30s — pause do host/VM.
     // Se já estamos atrasados, NÃO dormir de novo: bombeia hits pendentes na hora.
+    // Não ler /proc nem fazer I/O aqui (amplificava o lag no Proxmox).
+    int64_t sleepMs = 0;
     nextPumpAt += kPumpPeriod;
     now = std::chrono::steady_clock::now();
     if (nextPumpAt > now) {
-      // #region agent log
-      const int64_t sleepT0 = Umbra::Zone::agentNowMs();
-      // #endregion
+      const int64_t sleepT0 = Umbra::Core::steadyNowMs();
       std::this_thread::sleep_until(nextPumpAt);
-      // #region agent log
-      sleepMs = Umbra::Zone::agentNowMs() - sleepT0;
-      // #endregion
+      sleepMs = Umbra::Core::steadyNowMs() - sleepT0;
     } else {
-      // #region agent log
-      sleepMs = 0;
-      // #endregion
       // Reseta a agenda para não tentar “pagar” segundos de atraso do hypervisor.
       nextPumpAt = now;
     }
-    // #region agent log
-    {
-      if (pumpMs >= 50 || updateMs >= 50 || sleepMs >= 50) {
-        Umbra::Zone::agentDebugLog(
-            "H-LOOP-PHASE", "main_zone.cpp:loop", "loop_phase_ms",
-            std::string("{\"pumpMs\":") + std::to_string(pumpMs) +
-                ",\"updateMs\":" + std::to_string(updateMs) +
-                ",\"sleepMs\":" + std::to_string(sleepMs) + "}",
-            "post-fix");
-      }
-      lastPumpMs = Umbra::Zone::agentNowMs();
+    if ((pumpMs >= 50 || updateMs >= 50 || sleepMs >= 50) && loopPhaseThrottle.allow()) {
+      Umbra::Core::Logger::getInstance().warn(
+          "[Zone] fase lenta no loop: pump={}ms update={}ms sleep={}ms +{} omitidos",
+          pumpMs, updateMs, sleepMs, loopPhaseThrottle.takeSuppressed());
     }
-    // #endregion
+    lastPumpMs = Umbra::Core::steadyNowMs();
   }
 
   std::cout << "\nShutting down Zone Server...\n";

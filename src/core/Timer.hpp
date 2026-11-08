@@ -7,9 +7,46 @@
 #include <vector>
 #include <mutex>
 #include <memory>
+#include <cstdint>
 
 namespace Umbra {
 namespace Core {
+
+/** @brief ms monotônicos (steady_clock) — para throttles, timeouts e medição. */
+inline int64_t steadyNowMs() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
+/**
+ * @brief Limita a frequência de um log de anomalia (thread-safe, sem lock).
+ *
+ * Uso: `static Core::LogThrottle t(5000); if (t.allow()) Logger.warn(...)`.
+ * suppressed() devolve quantos eventos foram omitidos desde o último log liberado.
+ */
+class LogThrottle {
+ public:
+  explicit LogThrottle(int64_t intervalMs) : intervalMs_(intervalMs) {}
+
+  bool allow() {
+    const int64_t now = steadyNowMs();
+    int64_t last = lastMs_.load(std::memory_order_relaxed);
+    if (last != 0 && now - last < intervalMs_) {
+      suppressed_.fetch_add(1, std::memory_order_relaxed);
+      return false;
+    }
+    return lastMs_.compare_exchange_strong(last, now, std::memory_order_relaxed);
+  }
+
+  /** @brief Eventos omitidos desde o último allow()==true (e zera o contador). */
+  uint32_t takeSuppressed() { return suppressed_.exchange(0, std::memory_order_relaxed); }
+
+ private:
+  int64_t intervalMs_;
+  std::atomic<int64_t> lastMs_{0};
+  std::atomic<uint32_t> suppressed_{0};
+};
 
 /**
  * @brief Sistema de agendamento de tarefas periódicas

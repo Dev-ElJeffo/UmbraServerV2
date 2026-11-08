@@ -3,7 +3,7 @@
 #include "zone/CombatCoreEngine.hpp"
 #include "zone/ExperienceService.hpp"
 #include "zone/ExpZoneManager.hpp"
-#include "zone/AgentDebugLog.hpp"
+#include "core/Timer.hpp"
 #include "core/Logger.hpp"
 #include "core/ConfigManager.hpp"
 #include "database/MySQLConnector.hpp"
@@ -226,47 +226,34 @@ bool ZoneServer::isRunning() const {
 }
 
 void ZoneServer::update(float deltaTime) {
-  // #region agent log
-  const int64_t updT0 = agentNowMs();
+  // Telemetria leve por fase (steady_clock, sem I/O). Só loga update lento (>= 50ms).
+  const int64_t updT0 = Core::steadyNowMs();
   int64_t tDrain = 0, tSnap = 0, tKa = 0, tCombat = 0, tRegen = 0, tExp = 0;
-  // #endregion
 
   playerManager_->update(deltaTime);
   entitySystem_->update(deltaTime);
 
   if (movementServer_) {
-    // #region agent log
-    const int64_t a = agentNowMs();
-    // #endregion
+    const int64_t a = Core::steadyNowMs();
     movementServer_->drainInboundQueue();
     movementServer_->tickSessionAuth();
     movementServer_->refreshPartyCache();
-    // #region agent log
-    tDrain = agentNowMs() - a;
-    // #endregion
+    tDrain = Core::steadyNowMs() - a;
   }
 
   snapshotAccumulator_ += deltaTime;
   if (snapshotAccumulator_ >= 0.1f) {
-    // #region agent log
-    const int64_t a = agentNowMs();
-    // #endregion
+    const int64_t a = Core::steadyNowMs();
     if (movementServer_) movementServer_->broadcastSnapshot();
-    // #region agent log
-    tSnap = agentNowMs() - a;
-    // #endregion
+    tSnap = Core::steadyNowMs() - a;
     snapshotAccumulator_ = 0.0f;
   }
 
   wsKeepaliveAccumulator_ += deltaTime;
   if (wsKeepaliveAccumulator_ >= 2.0f) {
-    // #region agent log
-    const int64_t a = agentNowMs();
-    // #endregion
+    const int64_t a = Core::steadyNowMs();
     if (movementServer_) movementServer_->sendKeepalivePings();
-    // #region agent log
-    tKa = agentNowMs() - a;
-    // #endregion
+    tKa = Core::steadyNowMs() - a;
     wsKeepaliveAccumulator_ = 0.0f;
   }
 
@@ -276,53 +263,38 @@ void ZoneServer::update(float deltaTime) {
   }
 
   if (combatCoreEngine_) {
-    // #region agent log
-    const int64_t a = agentNowMs();
-    // #endregion
+    const int64_t a = Core::steadyNowMs();
     combatCoreEngine_->tick(deltaTime);
-    // #region agent log
-    tCombat = agentNowMs() - a;
-    const int64_t b = agentNowMs();
-    // #endregion
+    tCombat = Core::steadyNowMs() - a;
+    const int64_t b = Core::steadyNowMs();
     combatCoreEngine_->tickRegen(deltaTime);
-    // #region agent log
-    tRegen = agentNowMs() - b;
-    // #endregion
+    tRegen = Core::steadyNowMs() - b;
   }
 
   expZoneTickAccumulator_ += deltaTime;
   if (expZoneTickAccumulator_ >= 1.0f) {
-    // #region agent log
-    const int64_t a = agentNowMs();
-    // #endregion
+    const int64_t a = Core::steadyNowMs();
     if (expZoneManager_) {
       expZoneManager_->tick(expZoneTickAccumulator_);
     }
     if (lootService_) {
       lootService_->tick(expZoneTickAccumulator_);
     }
-    // #region agent log
-    tExp = agentNowMs() - a;
-    // #endregion
+    tExp = Core::steadyNowMs() - a;
     expZoneTickAccumulator_ = 0.0f;
   }
 
-  // #region agent log
-  {
-    const int64_t total = agentNowMs() - updT0;
-    if (total >= 50) {
-      agentDebugLog("H-D", "ZoneServer.cpp:update", "zone_update_ms",
-                    std::string("{\"ms\":") + std::to_string(total) +
-                        ",\"drain\":" + std::to_string(tDrain) +
-                        ",\"snap\":" + std::to_string(tSnap) +
-                        ",\"ka\":" + std::to_string(tKa) +
-                        ",\"combat\":" + std::to_string(tCombat) +
-                        ",\"regen\":" + std::to_string(tRegen) +
-                        ",\"exp\":" + std::to_string(tExp) + "}",
-                    "post-fix");
+  const int64_t total = Core::steadyNowMs() - updT0;
+  if (total >= 50) {
+    static Core::LogThrottle slowUpdateThrottle(2000);
+    if (slowUpdateThrottle.allow()) {
+      Core::Logger::getInstance().warn(
+          "[Zone] update lento {}ms (drain={} snap={} keepalive={} combat={} regen={} exp={}) "
+          "+{} omitidos",
+          total, tDrain, tSnap, tKa, tCombat, tRegen, tExp,
+          slowUpdateThrottle.takeSuppressed());
     }
   }
-  // #endregion
 }
 
 void ZoneServer::pumpInbound() {

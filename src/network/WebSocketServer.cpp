@@ -1,9 +1,8 @@
 #include "WebSocketServer.hpp"
 #include "core/Logger.hpp"
 #include "core/Utils.hpp"
-  #include <chrono>
+#include <chrono>
 #include <cstring>
-#include <fstream>
 #include <mutex>
 #include <sstream>
 #include <thread>
@@ -36,36 +35,11 @@ namespace Umbra {
 namespace Network {
 
 namespace {
-// #region agent log
-void agentLogSend(const char* message, const std::string& dataJson,
-                  const char* hypothesisId = "H-SEND") {
-  static std::mutex logMu;
-  static std::ofstream f;
-  std::lock_guard<std::mutex> lock(logMu);
-  if (!f.is_open()) {
-    f.open("/root/UmbraServerV2/debug-f24ed2.log", std::ios::app);
-    if (!f.is_open()) {
-      f.open("debug-f24ed2.log", std::ios::app);
-    }
-  }
-  if (!f.is_open()) return;
-  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                      std::chrono::system_clock::now().time_since_epoch())
-                      .count();
-  f << "{\"sessionId\":\"f24ed2\",\"runId\":\"post-fix\",\"hypothesisId\":\"" << hypothesisId
-    << "\",\"location\":\"WebSocketServer.cpp\",\"message\":\"" << message
-    << "\",\"data\":" << dataJson << ",\"timestamp\":" << ms << "}\n";
-}
-
-inline int64_t agentSendNowMs() {
+inline int64_t steadyNowMs() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
              std::chrono::steady_clock::now().time_since_epoch())
       .count();
 }
-
-// Orçamento para completar frame parcial (nunca bloquear tick por segundos).
-constexpr int64_t kWsSendDeadlineMs = 50;
-// #endregion
 }  // namespace
 
 WebSocketServer::WebSocketServer(uint16_t port)
@@ -111,7 +85,17 @@ void WebSocketServer::stop() {
   
   running_ = false;
   signalWriter();
-  
+
+  // 1) Fechar o socket de escuta antes do join: accept() bloqueado só retorna assim.
+  if (serverSocket_ != INVALID_SOCKET) {
+#ifdef _WIN32
+    shutdown(static_cast<SOCKET>(serverSocket_), SD_BOTH);
+#else
+    shutdown(serverSocket_, SHUT_RDWR);
+#endif
+    closeSocket(serverSocket_);
+    serverSocket_ = INVALID_SOCKET;
+  }
   if (acceptThread_ && acceptThread_->joinable()) {
     acceptThread_->join();
   }
@@ -120,27 +104,46 @@ void WebSocketServer::stop() {
     writerThread_->join();
   }
   writerThread_.reset();
-  
-  for (auto& thread : workerThreads_) {
-    if (thread && thread->joinable()) {
-      thread->join();
-    }
-  }
-  workerThreads_.clear();
-  
+
+  // 2) Acordar o recv() de cada cliente; a thread dele faz disconnect + close.
+  std::vector<std::shared_ptr<OutQueue>> queues;
   {
     std::lock_guard<std::mutex> lock(clientsMutex_);
     for (auto& [id, client] : clients_) {
-      closeSocket(client.socket);
+      if (client.outQ) queues.push_back(client.outQ);
+    }
+  }
+  for (auto& q : queues) {
+    std::lock_guard<std::mutex> lk(q->mu);
+    q->closed = true;
+    wakeClientSocketLocked(*q);
+  }
+
+  // 3) Join dos workers (stop() chamado de dentro de um callback não dá join em si mesmo).
+  const auto selfId = std::this_thread::get_id();
+  for (auto& worker : workerThreads_) {
+    if (!worker.thread || !worker.thread->joinable()) continue;
+    if (worker.thread->get_id() == selfId) {
+      worker.thread->detach();
+    } else {
+      worker.thread->join();
+    }
+  }
+  workerThreads_.clear();
+
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    for (auto& [id, client] : clients_) {
+      if (client.outQ) {
+        std::lock_guard<std::mutex> lk(client.outQ->mu);
+        closeClientSocketLocked(*client.outQ);
+      } else {
+        closeSocket(client.socket);
+      }
     }
     clients_.clear();
   }
-  
-  if (serverSocket_ != INVALID_SOCKET) {
-    closeSocket(serverSocket_);
-    serverSocket_ = INVALID_SOCKET;
-  }
-  
+
   Core::Logger::getInstance().info("WebSocketServer stopped");
 }
 
@@ -174,22 +177,6 @@ bool WebSocketServer::sendBinary(uint32_t clientId, const std::vector<uint8_t>& 
   frame.fin = true;
   frame.payload = data;
   return sendFrameToClient(clientId, frame);
-}
-
-std::vector<WebSocketServer::ClientSendTarget> WebSocketServer::snapshotSendTargets() {
-  std::vector<ClientSendTarget> targets;
-  std::lock_guard<std::mutex> lock(clientsMutex_);
-  targets.reserve(clients_.size());
-  for (const auto& [id, client] : clients_) {
-    if (client.handshakeComplete && client.sendMu) {
-      ClientSendTarget t;
-      t.id = id;
-      t.socket = client.socket;
-      t.sendMu = client.sendMu;
-      targets.push_back(std::move(t));
-    }
-  }
-  return targets;
 }
 
 bool WebSocketServer::sendFrameToClient(uint32_t clientId, const WebSocketFrame& frame) {
@@ -246,12 +233,6 @@ bool WebSocketServer::enqueueEncodedFrame(uint32_t clientId, std::vector<uint8_t
   }
 
   if (overflow) {
-    // #region agent log
-    agentLogSend("ws_outq_overflow",
-                 std::string("{\"clientId\":") + std::to_string(clientId) +
-                     ",\"cap\":" + std::to_string(kMaxOutboundBytes) + "}",
-                 "H-ZOMBIE");
-    // #endregion
     Core::Logger::getInstance().warn(
         "WebSocket client {} outbound queue overflow (>{}B) — disconnecting slow client",
         clientId, kMaxOutboundBytes);
@@ -309,12 +290,6 @@ bool WebSocketServer::sendBinaryBatch(
   }
 
   if (overflow) {
-    // #region agent log
-    agentLogSend("ws_outq_overflow",
-                 std::string("{\"clientId\":") + std::to_string(clientId) +
-                     ",\"cap\":" + std::to_string(kMaxOutboundBytes) + ",\"batch\":true}",
-                 "H-ZOMBIE");
-    // #endregion
     Core::Logger::getInstance().warn(
         "WebSocket client {} outbound queue overflow (batch) — disconnecting slow client",
         clientId);
@@ -409,28 +384,20 @@ void WebSocketServer::flushOutQueue(OutQueue& q, bool& disconnectOut) {
     return;  // tenta de novo no próximo ciclo
   }
   if (wouldBlock) {
-    const int64_t now = agentSendNowMs();
+    const int64_t now = steadyNowMs();
     if (q.stalledSinceMs == 0) {
       q.stalledSinceMs = now;
     } else if (now - q.stalledSinceMs > kSendStallDisconnectMs) {
-      // #region agent log
-      agentLogSend("ws_send_stall",
-                   std::string("{\"clientId\":") + std::to_string(q.clientId) +
-                       ",\"stalledMs\":" + std::to_string(now - q.stalledSinceMs) +
-                       ",\"queued\":" + std::to_string(q.bytes) + "}",
-                   "H-ZOMBIE");
-      // #endregion
+      Core::Logger::getInstance().warn(
+          "WebSocket client {} send stalled {}ms ({}B queued) — disconnecting",
+          q.clientId, now - q.stalledSinceMs, q.bytes);
       disconnectOut = true;
     }
     return;
   }
   // Erro duro (EPIPE/ECONNRESET/EBADF...): socket morto.
-  // #region agent log
-  agentLogSend("ws_send_errno",
-               std::string("{\"clientId\":") + std::to_string(q.clientId) +
-                   ",\"err\":" + std::to_string(err) + "}",
-               "H-SEND");
-  // #endregion
+  Core::Logger::getInstance().debug("WebSocket client {} send error {} — disconnecting",
+                                    q.clientId, err);
   disconnectOut = true;
 }
 
@@ -455,42 +422,6 @@ void WebSocketServer::writerLoop() {
     for (uint32_t id : toDisconnect) {
       disconnect(id);
     }
-  }
-}
-
-void WebSocketServer::noteSendOk(uint32_t clientId) {
-  std::lock_guard<std::mutex> lock(clientsMutex_);
-  auto it = clients_.find(clientId);
-  if (it != clients_.end()) {
-    it->second.consecutiveHardSendFails = 0;
-  }
-}
-
-void WebSocketServer::noteHardSendFail(uint32_t clientId, int err) {
-  bool shouldDisconnect = false;
-  int fails = 0;
-  {
-    std::lock_guard<std::mutex> lock(clientsMutex_);
-    auto it = clients_.find(clientId);
-    if (it == clients_.end()) return;
-    fails = ++it->second.consecutiveHardSendFails;
-    if (fails >= kHardSendFailDisconnectThreshold) {
-      shouldDisconnect = true;
-    }
-  }
-  // #region agent log
-  agentLogSend("ws_hard_send_fail",
-               std::string("{\"clientId\":") + std::to_string(clientId) +
-                   ",\"fails\":" + std::to_string(fails) +
-                   ",\"err\":" + std::to_string(err) +
-                   ",\"disconnect\":" + (shouldDisconnect ? "true" : "false") + "}",
-               "H-ZOMBIE");
-  // #endregion
-  if (shouldDisconnect) {
-    // Fecha o socket: o handleClient (recv bloqueante) recebe EOF e limpa a sessão.
-    Core::Logger::getInstance().warn(
-        "WebSocket client {} hard-send fail x{} — forcing disconnect", clientId, fails);
-    disconnect(clientId);
   }
 }
 
@@ -573,15 +504,18 @@ void WebSocketServer::disconnect(uint32_t clientId) {
     std::lock_guard<std::mutex> lock(clientsMutex_);
     auto it = clients_.find(clientId);
     if (it != clients_.end()) {
-      // Sincroniza com a writer thread: marca closed sob outQ->mu ANTES de fechar
-      // o fd. Se a writer estiver no meio de um send(), esperamos ela terminar;
-      // depois disso ela verá closed e não tocará mais no socket.
+      // Sincroniza com a writer thread: marca closed sob outQ->mu. Se a writer
+      // estiver no meio de um send(), esperamos ela terminar; depois disso ela vê
+      // closed e não toca mais no socket. O recv() da thread do cliente é acordado
+      // e ELA fecha o fd (no Linux close() aqui deixaria o recv preso e o número do
+      // fd poderia ser reaproveitado por outra conexão).
       if (it->second.outQ) {
         std::lock_guard<std::mutex> lk(it->second.outQ->mu);
         it->second.outQ->closed = true;
-        it->second.outQ->socket = INVALID_SOCKET;
+        wakeClientSocketLocked(*it->second.outQ);
+      } else {
+        closeSocket(it->second.socket);
       }
-      closeSocket(it->second.socket);
       clients_.erase(it);
       shouldNotify = (connectionCallback_ != nullptr);
     }
@@ -675,12 +609,35 @@ void WebSocketServer::configureClientSocket(int clientSocket) {
 #endif
 }
 
-void WebSocketServer::touchClientRecv(uint32_t clientId) {
-  const int64_t now = agentSendNowMs();
-  std::lock_guard<std::mutex> lock(clientsMutex_);
-  auto it = clients_.find(clientId);
-  if (it != clients_.end()) {
-    it->second.lastRecvMs = now;
+void WebSocketServer::wakeClientSocketLocked(OutQueue& q) {
+  if (q.fdClosed || q.socket == INVALID_SOCKET) return;
+#ifdef _WIN32
+  // Windows: shutdown() não acorda recv() bloqueado em outra thread; closesocket() sim.
+  shutdown(static_cast<SOCKET>(q.socket), SD_BOTH);
+  closeSocket(q.socket);
+  q.fdClosed = true;
+#else
+  shutdown(q.socket, SHUT_RDWR);
+#endif
+}
+
+void WebSocketServer::closeClientSocketLocked(OutQueue& q) {
+  if (q.fdClosed || q.socket == INVALID_SOCKET) return;
+  closeSocket(q.socket);
+  q.fdClosed = true;
+}
+
+void WebSocketServer::reapFinishedWorkers() {
+  auto it = workerThreads_.begin();
+  while (it != workerThreads_.end()) {
+    if (it->done && it->done->load(std::memory_order_acquire)) {
+      if (it->thread && it->thread->joinable()) {
+        it->thread->join();  // já saiu de handleClient: retorno imediato
+      }
+      it = workerThreads_.erase(it);
+    } else {
+      ++it;
+    }
   }
 }
 
@@ -706,24 +663,40 @@ void WebSocketServer::acceptLoop() {
     Core::Logger::getInstance().info("New WebSocket connection from {}:{}", 
                                      clientAddress, clientPort);
     
-    auto thread = std::make_unique<std::thread>(
-      &WebSocketServer::handleClient, this, clientSocket, clientAddress, clientPort);
-    workerThreads_.push_back(std::move(thread));
+    // Libera threads de conexões já encerradas (antes acumulavam até o stop()).
+    reapFinishedWorkers();
+
+    Worker worker;
+    worker.done = std::make_shared<std::atomic<bool>>(false);
+    worker.thread = std::make_unique<std::thread>(
+      &WebSocketServer::handleClient, this, clientSocket, clientAddress, clientPort,
+      worker.done);
+    workerThreads_.push_back(std::move(worker));
   }
 }
 
-void WebSocketServer::handleClient(int clientSocket, 
-                                   const std::string& address, 
-                                   uint16_t port) {
+void WebSocketServer::handleClient(int clientSocket,
+                                   const std::string& address,
+                                   uint16_t port,
+                                   std::shared_ptr<std::atomic<bool>> done) {
+  // Marca done em qualquer saída (inclusive handshake falho) para o reap.
+  struct DoneGuard {
+    std::shared_ptr<std::atomic<bool>> flag;
+    ~DoneGuard() { flag->store(true, std::memory_order_release); }
+  } doneGuard{std::move(done)};
+
   configureClientSocket(clientSocket);
   if (!performHandshake(clientSocket)) {
     closeSocket(clientSocket);
     return;
   }
   // Socket permanece blocking no recv; sends usam MSG_DONTWAIT (Linux) + try_lock.
-  
+
   uint32_t clientId = nextClientId_++;
-  
+
+  auto outQ = std::make_shared<OutQueue>();
+  outQ->socket = clientSocket;
+  outQ->clientId = clientId;
   size_t clientsAfter = 0;
   {
     std::lock_guard<std::mutex> lock(clientsMutex_);
@@ -733,34 +706,13 @@ void WebSocketServer::handleClient(int clientSocket,
     state.handshakeComplete = true;
     state.address = address;
     state.port = port;
-    state.lastRecvMs = agentSendNowMs();
-    state.outQ = std::make_shared<OutQueue>();
-    state.outQ->socket = clientSocket;
-    state.outQ->clientId = clientId;
+    state.outQ = outQ;
     clients_[clientId] = std::move(state);
     clientsAfter = clients_.size();
   }
+  Core::Logger::getInstance().debug("WebSocket client {} added ({}:{}), clients={}",
+                                    clientId, address, port, clientsAfter);
 
-  // #region agent log
-  {
-    static std::mutex logMu;
-    std::lock_guard<std::mutex> lock(logMu);
-    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::system_clock::now().time_since_epoch())
-                        .count();
-    std::ofstream f("/root/UmbraServerV2/debug-f24ed2.log", std::ios::app);
-    if (!f.is_open()) {
-      f.open("debug-f24ed2.log", std::ios::app);
-    }
-    if (f.is_open()) {
-      f << "{\"sessionId\":\"f24ed2\",\"runId\":\"dual-login\",\"hypothesisId\":\"H-OV\","
-        << "\"location\":\"WebSocketServer.cpp:handleClient\",\"message\":\"ws_client_added\","
-        << "\"data\":{\"cid\":" << clientId << ",\"clients\":" << clientsAfter
-        << "},\"timestamp\":" << ms << "}\n";
-    }
-  }
-  // #endregion
-  
   if (connectionCallback_) {
     connectionCallback_(clientId, true);
   }
@@ -775,9 +727,6 @@ void WebSocketServer::handleClient(int clientSocket,
         break;
       }
 
-      // Qualquer frame inbound (data/PING/PONG) prova que o peer está vivo.
-      touchClientRecv(clientId);
-      
       if (frame.opcode == WebSocketFrame::OpCode::TEXT && messageCallback_) {
         std::string message(frame.payload.begin(), frame.payload.end());
         messageCallback_(clientId, message);
@@ -802,29 +751,13 @@ void WebSocketServer::handleClient(int clientSocket,
     }
   }
   
-  // #region agent log
-  {
-    static std::mutex logMu;
-    std::lock_guard<std::mutex> lock(logMu);
-    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::system_clock::now().time_since_epoch())
-                        .count();
-    const size_t clientsBefore = getClientCount();
-    std::ofstream f("/root/UmbraServerV2/debug-f24ed2.log", std::ios::app);
-    if (!f.is_open()) {
-      f.open("debug-f24ed2.log", std::ios::app);
-    }
-    if (f.is_open()) {
-      f << "{\"sessionId\":\"f24ed2\",\"runId\":\"dual-login\",\"hypothesisId\":\"H-J\","
-        << "\"location\":\"WebSocketServer.cpp:handleClient\",\"message\":\"ws_handler_exit\","
-        << "\"data\":{\"cid\":" << clientId << ",\"reason\":\"" << exitReason
-        << "\",\"clientsBefore\":" << clientsBefore
-        << "},\"timestamp\":" << ms << "}\n";
-    }
-  }
-  // #endregion
-
   disconnect(clientId);
+  {
+    // Esta thread é a dona do fd: fecha só aqui (ou já fechado no Windows/stop).
+    std::lock_guard<std::mutex> lk(outQ->mu);
+    outQ->closed = true;
+    closeClientSocketLocked(*outQ);
+  }
   Core::Logger::getInstance().info("WebSocket client {} disconnected ({})", clientId, exitReason);
 }
 
@@ -864,38 +797,21 @@ bool WebSocketServer::performHandshake(int clientSocket) {
   return true;
 }
 
-bool WebSocketServer::recvExact(int clientSocket, uint8_t* buffer, size_t len, int* outRounds) {
+bool WebSocketServer::recvExact(int clientSocket, uint8_t* buffer, size_t len) {
   if (clientSocket == INVALID_SOCKET || buffer == nullptr) {
     return len == 0;
   }
   size_t got = 0;
-  int rounds = 0;
   while (got < len) {
     const int n = ::recv(clientSocket,
                          reinterpret_cast<char*>(buffer + got),
                          static_cast<int>(len - got),
                          0);
-    ++rounds;
     if (n <= 0) {
-      if (outRounds) {
-        *outRounds = rounds;
-      }
       return false;  // EOF / erro real
     }
     got += static_cast<size_t>(n);
   }
-  if (outRounds) {
-    *outRounds = rounds;
-  }
-  // #region agent log
-  // Prova: Linux devolveu partial e o loop juntou o frame (antes isso virava "disconnect").
-  if (rounds > 1) {
-    agentLogSend("ws_recv_partial_recovered",
-                 std::string("{\"socket\":") + std::to_string(clientSocket) +
-                     ",\"len\":" + std::to_string(len) +
-                     ",\"rounds\":" + std::to_string(rounds) + "}");
-  }
-  // #endregion
   return true;
 }
 
@@ -964,141 +880,6 @@ WebSocketFrame WebSocketServer::receiveFrame(int clientSocket) {
   }
 
   return frame;
-}
-
-WebSocketServer::SendStatus WebSocketServer::sendAll(int clientSocket, const uint8_t* data,
-                                                     size_t len) {
-  if (clientSocket == INVALID_SOCKET || data == nullptr || len == 0) {
-    return (len == 0) ? SendStatus::Ok : SendStatus::HardFail;
-  }
-
-  size_t sentTotal = 0;
-  int partialRounds = 0;
-  const int64_t t0 = agentSendNowMs();
-  const int64_t deadline = t0 + kWsSendDeadlineMs;
-  while (sentTotal < len) {
-    if (agentSendNowMs() > deadline) {
-      // #region agent log
-      agentLogSend("ws_send_deadline",
-                   std::string("{\"socket\":") + std::to_string(clientSocket) +
-                       ",\"len\":" + std::to_string(len) +
-                       ",\"sent\":" + std::to_string(sentTotal) +
-                       ",\"ms\":" + std::to_string(agentSendNowMs() - t0) + "}");
-      // #endregion
-      return SendStatus::Deadline;
-    }
-    const int toSend = static_cast<int>(len - sentTotal);
-    const int n = ::send(clientSocket,
-                         reinterpret_cast<const char*>(data + sentTotal),
-                         toSend,
-                         WS_SEND_FLAGS);
-    if (n > 0) {
-      if (static_cast<size_t>(n) < static_cast<size_t>(toSend)) {
-        ++partialRounds;
-      }
-      sentTotal += static_cast<size_t>(n);
-      continue;
-    }
-#ifdef _WIN32
-    const int err = WSAGetLastError();
-    if (err == WSAEINTR) {
-      continue;
-    }
-    if (err == WSAEWOULDBLOCK) {
-      if (sentTotal == 0) {
-        return SendStatus::WouldBlock;
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      continue;
-    }
-    // #region agent log
-    agentLogSend("ws_send_errno",
-                 std::string("{\"socket\":") + std::to_string(clientSocket) +
-                     ",\"err\":" + std::to_string(err) +
-                     ",\"sent\":" + std::to_string(sentTotal) + "}",
-                 "H-SEND");
-    // #endregion
-    Core::Logger::getInstance().debug("sendAll failed socket {} err={}", clientSocket, err);
-    return SendStatus::HardFail;
-#else
-    if (n < 0 && errno == EINTR) {
-      continue;
-    }
-    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-      if (sentTotal == 0) {
-        return SendStatus::WouldBlock;
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      continue;
-    }
-    const int err = (n < 0) ? errno : 0;
-    // #region agent log
-    agentLogSend("ws_send_errno",
-                 std::string("{\"socket\":") + std::to_string(clientSocket) +
-                     ",\"err\":" + std::to_string(err) +
-                     ",\"sent\":" + std::to_string(sentTotal) + "}",
-                 "H-SEND");
-    // #endregion
-    Core::Logger::getInstance().debug("sendAll failed socket {} errno={}", clientSocket, err);
-    return SendStatus::HardFail;
-#endif
-  }
-
-  // #region agent log
-  if (partialRounds > 0) {
-    agentLogSend("ws_send_partial",
-                 std::string("{\"socket\":") + std::to_string(clientSocket) +
-                     ",\"len\":" + std::to_string(len) +
-                     ",\"partialRounds\":" + std::to_string(partialRounds) + "}");
-  }
-  // #endregion
-  return SendStatus::Ok;
-}
-
-WebSocketServer::SendStatus WebSocketServer::sendFrame(int clientSocket,
-                                                       const WebSocketFrame& frame) {
-  if (clientSocket == INVALID_SOCKET) {
-    return SendStatus::HardFail;
-  }
-
-  try {
-    thread_local std::vector<uint8_t> data;
-    data.clear();
-
-    uint8_t header = (frame.fin ? 0x80 : 0x00) | static_cast<uint8_t>(frame.opcode);
-    data.push_back(header);
-
-    size_t payloadLen = frame.payload.size();
-    // #region agent log
-    if (payloadLen >= 8192) {
-      agentLogSend("ws_send_large",
-                   std::string("{\"socket\":") + std::to_string(clientSocket) +
-                       ",\"payload\":" + std::to_string(payloadLen) +
-                       ",\"opcode\":" + std::to_string(static_cast<int>(frame.opcode)) + "}");
-    }
-    // #endregion
-    if (payloadLen < 126) {
-      data.push_back(static_cast<uint8_t>(payloadLen));
-    } else if (payloadLen < 65536) {
-      data.push_back(126);
-      data.push_back(static_cast<uint8_t>((payloadLen >> 8) & 0xFF));
-      data.push_back(static_cast<uint8_t>(payloadLen & 0xFF));
-    } else {
-      data.push_back(127);
-      for (int i = 7; i >= 0; --i) {
-        data.push_back(static_cast<uint8_t>((payloadLen >> (i * 8)) & 0xFF));
-      }
-    }
-
-    data.insert(data.end(), frame.payload.begin(), frame.payload.end());
-    return sendAll(clientSocket, data.data(), data.size());
-  } catch (const std::exception& e) {
-    Core::Logger::getInstance().warn("Exception in sendFrame for socket {}: {}", clientSocket, e.what());
-    return SendStatus::HardFail;
-  } catch (...) {
-    Core::Logger::getInstance().warn("Unknown exception in sendFrame for socket {}", clientSocket);
-    return SendStatus::HardFail;
-  }
 }
 
 std::string WebSocketServer::generateAcceptKey(const std::string& clientKey) {

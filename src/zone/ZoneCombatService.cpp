@@ -1,6 +1,5 @@
 #include "zone/ZoneCombatService.hpp"
 #include "zone/MovementServer.hpp"
-#include "zone/AgentDebugLog.hpp"
 #include "database/MySQLConnector.hpp"
 #include "core/Logger.hpp"
 #include <algorithm>
@@ -76,13 +75,6 @@ RespawnResult ZoneCombatService::processRespawn(uint32_t playerId, uint32_t zone
   RespawnResult result;
   if (!db_ || !db_->isConnected()) {
     result.error = "database_unavailable";
-    // #region agent log
-    agentDebugLog("H-RESPAWN", "ZoneCombatService.cpp:processRespawn", "respawn_fail",
-                  std::string("{\"playerId\":") + std::to_string(playerId) +
-                      ",\"error\":\"database_unavailable\",\"memorySaysDead\":" +
-                      (memorySaysDead ? "true" : "false") + "}",
-                  "post-fix");
-    // #endregion
     return result;
   }
 
@@ -96,12 +88,6 @@ RespawnResult ZoneCombatService::processRespawn(uint32_t playerId, uint32_t zone
         " LIMIT 1");
     if (rows.empty() || rows[0].size() < 2) {
       result.error = "player_not_found";
-      // #region agent log
-      agentDebugLog("H-RESPAWN", "ZoneCombatService.cpp:processRespawn", "respawn_fail",
-                    std::string("{\"playerId\":") + std::to_string(playerId) +
-                        ",\"error\":\"player_not_found\",\"memorySaysDead\":false}",
-                    "post-fix");
-      // #endregion
       return result;
     }
     try {
@@ -113,25 +99,9 @@ RespawnResult ZoneCombatService::processRespawn(uint32_t playerId, uint32_t zone
     }
     if (!isDead && health > 0) {
       result.error = "NOT_DEAD";
-      // #region agent log
-      agentDebugLog("H-RESPAWN", "ZoneCombatService.cpp:processRespawn", "respawn_fail",
-                    std::string("{\"playerId\":") + std::to_string(playerId) +
-                        ",\"error\":\"NOT_DEAD\",\"dbIsDead\":false,\"dbHealth\":" +
-                        std::to_string(health) + ",\"memorySaysDead\":false}",
-                    "post-fix");
-      // #endregion
       return result;
     }
   }
-  // #region agent log
-  agentDebugLog("H-RESPAWN", "ZoneCombatService.cpp:processRespawn", "respawn_ok_gate",
-                std::string("{\"playerId\":") + std::to_string(playerId) +
-                    ",\"dbIsDead\":" + (isDead ? "true" : "false") +
-                    ",\"dbHealth\":" + std::to_string(health) +
-                    ",\"memorySaysDead\":" + (memorySaysDead ? "true" : "false") +
-                    ",\"preferMaxH\":" + std::to_string(preferredMaxHealth) + "}",
-                "post-fix");
-  // #endregion
 
   if (zoneId == 0) zoneId = zoneId_;
 
@@ -210,13 +180,6 @@ RespawnResult ZoneCombatService::processRespawn(uint32_t playerId, uint32_t zone
   }
   if (verifyDead != 0 || verifyHp <= 0) {
     result.error = "update_not_applied";
-    // #region agent log
-    agentDebugLog("H-RESPAWN", "ZoneCombatService.cpp:processRespawn", "respawn_fail",
-                  std::string("{\"playerId\":") + std::to_string(playerId) +
-                      ",\"error\":\"update_not_applied\",\"verifyHp\":" + std::to_string(verifyHp) +
-                      ",\"verifyDead\":" + std::to_string(verifyDead) + "}",
-                  "post-fix");
-    // #endregion
     return result;
   }
 
@@ -230,16 +193,6 @@ RespawnResult ZoneCombatService::processRespawn(uint32_t playerId, uint32_t zone
   result.payload.maxHealth = maxHealth;
   result.payload.currentMana = maxMana;
   result.payload.maxMana = maxMana;
-  // #region agent log
-  agentDebugLog("H-RESPAWN", "ZoneCombatService.cpp:processRespawn", "respawn_success",
-                std::string("{\"playerId\":") + std::to_string(playerId) +
-                    ",\"hp\":" + std::to_string(maxHealth) +
-                    ",\"mp\":" + std::to_string(maxMana) +
-                    ",\"verifyHp\":" + std::to_string(verifyHp) +
-                    ",\"x\":" + std::to_string(static_cast<int>(px)) +
-                    ",\"y\":" + std::to_string(static_cast<int>(py)) + "}",
-                "post-fix");
-  // #endregion
   return result;
 }
 
@@ -257,21 +210,10 @@ void ZoneCombatService::tickActiveDots(MovementServer* movementServer) {
     return;
   }
 
-  // #region agent log
-  const int64_t pollT0 = agentNowMs();
-  // #endregion
   auto rows = db_->executePreparedQuery(
       "SELECT dot_id, target_player_id, source_player_id, dot_type, tick_value, tick_interval_ms, ticks_remaining "
       "FROM active_dots WHERE next_tick_at <= NOW(3) LIMIT 50",
       {});
-  // #region agent log
-  const int64_t pollMs = agentNowMs() - pollT0;
-  if (pollMs > 5) {
-    agentDebugLog("H-B", "ZoneCombatService.cpp:tickActiveDots", "dots_poll_ms",
-                  std::string("{\"ms\":") + std::to_string(pollMs) +
-                      ",\"rows\":" + std::to_string(rows.size()) + "}");
-  }
-  // #endregion
 
   // Backoff: poll vazio → só tentar de novo em 2s (comportamento local inalterado quando há DOTs).
   if (rows.empty()) {

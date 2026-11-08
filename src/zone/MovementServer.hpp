@@ -20,7 +20,7 @@
 #include "zone/MovementSessionAuth.hpp"
 #include "auth/JWTManager.hpp"
 #include "database/MySQLConnector.hpp"
-#include "zone/AgentDebugLog.hpp"
+#include "core/Timer.hpp"
 
 namespace Umbra {
 namespace Zone {
@@ -121,10 +121,6 @@ public:
     if (!respawnHandler_ || playerId == 0) return false;
     PlayerRespawnPayload respawnPayload;
     if (!respawnHandler_(playerId, zoneId_, std::string(), /*memorySaysDead*/ true, respawnPayload)) {
-      // #region agent log
-      agentDebugLog("H-RESPAWN", "MovementServer.hpp:autoRespawnOnJoin", "auto_respawn_fail",
-                    std::string("{\"playerId\":") + std::to_string(playerId) + "}", "post-fix");
-      // #endregion
       return false;
     }
     Outbox outbox;
@@ -136,13 +132,6 @@ public:
     Umbra::Core::Logger::getInstance().info(
         "Player {} auto-respawned on join at ({:.0f},{:.0f},{:.0f}) hp={}", playerId,
         respawnPayload.x, respawnPayload.y, respawnPayload.z, respawnPayload.currentHealth);
-    // #region agent log
-    agentDebugLog("H-RESPAWN", "MovementServer.hpp:autoRespawnOnJoin", "auto_respawn_ok",
-                  std::string("{\"playerId\":") + std::to_string(playerId) +
-                      ",\"hp\":" + std::to_string(respawnPayload.currentHealth) +
-                      ",\"maxHp\":" + std::to_string(respawnPayload.maxHealth) + "}",
-                  "post-fix");
-    // #endregion
     return true;
   }
 
@@ -176,13 +165,6 @@ public:
                                     outbox);
     }
     flushOutbox(outbox);
-    // #region agent log
-    agentDebugLog("H-RESPAWN", "MovementServer.hpp:forcePlayerDeadState", "join_force_dead",
-                  std::string("{\"playerId\":") + std::to_string(playerId) +
-                      ",\"hp\":" + std::to_string(currentHealth) +
-                      ",\"maxHp\":" + std::to_string(maxHealth) + "}",
-                  "post-fix");
-    // #endregion
   }
 
   void broadcastDotTick(uint32_t targetPlayerId, const DotTickPayload& dot) {
@@ -332,30 +314,16 @@ public:
         }
       } else {
         Umbra::Core::Logger::getInstance().info("WS client {} disconnected", cid);
-        // #region agent log
-        agentDebugLog("H-C", "MovementServer.hpp:disconnect", "ws_disconnect",
-                      std::string("{\"cid\":") + std::to_string(cid) + "}");
-        // #endregion
         // Remover player associado a este client quando desconectar.
         // Sob o mu_ fazemos SOMENTE as mutacoes de mapa (rapido); o trabalho pesado
         // (DB de party/sessions + broadcasts) roda DEPOIS de liberar o mu_ para nao
         // travar as threads dos outros clientes por segundos (efeito cascata de queda).
         DisconnectCleanup cleanup;
-        const int64_t t0 = agentNowMs();
         {
           std::lock_guard<std::mutex> lock(mu_);
           cleanup = handleClientDisconnect(cid);
         }
-        const int64_t t1 = agentNowMs();
         finishClientDisconnect(cid, cleanup);
-        const int64_t t2 = agentNowMs();
-        // #region agent log
-        agentDebugLog("H-A", "MovementServer.hpp:disconnect", "disconnect_phases_ms",
-                      std::string("{\"cid\":") + std::to_string(cid) +
-                          ",\"phase1_map_ms\":" + std::to_string(t1 - t0) +
-                          ",\"phase2_db_ms\":" + std::to_string(t2 - t1) +
-                          ",\"playerId\":" + std::to_string(cleanup.playerId) + "}");
-        // #endregion
       }
     });
 
@@ -376,10 +344,17 @@ public:
       return;
     }
     std::lock_guard<std::mutex> lock(inboundMu_);
-    inboundQueue_.push_back(InboundMsg{cid, data, agentNowMs()});
+    inboundQueue_.push_back(InboundMsg{cid, data});
     constexpr size_t kMaxInbound = 4096;
     if (inboundQueue_.size() > kMaxInbound) {
       inboundQueue_.pop_front();
+      // Anomalia real (tick não drena a tempo): alerta com limite de frequência.
+      static Umbra::Core::LogThrottle dropThrottle(5000);
+      if (dropThrottle.allow()) {
+        Umbra::Core::Logger::getInstance().warn(
+            "Zone inbound queue full ({}), dropping oldest message (+{} suppressed)",
+            kMaxInbound, dropThrottle.takeSuppressed());
+      }
     }
   }
 
@@ -391,48 +366,12 @@ public:
       local.swap(inboundQueue_);
       moves.swap(pendingMoveByCid_);
     }
-    // #region agent log
-    const int64_t t0 = agentNowMs();
-    const size_t nMsg = local.size() + moves.size();
-    int64_t maxAge = 0;
-    for (const auto& msg : local) {
-      if (msg.enqueuedAtMs > 0) {
-        maxAge = std::max(maxAge, t0 - msg.enqueuedAtMs);
-      }
-    }
-    // #endregion
     for (auto& msg : local) {
-      // #region agent log
-      if (!msg.data.empty() &&
-          static_cast<MovementMsgType>(msg.data[0]) == MovementMsgType::SkillCastNotify &&
-          msg.enqueuedAtMs > 0) {
-        const int64_t age = agentNowMs() - msg.enqueuedAtMs;
-        if (age >= 10) {
-          agentDebugLog("H-INQ", "MovementServer.hpp:drainInboundQueue", "skill_inbound_age_ms",
-                        std::string("{\"cid\":") + std::to_string(msg.cid) +
-                            ",\"ageMs\":" + std::to_string(age) +
-                            ",\"qDepth\":" + std::to_string(local.size()) + "}",
-                        "drop-debug");
-        }
-      }
-      // #endregion
       handleInboundBinary(msg.cid, msg.data);
     }
     for (auto& [cid, data] : moves) {
       handleInboundBinary(cid, data);
     }
-    // #region agent log
-    {
-      const int64_t ms = agentNowMs() - t0;
-      if (nMsg > 0 && (ms > 5 || maxAge >= 20)) {
-        agentDebugLog("H-INQ", "MovementServer.hpp:drainInboundQueue", "inbound_drain_ms",
-                      std::string("{\"ms\":") + std::to_string(ms) +
-                          ",\"msgs\":" + std::to_string(local.size()) +
-                          ",\"moves\":" + std::to_string(moves.size()) +
-                          ",\"maxAgeMs\":" + std::to_string(maxAge) + "}");
-      }
-    }
-    // #endregion
   }
 
   void handleInboundBinary(uint32_t cid, const std::vector<uint8_t>& data) {
@@ -441,12 +380,6 @@ public:
       MovementMsgType msgType = static_cast<MovementMsgType>(data[0]);
 
       if (sessionAuthEnabled_ && msgType == MovementMsgType::SessionAuthNotify) {
-        // #region agent log
-        agentDebugLog("H-DUP", "MovementServer.hpp:SessionAuth", "auth_recv",
-                      std::string("{\"cid\":") + std::to_string(cid) +
-                          ",\"bytes\":" + std::to_string(data.size()) + "}",
-                      "dual-login");
-        // #endregion
         std::string token;
         if (!decodeSessionAuthNotify(data, token)) {
           revokeAndDisconnectClient(cid, SessionRevokeReason::InvalidToken, "Payload de auth invalido.");
@@ -455,34 +388,10 @@ public:
         uint32_t kickCid = 0;
         std::string kickMsg;
         if (!sessionAuth_.handleSessionAuth(cid, token, kickCid, kickMsg)) {
-          // #region agent log
-          agentDebugLog("H-DUP", "MovementServer.hpp:SessionAuth", "auth_failed",
-                        std::string("{\"cid\":") + std::to_string(cid) +
-                            ",\"clients\":" + std::to_string(ws_.getClientCount()) + "}",
-                        "dual-login");
-          // #endregion
           revokeAndDisconnectClient(cid, SessionRevokeReason::InvalidToken, "Autenticacao falhou.");
           return;
         }
-        // #region agent log
-        {
-          const uint32_t acc = sessionAuth_.getAccountIdForClient(cid);
-          agentDebugLog("H-DUP", "MovementServer.hpp:SessionAuth", "auth_ok",
-                        std::string("{\"cid\":") + std::to_string(cid) +
-                            ",\"accountId\":" + std::to_string(acc) +
-                            ",\"kickCid\":" + std::to_string(kickCid) +
-                            ",\"clients\":" + std::to_string(ws_.getClientCount()) + "}",
-                        "dual-login");
-        }
-        // #endregion
         if (kickCid > 0) {
-          // #region agent log
-          agentDebugLog("H-DUP", "MovementServer.hpp:SessionAuth", "duplicate_login_kick",
-                        std::string("{\"newCid\":") + std::to_string(cid) +
-                            ",\"kickCid\":" + std::to_string(kickCid) +
-                            ",\"clients\":" + std::to_string(ws_.getClientCount()) + "}",
-                        "dual-login");
-          // #endregion
           revokeAndDisconnectClient(kickCid, SessionRevokeReason::DuplicateLogin, kickMsg);
         }
         sendPostAuthSnapshots(cid);
@@ -793,7 +702,7 @@ public:
       if (msgType == MovementMsgType::NpcBuffSnapshotRequest) {
         uint32_t npcInstanceId = 0;
         if (decodeNpcBuffSnapshotRequest(data, npcInstanceId) && combatCoreEngine_) {
-          const int64_t nowMs = agentNowMs();
+          const int64_t nowMs = Umbra::Core::steadyNowMs();
           bool allow = true;
           {
             std::lock_guard<std::mutex> lock(mu_);
@@ -931,12 +840,6 @@ public:
           if (!respawnHandler_(playerId, zoneId, spawnKey, memorySaysDead, respawnPayload)) {
             Umbra::Core::Logger::getInstance().warn(
                 "RespawnRequest: falhou player {} (memoryDead={})", playerId, memorySaysDead);
-            // #region agent log
-            agentDebugLog("H-RESPAWN", "MovementServer.hpp:RespawnRequest", "respawn_handler_false",
-                          std::string("{\"playerId\":") + std::to_string(playerId) +
-                              ",\"memorySaysDead\":" + (memorySaysDead ? "true" : "false") + "}",
-                          "post-fix");
-            // #endregion
             return;
           }
           Outbox outbox;
@@ -1106,9 +1009,6 @@ public:
                 fromCache = true;
               }
             }
-            // #region agent log
-            const int64_t dbT0 = agentNowMs();
-            // #endregion
             if (!belongs) {
               belongs =
                   (accountId != 0) && sessionAuth_.playerBelongsToAccount(playerId, accountId);
@@ -1117,14 +1017,6 @@ public:
                 belongsOkByCid_[cid] = playerId;
               }
             }
-            // #region agent log
-            agentDebugLog("H-A", "MovementServer.hpp:PlayerInfoUpdate", "belongs_outside_mu",
-                          std::string("{\"cid\":") + std::to_string(cid) +
-                              ",\"playerId\":" + std::to_string(playerId) +
-                              ",\"db_ms\":" + std::to_string(fromCache ? 0 : (agentNowMs() - dbT0)) +
-                              ",\"under_mu\":0,\"ok\":" + (belongs ? "1" : "0") +
-                              ",\"cached\":" + (fromCache ? "1" : "0") + "}");
-            // #endregion
             if (!belongs) {
               Umbra::Core::Logger::getInstance().warn(
                   "PlayerInfoUpdate rejeitado: client {} player {} nao pertence a account {}",
@@ -1307,7 +1199,6 @@ public:
   /** Snapshot periódico (10 Hz). Coleta sob mu_; envio FORA do lock (send bloqueante). */
   void broadcastSnapshot() {
     Outbox outbox;
-    const int64_t t0 = agentNowMs();
     {
       std::lock_guard<std::mutex> lock(mu_);
       for (const auto& [pid, st] : players_) {
@@ -1330,19 +1221,7 @@ public:
         }
       }
     }
-    const int64_t t1 = agentNowMs();
     flushOutbox(outbox);
-    const int64_t t2 = agentNowMs();
-    // #region agent log
-    // Amostrar ~1/10; só grava se custou ou há outbox — I/O idle poluía e podia travar.
-    static std::atomic<uint32_t> snapSeq{0};
-    if ((++snapSeq % 10) == 0 && (t2 - t0 > 0 || !outbox.empty())) {
-      agentDebugLog("H-E", "MovementServer.hpp:broadcastSnapshot", "snapshot_ms",
-                    std::string("{\"lock_ms\":") + std::to_string(t1 - t0) +
-                        ",\"flush_ms\":" + std::to_string(t2 - t1) +
-                        ",\"outbox\":" + std::to_string(outbox.size()) + "}");
-    }
-    // #endregion
   }
 
   /** Retorna cópia dos estados dos players (thread-safe, para auto-save). */
@@ -1584,13 +1463,6 @@ private:
   // Versão com lock - chamada do callback de conexão (sem lock prévio)
 
   void revokeAndDisconnectClient(uint32_t cid, SessionRevokeReason reason, const std::string& message) {
-    // #region agent log
-    agentDebugLog("H-DUP", "MovementServer.hpp:revokeAndDisconnectClient", "server_revoke",
-                  std::string("{\"cid\":") + std::to_string(cid) +
-                      ",\"reason\":" + std::to_string(static_cast<int>(reason)) +
-                      ",\"clientsBefore\":" + std::to_string(ws_.getClientCount()) + "}",
-                  "dual-login");
-    // #endregion
     auto pkt = encodeSessionRevokedNotify(reason, message);
     ws_.sendBinary(cid, pkt);
     ws_.disconnect(cid);
@@ -1658,10 +1530,8 @@ private:
       canMove = combatCoreEngine_->canPlayerMove(f.playerId);
     }
 
-    const int64_t tLock0 = agentNowMs();
     std::unique_lock<std::mutex> lock(mu_);
-    const int64_t tLockWait = agentNowMs() - tLock0;
-    
+
     // Atualizar mapeamento ClientID -> PlayerID
     setClientPlayerMapUnlocked(cid, f.playerId);
 
@@ -1735,16 +1605,6 @@ private:
             if (timeDiff > 500) {
               dt = timeDiff / 1000.0f;
               skipSpeedCheck = true;
-              // #region agent log
-              Umbra::Zone::agentDebugLog(
-                  "H-MOVE-GAP", "MovementServer.hpp:handleMoveUpdate", "move_gap_reconcile",
-                  std::string("{\"playerId\":") + std::to_string(f.playerId) +
-                      ",\"timeDiffMs\":" + std::to_string(timeDiff) +
-                      ",\"dist\":" + std::to_string(std::sqrt(dist2)) +
-                      ",\"prevTs\":" + std::to_string(prevTs) +
-                      ",\"currTs\":" + std::to_string(f.tsMs) + "}",
-                  "post-fix");
-              // #endregion
               Umbra::Core::Logger::getInstance().debug(
                   "Large move gap for player {} ({}ms): reconcile without speed reject",
                   f.playerId, timeDiff);
@@ -1912,25 +1772,10 @@ private:
       // (senão um cliente lento congela todas as threads e derruba conexões).
       std::vector<uint32_t> moveRecipients = aoiGrid_.getNearbyPlayers(cid);
       moveRecipients.push_back(cid);
-      const int64_t tHold = agentNowMs() - tLock0;
       lock.unlock();
-      const int64_t tSend0 = agentNowMs();
       for (uint32_t rcid : moveRecipients) {
         ws_.sendBinary(rcid, broadcastBytes);
       }
-      const int64_t tSend = agentNowMs() - tSend0;
-      // #region agent log
-      static std::atomic<uint32_t> moveLogSeq{0};
-      if (tLockWait > 5 || tHold > 10 || tSend > 10 || (++moveLogSeq % 60) == 0) {
-        agentDebugLog("H-A", "MovementServer.hpp:handleMoveUpdate", "move_timing",
-                      std::string("{\"cid\":") + std::to_string(cid) +
-                          ",\"playerId\":" + std::to_string(f.playerId) +
-                          ",\"lock_wait_ms\":" + std::to_string(tLockWait) +
-                          ",\"lock_hold_ms\":" + std::to_string(tHold) +
-                          ",\"send_ms\":" + std::to_string(tSend) +
-                          ",\"recipients\":" + std::to_string(moveRecipients.size()) + "}");
-      }
-      // #endregion
     }
   }
 
@@ -2223,7 +2068,7 @@ private:
     bool sendVitals = true;
     if (delta == 0 && !triggerDeath && !isMiss) {
       auto& st = vitalsBcast_[targetPlayerId];
-      const int64_t now = agentNowMs();
+      const int64_t now = Umbra::Core::steadyNowMs();
       const bool changed =
           (st.hp != payload.currentHealth) || (st.mp != payload.currentMana);
       if (!changed || (now - st.lastMs < kVitalsThrottleMs)) {
@@ -2240,7 +2085,7 @@ private:
       auto& st = vitalsBcast_[targetPlayerId];
       st.hp = payload.currentHealth;
       st.mp = payload.currentMana;
-      st.lastMs = agentNowMs();
+      st.lastMs = Umbra::Core::steadyNowMs();
     }
 
     auto outMsg = encodePlayerVitalsUpdate(MovementMsgType::PlayerVitalsUpdate, payload);
@@ -2341,7 +2186,6 @@ private:
   struct InboundMsg {
     uint32_t cid = 0;
     std::vector<uint8_t> data;
-    int64_t enqueuedAtMs = 0;
   };
   std::mutex inboundMu_;
   std::deque<InboundMsg> inboundQueue_;

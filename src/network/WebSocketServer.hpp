@@ -159,6 +159,8 @@ class WebSocketServer {
     size_t bytes = 0;                         // total de bytes enfileirados
     int64_t stalledSinceMs = 0;               // 0 = sem stall; senão, quando começou
     bool closed = false;                      // set no disconnect (sob mu)
+    /** fd já fechado (sob mu). A thread do cliente é a dona do close no Linux. */
+    bool fdClosed = false;
     int socket = -1;
     uint32_t clientId = 0;
   };
@@ -169,29 +171,21 @@ class WebSocketServer {
     bool handshakeComplete = false;
     std::string address;
     uint16_t port = 0;
-    /** Serializa todos os sends neste socket (evita frames intercalados entre threads). */
-    std::shared_ptr<std::mutex> sendMu = std::make_shared<std::mutex>();
     /** Fila de saída assíncrona; a writer thread drena e envia. */
     std::shared_ptr<OutQueue> outQ;
-    /** steady_clock ms do último frame recebido (PING/PONG/data). Detecta TCP zumbi. */
-    int64_t lastRecvMs = 0;
-    /** Falhas duras consecutivas (EPIPE/ECONNRESET). Após o limiar, força disconnect. */
-    int consecutiveHardSendFails = 0;
   };
 
-  enum class SendStatus : uint8_t { Ok = 0, WouldBlock = 1, HardFail = 2, Deadline = 3 };
-
-  struct ClientSendTarget {
-    uint32_t id = 0;
-    int socket = -1;
-    std::shared_ptr<std::mutex> sendMu;
+  /** Thread por conexão; done=true ao sair de handleClient (reciclada no accept). */
+  struct Worker {
+    std::unique_ptr<std::thread> thread;
+    std::shared_ptr<std::atomic<bool>> done;
   };
-  
+
   uint16_t port_;
   int serverSocket_;
   std::atomic<bool> running_;
   std::unique_ptr<std::thread> acceptThread_;
-  std::vector<std::unique_ptr<std::thread>> workerThreads_;
+  std::vector<Worker> workerThreads_;
   
   std::map<uint32_t, ClientState> clients_;
   mutable std::mutex clientsMutex_;
@@ -217,26 +211,28 @@ class WebSocketServer {
   
   bool initializeSocket();
   void acceptLoop();
+  /** Join + remoção de workers já encerrados (antes acumulavam até o stop()). */
+  void reapFinishedWorkers();
   void configureClientSocket(int clientSocket);
-  void touchClientRecv(uint32_t clientId);
-  void handleClient(int clientSocket, const std::string& address, uint16_t port);
+  void handleClient(int clientSocket, const std::string& address, uint16_t port,
+                    std::shared_ptr<std::atomic<bool>> done);
   bool performHandshake(int clientSocket);
   WebSocketFrame receiveFrame(int clientSocket);
   /** Lê exatamente `len` bytes (loop). Linux pode devolver partial mesmo em socket blocking. */
-  bool recvExact(int clientSocket, uint8_t* buffer, size_t len, int* outRounds = nullptr);
-  /** Monta bytes do frame e envia por completo (caller deve segurar sendMu do cliente). */
-  SendStatus sendFrame(int clientSocket, const WebSocketFrame& frame);
-  /** Resolve socket+mutex e envia com lock por cliente. */
+  bool recvExact(int clientSocket, uint8_t* buffer, size_t len);
+  /** Codifica o frame e enfileira na fila do cliente (não bloqueia). */
   bool sendFrameToClient(uint32_t clientId, const WebSocketFrame& frame);
-  /** Envia buffer completo (loop em partial send). */
-  SendStatus sendAll(int clientSocket, const uint8_t* data, size_t len);
-  /** Após falhas duras repetidas, fecha o socket para desbloquear o recv do handleClient. */
-  void noteHardSendFail(uint32_t clientId, int err);
-  void noteSendOk(uint32_t clientId);
-  static constexpr int kHardSendFailDisconnectThreshold = 3;
-  std::vector<ClientSendTarget> snapshotSendTargets();
   std::string generateAcceptKey(const std::string& clientKey);
   void closeSocket(int socket);
+  /**
+   * @brief Acorda o recv() bloqueado da thread do cliente.
+   * Linux: shutdown() (a thread dona faz o close — evita reuso do fd por outra conexão).
+   * Windows: só closesocket() acorda recv() bloqueado; marca fdClosed.
+   * Chamar com q.mu travado.
+   */
+  void wakeClientSocketLocked(OutQueue& q);
+  /** Fecha o fd uma única vez (sob q.mu). */
+  void closeClientSocketLocked(OutQueue& q);
 
   // ---- Envio assíncrono ----
   /** Codifica um frame WS (header + payload) em bytes prontos para o socket. */

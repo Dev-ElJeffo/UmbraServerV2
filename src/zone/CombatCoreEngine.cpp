@@ -3,7 +3,7 @@
 #include "zone/MovementServer.hpp"
 #include "zone/CombatRange.hpp"
 #include "zone/QuestProgressService.hpp"
-#include "zone/AgentDebugLog.hpp"
+#include "core/Timer.hpp"
 #include "SkillTypes.hpp"
 #include "StatKeyMapping.hpp"
 #include "core/Logger.hpp"
@@ -22,6 +22,16 @@ namespace Umbra {
 namespace Zone {
 
 namespace {
+
+/** Fila de combate estourou (worker não acompanha): job antigo descartado em silêncio. */
+void warnCombatQueueOverflow() {
+  static Core::LogThrottle throttle(5000);
+  if (throttle.allow()) {
+    Core::Logger::getInstance().warn(
+        "[CombatCoreEngine] fila de combate cheia — job antigo descartado (+{} omitidos)",
+        throttle.takeSuppressed());
+  }
+}
 
 int32_t rollPercent() {
   thread_local std::mt19937 rng(std::random_device{}());
@@ -322,7 +332,6 @@ void CombatCoreEngine::enqueueSkillCastHitOnly(uint32_t sourcePlayerId,
   job.kind = CombatJobKind::SkillCastHitOnly;
   job.sourcePlayerId = sourcePlayerId;
   job.skill = payload;
-  job.enqueuedAtMs = agentNowMs();
   enqueueJob(std::move(job));
 }
 
@@ -334,13 +343,6 @@ void CombatCoreEngine::enqueueSkillCast(uint32_t sourcePlayerId, const SkillCast
 
   // Cooldown de um cast JÁ processado: descarta spam.
   if (skillService_->isSkillOnCooldown(sourcePlayerId, payload.skillId)) {
-    // #region agent log
-    agentDebugLog("H-G", "CombatCoreEngine.cpp:enqueueSkillCast", "combat_enqueue_drop",
-                  std::string("{\"reason\":\"cooldown\",\"playerId\":") +
-                      std::to_string(sourcePlayerId) +
-                      ",\"skillId\":" + std::to_string(payload.skillId) + "}",
-                  "post-fix");
-    // #endregion
     sendSkillCastRejected(sourcePlayerId, payload.skillId, SkillCastRejectReason::OnCooldown);
     return;
   }
@@ -379,22 +381,14 @@ void CombatCoreEngine::enqueueSkillCast(uint32_t sourcePlayerId, const SkillCast
       } else {
         while (combatQueue_.size() >= kCombatQueueCap) {
           combatQueue_.pop_front();
+          warnCombatQueueOverflow();
         }
-        job.enqueuedAtMs = agentNowMs();
         combatQueue_.push_back(std::move(job));
         queueSize = combatQueue_.size();
       }
     }
   }
   if (droppedDup) {
-    // #region agent log
-    agentDebugLog("H-Q", "CombatCoreEngine.cpp:enqueueSkillCast", "combat_enqueue_drop",
-                  std::string("{\"reason\":\"same_skill_pending\",\"playerId\":") +
-                      std::to_string(sourcePlayerId) +
-                      ",\"skillId\":" + std::to_string(payload.skillId) +
-                      ",\"queue\":" + std::to_string(queueSize) + "}",
-                  "post-fix");
-    // #endregion
     sendSkillCastRejected(sourcePlayerId, payload.skillId, SkillCastRejectReason::CannotCast,
                           "cast_pending");
     return;
@@ -428,18 +422,12 @@ void CombatCoreEngine::enqueueBasicAttack(uint32_t sourcePlayerId, const BasicAt
     if (!droppedDup) {
       while (combatQueue_.size() >= kCombatQueueCap) {
         combatQueue_.pop_front();
+        warnCombatQueueOverflow();
       }
-      job.enqueuedAtMs = agentNowMs();
       combatQueue_.push_back(std::move(job));
     }
   }
   if (droppedDup) {
-    // #region agent log
-    agentDebugLog("H-G", "CombatCoreEngine.cpp:enqueueBasicAttack", "combat_enqueue_drop",
-                  std::string("{\"reason\":\"dup_basic\",\"playerId\":") +
-                      std::to_string(sourcePlayerId) + "}",
-                  "post-fix");
-    // #endregion
     return;
   }
   combatQueueCv_.notify_one();
@@ -448,8 +436,6 @@ void CombatCoreEngine::enqueueBasicAttack(uint32_t sourcePlayerId, const BasicAt
 void CombatCoreEngine::combatWorkerLoop() {
   while (workerRunning_) {
     CombatJob job;
-    size_t queueBefore = 0;
-    size_t queueAfter = 0;
     uint64_t inFlightKey = 0;
     {
       std::unique_lock<std::mutex> lock(combatQueueMu_);
@@ -462,19 +448,14 @@ void CombatCoreEngine::combatWorkerLoop() {
       if (combatQueue_.empty()) {
         continue;
       }
-      queueBefore = combatQueue_.size();
       job = std::move(combatQueue_.front());
       combatQueue_.pop_front();
-      queueAfter = combatQueue_.size();
       if (job.kind == CombatJobKind::SkillCast) {
         inFlightKey = skillCastKey(job.sourcePlayerId, job.skill.skillId);
         skillCastInFlight_.insert(inFlightKey);
       }
     }
 
-    // #region agent log
-    const int64_t jobT0 = agentNowMs();
-    // #endregion
     try {
       if (job.kind == CombatJobKind::SkillCast) {
         processSkillCast(job.sourcePlayerId, job.skill);
@@ -493,28 +474,6 @@ void CombatCoreEngine::combatWorkerLoop() {
       std::lock_guard<std::mutex> lock(combatQueueMu_);
       skillCastInFlight_.erase(inFlightKey);
     }
-    // #region agent log
-    {
-      const int64_t jobMs = agentNowMs() - jobT0;
-      const int64_t queueWaitMs =
-          (job.enqueuedAtMs > 0) ? (jobT0 - job.enqueuedAtMs) : 0;
-      const uint32_t skillId =
-          (job.kind == CombatJobKind::SkillCast || job.kind == CombatJobKind::SkillCastHitOnly)
-              ? job.skill.skillId
-              : 0;
-      if (jobMs >= 20 || queueWaitMs >= 30 || queueBefore >= 2) {
-        agentDebugLog("H-BURST", "CombatCoreEngine.cpp:combatWorkerLoop", "combat_job_ms",
-                      std::string("{\"ms\":") + std::to_string(jobMs) +
-                          ",\"queueWaitMs\":" + std::to_string(queueWaitMs) +
-                          ",\"kind\":" + std::to_string(static_cast<int>(job.kind)) +
-                          ",\"playerId\":" + std::to_string(job.sourcePlayerId) +
-                          ",\"skillId\":" + std::to_string(skillId) +
-                          ",\"queueBefore\":" + std::to_string(queueBefore) +
-                          ",\"queueAfter\":" + std::to_string(queueAfter) + "}",
-                      "burst");
-      }
-    }
-    // #endregion
   }
 }
 
@@ -632,12 +591,6 @@ void CombatCoreEngine::cancelPendingSkillHit(uint32_t sourcePlayerId) {
     removed = before - pendingSkillHits_.size();
   }
   if (removed > 0) {
-    // #region agent log
-    agentDebugLog("H-CAST-DELAY", "CombatCoreEngine.cpp:cancelPendingSkillHit", "skill_hit_cancelled",
-                  std::string("{\"playerId\":") + std::to_string(sourcePlayerId) +
-                      ",\"removed\":" + std::to_string(removed) + "}",
-                  "post-fix");
-    // #endregion
   }
 }
 
@@ -656,13 +609,6 @@ void CombatCoreEngine::commitPendingSkillHitsNow(uint32_t sourcePlayerId) {
     }
   }
   for (const PendingSkillHit& hit : due) {
-    // #region agent log
-    agentDebugLog("H-CAST-DELAY", "CombatCoreEngine.cpp:commitPendingSkillHitsNow",
-                  "skill_hit_committed",
-                  std::string("{\"playerId\":") + std::to_string(hit.sourcePlayerId) +
-                      ",\"skillId\":" + std::to_string(hit.payload.skillId) + "}",
-                  "post-fix");
-    // #endregion
     enqueueSkillCastHitOnly(hit.sourcePlayerId, hit.payload);
   }
 }
@@ -672,25 +618,16 @@ void CombatCoreEngine::scheduleSkillHit(uint32_t sourcePlayerId, const SkillCast
   PendingSkillHit hit;
   hit.sourcePlayerId = sourcePlayerId;
   hit.payload = payload;
-  hit.executeAtMs = agentNowMs() + static_cast<int64_t>(delayMs);
+  hit.executeAtMs = Core::steadyNowMs() + static_cast<int64_t>(delayMs);
   {
     std::lock_guard<std::mutex> lock(pendingSkillHitsMu_);
     pendingSkillHits_.push_back(hit);
   }
-  // #region agent log
-  agentDebugLog("H-CAST-DELAY", "CombatCoreEngine.cpp:scheduleSkillHit", "skill_hit_deferred",
-                std::string("{\"playerId\":") + std::to_string(sourcePlayerId) +
-                    ",\"skillId\":" + std::to_string(payload.skillId) +
-                    ",\"delayMs\":" + std::to_string(delayMs) +
-                    ",\"executeAtMs\":" + std::to_string(hit.executeAtMs) + "}",
-                "post-fix");
-  // #endregion
 }
 
 void CombatCoreEngine::tickPendingSkillHits() {
-  const int64_t now = agentNowMs();
+  const int64_t now = Core::steadyNowMs();
   std::vector<PendingSkillHit> due;
-  size_t deferredOverdue = 0;
   {
     std::lock_guard<std::mutex> lock(pendingSkillHitsMu_);
     // Stagger: no máximo 1 hit overdue por jogador por tick (~3ms). Se o tick
@@ -700,7 +637,6 @@ void CombatCoreEngine::tickPendingSkillHits() {
     for (auto it = pendingSkillHits_.begin(); it != pendingSkillHits_.end();) {
       if (it->executeAtMs <= now) {
         if (firedPlayer.count(it->sourcePlayerId) > 0) {
-          ++deferredOverdue;
           ++it;
           continue;
         }
@@ -712,28 +648,7 @@ void CombatCoreEngine::tickPendingSkillHits() {
       }
     }
   }
-  // #region agent log
-  if (due.size() >= 2 || deferredOverdue > 0) {
-    int64_t maxLate = 0;
-    for (const PendingSkillHit& hit : due) {
-      maxLate = std::max(maxLate, now - hit.executeAtMs);
-    }
-    agentDebugLog("H-PENDING-FLUSH", "CombatCoreEngine.cpp:tickPendingSkillHits",
-                  "pending_hit_flush",
-                  std::string("{\"due\":") + std::to_string(due.size()) +
-                      ",\"staggerLeft\":" + std::to_string(deferredOverdue) +
-                      ",\"maxLateMs\":" + std::to_string(maxLate) + "}",
-                  "post-fix");
-  }
-  // #endregion
   for (const PendingSkillHit& hit : due) {
-    // #region agent log
-    agentDebugLog("H-CAST-DELAY", "CombatCoreEngine.cpp:tickPendingSkillHits", "skill_hit_fire",
-                  std::string("{\"playerId\":") + std::to_string(hit.sourcePlayerId) +
-                      ",\"skillId\":" + std::to_string(hit.payload.skillId) +
-                      ",\"lateMs\":" + std::to_string(now - hit.executeAtMs) + "}",
-                  "post-fix");
-    // #endregion
     enqueueSkillCastHitOnly(hit.sourcePlayerId, hit.payload);
   }
 }
@@ -749,12 +664,6 @@ void CombatCoreEngine::tickRegen(float deltaSeconds) {
 
   if (!movementServer_ || !stateLoader_) return;
 
-  // #region agent log
-  const int64_t regenT0 = agentNowMs();
-  int cacheHits = 0;
-  int cacheLoads = 0;
-  int updated = 0;
-  // #endregion
   const auto players = movementServer_->getPlayerStates();
   for (const auto& [playerId, state] : players) {
     if (state.isDead) continue;
@@ -765,9 +674,6 @@ void CombatCoreEngine::tickRegen(float deltaSeconds) {
     if (!stateLoader_->tryGetCachedState(playerId, st)) {
       continue;
     }
-    // #region agent log
-    ++cacheHits;
-    // #endregion
 
     const int32_t curHealth = st.buffedStats.currentHealth;
     const int32_t curMana = st.buffedStats.currentMana;
@@ -791,21 +697,7 @@ void CombatCoreEngine::tickRegen(float deltaSeconds) {
                    ", mana = " + std::to_string(newMana) +
                    " WHERE id = " + std::to_string(playerId));
     broadcastPlayerVitals(playerId, newHealth, newMana);
-    // #region agent log
-    ++updated;
-    // #endregion
   }
-  // #region agent log
-  // Só loga se custou algo ou houve update — evita I/O a cada 2s no idle (congelava a zone).
-  if (agentNowMs() - regenT0 >= 5 || updated > 0 || cacheLoads > 0) {
-    agentDebugLog("H-B", "CombatCoreEngine.cpp:tickRegen", "regen_tick_ms",
-                  std::string("{\"ms\":") + std::to_string(agentNowMs() - regenT0) +
-                      ",\"players\":" + std::to_string(players.size()) +
-                      ",\"cacheHits\":" + std::to_string(cacheHits) +
-                      ",\"cacheLoads\":" + std::to_string(cacheLoads) +
-                      ",\"updated\":" + std::to_string(updated) + "}");
-  }
-  // #endregion
 }
 
 void CombatCoreEngine::tickBuffExpirations() {
@@ -826,14 +718,6 @@ void CombatCoreEngine::tickBuffExpirations() {
       }
     }
   }
-  // #region agent log
-  if (!expired.empty()) {
-    agentDebugLog("H-C", "CombatCoreEngine.cpp:tickBuffExpirations", "buff_expire_ms",
-                  std::string("{\"ms\":0,\"expired\":") + std::to_string(expired.size()) +
-                      ",\"thread\":\"mem\"}",
-                  "post-fix");
-  }
-  // #endregion
   for (const auto& entry : expired) {
     const char* buffTypeStr = "BUFF";
     if (entry.buffType == static_cast<uint8_t>(Combat::BuffType::DEBUFF)) buffTypeStr = "DEBUFF";
@@ -2434,13 +2318,6 @@ void CombatCoreEngine::sendNpcSnapshotToClient(uint32_t clientId) {
     movementServer_->sendBinaryToClient(clientId, encodeNpcSpawnNotify(npcManager_->toSpawnPayload(inst)));
     ++sent;
   }
-  // #region agent log
-  agentDebugLog("H-NPC", "CombatCoreEngine.cpp:sendNpcSnapshotToClient", "npc_snapshot_sent",
-                std::string("{\"clientId\":") + std::to_string(clientId) +
-                    ",\"sent\":" + std::to_string(sent) +
-                    ",\"skippedDead\":" + std::to_string(skippedDead) + "}",
-                "mid-phase");
-  // #endregion
   Core::Logger::getInstance().info(
       "[CombatCoreEngine] NpcSnapshot client={} sent={} skippedDead={}", clientId, sent,
       skippedDead);
@@ -3244,12 +3121,6 @@ bool CombatCoreEngine::applyPlayerDamage(uint32_t sourcePlayerId, uint32_t targe
         "UPDATE players SET health = " + std::to_string(clampedHealth) +
         ", is_dead = 1, last_death_at = CURRENT_TIMESTAMP WHERE id = " + tid;
     enqueueDbWriteFront(deathSql);
-    // #region agent log
-    agentDebugLog("H-RESPAWN", "CombatCoreEngine.cpp:applyPlayerDamage", "death_async_write",
-                  std::string("{\"playerId\":") + std::to_string(targetPlayerId) +
-                      ",\"health\":" + std::to_string(clampedHealth) + "}",
-                  "post-fix");
-    // #endregion
   } else {
     enqueueDbWrite("UPDATE players SET health = " + std::to_string(clampedHealth) +
                    ", is_dead = 0 WHERE id = " + tid);
@@ -3553,22 +3424,7 @@ void CombatCoreEngine::broadcastSkillCast(const SkillCastBroadcastPayload& paylo
     movementServer_->broadcastToAll(encodeSkillCastBroadcast(payload));
     return;
   }
-  // #region agent log
-  const int64_t t0 = agentNowMs();
-  // #endregion
   movementServer_->broadcastNearPlayer(payload.sourcePlayerId, encodeSkillCastBroadcast(payload));
-  // #region agent log
-  {
-    const int64_t ms = agentNowMs() - t0;
-    if (ms >= 15) {
-      agentDebugLog("H-BURST", "CombatCoreEngine.cpp:broadcastSkillCast", "skill_bcast_ms",
-                    std::string("{\"ms\":") + std::to_string(ms) +
-                        ",\"playerId\":" + std::to_string(payload.sourcePlayerId) +
-                        ",\"skillId\":" + std::to_string(payload.skillId) + "}",
-                    "burst");
-    }
-  }
-  // #endregion
 }
 
 void CombatCoreEngine::broadcastBasicAttack(const BasicAttackBroadcastPayload& payload) {
@@ -3592,9 +3448,6 @@ void CombatCoreEngine::broadcastBasicAttack(const BasicAttackBroadcastPayload& p
 
 void CombatCoreEngine::broadcastNpcCombatEvent(const NpcCombatEventPayload& payload) {
   if (!movementServer_) return;
-  // #region agent log
-  const int64_t t0 = agentNowMs();
-  // #endregion
   if (payload.sourcePlayerId > 0) {
     movementServer_->broadcastNearPlayer(payload.sourcePlayerId, encodeNpcCombatEvent(payload));
   } else if (npcManager_) {
@@ -3606,19 +3459,6 @@ void CombatCoreEngine::broadcastNpcCombatEvent(const NpcCombatEventPayload& payl
   } else {
     movementServer_->broadcastToAll(encodeNpcCombatEvent(payload));
   }
-  // #region agent log
-  {
-    const int64_t ms = agentNowMs() - t0;
-    if (ms >= 15) {
-      agentDebugLog("H-BURST", "CombatCoreEngine.cpp:broadcastNpcCombatEvent", "npc_combat_bcast_ms",
-                    std::string("{\"ms\":") + std::to_string(ms) +
-                        ",\"npcId\":" + std::to_string(payload.npcId) +
-                        ",\"src\":" + std::to_string(payload.sourcePlayerId) +
-                        ",\"delta\":" + std::to_string(payload.delta) + "}",
-                    "burst");
-    }
-  }
-  // #endregion
 }
 
 void CombatCoreEngine::broadcastNpcState(const NpcStatePayload& payload) {
@@ -3644,41 +3484,6 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
 
   const bool hitOnly = g_skillCastHitOnly;
 
-  // #region agent log
-  struct CastPhaseLog {
-    int64_t t0 = agentNowMs();
-    int64_t tLoad = 0;
-    int64_t tRank = 0;
-    int64_t tAnim = 0;
-    int64_t tBcast = 0;
-    int64_t tDef = 0;
-    int64_t tHit = 0;
-    int64_t tFx = 0;
-    uint32_t playerId = 0;
-    uint32_t skillId = 0;
-    ~CastPhaseLog() {
-      const int64_t total = agentNowMs() - t0;
-      if (total < 20 && tLoad < 20 && tRank < 20 && tAnim < 20 && tBcast < 20 &&
-          tDef < 20 && tHit < 20 && tFx < 20) {
-        return;
-      }
-      agentDebugLog("H-F", "CombatCoreEngine.cpp:processSkillCast", "cast_phase_ms",
-                    std::string("{\"ms\":") + std::to_string(total) +
-                        ",\"load\":" + std::to_string(tLoad) +
-                        ",\"rank\":" + std::to_string(tRank) +
-                        ",\"anim\":" + std::to_string(tAnim) +
-                        ",\"bcast\":" + std::to_string(tBcast) +
-                        ",\"def\":" + std::to_string(tDef) +
-                        ",\"hit\":" + std::to_string(tHit) +
-                        ",\"fx\":" + std::to_string(tFx) +
-                        ",\"playerId\":" + std::to_string(playerId) +
-                        ",\"skillId\":" + std::to_string(skillId) + "}",
-                    "mid-phase");
-    }
-  } phaseLog;
-  phaseLog.playerId = sourcePlayerId;
-  phaseLog.skillId = payload.skillId;
-  // #endregion
 
   const Combat::SkillData* skill = skillService_->getSkillData(payload.skillId);
   if (!skill) {
@@ -3690,13 +3495,7 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   }
 
   Combat::CharacterState sourceState;
-  // #region agent log
-  const int64_t a0 = agentNowMs();
-  // #endregion
   bool haveSource = stateLoader_ && stateLoader_->getCachedOrWarm(sourcePlayerId, sourceState);
-  // #region agent log
-  phaseLog.tLoad = agentNowMs() - a0;
-  // #endregion
   if (!haveSource) {
     sourceState = Combat::CharacterState{};
     sourceState.playerId = sourcePlayerId;
@@ -3705,13 +3504,7 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
     overlayRuntimeBuffs(sourcePlayerId, sourceState);
   }
 
-  // #region agent log
-  const int64_t rankT0 = agentNowMs();
-  // #endregion
   const uint8_t rank = loadSkillRank(sourcePlayerId, payload.skillId);
-  // #region agent log
-  phaseLog.tRank = agentNowMs() - rankT0;
-  // #endregion
 
   if (!hitOnly) {
   SkillCastRejectReason rangeFail = SkillCastRejectReason::Unknown;
@@ -3797,13 +3590,7 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   }
 
   std::string anim, vfx, sfx, hitVfx;
-  // #region agent log
-  const int64_t animT0 = agentNowMs();
-  // #endregion
   loadSkillAnimPaths(payload.skillId, anim, vfx, sfx, hitVfx);
-  // #region agent log
-  phaseLog.tAnim = agentNowMs() - animT0;
-  // #endregion
 
   SkillCastBroadcastPayload castBroadcast;
   castBroadcast.sourcePlayerId = sourcePlayerId;
@@ -3817,35 +3604,7 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   castBroadcast.targetType = payload.targetType == 0
                                  ? static_cast<uint8_t>(CombatTargetType::Player)
                                  : payload.targetType;
-  // #region agent log
-  {
-    static std::mutex lastEmitMu;
-    static std::unordered_map<uint32_t, int64_t> lastEmitByPlayer;
-    int64_t since = -1;
-    {
-      std::lock_guard<std::mutex> lk(lastEmitMu);
-      const int64_t now = agentNowMs();
-      auto it = lastEmitByPlayer.find(sourcePlayerId);
-      if (it != lastEmitByPlayer.end()) {
-        since = now - it->second;
-      }
-      lastEmitByPlayer[sourcePlayerId] = now;
-    }
-    agentDebugLog("H-CASCADE", "CombatCoreEngine.cpp:processSkillCast", "skill_cast_emit",
-                  std::string("{\"playerId\":") + std::to_string(sourcePlayerId) +
-                      ",\"skillId\":" + std::to_string(payload.skillId) +
-                      ",\"targetId\":" + std::to_string(payload.targetId) +
-                      ",\"castTimeMs\":" + std::to_string(skill->castTimeMs) +
-                      ",\"sinceLastEmitMs\":" + std::to_string(since) +
-                      ",\"t\":" + std::to_string(agentNowMs()) + "}",
-                  "cascade");
-  }
-  const int64_t bcastT0 = agentNowMs();
-  // #endregion
   broadcastSkillCast(castBroadcast);
-  // #region agent log
-  phaseLog.tBcast = agentNowMs() - bcastT0;
-  // #endregion
 
   if (skill->type == Combat::SkillType::REACTION) {
     armReactionSkill(sourcePlayerId, rankedSkill);
@@ -3876,33 +3635,14 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
 
   Combat::CharacterState defender;
   bool defenderIsPlayer = false;
-  // #region agent log
-  const int64_t defT0 = agentNowMs();
-  // #endregion
   bool haveDefender =
       buildDefenderState(payload.targetType, payload.targetId, defender, defenderIsPlayer);
-  // #region agent log
-  phaseLog.tDef = agentNowMs() - defT0;
-  // #endregion
   if (effectOnSelf || (isHeal && payload.targetId == 0)) {
     defender = sourceState;
     defenderIsPlayer = true;
     haveDefender = haveSource;
   }
 
-  // #region agent log
-  struct HitPhaseGuard {
-    CastPhaseLog& log;
-    int64_t t0 = agentNowMs();
-    bool active = true;
-    void finish() {
-      if (!active) return;
-      log.tHit = agentNowMs() - t0;
-      active = false;
-    }
-    ~HitPhaseGuard() { finish(); }
-  } hitPhase{phaseLog};
-  // #endregion
   int32_t delta = 0;
   bool isCrit = false;
   int32_t overkill = 0;
@@ -4002,30 +3742,6 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
       evt.reason = static_cast<uint8_t>(CombatReason::Skill);
       evt.isCrit = isCrit ? 1 : 0;
       evt.isDouble = isDouble ? 1 : 0;
-      // #region agent log
-      {
-        static std::mutex dmgGapMu;
-        static std::unordered_map<uint32_t, int64_t> lastDmgByPlayer;
-        int64_t sinceDmg = -1;
-        const int64_t nowD = agentNowMs();
-        {
-          std::lock_guard<std::mutex> lk(dmgGapMu);
-          auto it = lastDmgByPlayer.find(sourcePlayerId);
-          if (it != lastDmgByPlayer.end()) {
-            sinceDmg = nowD - it->second;
-          }
-          lastDmgByPlayer[sourcePlayerId] = nowD;
-        }
-        agentDebugLog("H-CASCADE", "CombatCoreEngine.cpp:processSkillCast", "damage_emit_103",
-                      std::string("{\"playerId\":") + std::to_string(sourcePlayerId) +
-                          ",\"skillId\":" + std::to_string(payload.skillId) +
-                          ",\"npcId\":" + std::to_string(payload.targetId) +
-                          ",\"delta\":" + std::to_string(applied) +
-                          ",\"sinceLastDmgMs\":" + std::to_string(sinceDmg) +
-                          ",\"t\":" + std::to_string(nowD) + "}",
-                      "cascade");
-      }
-      // #endregion
       broadcastNpcCombatEvent(evt);
       handleNpcDamageResult(payload.targetId, applied, npcDied, sourcePlayerId);
       if (isDouble) {
@@ -4144,15 +3860,8 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   }
 
   // DOT/HOT e demais efeitos persistentes da skill (effects_json).
-  // #region agent log
-  hitPhase.finish();
-  const int64_t fxT0 = agentNowMs();
-  // #endregion
   applySkillEffects(sourcePlayerId, payload.targetType, payload.targetId, rankedSkill, sourceState,
                     haveSource, std::abs(delta));
-  // #region agent log
-  phaseLog.tFx = agentNowMs() - fxT0;
-  // #endregion
 
   Core::Logger::getInstance().debug(
       "[CombatCoreEngine] SkillCast player={} skill={} rank={} targetType={} target={} delta={} crit={}",
@@ -4386,14 +4095,6 @@ void CombatCoreEngine::syncJoinDeathState(uint32_t playerId) {
   }
   if (st.isAlive && st.buffedStats.currentHealth > 0) return;
 
-  // #region agent log
-  agentDebugLog("H-RESPAWN", "CombatCoreEngine.cpp:syncJoinDeathState", "join_dead_detected",
-                std::string("{\"playerId\":") + std::to_string(playerId) +
-                    ",\"hp\":" + std::to_string(st.buffedStats.currentHealth) +
-                    ",\"isAlive\":" + (st.isAlive ? "true" : "false") +
-                    ",\"maxHp\":" + std::to_string(st.buffedStats.maxHealth) + "}",
-                "post-fix");
-  // #endregion
 
   // Login já morto: auto-respawn (senão fica 0 HP + isDead bloqueando movimento).
   if (movementServer_->autoRespawnOnJoin(playerId)) {

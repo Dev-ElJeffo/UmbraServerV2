@@ -2,6 +2,7 @@
 #include "network/MessageHandler.hpp"
 #include "network/SocketServer.hpp"
 #include "network/LengthPrefixedFramer.hpp"
+#include "network/WebSocketServer.hpp"
 
 #include <string>
 
@@ -345,6 +346,126 @@ TEST(SocketServerTest, ManySequentialConnectionsEcho) {
     TEST_CLOSE_SOCKET(c);
   }
   EXPECT_TRUE(waitFor([&] { return server.getClientCount() == 0; }));
+  server.stop();
+}
+
+// ---------------------------------------------------------------------------
+// WebSocketServer (zone) — handshake real em loopback
+// ---------------------------------------------------------------------------
+namespace {
+
+// Conecta e faz o upgrade HTTP → WebSocket; retorna socket pronto ou -1.
+TestSocket connectWebSocket(uint16_t port) {
+  TestSocket s = connectLoopback(port);
+  if (s == static_cast<TestSocket>(-1)) return s;
+  const std::string req =
+      "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+      "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n";
+  send(s, req.data(), static_cast<int>(req.size()), 0);
+  std::vector<uint8_t> resp;
+  std::vector<uint8_t> buf(1024);
+  while (true) {
+    const int n = recv(s, reinterpret_cast<char*>(buf.data()), static_cast<int>(buf.size()), 0);
+    if (n <= 0) break;
+    resp.insert(resp.end(), buf.begin(), buf.begin() + n);
+    const std::string text(resp.begin(), resp.end());
+    if (text.find("\r\n\r\n") != std::string::npos) {
+      if (text.find("101") == std::string::npos) break;
+      return s;
+    }
+  }
+  TEST_CLOSE_SOCKET(s);
+  return static_cast<TestSocket>(-1);
+}
+
+// Frame cliente → servidor (mascarado, como exige o RFC 6455).
+void sendMaskedBinary(TestSocket s, const std::vector<uint8_t>& payload) {
+  std::vector<uint8_t> f;
+  f.push_back(0x82);
+  f.push_back(static_cast<uint8_t>(0x80 | payload.size()));  // < 126 bytes
+  const uint8_t mask[4] = {0x11, 0x22, 0x33, 0x44};
+  f.insert(f.end(), mask, mask + 4);
+  for (size_t i = 0; i < payload.size(); ++i) f.push_back(payload[i] ^ mask[i % 4]);
+  send(s, reinterpret_cast<const char*>(f.data()), static_cast<int>(f.size()), 0);
+}
+
+}  // namespace
+
+// stop() travava com cliente WS ocioso (join do accept/recv antes de fechar os sockets).
+TEST(WebSocketServerTest, StopReturnsWithIdleClient) {
+  WinsockGuard wsa;
+  constexpr uint16_t kPort = 19481;
+  auto server = std::make_unique<WebSocketServer>(kPort);
+  std::atomic<int> connects{0};
+  std::atomic<int> disconnects{0};
+  server->setConnectionCallback([&](uint32_t, bool c) { (c ? connects : disconnects)++; });
+  ASSERT_TRUE(server->start());
+
+  TestSocket c = connectWebSocket(kPort);
+  ASSERT_NE(c, static_cast<TestSocket>(-1));
+  ASSERT_TRUE(waitFor([&] { return connects.load() == 1; }));
+
+  std::promise<void> stopped;
+  auto fut = stopped.get_future();
+  std::thread stopper([&] { server->stop(); stopped.set_value(); });
+  const bool ok = fut.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+  if (ok) stopper.join(); else stopper.detach();
+  ASSERT_TRUE(ok) << "WebSocketServer::stop() não retornou com cliente ocioso";
+  EXPECT_EQ(disconnects.load(), 1);
+  TEST_CLOSE_SOCKET(c);
+}
+
+// disconnect() vindo de outra thread (writer: overflow/stall, ou kick da zone) precisa
+// acordar o recv() da thread do cliente — no Linux só close() não acordava.
+TEST(WebSocketServerTest, DisconnectFromOtherThreadWakesClientThread) {
+  WinsockGuard wsa;
+  constexpr uint16_t kPort = 19482;
+  WebSocketServer server(kPort);
+  std::atomic<uint32_t> clientId{0};
+  std::atomic<int> disconnects{0};
+  std::atomic<int> received{0};
+  server.setConnectionCallback([&](uint32_t id, bool c) {
+    if (c) clientId = id; else disconnects++;
+  });
+  server.setBinaryCallback([&](uint32_t, const std::vector<uint8_t>&) { received++; });
+  ASSERT_TRUE(server.start());
+
+  TestSocket c = connectWebSocket(kPort);
+  ASSERT_NE(c, static_cast<TestSocket>(-1));
+  ASSERT_TRUE(waitFor([&] { return clientId.load() != 0; }));
+  sendMaskedBinary(c, {250});
+  ASSERT_TRUE(waitFor([&] { return received.load() == 1; }));
+
+  std::thread kicker([&] { server.disconnect(clientId); });
+  kicker.join();
+
+  std::vector<uint8_t> tmp;
+  EXPECT_EQ(recvUntil(c, 1, tmp), 0u);  // cliente vê o fechamento
+  EXPECT_TRUE(waitFor([&] { return server.getClientCount() == 0; }));
+  EXPECT_EQ(disconnects.load(), 1);  // callback uma vez só
+  TEST_CLOSE_SOCKET(c);
+  server.stop();
+}
+
+// Conexões curtas em sequência (login/logout/relog): servidor segue aceitando e as
+// threads encerradas são recicladas.
+TEST(WebSocketServerTest, ManySequentialConnections) {
+  WinsockGuard wsa;
+  constexpr uint16_t kPort = 19483;
+  WebSocketServer server(kPort);
+  std::atomic<int> connects{0};
+  std::atomic<int> disconnects{0};
+  server.setConnectionCallback([&](uint32_t, bool c) { (c ? connects : disconnects)++; });
+  ASSERT_TRUE(server.start());
+
+  for (int i = 0; i < 40; ++i) {
+    TestSocket c = connectWebSocket(kPort);
+    ASSERT_NE(c, static_cast<TestSocket>(-1)) << "conexão " << i;
+    ASSERT_TRUE(waitFor([&] { return connects.load() == i + 1; }));
+    TEST_CLOSE_SOCKET(c);
+    ASSERT_TRUE(waitFor([&] { return disconnects.load() == i + 1; })) << "disconnect " << i;
+  }
+  EXPECT_EQ(server.getClientCount(), 0u);
   server.stop();
 }
 

@@ -371,8 +371,6 @@ private:
     uint32_t sourcePlayerId = 0;
     SkillCastPayload skill{};
     BasicAttackPayload basic{};
-    /** steady_clock ms no enqueue — mede espera na fila (H-BURST). */
-    int64_t enqueuedAtMs = 0;
   };
   void combatWorkerLoop();
   void enqueueJob(CombatJob job);
