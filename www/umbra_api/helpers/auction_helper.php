@@ -64,6 +64,7 @@ function auctionExpireStaleListings(PDO $pdo): void {
             $iid = (int) $r['inventory_id'];
             if (!auctionReturnInventoryToSellerBag($pdo, $lid, $iid, $sid)) {
                 error_log("auctionExpireStaleListings: sem slot livre para seller={$sid} listing={$lid} inventory={$iid}");
+                $pdo->prepare("UPDATE auction_listings SET status = 'expired_held' WHERE listing_id = ?")->execute([$lid]);
                 continue;
             }
             $pdo->prepare("UPDATE auction_listings SET status = 'expired' WHERE listing_id = ?")->execute([$lid]);

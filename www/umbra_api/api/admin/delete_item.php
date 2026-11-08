@@ -37,50 +37,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-require_once __DIR__ . '/../../config/database.php';
-require_once __DIR__ . '/../../helpers/jwt_helper.php';
-require_once __DIR__ . '/verify_admin.php';
+require_once __DIR__ . '/require_admin_auth.php';
 
 $json = file_get_contents('php://input');
-$data = json_decode($json, true) ?: [];
-
-// Autenticação: aceitar admin_username (UmbraManager) OU JWT (cliente UE/web)
-$auth_ok = false;
-if (!empty($data['admin_username'])) {
-    try {
-        $database = new Database();
-        $authDb = $database->connect();
-        $adminCheck = verifyAdmin($authDb, $data['admin_username']);
-        if (!empty($adminCheck['success'])) {
-            $auth_ok = true;
-        } else {
-            ob_clean();
-            http_response_code(403);
-            echo json_encode($adminCheck, JSON_UNESCAPED_UNICODE);
-            ob_end_flush();
-            exit;
-        }
-    } catch (Exception $e) {
-        ob_clean();
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Erro de autenticação: ' . $e->getMessage()], JSON_UNESCAPED_UNICODE);
-        ob_end_flush();
-        exit;
-    }
-}
-if (!$auth_ok) {
-    $validation = validateJWTRequest($data, $_SERVER);
-    if (!$validation['valid']) {
-        ob_clean();
-        http_response_code(401);
-        echo json_encode([
-            'success' => false,
-            'message' => $validation['error'] ?? 'Token inválido ou expirado (forneça admin_username ou token)'
-        ], JSON_UNESCAPED_UNICODE);
-        ob_end_flush();
-        exit;
-    }
-}
+$data = admin_decode_json_body($json);
+requireAdminAuth($data);
 
 // Validar item_id
 $item_id = isset($data['item_id']) ? (int)$data['item_id'] : null;
@@ -136,7 +97,7 @@ try {
     
     if ($inventory_count > 0) {
         ob_clean();
-        http_response_code(400);
+        http_response_code(409);
         echo json_encode([
             'success' => false,
             'message' => "Não é possível deletar o item '$item_name'. Existem $inventory_count instância(s) deste item no inventário dos jogadores.",

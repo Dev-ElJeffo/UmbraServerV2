@@ -8,6 +8,7 @@
 #include "network/SocketServer.hpp"
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 namespace Umbra {
 namespace Auth {
@@ -123,9 +124,15 @@ class AuthServer {
   std::map<std::string, uint32_t> loginAttempts_;
   std::mutex attemptsMutex_;
   
+  // Buffer por conexão: o AuthClient (Gateway) envia JSON terminado em '\n' e
+  // vários pedidos podem chegar no mesmo recv(), ou um pedido em vários.
+  std::unordered_map<uint32_t, std::string> recvBuffers_;
+  std::mutex recvBuffersMutex_;
+
   bool checkLoginAttempts(const std::string& identifier);
   void recordLoginAttempt(const std::string& identifier, bool success);
   void handleClientMessage(uint32_t clientId, const std::vector<uint8_t>& data);
+  void processRequest(uint32_t clientId, const std::string& message);
   void sendResponse(uint32_t clientId, const std::string& response);
 };
 

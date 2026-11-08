@@ -1,3 +1,5 @@
+> **OBSOLETO (2026-08):** não reaplicar `Yaw ±180` no parse/wire. Causa raiz e fix: remover `360 - Yaw` + CMC remote — ver [`GUIA_MOVIMENTO_REMOTE_YAW.md`](GUIA_MOVIMENTO_REMOTE_YAW.md) e [`docs_main/GUIA_BP_APLICAR_YAW_REMOTE_UE561.md`](../../docs_main/GUIA_BP_APLICAR_YAW_REMOTE_UE561.md).
+
 # 🔧 **CORREÇÃO: Yaw e Animação de Direção**
 
 ## 🎯 **PROBLEMAS:**

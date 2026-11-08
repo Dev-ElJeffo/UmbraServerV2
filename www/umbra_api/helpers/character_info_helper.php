@@ -9,6 +9,9 @@
  * @return array|null Array 'character' ou null se jogador não existir.
  */
 require_once __DIR__ . '/stat_key_mapping.php';
+require_once __DIR__ . '/enchant_helper.php';
+require_once __DIR__ . '/item_visual_helper.php';
+require_once __DIR__ . '/item_weapon_class_helper.php';
 
 /**
  * Lista passivas aprendidas e se health_below_percent está ativa (debug).
@@ -89,6 +92,8 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
                         p.vitality,
                         COALESCE(p.luck, 10) as luck,
                         p.class_id,
+                        COALESCE(p.hair, 0) as hair,
+                        COALESCE(p.head, 0) as head,
                         p.faction_id,
                         p.current_guild_id,
                         p.equipped_title_id,
@@ -170,6 +175,18 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
     }
 
     // 3. Buscar todos os itens equipados
+    $hasItemSkmPath = false;
+    try {
+        $chkSkm = $pdo->query("SHOW COLUMNS FROM item_templates LIKE 'skeletal_mesh_path'");
+        $hasItemSkmPath = $chkSkm && $chkSkm->rowCount() > 0;
+    } catch (Exception $e) {
+        $hasItemSkmPath = false;
+    }
+    $hasVisualJson = item_templates_has_visual_meshes_json($pdo);
+    $skmCol = $hasItemSkmPath ? "it.skeletal_mesh_path," : "";
+    $visualJsonCol = $hasVisualJson ? "it.visual_meshes_json," : "";
+    $allowedSelect = item_templates_allowed_class_select_sql($pdo, 'it');
+
     $equipped_query = "SELECT 
                         pi.inventory_id,
                         pi.item_template_id,
@@ -178,17 +195,22 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
                         pi.custom_properties,
                         pi.refinement_level,
                         pi.refinement_bonus_stats,
+                        pi.enchantments_json,
                         it.item_name,
                         it.item_description,
                         it.item_type,
                         it.item_subtype,
                         it.icon_path,
+                        {$skmCol}
+                        {$visualJsonCol}
                         it.equipment_slot,
                         it.required_level,
                         it.stats_json,
                         it.rarity,
                         it.value,
-                        it.weight
+                        it.weight,
+                        it.can_be_refined,
+                        it.tradeable{$allowedSelect}
                       FROM player_inventory pi
                       INNER JOIN item_templates it ON pi.item_template_id = it.item_id
                       WHERE pi.player_id = :player_id
@@ -197,6 +219,8 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
     $equipped_stmt = $pdo->prepare($equipped_query);
     $equipped_stmt->execute(['player_id' => $player_id]);
     $equipped_items = $equipped_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $player_class_id = (int)($player['class_id'] ?? 0);
 
     // 4. Processar itens equipados e calcular stats totais
     $equipped_by_slot = [];
@@ -250,7 +274,15 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
         'movement' => $base_movement,
         'resistance' => $base_resistance,
         'double_attack_resistance' => 0,
-        'double_attack_rate' => $base_double_atk
+        'double_attack_rate' => $base_double_atk,
+        'stun_chance' => 0,
+        'silence_chance' => 0,
+        'root_chance' => 0,
+        'slow_chance' => 0,
+        'stun_resist' => 0,
+        'silence_resist' => 0,
+        'root_resist' => 0,
+        'slow_resist' => 0,
     ];
 
     foreach ($equipped_items as $item) {
@@ -294,6 +326,11 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
             }
         }
 
+        $enchantments = enchant_parse_list($item['enchantments_json'] ?? null);
+        enchant_apply_flats_to_totals($enchantments, $total_stats);
+
+        $visual_entries = resolve_item_visual_entries($item, $player_class_id);
+
         $equipped_by_slot[$equipment_slot] = [
             'inventory_id' => (int)$item['inventory_id'],
             'item_template_id' => (int)$item['item_template_id'],
@@ -302,16 +339,23 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
             'item_type' => $item['item_type'],
             'item_subtype' => $item['item_subtype'],
             'icon_path' => $item['icon_path'],
+            'skeletal_mesh_path' => $item['skeletal_mesh_path'] ?? null,
+            'visual_meshes_json' => $hasVisualJson ? ($item['visual_meshes_json'] ?? null) : null,
+            'visual_entries' => $visual_entries,
             'equipment_slot' => $equipment_slot,
             'required_level' => (int)$item['required_level'],
             'durability' => (float)$item['durability'],
             'rarity' => $item['rarity'],
             'value' => (int)$item['value'],
             'weight' => (float)$item['weight'],
+            'can_be_refined' => (bool)$item['can_be_refined'],
+            'tradeable' => (bool)$item['tradeable'],
             'refinement_level' => $refinement_level,
             'refinement_bonus_stats' => $refinement_bonus_stats,
+            'enchantments' => $enchantments,
             'stats' => $stats
         ];
+        append_allowed_class_fields($equipped_by_slot[$equipment_slot], $item['allowed_class_ids'] ?? null);
 
         if (isset($stats['strength'])) $total_stats['strength'] += (int)$stats['strength'];
         if (isset($stats['dexterity'])) $total_stats['dexterity'] += (int)$stats['dexterity'];
@@ -495,6 +539,14 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
         'critical_resistance' => $total_stats['resistance'],
         'double_attack_rate' => $total_stats['double_attack_rate'],
         'double_attack_resistance' => $total_stats['double_attack_resistance'],
+        'stun_chance' => max(0, min(100, (int)($total_stats['stun_chance'] ?? 0))),
+        'silence_chance' => max(0, min(100, (int)($total_stats['silence_chance'] ?? 0))),
+        'root_chance' => max(0, min(100, (int)($total_stats['root_chance'] ?? 0))),
+        'slow_chance' => max(0, min(100, (int)($total_stats['slow_chance'] ?? 0))),
+        'stun_resist' => max(0, min(100, (int)($total_stats['stun_resist'] ?? 0))),
+        'silence_resist' => max(0, min(100, (int)($total_stats['silence_resist'] ?? 0))),
+        'root_resist' => max(0, min(100, (int)($total_stats['root_resist'] ?? 0))),
+        'slow_resist' => max(0, min(100, (int)($total_stats['slow_resist'] ?? 0))),
     ];
     foreach ($skill_percent_mods as $pm) {
         if (empty($pm['apply_to_totals'])) {
@@ -554,6 +606,10 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
             'title_name' => $player['title_name'] ?: ''
         ],
         'selected_class' => (int)($player['selected_class'] ?: 0),
+        'appearance' => [
+            'hair' => (int)($player['hair'] ?? 0),
+            'head' => (int)($player['head'] ?? 0),
+        ],
         'pvp_stats' => [
             'pvp' => (int)$player['pvp'],
             'chaos' => (int)$player['chaos'],
@@ -593,6 +649,7 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
             'combat' => $combat_stats
         ],
         'equipped_items' => $equipped_by_slot,
+        'resolved_visual' => aggregate_player_equipped_visual($pdo, $player_id, $player_class_id),
         'stat_points' => [
             'unspent_points' => (int)$stat_points['unspent_points'],
             'strength_points' => (int)$stat_points['strength_points'],

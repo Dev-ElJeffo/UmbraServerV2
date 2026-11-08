@@ -1,0 +1,2 @@
+#!/bin/bash
+ssh -o StrictHostKeyChecking=no -i /root/.ssh/id_ed25519 root@192.168.3.10 'killall -9 umbra_server zone_server; sleep 2; cp /root/UmbraServerV2/config/server.json /root/UmbraServerV2/build/bin/config/server.json; cd /root/UmbraServerV2/build/bin; ./umbra_server > /tmp/umbra_server.log 2>&1 & ./zone_server 0 > /tmp/zone_server_0.log 2>&1 & sleep 5; pgrep -a zone_server; grep NpcManager /tmp/zone_server_0.log | tail -2; grep ExpZoneManager /tmp/zone_server_0.log | tail -1'

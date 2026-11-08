@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "Matchmaking.hpp"
 #include "core/Logger.hpp"
 

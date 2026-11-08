@@ -40,13 +40,23 @@ try {
     $pdo = getConnection();
     
     // Buscar toda a configuração de refinação
+    $hasSlotVfx = false;
+    try {
+        $colCheck = $pdo->query("SHOW COLUMNS FROM refinement_config LIKE 'slot_vfx_json'");
+        $hasSlotVfx = $colCheck && $colCheck->rowCount() > 0;
+    } catch (Throwable $e) {
+        $hasSlotVfx = false;
+    }
+
+    $slotSelect = $hasSlotVfx ? ', rc.slot_vfx_json' : ', NULL AS slot_vfx_json';
     $query = "
         SELECT 
             rc.refinement_level,
             rc.success_rate,
             rc.required_item_id,
             rc.required_item_quantity,
-            rc.stat_bonus_multiplier,
+            rc.stat_bonus_multiplier
+            {$slotSelect},
             it.item_name AS required_item_name,
             it.icon_path AS required_item_icon
         FROM refinement_config rc
@@ -61,6 +71,13 @@ try {
     // Processar dados para o cliente
     $processed_configs = [];
     foreach ($configs as $config) {
+        $slotVfx = null;
+        if (!empty($config['slot_vfx_json'])) {
+            $decoded = json_decode((string)$config['slot_vfx_json'], true);
+            if (is_array($decoded)) {
+                $slotVfx = $decoded;
+            }
+        }
         $processed_configs[] = [
             'refinement_level' => (int)$config['refinement_level'],
             'success_rate' => (float)$config['success_rate'],
@@ -70,7 +87,8 @@ try {
             'required_item_icon' => $config['required_item_icon'],
             'required_item_quantity' => (int)$config['required_item_quantity'],
             'stat_bonus_multiplier' => (float)$config['stat_bonus_multiplier'],
-            'bonus_percentage' => round(((float)$config['stat_bonus_multiplier'] - 1.0) * 100, 0)
+            'bonus_percentage' => round(((float)$config['stat_bonus_multiplier'] - 1.0) * 100, 0),
+            'slot_vfx_json' => $slotVfx,
         ];
     }
     

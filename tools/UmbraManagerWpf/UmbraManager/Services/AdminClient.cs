@@ -19,6 +19,10 @@ public sealed class AdminClient : IDisposable
   private bool _authenticated;
   private TaskCompletionSource<bool>? _handshakeTcs;
   private readonly SemaphoreSlim _connectLock = new(1, 1);
+  private readonly SemaphoreSlim _writeLock = new(1, 1);
+  private int _sessionId;
+  private int _requestId;
+  private Task? _readLoopTask;
   private bool _connecting;
 
   public string ServiceId => _serviceId;
@@ -40,7 +44,7 @@ public sealed class AdminClient : IDisposable
   public async Task<bool> ConnectAsync(string host, ushort port, int handshakeTimeoutMs = 3000, CancellationToken ct = default)
   {
     // Lock previne reconexões concorrentes (poll + manual)
-    if (!await _connectLock.WaitAsync(0, ct))
+    if (!await _connectLock.WaitAsync(handshakeTimeoutMs, ct))
     {
       return _authenticated;
     }
@@ -52,25 +56,35 @@ public sealed class AdminClient : IDisposable
 
       try
       {
+        if (string.IsNullOrEmpty(_secret))
+        {
+          LastError = "admin secret vazio";
+          ErrorOccurred?.Invoke(LastError);
+          return false;
+        }
+
         _client = new TcpClient();
         var connectTask = _client.ConnectAsync(host, port).WaitAsync(TimeSpan.FromMilliseconds(handshakeTimeoutMs), ct);
         await connectTask;
         _stream = _client.GetStream();
         _readCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        _handshakeTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _ = Task.Run(() => ReadLoopAsync(_readCts.Token), _readCts.Token);
+        // Referência local: Disconnect()/ReadLoop pode zerar o campo _handshakeTcs durante a espera.
+        var handshakeTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _handshakeTcs = handshakeTcs;
+        var session = Volatile.Read(ref _sessionId);
+        _readLoopTask = Task.Run(() => ReadLoopAsync(session, _readCts.Token), _readCts.Token);
 
         await PerformHandshakeAsync();
 
-        var done = await Task.WhenAny(_handshakeTcs.Task, Task.Delay(handshakeTimeoutMs, ct));
-        if (done != _handshakeTcs.Task)
+        var done = await Task.WhenAny(handshakeTcs.Task, Task.Delay(handshakeTimeoutMs, ct));
+        if (done != handshakeTcs.Task)
         {
           LastError = "handshake timeout";
           ErrorOccurred?.Invoke(LastError);
           Disconnect();
           return false;
         }
-        var ok = await _handshakeTcs.Task;
+        var ok = await handshakeTcs.Task;
         if (!ok)
         {
           LastError ??= "handshake recusado";
@@ -125,14 +139,21 @@ public sealed class AdminClient : IDisposable
   private static string ShortenMessage(string msg)
   {
     if (string.IsNullOrEmpty(msg)) return "erro";
+    // IOException típico quando o zone_server cai no meio do handshake admin
+    if (msg.Contains("Unable to read data", StringComparison.OrdinalIgnoreCase) ||
+        msg.Contains("forcibly closed", StringComparison.OrdinalIgnoreCase) ||
+        msg.Contains("connection was aborted", StringComparison.OrdinalIgnoreCase))
+      return "conexão resetada (serviço caiu?)";
     var first = msg.Split(['.', ':', '\n'], 2)[0];
     return first.Length > 40 ? first[..40] + "…" : first;
   }
 
   public void Disconnect()
   {
+    var session = Interlocked.Increment(ref _sessionId);
     var wasConnected = _client != null;
     _readCts?.Cancel();
+    var loop = _readLoopTask;
     try { _stream?.Dispose(); } catch { }
     try { _client?.Dispose(); } catch { }
     _stream = null;
@@ -141,14 +162,15 @@ public sealed class AdminClient : IDisposable
     _buffer.Clear();
     _handshakeTcs?.TrySetResult(false);
     _handshakeTcs = null;
-    if (wasConnected) Disconnected?.Invoke();
+    try { loop?.Wait(500); } catch { }
+    if (session == Volatile.Read(ref _sessionId) && wasConnected)
+      Disconnected?.Invoke();
   }
 
-  public async Task SendCommandAsync(string cmd, JsonObject? args = null, CancellationToken ct = default)
+  public async Task SendCommandAsync(string cmd, JsonObject? args = null, CancellationToken ct = default, int? requestId = null)
   {
     if (!_authenticated || _stream == null)
     {
-      // Não emite ErrorOccurred para evitar flood de "Não autenticado" no GM Console
       return;
     }
 
@@ -156,6 +178,7 @@ public sealed class AdminClient : IDisposable
     {
       ["type"] = "command",
       ["cmd"] = cmd,
+      ["request_id"] = requestId ?? Interlocked.Increment(ref _requestId),
       ["args"] = args ?? new JsonObject()
     };
     try
@@ -178,15 +201,17 @@ public sealed class AdminClient : IDisposable
       return (false, null);
 
     var tcs = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var requestId = Interlocked.Increment(ref _requestId);
     void Handler(string responseCmd, JsonElement json)
     {
-      if (string.Equals(responseCmd, cmd, StringComparison.OrdinalIgnoreCase))
-        tcs.TrySetResult(json);
+      if (!json.TryGetProperty("request_id", out var rid) || !rid.TryGetInt32(out var got) || got != requestId)
+        return;
+      tcs.TrySetResult(json);
     }
     ResponseReceived += Handler;
     try
     {
-      await SendCommandAsync(cmd, args, ct);
+      await SendCommandAsync(cmd, args, ct, requestId);
       using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
       timeoutCts.CancelAfter(timeoutMs);
       var completed = await Task.WhenAny(tcs.Task, Task.Delay(timeoutMs, timeoutCts.Token));
@@ -222,14 +247,22 @@ public sealed class AdminClient : IDisposable
   private async Task SendFrameAsync(JsonObject payload, CancellationToken ct = default)
   {
     if (_stream == null) return;
-    var body = Encoding.UTF8.GetBytes(payload.ToJsonString());
-    var frame = new byte[4 + body.Length];
-    BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(0, 4), (uint)body.Length);
-    body.CopyTo(frame, 4);
-    await _stream.WriteAsync(frame, ct);
+    await _writeLock.WaitAsync(ct);
+    try
+    {
+      var body = Encoding.UTF8.GetBytes(payload.ToJsonString());
+      var frame = new byte[4 + body.Length];
+      BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(0, 4), (uint)body.Length);
+      body.CopyTo(frame, 4);
+      await _stream.WriteAsync(frame, ct);
+    }
+    finally
+    {
+      _writeLock.Release();
+    }
   }
 
-  private async Task ReadLoopAsync(CancellationToken ct)
+  private async Task ReadLoopAsync(int session, CancellationToken ct)
   {
     var chunk = new byte[4096];
     var lostConnection = false;
@@ -240,7 +273,6 @@ public sealed class AdminClient : IDisposable
         var read = await _stream.ReadAsync(chunk, ct);
         if (read <= 0)
         {
-          // Servidor fechou o socket (FIN). Conexão caiu.
           lostConnection = true;
           break;
         }
@@ -256,13 +288,11 @@ public sealed class AdminClient : IDisposable
     }
     finally
     {
-      _handshakeTcs?.TrySetResult(false);
-      if (lostConnection)
+      if (session == Volatile.Read(ref _sessionId))
       {
-        // CRÍTICO: socket caiu fora do nosso controle. Limpa estado para que
-        // IsAuthenticated/IsConnected reflitam imediatamente que perdemos a
-        // conexão (servidor crashou, foi morto pelo Stop, etc).
-        Disconnect();
+        _handshakeTcs?.TrySetResult(false);
+        if (lostConnection)
+          Disconnect();
       }
     }
   }

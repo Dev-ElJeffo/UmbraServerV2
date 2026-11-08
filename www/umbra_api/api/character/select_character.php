@@ -138,17 +138,21 @@ try {
     $new_token = null;
     if (function_exists('generateJWT')) {
         // Obter username da conta
-        $account_query = "SELECT username FROM accounts WHERE id = ?";
+        $session_version = (int)($validation['payload']['session_version'] ?? 0);
+        $account_query = "SELECT username, session_version FROM accounts WHERE id = ?";
         $account_stmt = $pdo->prepare($account_query);
         $account_stmt->execute([$account_id]);
         $account = $account_stmt->fetch(PDO::FETCH_ASSOC);
         $username = $account ? $account['username'] : '';
+        if ($account && isset($account['session_version'])) {
+            $session_version = (int)$account['session_version'];
+        }
         
         // Tentar gerar token com parâmetros individuais primeiro (versão api/common/jwt_helper.php)
         // Se falhar, tentar com array payload (versão helpers/jwt_helper.php)
         try {
-            // Versão 1: generateJWT($accountId, $playerId, $username, $expirationMinutes)
-            $new_token = @generateJWT($account_id, $player_id, $username, 60);
+            // Versão 1: generateJWT — preserva session_version (não invalida sessão ativa)
+            $new_token = @generateJWT($account_id, $player_id, $username, 60, null, $session_version);
         } catch (Exception $e) {
             // Versão 2: generateJWT($payload, $expiration_hours)
             $payload = [

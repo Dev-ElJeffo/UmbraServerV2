@@ -37,7 +37,7 @@ bool AdminServer::start() {
   }
 
   networkServer_ = std::make_unique<Network::SocketServer>(
-      Network::ProtocolType::TCP, config_.port);
+      Network::ProtocolType::TCP, config_.port, config_.bindHost);
   networkServer_->setMaxConnections(16);
   networkServer_->setRateLimit(1000);
   networkServer_->setMessageCallback(
@@ -57,13 +57,14 @@ bool AdminServer::start() {
       });
 
   if (!networkServer_->start()) {
-    Core::Logger::getInstance().error("AdminServer failed to start on port {}", config_.port);
+    Core::Logger::getInstance().error("AdminServer failed to start on {}:{}",
+                                      config_.bindHost, config_.port);
     return false;
   }
 
   running_ = true;
-  Core::Logger::getInstance().info("AdminServer '{}' listening on port {}",
-                                   config_.serviceName, config_.port);
+  Core::Logger::getInstance().info("AdminServer '{}' listening on {}:{}",
+                                   config_.serviceName, config_.bindHost, config_.port);
   return true;
 }
 
@@ -82,54 +83,78 @@ bool AdminServer::isRunning() const {
 }
 
 void AdminServer::handleMessage(uint32_t clientId, const std::vector<uint8_t>& data) {
-  std::lock_guard<std::mutex> lock(clientsMutex_);
-  auto it = clients_.find(clientId);
-  if (it == clients_.end()) {
-    return;
-  }
-  auto& state = it->second;
-  state.buffer.insert(state.buffer.end(), data.begin(), data.end());
-
-  while (state.buffer.size() >= 4) {
-    uint32_t frameSize = 0;
-    std::memcpy(&frameSize, state.buffer.data(), 4);
-    if (frameSize == 0 || frameSize > 1024 * 1024) {
-      sendError(clientId, "invalid frame size", true);
-      networkServer_->disconnectClient(clientId);
+  std::vector<std::vector<uint8_t>> frames;
+  bool disconnect = false;
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    auto it = clients_.find(clientId);
+    if (it == clients_.end()) {
       return;
     }
-    if (state.buffer.size() < 4 + frameSize) {
-      break;
+    auto& state = it->second;
+    state.buffer.insert(state.buffer.end(), data.begin(), data.end());
+
+    while (state.buffer.size() >= 4) {
+      uint32_t frameSize = 0;
+      std::memcpy(&frameSize, state.buffer.data(), 4);
+      if (frameSize == 0 || frameSize > 1024 * 1024) {
+        disconnect = true;
+        break;
+      }
+      if (state.buffer.size() < 4 + frameSize) {
+        break;
+      }
+      frames.emplace_back(state.buffer.begin() + 4,
+                          state.buffer.begin() + 4 + frameSize);
+      state.buffer.erase(state.buffer.begin(), state.buffer.begin() + 4 + frameSize);
     }
-    std::vector<uint8_t> frame(state.buffer.begin() + 4,
-                               state.buffer.begin() + 4 + frameSize);
-    state.buffer.erase(state.buffer.begin(), state.buffer.begin() + 4 + frameSize);
-    handleFrame(clientId, state, frame);
+  }
+
+  if (disconnect) {
+    sendError(clientId, "invalid frame size", true);
+    if (networkServer_) {
+      networkServer_->disconnectClient(clientId);
+    }
+    return;
+  }
+
+  for (const auto& frame : frames) {
+    handleFrame(clientId, frame);
   }
 }
 
-void AdminServer::handleFrame(uint32_t clientId, ClientState& state,
-                              const std::vector<uint8_t>& frame) {
+void AdminServer::handleFrame(uint32_t clientId, const std::vector<uint8_t>& frame) {
+  ClientState snapshot;
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    auto it = clients_.find(clientId);
+    if (it == clients_.end()) {
+      return;
+    }
+    snapshot = it->second;
+  }
+
   try {
     const std::string body(frame.begin(), frame.end());
     const auto json = nlohmann::json::parse(body);
     const std::string type = json.value("type", "");
 
-    if (!state.authenticated) {
+    if (!snapshot.authenticated) {
       if (type != "handshake") {
         sendError(clientId, "handshake required", true);
-        networkServer_->disconnectClient(clientId);
         return;
       }
-      if (!handleHandshake(clientId, state, json)) {
+      if (!handleHandshake(clientId, json)) {
         sendError(clientId, "handshake failed", true);
-        networkServer_->disconnectClient(clientId);
         return;
       }
       nlohmann::json ok;
       ok["success"] = true;
       ok["type"] = "handshake_ok";
       ok["service"] = config_.serviceName;
+      if (json.contains("request_id")) {
+        ok["request_id"] = json["request_id"];
+      }
       sendJson(clientId, ok);
       return;
     }
@@ -138,43 +163,56 @@ void AdminServer::handleFrame(uint32_t clientId, ClientState& state,
       sendError(clientId, "expected command frame");
       return;
     }
-    if (!checkRateLimit(state)) {
+
+    bool rateOk = false;
+    {
+      std::lock_guard<std::mutex> lock(clientsMutex_);
+      auto it = clients_.find(clientId);
+      if (it == clients_.end()) {
+        return;
+      }
+      rateOk = checkRateLimit(it->second);
+    }
+    if (!rateOk) {
       sendError(clientId, "rate limit exceeded", true);
-      networkServer_->disconnectClient(clientId);
       return;
     }
-    handleCommand(clientId, state, json);
+    handleCommand(clientId, json);
   } catch (const std::exception& e) {
     sendError(clientId, std::string("parse error: ") + e.what());
   }
 }
 
-bool AdminServer::handleHandshake(uint32_t clientId, ClientState& state,
-                                  const nlohmann::json& req) {
-  (void)clientId;
+bool AdminServer::handleHandshake(uint32_t clientId, const nlohmann::json& req) {
   const std::string nonce = req.value("nonce", "");
   const std::string hmac = req.value("hmac", "");
   if (nonce.empty() || hmac.empty()) {
     return false;
   }
   const std::string expected = hmacSha256Hex(config_.sharedSecret, nonce);
-  if (expected != hmac) {
+  if (!hmacEquals(expected, hmac)) {
     Core::Logger::getInstance().warn("Admin handshake failed (bad HMAC)");
     return false;
   }
-  state.authenticated = true;
+  std::lock_guard<std::mutex> lock(clientsMutex_);
+  auto it = clients_.find(clientId);
+  if (it == clients_.end()) {
+    return false;
+  }
+  it->second.authenticated = true;
   return true;
 }
 
-void AdminServer::handleCommand(uint32_t clientId, ClientState& state,
-                                const nlohmann::json& req) {
-  (void)state;
+void AdminServer::handleCommand(uint32_t clientId, const nlohmann::json& req) {
   const std::string cmd = req.value("cmd", "");
   const nlohmann::json args = req.value("args", nlohmann::json::object());
 
   nlohmann::json response;
   response["type"] = "response";
   response["cmd"] = cmd;
+  if (req.contains("request_id")) {
+    response["request_id"] = req["request_id"];
+  }
 
   try {
     if (!registry_.hasCommand(cmd)) {
@@ -193,6 +231,7 @@ void AdminServer::handleCommand(uint32_t clientId, ClientState& state,
 }
 
 void AdminServer::sendJson(uint32_t clientId, const nlohmann::json& payload) {
+  if (!networkServer_) return;
   const std::string body = payload.dump();
   const auto frame = encodeFrame(body);
   networkServer_->sendToClient(clientId, frame);
@@ -203,7 +242,9 @@ void AdminServer::sendError(uint32_t clientId, const std::string& message, bool 
   err["success"] = false;
   err["error"] = message;
   sendJson(clientId, err);
-  (void)closeAfter;
+  if (closeAfter && networkServer_) {
+    networkServer_->disconnectClient(clientId);
+  }
 }
 
 bool AdminServer::checkRateLimit(ClientState& state) {

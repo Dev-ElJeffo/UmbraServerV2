@@ -92,7 +92,8 @@
   1. Verificar status do git em ambos os repositórios
   2. Listar TODOS os arquivos que serão commitados (modificados, deletados e novos)
   3. Informar os branches corretos (Principal: `Development`, Submódulo: `develop`)
-  4. Aguardar confirmação EXPLÍCITA do usuário
+  4. Aguardar confirmação EXPLÍCITA do usuário — **exceto** quando o commit/push foi pedido pelo usuário na própria mensagem ou faz parte de um plano aprovado; nesse caso, executar e reportar ao final o que foi commitado/enviado.
+  5. Nunca incluir segredos (`config/server.json` com senha real, `www/umbra_api/config/secrets.php`, `tmp_*.sh`) nem artefatos de debug (`scripts_main/_dbg_*`, `tools/_an*.sh`, `debug-*.log`, `dist/`) — conferir a lista antes de `git add`.
 - **Ordem de execução**: Sempre commitar/pushar o submódulo (`UmbraEternumUE`) PRIMEIRO, depois o repositório principal.
 - **Não modificar arquivos** durante operações git — apenas comandos git.
 - **Branches padrão**:

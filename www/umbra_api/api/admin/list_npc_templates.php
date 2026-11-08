@@ -9,7 +9,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-$data = json_decode(file_get_contents('php://input'), true) ?: [];
+if (!function_exists('admin_decode_json_body')) {
+    require_once __DIR__ . '/require_admin_auth.php';
+}
+$data = admin_decode_json_body();
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $data['admin_username'] = $_GET['admin_username'] ?? $data['admin_username'] ?? null;
     $data['token'] = $_GET['token'] ?? $data['token'] ?? null;
@@ -21,14 +24,26 @@ requireAdminAuth($data);
 try {
     $pdo = getConnection();
     $stmt = $pdo->query(
-        "SELECT npc_template_id, npc_name, level, max_health, max_mana,
-                strength, dexterity, vitality, intelligence, luck,
-                physical_attack, magic_attack, physical_defense, magic_defense,
-                accuracy, dodge, critical, critical_resistance,
-                double_attack_rate, double_attack_resistance,
-                skeletal_mesh_path, anim_blueprint_path, is_editable
-         FROM npc_templates
-         ORDER BY npc_template_id ASC"
+        "SELECT t.npc_template_id, t.npc_name, t.level, t.max_health, t.max_mana,
+                t.strength, t.dexterity, t.vitality, t.intelligence, t.luck,
+                t.physical_attack, t.magic_attack, t.damage_type, t.basic_power_coef, t.physical_defense, t.magic_defense,
+                t.accuracy, t.dodge, t.critical, t.critical_resistance,
+                t.double_attack_rate, t.double_attack_resistance,
+                t.skeletal_mesh_path, t.anim_blueprint_path, t.anim_states_json, t.mesh_scale, t.is_editable,
+                t.is_attackable, t.interaction_radius, t.collision_radius, t.nameplate_radius, t.has_vendor, t.has_quest_dialog,
+                t.dialog_title, t.dialog_text, t.respawn_seconds, t.kill_exp,
+                t.aggro_radius, t.leash_radius, t.attack_range, t.combat_stop_range, t.attack_cooldown_ms,
+                t.move_speed, t.chase_speed_mult, t.kite_speed_mult, t.roam_radius, t.is_hostile,
+                t.basic_vfx_path, t.basic_hit_vfx_path,
+                t.right_hand_mesh_path, t.left_hand_mesh_path,
+                t.right_hand_rel_x, t.right_hand_rel_y, t.right_hand_rel_z,
+                t.right_hand_rel_pitch, t.right_hand_rel_yaw, t.right_hand_rel_roll, t.right_hand_rel_scale,
+                t.left_hand_rel_x, t.left_hand_rel_y, t.left_hand_rel_z,
+                t.left_hand_rel_pitch, t.left_hand_rel_yaw, t.left_hand_rel_roll, t.left_hand_rel_scale,
+                v.vendor_id
+         FROM npc_templates t
+         LEFT JOIN npc_vendors v ON v.npc_template_id = t.npc_template_id
+         ORDER BY t.npc_template_id ASC"
     );
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 

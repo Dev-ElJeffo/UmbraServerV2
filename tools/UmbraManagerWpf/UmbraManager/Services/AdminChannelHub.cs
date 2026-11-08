@@ -37,18 +37,15 @@ public sealed class AdminChannelHub : IDisposable
     }
   }
 
-  public async Task ReconnectMissingAsync(Func<string, bool>? isProcessRunning = null, CancellationToken ct = default)
+  /// <summary>
+  /// Tenta reconectar clientes admin sem autenticação.
+  /// Não depende de detecção de processo: a porta admin é a fonte de verdade.
+  /// </summary>
+  public async Task ReconnectMissingAsync(CancellationToken ct = default)
   {
     var now = DateTime.UtcNow;
     foreach (var (id, def) in _defs)
     {
-      if (isProcessRunning != null && !isProcessRunning(id))
-      {
-        if (_clients.TryGetValue(id, out var stale))
-          stale.Disconnect();
-        continue;
-      }
-
       if (!_clients.TryGetValue(id, out var client) || !client.IsAuthenticated)
       {
         if (_nextRetry.TryGetValue(id, out var nextAt) && now < nextAt) continue;

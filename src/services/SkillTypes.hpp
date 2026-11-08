@@ -5,6 +5,8 @@
  * Server-Side Authoritative Combat System
  */
 
+#include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -66,6 +68,32 @@ enum class ScalingStat : uint8_t {
     DEFENSE = 4,
     NONE = 5
 };
+
+/** School de dano: qual ATK/DEF usar no CombatCalculator (independente do element de resistência). */
+enum class DamageType : uint8_t {
+    PHYSICAL = 0,
+    MAGIC = 1,
+    TRUE = 2
+};
+
+inline bool isTrueDamage(DamageType t) {
+    return t == DamageType::TRUE;
+}
+
+/** PHYSICAL usa phys ATK/DEF; MAGIC usa mag; TRUE não usa esta helper (sem DEF). */
+inline bool damageTypeUsesPhysicalAttack(DamageType t) {
+    return t == DamageType::PHYSICAL;
+}
+
+inline bool damageTypeUsesMagicAttack(DamageType t) {
+    return t == DamageType::MAGIC;
+}
+
+inline DamageType parseDamageTypeString(const std::string& raw) {
+    if (raw == "MAGIC" || raw == "magic" || raw == "1") return DamageType::MAGIC;
+    if (raw == "TRUE" || raw == "true" || raw == "2") return DamageType::TRUE;
+    return DamageType::PHYSICAL;
+}
 
 enum class ResourceType : uint8_t {
     MANA = 0,
@@ -153,6 +181,14 @@ struct CharacterStats {
     int32_t doubleAttackRate = 0;    // 0-100
     int32_t doubleAttackResistance = 0;
     int32_t movementSpeed = 100;     // 100 = base
+    int32_t stunResist = 0;          // 0-100 vs STUN
+    int32_t silenceResist = 0;
+    int32_t rootResist = 0;
+    int32_t slowResist = 0;
+    int32_t stunChance = 0;          // 0-100 extra chance to apply STUN
+    int32_t silenceChance = 0;
+    int32_t rootChance = 0;
+    int32_t slowChance = 0;
     
     // Resistances (percentual 0-100)
     int32_t physicalRes = 0;
@@ -165,7 +201,8 @@ struct CharacterStats {
     int32_t arcaneRes = 0;
     
     // Modifiers
-    int32_t damageReduction = 0;     // Flat reduction
+    int32_t damageReduction = 0;          // Flat reduction
+    int32_t damageReductionPercent = 0;   // Incoming damage % reduction (0-90)
     int32_t healingBonus = 0;        // Percentual
     int32_t threatModifier = 100;    // 100 = base
     int32_t pvpDamageModifier = 100; // 100 = base
@@ -211,12 +248,17 @@ struct CharacterState {
     bool isSilenced = false;
     bool isRooted = false;
     bool isInvulnerable = false;
+    bool isStealthed = false;
     bool isInCombat = false;
     bool isPvPEnabled = false;
     
     // Active effects
     std::vector<ActiveBuff> activeBuffs;
     std::vector<DotInstance> activeDots;
+
+    // Rank aprendido por skill (skill_id -> current_rank), carregado no warm do
+    // estado para que loadSkillRank leia do cache e não faça SELECT no hot path.
+    std::unordered_map<uint32_t, uint8_t> skillRanks;
     
     // Shield (absorb damage)
     int32_t currentShield = 0;
@@ -253,7 +295,26 @@ struct SkillEffect {
     uint32_t durationMs = 0;
     uint32_t tickIntervalMs = 1000;
     uint8_t chancePercent = 100;
+    /** 0-100: reduz a resistência de CC do alvo neste efeito. */
+    uint8_t resistPenetration = 0;
+    /** 0 = herda SkillData::target; demais valores usam TargetType. */
+    uint8_t targetOverride = 0;
+    /** -1 = herda SkillData::includeCaster, 0 = exclui, 1 = inclui. */
+    int8_t includeCaster = -1;
     nlohmann::json conditions;
+};
+
+// ============================================================================
+// SKILL RANK SCALING (skill_rank_scaling)
+// ============================================================================
+
+struct SkillRankScaling {
+    uint8_t rank = 1;
+    int16_t powerCoefBonus = 0;
+    int16_t resourceCostBonus = 0;
+    int32_t cooldownReductionMs = 0;
+    int32_t durationBonusMs = 0;
+    std::vector<SkillEffect> extraEffects;
 };
 
 // ============================================================================
@@ -274,6 +335,7 @@ struct SkillData {
     TargetType target = TargetType::ENEMY;
     Element element = Element::PHYSICAL;
     ScalingStat scalingStat = ScalingStat::PHYS_ATK;
+    DamageType damageType = DamageType::PHYSICAL;
     
     // Attribute scaling (0-100)
     uint8_t strScaling = 0;
@@ -309,6 +371,7 @@ struct SkillData {
     bool isInterrupt = false;
     bool requiresTarget = true;
     bool canMoveWhileCasting = false;
+    bool includeCaster = false;
     
     // Modifiers
     int16_t threatModifier = 100;
@@ -316,7 +379,11 @@ struct SkillData {
     
     // Visual
     std::string iconPath;
+    std::string castAnimPath;
     std::string vfxKey;
+    std::string vfxPath;
+    std::string hitVfxPath;
+    std::string buffVfxPath;
     std::string sfxKey;
     std::string description;
     std::string tooltipTemplate;
@@ -324,12 +391,66 @@ struct SkillData {
     // Effects
     std::vector<SkillEffect> effects;
     std::vector<std::string> serverTags;
-    
-    // Calculate effective power coefficient with rank
+    std::vector<SkillRankScaling> rankScalings;
+
+    const SkillRankScaling* findRankScaling(uint8_t rank) const {
+        for (const auto& row : rankScalings) {
+            if (row.rank == rank) return &row;
+        }
+        return nullptr;
+    }
+
+    /** power_coef efetivo: +10%/rank + power_coef_bonus da linha (se existir). */
     uint16_t getEffectivePowerCoef(uint8_t rank) const {
-        // +10% per rank above 1
-        float multiplier = 1.0f + ((rank - 1) * 0.1f);
-        return static_cast<uint16_t>(powerCoef * multiplier);
+        const uint8_t r = rank < 1 ? 1 : rank;
+        const float multiplier = 1.0f + ((r - 1) * 0.1f);
+        int32_t v = static_cast<int32_t>(std::lround(static_cast<double>(powerCoef) * multiplier));
+        if (const SkillRankScaling* row = findRankScaling(r)) {
+            v += static_cast<int32_t>(row->powerCoefBonus);
+        }
+        return static_cast<uint16_t>(std::clamp(v, 0, 65535));
+    }
+
+    uint16_t getEffectiveResourceCost(uint8_t rank) const {
+        const uint8_t r = rank < 1 ? 1 : rank;
+        int32_t cost = static_cast<int32_t>(resourceCost);
+        if (const SkillRankScaling* row = findRankScaling(r)) {
+            cost += static_cast<int32_t>(row->resourceCostBonus);
+        }
+        return static_cast<uint16_t>(std::max(0, cost));
+    }
+
+    uint32_t getEffectiveCooldownMs(uint8_t rank) const {
+        const uint8_t r = rank < 1 ? 1 : rank;
+        int64_t cd = static_cast<int64_t>(cooldownMs);
+        if (const SkillRankScaling* row = findRankScaling(r)) {
+            cd -= static_cast<int64_t>(row->cooldownReductionMs);
+        }
+        return static_cast<uint32_t>(std::max<int64_t>(0, cd));
+    }
+
+    uint32_t getEffectiveDurationMs(uint8_t rank) const {
+        const uint8_t r = rank < 1 ? 1 : rank;
+        int64_t dur = static_cast<int64_t>(durationMs);
+        if (const SkillRankScaling* row = findRankScaling(r)) {
+            dur += static_cast<int64_t>(row->durationBonusMs);
+        }
+        return static_cast<uint32_t>(std::max<int64_t>(0, dur));
+    }
+
+    /** Efeitos base + extra_effects de todos os ranks <= rank (unlock cumulativo). */
+    std::vector<SkillEffect> buildEffectsForRank(uint8_t rank) const {
+        const uint8_t r = rank < 1 ? 1 : rank;
+        std::vector<SkillEffect> out = effects;
+        uint8_t order = static_cast<uint8_t>(out.size() + 1);
+        for (const auto& row : rankScalings) {
+            if (row.rank < 1 || row.rank > r) continue;
+            for (auto eff : row.extraEffects) {
+                eff.effectOrder = order++;
+                out.push_back(std::move(eff));
+            }
+        }
+        return out;
     }
     
     // Check if skill has tag
@@ -524,7 +645,7 @@ struct CooldownEntry {
     int64_t getRemainingMs() const {
         auto now = std::chrono::steady_clock::now();
         auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(expiresAt - now);
-        return std::max(0LL, remaining.count());
+        return std::max(static_cast<int64_t>(0), static_cast<int64_t>(remaining.count()));
     }
 };
 

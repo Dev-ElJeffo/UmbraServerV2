@@ -23,6 +23,10 @@ inline std::unique_ptr<AdminServer> createFromConfig(
   AdminServer::Config cfg;
   cfg.enabled = true;
   cfg.port = port;
+  cfg.bindHost = cm.get<std::string>("admin.bind_host", "127.0.0.1");
+  if (cfg.bindHost.empty()) {
+    cfg.bindHost = "127.0.0.1";
+  }
   cfg.sharedSecret = cm.get<std::string>("admin.shared_secret", "");
   cfg.serviceName = serviceName;
   cfg.configPath = "config/server.json";

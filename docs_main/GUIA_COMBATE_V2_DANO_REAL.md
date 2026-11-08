@@ -149,15 +149,17 @@ cmake --build . --config Release --target zone_server
 
 **Passos no servidor (`CombatCoreEngine::processBasicAttack`):**
 
-1. Carrega `class_id` do atacante → linha em `basic_attacks`.
+1. Carrega `class_id` do atacante → linha em `basic_attacks` (inclui `vfx_path` / `sfx_path` / `hit_vfx_path` quando existirem; overlay de skill `is_basic_attack=1` pode preferir o path da skill).
 2. Cooldown server-side (`checkAndStampBasicCooldown`).
-3. Broadcast animação **opcode 99** (`BasicAttackBroadcast`).
+3. Broadcast **opcode 99** (`BasicAttackBroadcast`) com anim + `vfxPath` / `sfxPath` / `hitVfxPath` (mesmo padrão do 97; frames antigos sem strings → paths vazios).
 4. Monta `SkillData` sintética (físico, `powerCoef` da classe).
 5. `CharacterStateLoader` → atacante; `buildDefenderState` → alvo.
 6. **Hit roll:** `calculateHitChance` + `rollHit` — se falhar → `broadcastMiss` (103 NPC / 92 player) e **return**.
 7. `CombatCalculator::calculatePhysicalDamage` → `delta` negativo, `isCrit`, `overkill`.
 8. **Alvo NPC:** `NpcManager::applyDamage` → **103** + **102** (HP); **101** se morrer.
 9. **Alvo player:** `applyPlayerDamage` → UPDATE DB + **87** + **92**; **89** se morte; `writeCombatLog`.
+
+**Cliente (99):** após montage, reutiliza `PlaySkillCastVfx` / `SpawnSkillNiagaraAtActor` (como no 97), com `hitWindowMs` como delay do hit VFX.
 
 ### 3.2 Skill cast (opcode 96 → 97 → dano + efeitos)
 
@@ -231,12 +233,16 @@ flowchart LR
   CT --> Op103[opcode 103 + 102]
 ```
 
-**Player:** `CombatCoreEngine::insertPlayerDot` espelha [`dot_apply.php`](../www/umbra_api/api/combat/dot_apply.php). Tick em `ZoneCombatService::tickActiveDots` → **87** + **92** + **93**.
+**Player:** `CombatCoreEngine::insertPlayerDot` mantém o tick no runtime da Zone e persiste
+`active_dots` por write-behind. No reconnect/restart, `hydratePlayerEffects` reidrata os ticks
+pendentes. HOT com `target_stat=mana` restaura MP; os demais HOT restauram HP.
 
 **NPC:** struct `NpcDotInstance` em memória; `tickNpcDots` no `CombatCoreEngine::tick` → `applyDamage` + **103** + **102**.
 
 **Aplicação no cast (`applySkillEffects`):**
-- Itera `skill.effects` (tipos `DOT` / `HOT` apenas; `BUFF_STAT` etc. ainda não aplicados).
+- Itera efeitos-base e `extra_effects_json` cumulativos do rank, em `effect_order`.
+- Resolve `SELF`, `ALLY`, `ENEMY`, `PARTY`, `AREA` e `AREA_ALLY`, com
+  `include_caster` geral e sobrescrita por efeito.
 - Roll `chance_percent`.
 - `tickValue`: `value_flat` ou `value_percent` × atk relevante do caster.
 - `ticksTotal = duration_ms / tick_interval_ms` (máx. 255).
@@ -352,13 +358,13 @@ Todos little-endian. Definições em [`MovementProtocol.hpp`](../src/zone/Moveme
 | **96** | SkillCastNotify | C→S | `sourceId:4` `skillId:4` `targetType:1` `targetId:4` `x,y,z:f32` | Zone: `processSkillCast` |
 | **97** | SkillCastBroadcast | S→C | `sourceId:4` `skillId:4` `targetId:4` `castMs:4` + strings anim/vfx/sfx | Cliente: `OnSkillCastBroadcast` |
 | **98** | BasicAttackNotify | C→S | `sourceId:4` `targetType:1` `targetId:4` | Zone: `processBasicAttack` |
-| **99** | BasicAttackBroadcast | S→C | `sourceId:4` `classId:4` `targetId:4` `hitMs:4` + anim | Cliente: `OnBasicAttackBroadcast` |
+| **99** | BasicAttackBroadcast | S→C | `sourceId:4` `classId:4` `targetId:4` `hitMs:4` + anim + `vfx`/`sfx`/`hitVfx` | Cliente: montage + `PlaySkillCastVfx` |
 
 ### 6.2 NPC
 
 | Opcode | Nome | Dir | Uso |
 |--------|------|-----|-----|
-| **100** | NpcSpawnNotify | S→C | Spawn completo (mesh, HP, pos) |
+| **100** | NpcSpawnNotify | S→C | Spawn completo (mesh, HP, pos) + campos opcionais: `flags:1` (bit0=attackable, bit1=vendor, bit2=quest), `interactionRadius:f32`, `vendorId:u32` |
 | **101** | NpcDespawnNotify | S→C | Remove NPC (morte/respawn) |
 | **102** | NpcStateUpdate | S→C | HP (+ pos estática do DB) — cliente só atualiza HP |
 | **103** | NpcCombatEvent | S→C | Dano/cura/miss no NPC (`reason=6` = MISS) |
@@ -396,6 +402,8 @@ mysql -u root -p umbra_eternum < www\umbra_api\scripts\create_skill_system.sql
 mysql -u root -p umbra_eternum < www\umbra_api\scripts\combat_v2.sql
 mysql -u root -p umbra_eternum < www\umbra_api\scripts\insert_all_skills.sql
 mysql -u root -p umbra_eternum < www\umbra_api\scripts\add_basic_attack_skills.sql
+mysql -u root -p umbra_eternum < www\umbra_api\scripts\add_class_npc_damage_type.sql
+mysql -u root -p umbra_eternum < www\umbra_api\scripts\add_damage_type_true_enum.sql
 ```
 
 ### 7.2 Tabelas principais
@@ -403,16 +411,41 @@ mysql -u root -p umbra_eternum < www\umbra_api\scripts\add_basic_attack_skills.s
 | Tabela | Colunas relevantes |
 |--------|-------------------|
 | `players` | `health`, `mana`, `max_health`, `max_mana` (base), `class_id`, `level`, `is_dead` |
-| `classes` | `base_strength`…`base_luck`, `base_health`, `base_mana`, `base_physical_attack`, etc. |
+| `classes` | `base_strength`…`base_luck`, `base_health`, `base_mana`, `base_physical_attack`, `damage_type` (PHYSICAL/MAGIC — school do basic; sync em `basic_attacks`) |
+| `npc_templates` | `physical_attack`, `magic_attack`, `damage_type`, `basic_power_coef`, defesas, ranges |
+| `npc_skills` | `power_coef`, `damage_type` (PHYSICAL/MAGIC), ranges, `effects_json`, … |
 | `player_stat_points` | `strength_points`, `dexterity_points`, … |
 | `player_inventory` + `item_templates` | `is_equipped`, `stats_json`, `refinement_bonus_stats` |
 | `player_item_buffs` | `buff_key`, `bonus_value`, `expires_at_ms` |
 | `skills` | `power_coef`, `resource_cost`, `cooldown_ms`, `effects_json`, `cast_anim_path`, … |
 | `player_skills` | `current_rank` |
-| `basic_attacks` | `class_id`, `power_coef`, `cooldown_ms`, `cast_anim_path` |
+| `basic_attacks` | `class_id`, `power_coef`, `cooldown_ms`, `cast_anim_path`, `vfx_path`, `damage_type` (PHYSICAL/MAGIC) (+ sfx/hit quando colunas existirem) |
 | `active_dots` | `target_player_id`, `dot_type`, `tick_value`, `tick_interval_ms`, `ticks_remaining`, `next_tick_at` |
-| `combat_log` | `source_player_id`, `target_player_id`, `skill_id`, `action_type`, `value`, `is_critical` |
-| `npc_templates` / `npc_instances` | HP, defesa, mesh, posição, `zone_id` |
+| `combat_log` | `source_player_id`, `target_player_id`, `skill_id`, `action_type` (`DAMAGE`/`HEAL`/`CRIT`/`DOUBLE`/`REACTION`/…), `value`, `is_critical` |
+| `npc_instances` | HP runtime, mesh, posição, `zone_id` |
+
+### 7.2.1 School de dano (`damage_type` + `power_coef`)
+
+O Manager escolhe **PHYSICAL**, **MAGIC** ou **TRUE** como base do cálculo:
+
+| Entidade | Campo | Efeito no zone |
+|----------|-------|----------------|
+| Classe (basic) | `classes.damage_type` → sync `basic_attacks.damage_type` | Basic usa phys/mag ATK/DEF ou TRUE; `power_coef` de `basic_attacks` |
+| Skill de jogador | `skills.damage_type` | Idem no cast |
+| NPC template (basic) | `npc_templates.damage_type` + `basic_power_coef` | Auto-attack: school × `basic_power_coef` / 100 |
+| Skill de NPC | `npc_skills.damage_type` + `power_coef` (+ rank) | Paridade com player: `value_percent` sobrescreve coef; `value_flat` soma ao final |
+
+Fórmula base (antes de DEF/crit/mitigações):
+
+`(primaryATK × power_coef + secondaryATK × secondary_coef) / 100`
+
+- PHYSICAL: primary = phys ATK, secondary = mag ATK
+- MAGIC: primary = mag ATK, secondary = phys ATK
+- TRUE: primary conforme `scaling_stat` (PHYS/MAG ou max); **sem** DEF nem resist elemental; `secondary_coef` ignorado; ainda aplica DR%/flat, escudo, crit, PvP
+
+SQL: `add_class_npc_damage_type.sql` + `add_damage_type_true_enum.sql`.
+
+Floating text (cliente): números ancorados na cabeça do **alvo**; lane Incoming (esquerda, vermelho) no player local; Outgoing (direita, âmbar) quando o dano foi causado pelo player ativo.
 
 ### 7.3 Exemplo `effects_json` (DOT)
 
@@ -425,7 +458,36 @@ Skill **Corte Dilacerante** (`insert_all_skills.sql`):
 ]
 ```
 
-Tipos suportados no cast (`applySkillEffects`): **`DOT`**, **`HOT`**. Outros (`BUFF_STAT`, `STUN`, etc.) parseados mas **não aplicados** ainda.
+Tipos suportados no cast (`applySkillEffects`), total de 25:
+
+- dano/recuperação: `DAMAGE`, `HEAL`, `DOT`, `HOT`, `EXECUTE`;
+- stats/defesa: `BUFF_STAT`, `DEBUFF_STAT`, `SHIELD`, `INVULNERABLE`;
+- controle: `STUN`, `SILENCE`, `SLOW`, `ROOT`, `KNOCKBACK`, `TAUNT`;
+- remoção/utilidade: `CLEANSE`, `DISPEL`, `COOLDOWN_RESET`, `RESOURCE_RESTORE`;
+- retorno/recursos: `LIFESTEAL`, `MANASTEAL`, `REFLECT`;
+- mundo: `STEALTH`, `SUMMON`, `TELEPORT`.
+
+`effects_json` em `skills`/`npc_skills` e `extra_effects_json` em
+`skill_rank_scaling` são as fontes autoritativas. A tabela relacional legada
+`skill_effects` não participa do runtime.
+
+### 7.3.1 Rank scaling (`skill_rank_scaling`)
+
+Fonte de verdade do fortalecimento por rank (além do `power_coef` base):
+
+| Coluna | Efeito no cast |
+|--------|----------------|
+| `power_coef_bonus` | somado ao `power_coef` base |
+| `resource_cost_bonus` | somado ao custo de mana |
+| `cooldown_reduction_ms` | subtraído do CD |
+| `duration_bonus_ms` | somado à duração base |
+| `extra_effects_json` | efeitos extras; **cumulativos** para todos os ranks ≤ `current_rank` |
+
+Fallback se não houver linha para o rank: `power_coef * (1 + (rank-1)*0.1)` (mesmo +10%/rank antigo). CD/mana/duração ficam nos valores base.
+
+Seed: `www/umbra_api/scripts/seed_skill_rank_scaling_defaults.sql` (defaults + showcase SILENCE rank 3 / STUN rank 5 em `BARB_RUIN_STRIKE`).
+
+Helpers C++: `SkillData::getEffectivePowerCoef/Cost/Cooldown/Duration` e `buildEffectsForRank`. Hot-reload zone: admin TCP `reload_skills`.
 
 ### 7.4 Como alterar uma skill
 
@@ -436,9 +498,15 @@ UPDATE skills SET
   cooldown_ms = 3000,
   effects_json = '[{"type":"DOT","target_stat":"health","value_percent":30,"duration_ms":6000,"tick_interval_ms":2000}]'
 WHERE skill_id = 42;
+
+INSERT INTO skill_rank_scaling (skill_id, rank, power_coef_bonus, extra_effects_json)
+VALUES (42, 4, 45, '[{"type":"SILENCE","duration_ms":1500,"chance_percent":100}]')
+ON DUPLICATE KEY UPDATE power_coef_bonus=VALUES(power_coef_bonus), extra_effects_json=VALUES(extra_effects_json);
 ```
 
 Rank do jogador: `UPDATE player_skills SET current_rank = 3 WHERE player_id = ? AND skill_id = ?`.
+
+Preferível: aba **Skills** no UmbraManager + botão **Recarregar no Zone** (`reload_skills`).
 
 ### 7.5 Como alterar ataque básico
 
@@ -502,9 +570,41 @@ Paths auto-procurados: `/Game/Widgets/HUD/`, `/Game/UI/`, `/Game/Blueprints/UI/`
 ### 9.2 Targeting (`GetCombatTargetId`)
 
 Prioridade:
-1. `FollowTargetNpcId` → `targetType=2` (NPC)
-2. `FollowTargetID` → `targetType=1` (player follow)
-3. `UmbraPlayerSelectionComponent::GetSelectedPlayerID()` → PvP manual (se ≠ `ActivePlayerID`)
+1. `UmbraPlayerSelectionComponent::GetSelectedPlayerID()` → PvP manual (se ≠ `ActivePlayerID`)
+2. `FollowTargetNpcId` atacável e com actor remoto → `targetType=2` (NPC); se o NPC sumiu/não é atacável, o follow é limpo
+3. `FollowTargetID` → `targetType=1` (player follow)
+
+Isso evita skills ENEMY com `targetId=0` / `SkillCastRejected reason=5` quando o follow NPC está stale em cima de intenção PvP.
+
+### 9.2.1 Reações PvP (Interposição / Ripostar)
+
+- **Interposição** (`ally_damaged`): só redireciona se protector e aliado estão no **mesmo party**; o **atacante** nunca dispara a própria Interposição no alvo que ele está batendo. `ReactionEngine` libera `mu_` antes de aplicar dano (evita `resource deadlock would occur` no combat worker).
+- **Ripostar** (`on_dodge`): dispara só em miss por dodge/accuracy. Cancelamento por `on_attack_received` **não** chama `onPlayerDodge`.
+- Reações armadas deduplicam por `buffId` (evita contra-ataque duplo).
+
+### 9.2.2 Buffs de skill no cálculo de dano
+
+Buffs/debuffs/shield aplicados em combate vivem no runtime da Zone + sync 104 /
+`active_buffs` write-behind. `CharacterStateLoader` carrega somente base,
+equipamento, passivas e consumíveis; ele não aplica `active_buffs`.
+
+No hit, `CombatCoreEngine::overlayRuntimeBuffs` e `overlayNpcRuntimeBuffs` recompõem o
+estado a partir de `baseStats`, na ordem `(base + flats) × percentuais`, e recalculam
+os derivados de STR/DEX/INT/VIT. Partir sempre da base impede dupla aplicação após
+reidratação.
+
+- `BUFF_STAT` / `DEBUFF_STAT`: flat + percent via `StatKeyMapping` (ATK/DEF/accuracy/etc.).
+- `damage_reduction` com `value_percent`: soma em `damageReductionPercent` (reduz dano recebido em %; cap 90). Flat continua em `damageReduction`.
+- `SHIELD`: alimenta `currentShield`; após o hit, `consumePlayerShield` reduz/remove o buff.
+- `STUN` bloqueia ação e movimento; `SILENCE` bloqueia skills; `ROOT` bloqueia
+  deslocamento; `SLOW` altera a velocidade autoritativa de player/NPC.
+- Chance final de CC:
+  `clamp(chance + chance_do_caster - max(0, resistência - penetração), 0, 100)`.
+- O opcode **118** (`CombatControlState`) agrega flags de STUN/SILENCE/ROOT/
+  STEALTH/INVULNERABLE e velocidade. Knockback/teleport continuam corrigindo posição
+  com o frame `StateUpdate` little-endian de 25B; os frames 25B/34B não mudaram.
+
+Sem o overlay, skills como Passo Guardião / Escudo de Voto / Chama do Voto / Marca do Juramento só apareciam na UI e **não** mudavam o dano.
 
 ### 9.3 Envio autoritativo
 
@@ -520,6 +620,8 @@ Prioridade:
 - [ ] Skill com DOT em `effects_json`: dano periódico no boneco (103/102) ou em player (93).
 - [ ] Crítico: floating text com prefixo "CRIT".
 - [ ] NPC não afunda após hit (opcode 102 só HP).
+- [ ] LMB com `basic_attacks.vfx_path` preenchido: Niagara no caster (+ hit se `hit_vfx_path`); remoto vê o mesmo via **99**.
+- [ ] NPC com `basic_vfx_path`: Niagara no auto-attack (opcode **99**).
 
 ---
 
@@ -535,6 +637,10 @@ Prioridade:
 | DOT não aplica | `effects_json` vazio ou tipo não DOT/HOT | `skills.effects_json`, log `applySkillEffects` |
 | Dano sempre igual | Stats não carregados | `CharacterStateLoader`, equip `is_equipped=TRUE` |
 | WebSocket cai ao atacar | Deadlock recursivo em `mu_` | `MovementServer.hpp` — lock curto antes de `processBasicAttack` |
+| Templar hit calcula e não aplica HP (PvP) | `onAllyDamaged` + Interposição → EDEADLK | Log `exceção no combat worker: resource deadlock`; `ReactionEngine` |
+| Buff DEF/ATK/DR na UI mas dano igual | Buff só em `playerBuffs_`, sem overlay no calc | `overlayRuntimeBuffs` + `damageReductionPercent` |
+| Templar toma dano “sozinha” | Ripostar no dodge do Martial | `combat_log` `REACTION` skill 38; miss legítimo |
+| Skill Martial `sem targetId` | Follow NPC stale > SelectedPlayer | `GetCombatTargetId` prioriza seleção PvP |
 | Remote actor duplicado | Dois `NetMovementClient` no Level BP | Remover spawn duplicado em `Lvl_Tutorial_` |
 
 ### Logs úteis
@@ -569,17 +675,55 @@ Inicialização (`ZoneServer::start`):
 
 ---
 
-## 12. Escopo futuro (não implementado)
+## 12. Troubleshooting: zone crash em PvP / skills
 
-- `BUFF_STAT`, `DEBUFF_STAT`, `STUN` etc. em `effects_json` — parseados, não aplicados no cast.
-- Range check server-side no basic attack (cooldown sim; `range_max` do SQL pode não ser validado).
-- `pvp_modifier` por skill no cálculo PvP detalhado.
+### Sintomas
+
+- Log do zone corta no meio de um timestamp (`[20` → restart) sem shutdown limpo.
+- Erros repetidos: `Data truncated for column 'action_type'` com SQL contendo `'DOUBLE'` ou `'REACTION'`.
+- WER / “Parou de funcionar” apontando `libmysql.dll` / `STATUS_BREAKPOINT`.
+
+### Correções no código/schema
+
+1. ENUM de `combat_log.action_type` deve incluir `DOUBLE` e `REACTION`:
+   - script: `www/umbra_api/scripts/alter_combat_log_action_type.sql`
+   - conferir: `SHOW COLUMNS FROM combat_log LIKE 'action_type';`
+2. Hits com `castTimeMs` são enfileirados como `SkillCastHitOnly` no **combat worker** (não rodam no tick do zone).
+3. Pool MySQL: sem reconnect implícito; sem fallback à conexão primary sem lock; `mysql_thread_init` por thread.
+
+### Minidumps (obrigatório para próxima queda)
+
+Preferível no Explorer (duplo clique; pede UAC e **não fecha sozinho**):
+
+```text
+scripts_main\enable_zone_crash_dumps.bat
+```
+
+Alternativa em PowerShell já elevado:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts_main\enable_zone_crash_dumps.ps1
+```
+
+Dumps em `D:\UmbraServerV2\crash_dumps\zone\`. Preserve `.dmp` + `zone_server.exe` + `.pdb` + últimas ~200 linhas de `build/bin/Release/logs/zone_server.log`.
+
+### Stress checklist
+
+Ver `scripts_main/stress_zone_pvp_combat.ps1` (checklist manual Templar × Martial).
+
+---
+
+## 13. Escopo futuro (não implementado)
+
+- Range check server-side no basic attack (cooldown sim; `range_max` do SQL pode não ser validado em todos os paths).
+- Redesign completo de `skill_effects` normalizado (continua JSON em `effects_json` / `extra_effects_json`).
+- Novos tipos de CC além de STUN/SILENCE/ROOT/SLOW.
 - `CombatService` legado — não participa do fluxo V2.
 - Componentes `UmbraBasicAttackComponent` / `UmbraCombatComponent` — referenciados no character; verificar presença no branch antes de depender do fluxo LMB→98.
 
 ---
 
-## 13. Referência rápida de commits/branches
+## 14. Referência rápida de commits/branches
 
 Branch de desenvolvimento atual: `backup/local-sync-no-heavy-20260407` (repo principal e submódulo `UmbraEternumUE`).
 

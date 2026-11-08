@@ -1,0 +1,55 @@
+-- Catalogo de skills de mob (separado de skills de player). Idempotente.
+SET NAMES utf8mb4;
+
+CREATE TABLE IF NOT EXISTS npc_skills (
+  npc_skill_id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  skill_key VARCHAR(50) NOT NULL,
+  skill_name VARCHAR(100) NOT NULL,
+  type_id TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  target_id TINYINT UNSIGNED NOT NULL DEFAULT 2,
+  element_id TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  scaling_stat_id TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  str_scaling TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  dex_scaling TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  vit_scaling TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  int_scaling TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  lck_scaling TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  power_coef SMALLINT UNSIGNED NOT NULL DEFAULT 100,
+  secondary_coef SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  resource_type ENUM('MANA','HEALTH','STAMINA','NONE') NOT NULL DEFAULT 'NONE',
+  resource_cost SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  resource_cost_percent TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  cooldown_ms INT UNSIGNED NOT NULL DEFAULT 4000,
+  cast_time_ms INT UNSIGNED NOT NULL DEFAULT 0,
+  duration_ms INT UNSIGNED NOT NULL DEFAULT 0,
+  range_min SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  range_max SMALLINT UNSIGNED NOT NULL DEFAULT 200,
+  area_radius SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  can_crit TINYINT(1) NOT NULL DEFAULT 1,
+  ignores_defense TINYINT(1) NOT NULL DEFAULT 0,
+  requires_target TINYINT(1) NOT NULL DEFAULT 1,
+  effects_json JSON DEFAULT NULL,
+  icon_path VARCHAR(512) DEFAULT NULL,
+  vfx_key VARCHAR(512) DEFAULT NULL,
+  vfx_path VARCHAR(512) DEFAULT NULL,
+  hit_vfx_path VARCHAR(512) DEFAULT NULL,
+  sfx_key VARCHAR(512) DEFAULT NULL,
+  description TEXT,
+  is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (npc_skill_id),
+  UNIQUE KEY uk_npc_skill_key (skill_key),
+  KEY idx_npc_skill_enabled (is_enabled)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS npc_template_skills (
+  npc_template_id INT UNSIGNED NOT NULL,
+  npc_skill_id INT UNSIGNED NOT NULL,
+  skill_rank TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  weight INT NOT NULL DEFAULT 100,
+  cooldown_override_ms INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (npc_template_id, npc_skill_id),
+  KEY idx_npc_tpl_skill (npc_skill_id),
+  CONSTRAINT fk_nts_skill FOREIGN KEY (npc_skill_id) REFERENCES npc_skills (npc_skill_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -60,12 +60,8 @@ void registerCommonCommands(CommandRegistry& registry, AdminContext& ctx) {
 
   registry.registerCommand("set_log_level", [](const nlohmann::json& args) {
     const std::string level = args.value("level", "INFO");
-    Core::Logger::Level lv = Core::Logger::Level::INFO;
-    if (level == "DEBUG") lv = Core::Logger::Level::DEBUG;
-    else if (level == "WARN") lv = Core::Logger::Level::WARN;
-    else if (level == "ERROR") lv = Core::Logger::Level::ERROR;
-    else if (level == "CRITICAL") lv = Core::Logger::Level::CRITICAL;
-    Core::Logger::getInstance().setLevel(lv);
+    // TRACE habilita os logs por frame (movimento/queries) só durante investigação.
+    Core::Logger::getInstance().setLevel(Core::Logger::parseLevel(level));
     nlohmann::json data;
     data["level"] = level;
     return data;

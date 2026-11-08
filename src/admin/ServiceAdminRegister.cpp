@@ -10,7 +10,9 @@
 #include "chat/ChatServer.hpp"
 #include "chat/ChannelManager.hpp"
 #include "network/SocketServer.hpp"
+#include "database/MySQLConnector.hpp"
 #include <nlohmann/json.hpp>
+#include <string>
 
 namespace Umbra {
 namespace Admin {
@@ -115,6 +117,69 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
     return d;
   });
 
+  registry.registerCommand("notify_mail", [&server](const nlohmann::json& args) {
+    nlohmann::json d;
+    const uint32_t playerId = args.value("player_id", 0u);
+    const uint32_t mailId = args.value("mail_id", 0u);
+    const std::string fromName = args.value("from_name", "Sistema");
+    const std::string subject = args.value("subject", "");
+    auto* mov = server.getMovementServer();
+    const bool sent = mov && playerId > 0 && mailId > 0 &&
+                      mov->notifyMailToPlayer(playerId, mailId, fromName, subject);
+    d["sent"] = sent;
+    d["player_id"] = playerId;
+    d["mail_id"] = mailId;
+    return d;
+  });
+
+  registry.registerCommand("flush_mail_notify_queue", [&server](const nlohmann::json& args) {
+    (void)args;
+    nlohmann::json d;
+    d["notified"] = 0;
+    d["consumed"] = 0;
+    auto* mov = server.getMovementServer();
+    auto db = server.getConfig().dbConnector;
+    if (!mov || !db) {
+      d["ok"] = false;
+      d["message"] = "MovementServer ou MySQL indisponível";
+      return d;
+    }
+    db->execute(
+        "CREATE TABLE IF NOT EXISTS mail_notify_queue ("
+        "id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,"
+        "recipient_player_id BIGINT UNSIGNED NOT NULL,"
+        "mail_id BIGINT UNSIGNED NOT NULL,"
+        "from_name VARCHAR(64) NOT NULL DEFAULT '',"
+        "subject VARCHAR(128) NOT NULL DEFAULT '',"
+        "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "consumed TINYINT(1) NOT NULL DEFAULT 0,"
+        "PRIMARY KEY (id),"
+        "INDEX idx_mail_notify_pending (consumed, recipient_player_id)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    auto rows = db->executeQuery(
+        "SELECT id, recipient_player_id, mail_id, from_name, subject "
+        "FROM mail_notify_queue WHERE consumed = 0 ORDER BY id ASC LIMIT 200");
+    int notified = 0;
+    int consumed = 0;
+    for (const auto& row : rows) {
+      if (row.size() < 5) continue;
+      const uint64_t qid = std::stoull(row[0]);
+      const uint32_t playerId = static_cast<uint32_t>(std::stoul(row[1]));
+      const uint32_t mailId = static_cast<uint32_t>(std::stoul(row[2]));
+      const std::string fromName = row[3];
+      const std::string subject = row[4];
+      if (mov->notifyMailToPlayer(playerId, mailId, fromName, subject)) {
+        ++notified;
+      }
+      db->execute("UPDATE mail_notify_queue SET consumed = 1 WHERE id = " + std::to_string(qid));
+      ++consumed;
+    }
+    d["ok"] = true;
+    d["notified"] = notified;
+    d["consumed"] = consumed;
+    return d;
+  });
+
   registry.registerCommand("force_save_positions", [&server](const nlohmann::json&) {
     server.forceSavePositions();
     nlohmann::json d;
@@ -143,7 +208,7 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
     return d;
   });
 
-  registry.registerCommand("reload_npc_instances", [&server](const nlohmann::json&) {
+  registry.registerCommand("reload_npc_instances", [&server](const nlohmann::json& args) {
     nlohmann::json d;
     auto* engine = server.getCombatCoreEngine();
     if (!engine) {
@@ -151,9 +216,66 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
       d["message"] = "CombatCoreEngine não inicializado";
       return d;
     }
-    const size_t loaded = engine->reloadMissingInstancesFromDatabase();
-    d["loaded"] = loaded;
-    d["clients_notified"] = loaded > 0;
+    // default: full reload (pos/home/roam). args.reload_missing_only=true → comportamento antigo.
+    const bool missingOnly = args.value("reload_missing_only", false);
+    if (missingOnly) {
+      const size_t loaded = engine->reloadMissingInstancesFromDatabase();
+      d["loaded"] = loaded;
+      d["mode"] = "missing_only";
+      d["clients_notified"] = loaded > 0;
+      return d;
+    }
+    const size_t spawned = engine->reloadAllNpcInstancesFromDatabase();
+    d["loaded"] = spawned;
+    d["mode"] = "full_reload";
+    d["clients_notified"] = spawned > 0;
+    return d;
+  });
+
+  registry.registerCommand("despawn_npc_instance", [&server](const nlohmann::json& args) {
+    nlohmann::json d;
+    const uint32_t instanceId = args.value("npc_instance_id", 0u);
+    d["npc_instance_id"] = instanceId;
+    auto* engine = server.getCombatCoreEngine();
+    if (!engine) {
+      d["despawned"] = false;
+      d["message"] = "CombatCoreEngine não inicializado";
+      return d;
+    }
+    const bool ok = engine->despawnNpcInstance(instanceId, 2);
+    d["despawned"] = ok;
+    d["server_zone_id"] = server.getConfig().zoneId;
+    if (!ok) {
+      d["message"] = "Instância não encontrada em memória nesta zone.";
+    }
+    return d;
+  });
+
+  registry.registerCommand("move_npc_instance", [&server](const nlohmann::json& args) {
+    nlohmann::json d;
+    const uint32_t instanceId = args.value("npc_instance_id", 0u);
+    const float x = args.value("x", args.value("pos_x", 0.0f));
+    const float y = args.value("y", args.value("pos_y", 0.0f));
+    const float z = args.value("z", args.value("pos_z", 0.0f));
+    const float yaw = args.value("yaw", 0.0f);
+    d["npc_instance_id"] = instanceId;
+    d["x"] = x;
+    d["y"] = y;
+    d["z"] = z;
+    d["yaw"] = yaw;
+    auto* engine = server.getCombatCoreEngine();
+    if (!engine) {
+      d["moved"] = false;
+      d["message"] = "CombatCoreEngine não inicializado";
+      return d;
+    }
+    const bool ok = engine->moveNpcInstance(instanceId, x, y, z, yaw);
+    d["moved"] = ok;
+    d["clients_notified"] = ok;
+    d["server_zone_id"] = server.getConfig().zoneId;
+    if (!ok) {
+      d["message"] = "Instância não encontrada nesta zone (zone_id diferente ou MySQL sem linha).";
+    }
     return d;
   });
 
@@ -181,6 +303,47 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
       d["npcs"].push_back(n);
     }
     d["count"] = d["npcs"].size();
+    return d;
+  });
+
+  registry.registerCommand("reload_game_rates", [&server](const nlohmann::json&) {
+    server.reloadGameRates();
+    nlohmann::json d;
+    d["reloaded"] = true;
+    double expM = 1.0;
+    double dropM = 1.0;
+    if (auto* exp = server.getExperienceService()) expM = exp->getExpMultiplier();
+    if (auto* loot = server.getLootService()) dropM = loot->getDropMultiplier();
+    d["exp_multiplier"] = expM;
+    d["drop_multiplier"] = dropM;
+    d["zone_id"] = server.getConfig().zoneId;
+    return d;
+  });
+
+  registry.registerCommand("reload_skills", [&server](const nlohmann::json&) {
+    nlohmann::json d;
+    auto* combat = server.getCombatCoreEngine();
+    const bool ok = combat && combat->reloadSkills();
+    d["ok"] = ok;
+    d["reloaded"] = ok;
+    d["zone_id"] = server.getConfig().zoneId;
+    if (!ok) d["message"] = "CombatCoreEngine/SkillService indisponível";
+    return d;
+  });
+
+  registry.registerCommand("reload_loot", [&server](const nlohmann::json&) {
+    nlohmann::json d;
+    auto* loot = server.getLootService();
+    if (loot) {
+      loot->loadFromDatabase();
+      d["ok"] = true;
+      d["reloaded"] = true;
+    } else {
+      d["ok"] = false;
+      d["reloaded"] = false;
+      d["message"] = "LootService indisponível";
+    }
+    d["zone_id"] = server.getConfig().zoneId;
     return d;
   });
 }

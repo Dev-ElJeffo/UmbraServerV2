@@ -1,0 +1,10 @@
+<UserControl x:Class="UmbraManager.Controls.PageHeader"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <StackPanel Margin="0,0,0,12">
+    <TextBlock Text="{Binding Title, RelativeSource={RelativeSource AncestorType=UserControl}}"
+               Style="{StaticResource ManagerPageHeader}"/>
+    <TextBlock Text="{Binding Subtitle, RelativeSource={RelativeSource AncestorType=UserControl}}"
+               Style="{StaticResource ManagerEditorSubtitle}"/>
+  </StackPanel>
+</UserControl>

@@ -283,9 +283,13 @@ void AuthClient::connectionLoop() {
 void AuthClient::responseLoop() {
   const size_t bufferSize = 4096;
   std::vector<char> buffer(bufferSize);
-  
+  // Respostas do AuthServer são JSON por linha; várias podem vir no mesmo recv().
+  std::string recvPending;
+  constexpr size_t kMaxPendingBytes = 64 * 1024;
+
   while (running_) {
     if (!connected_) {
+      recvPending.clear();
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
       continue;
     }
@@ -305,8 +309,26 @@ void AuthClient::responseLoop() {
       int bytesReceived = recv(socket_, buffer.data(), bufferSize, 0);
       
       if (bytesReceived > 0) {
-        std::string response(buffer.data(), bytesReceived);
-        handleResponse(response);
+        recvPending.append(buffer.data(), static_cast<size_t>(bytesReceived));
+        size_t start = 0;
+        size_t newline = 0;
+        while ((newline = recvPending.find('\n', start)) != std::string::npos) {
+          std::string line = recvPending.substr(start, newline - start);
+          if (!line.empty() && line.back() == '\r') line.pop_back();
+          if (line.find_first_not_of(" \t") != std::string::npos) {
+            handleResponse(line);
+          }
+          start = newline + 1;
+        }
+        recvPending.erase(0, start);
+        // Compatibilidade: AuthServer antigo responde JSON sem '\n'.
+        if (!recvPending.empty() && nlohmann::json::accept(recvPending)) {
+          handleResponse(recvPending);
+          recvPending.clear();
+        } else if (recvPending.size() > kMaxPendingBytes) {
+          Core::Logger::getInstance().warn("AuthClient: pending buffer overflow, discarding");
+          recvPending.clear();
+        }
       } else if (bytesReceived == 0) {
         Core::Logger::getInstance().info("Auth server disconnected");
         connected_ = false;

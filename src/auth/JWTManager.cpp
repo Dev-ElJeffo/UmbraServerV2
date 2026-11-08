@@ -21,11 +21,13 @@ JWTManager::JWTManager(const std::string& secretKey)
 std::string JWTManager::generateToken(uint64_t accountId, 
                                       uint64_t playerId,
                                       const std::string& username,
-                                      uint32_t expirationMinutes) {
+                                      uint32_t expirationMinutes,
+                                      uint32_t sessionVersion) {
   JWTPayload payload;
   payload.accountId = accountId;
   payload.playerId = playerId;
   payload.username = username;
+  payload.sessionVersion = sessionVersion;
   payload.issuedAt = std::chrono::system_clock::now();
   payload.expiresAt = payload.issuedAt + std::chrono::minutes(expirationMinutes);
   
@@ -129,7 +131,8 @@ std::string JWTManager::refreshToken(const std::string& oldToken,
   return generateToken(payload->accountId, 
                        payload->playerId, 
                        payload->username, 
-                       expirationMinutes);
+                       expirationMinutes,
+                       payload->sessionVersion);
 }
 
 std::string JWTManager::base64UrlEncode(const std::string& input) {
@@ -197,6 +200,7 @@ std::string JWTManager::createPayload(const JWTPayload& payload) {
   json["account_id"] = payload.accountId;
   json["player_id"] = payload.playerId;
   json["username"] = payload.username;
+  json["session_version"] = payload.sessionVersion;
   
   auto iat = std::chrono::duration_cast<std::chrono::seconds>(
     payload.issuedAt.time_since_epoch()).count();
@@ -217,6 +221,9 @@ std::optional<JWTPayload> JWTManager::parsePayload(const std::string& payloadStr
     payload.accountId = json["account_id"];
     payload.playerId = json["player_id"];
     payload.username = json["username"];
+    if (json.contains("session_version")) {
+      payload.sessionVersion = json["session_version"];
+    }
     
     int64_t iat = json["iat"];
     int64_t exp = json["exp"];

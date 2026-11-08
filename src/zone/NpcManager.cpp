@@ -1,20 +1,296 @@
 #include "zone/NpcManager.hpp"
 #include "core/Logger.hpp"
+#include "core/Timer.hpp"
+#include <nlohmann/json.hpp>
 #include <algorithm>
+#include <initializer_list>
+#include <cmath>
+#include <ctime>
 
 namespace Umbra {
 namespace Zone {
 
+namespace {
+constexpr size_t kMinRowFields = 64;
+
+std::chrono::system_clock::time_point respawnTimeFromUnix(uint64_t unixTs) {
+  if (unixTs == 0) {
+    return std::chrono::system_clock::now();
+  }
+  return std::chrono::system_clock::from_time_t(static_cast<std::time_t>(unixTs));
+}
+
+float parseFloatOr(const std::string& s, float fallback) {
+  if (s.empty()) return fallback;
+  try {
+    return std::stof(s);
+  } catch (...) {
+    return fallback;
+  }
+}
+
+bool parseOptionalFloat(const std::string& s, float& out) {
+  if (s.empty()) return false;
+  try {
+    out = std::stof(s);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+}  // namespace
+
+namespace {
+std::string buildNpcInstanceSelectSql(Database::MySQLConnector& db) {
+  static const char* kBase =
+      "SELECT ni.npc_instance_id, ni.npc_template_id, ni.zone_id, ni.pos_x, ni.pos_y, ni.pos_z, ni.yaw, "
+      "ni.current_health, ni.current_mana, ni.is_dead, "
+      "COALESCE(UNIX_TIMESTAMP(ni.respawn_at), 0) AS respawn_at_unix, "
+      "nt.npc_name, nt.level, nt.max_health, nt.max_mana, "
+      "nt.physical_attack, nt.magic_attack, nt.physical_defense, nt.magic_defense, "
+      "nt.accuracy, nt.dodge, nt.critical, nt.critical_resistance, "
+      "nt.double_attack_rate, nt.double_attack_resistance, "
+      "nt.skeletal_mesh_path, nt.anim_blueprint_path, "
+      "COALESCE(nt.mesh_scale, 1.0) AS mesh_scale, "
+      "nt.is_attackable, nt.interaction_radius, nt.has_vendor, nt.has_quest_dialog, "
+      "COALESCE(nv.vendor_id, 0) AS vendor_id, "
+      "COALESCE(nt.respawn_seconds, 30) AS respawn_seconds, "
+      "COALESCE(nt.aggro_radius, 0) AS tpl_aggro, "
+      "COALESCE(nt.leash_radius, 0) AS tpl_leash, "
+      "COALESCE(nt.attack_range, 150) AS tpl_attack_range, "
+      "COALESCE(nt.attack_cooldown_ms, 1500) AS tpl_attack_cd, "
+      "COALESCE(nt.move_speed, 200) AS tpl_move_speed, "
+      "COALESCE(nt.roam_radius, 0) AS tpl_roam, "
+      "COALESCE(nt.is_hostile, 1) AS is_hostile, "
+      "ni.home_x, ni.home_y, ni.home_z, "
+      "ni.roam_radius AS inst_roam, ni.aggro_radius AS inst_aggro, "
+      "ni.leash_radius AS inst_leash, ni.move_speed AS inst_move_speed, "
+      "nt.right_hand_mesh_path, nt.left_hand_mesh_path, "
+      "COALESCE(nt.right_hand_rel_x, 0), COALESCE(nt.right_hand_rel_y, 0), COALESCE(nt.right_hand_rel_z, 0), "
+      "COALESCE(nt.right_hand_rel_pitch, 0), COALESCE(nt.right_hand_rel_yaw, 0), COALESCE(nt.right_hand_rel_roll, 0), "
+      "COALESCE(nt.right_hand_rel_scale, 1), "
+      "COALESCE(nt.left_hand_rel_x, 0), COALESCE(nt.left_hand_rel_y, 0), COALESCE(nt.left_hand_rel_z, 0), "
+      "COALESCE(nt.left_hand_rel_pitch, 0), COALESCE(nt.left_hand_rel_yaw, 0), COALESCE(nt.left_hand_rel_roll, 0), "
+      "COALESCE(nt.left_hand_rel_scale, 1), "
+      "nt.anim_states_json, "
+      "COALESCE(nt.collision_radius, 45) AS collision_radius, "
+      "COALESCE(nt.nameplate_radius, 2000) AS nameplate_radius "
+      "FROM npc_instances ni "
+      "JOIN npc_templates nt ON nt.npc_template_id = ni.npc_template_id "
+      "LEFT JOIN npc_vendors nv ON nv.npc_template_id = nt.npc_template_id ";
+
+  static int hasStopChase = -1;
+  if (hasStopChase < 0) {
+    hasStopChase =
+        !db.executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'combat_stop_range'").empty() ? 1 : 0;
+  }
+  static int hasKiteSpeed = -1;
+  if (hasKiteSpeed < 0) {
+    hasKiteSpeed =
+        !db.executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'kite_speed_mult'").empty() ? 1 : 0;
+  }
+  static int hasBasicVfx = -1;
+  if (hasBasicVfx < 0) {
+    hasBasicVfx =
+        !db.executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'basic_vfx_path'").empty() ? 1 : 0;
+  }
+  static int hasDamageType = -1;
+  if (hasDamageType < 0) {
+    hasDamageType =
+        !db.executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'damage_type'").empty() ? 1 : 0;
+  }
+  std::string sql = kBase;
+  // Colunas opcionais entram no SELECT (antes do FROM), nunca após o JOIN.
+  std::string optionalSelect;
+  if (hasStopChase == 1) {
+    optionalSelect +=
+        ", COALESCE(nt.combat_stop_range, 0) AS tpl_combat_stop, "
+        "COALESCE(nt.chase_speed_mult, 1.5) AS tpl_chase_mult, "
+        "ni.combat_stop_range AS inst_combat_stop, "
+        "ni.chase_speed_mult AS inst_chase_mult ";
+  }
+  if (hasKiteSpeed == 1) {
+    optionalSelect +=
+        ", COALESCE(nt.kite_speed_mult, 1.0) AS tpl_kite_mult, "
+        "ni.kite_speed_mult AS inst_kite_mult ";
+  }
+  if (hasDamageType == 1) {
+    optionalSelect +=
+        ", COALESCE(nt.damage_type, 'PHYSICAL') AS damage_type, "
+        "COALESCE(nt.basic_power_coef, 100) AS basic_power_coef ";
+  }
+  if (hasBasicVfx == 1) {
+    optionalSelect +=
+        ", COALESCE(nt.basic_vfx_path, '') AS basic_vfx_path, "
+        "COALESCE(nt.basic_hit_vfx_path, '') AS basic_hit_vfx_path ";
+  }
+  if (!optionalSelect.empty()) {
+    const std::string marker = "AS nameplate_radius ";
+    const auto pos = sql.find(marker);
+    if (pos != std::string::npos) {
+      sql.insert(pos + marker.size(), optionalSelect);
+    }
+  }
+  return sql;
+}
+}  // namespace
+
 const char* NpcManager::kInstanceSelectSql =
-    "SELECT ni.npc_instance_id, ni.npc_template_id, ni.zone_id, ni.pos_x, ni.pos_y, ni.pos_z, ni.yaw, "
-    "ni.current_health, ni.current_mana, ni.is_dead, "
-    "nt.npc_name, nt.level, nt.max_health, nt.max_mana, nt.physical_defense, "
-    "nt.skeletal_mesh_path, nt.anim_blueprint_path "
-    "FROM npc_instances ni "
-    "JOIN npc_templates nt ON nt.npc_template_id = ni.npc_template_id ";
+    "SELECT ni.npc_instance_id FROM npc_instances ni ";  // legado; queries usam buildNpcInstanceSelectSql
+
+std::string NpcManager::zoneWhereClause() {
+  return "WHERE (ni.zone_id = ? OR ni.zone_id = 0) ";
+}
 
 NpcManager::NpcManager(std::shared_ptr<Database::MySQLConnector> db, uint32_t zoneId)
     : db_(std::move(db)), zoneId_(zoneId) {}
+
+void NpcManager::resetAiState(NpcRuntimeInstance& inst) {
+  inst.aiState = NpcAiState::Idle;
+  inst.targetPlayerId = 0;
+  inst.hasWanderDest = false;
+  inst.nextWanderAt = {};
+  inst.lastAttackAt = {};
+  inst.pendingDeathDespawn = false;
+  inst.deathDespawnAt = {};
+}
+
+namespace {
+void appendAnimPathList(std::vector<std::string>& out, const nlohmann::json& node) {
+  auto pushOne = [&out](std::string s) {
+    // Aceita "pathA;pathB" gravado como string única (legado / typo no Manager).
+    size_t start = 0;
+    while (start < s.size()) {
+      const size_t sep = s.find(';', start);
+      const size_t end = (sep == std::string::npos) ? s.size() : sep;
+      std::string part = s.substr(start, end - start);
+      // trim
+      while (!part.empty() && (part.front() == ' ' || part.front() == '\t')) part.erase(part.begin());
+      while (!part.empty() && (part.back() == ' ' || part.back() == '\t')) part.pop_back();
+      if (!part.empty()) out.push_back(std::move(part));
+      if (sep == std::string::npos) break;
+      start = sep + 1;
+    }
+  };
+  if (node.is_array()) {
+    for (const auto& el : node) {
+      if (!el.is_string()) continue;
+      pushOne(el.get<std::string>());
+    }
+  } else if (node.is_string()) {
+    pushOne(node.get<std::string>());
+  }
+}
+std::string jsonDirString(const nlohmann::json& dir, std::initializer_list<const char*> keys) {
+  for (const char* key : keys) {
+    if (dir.contains(key) && dir[key].is_string()) {
+      std::string s = dir[key].get<std::string>();
+      if (!s.empty()) return s;
+    }
+  }
+  return {};
+}
+
+void parseDirGroup(const nlohmann::json& root, const char* key, std::string& fwd, std::string& bwd,
+                    std::string& left, std::string& right, std::string& legacy) {
+  if (!root.contains(key)) return;
+  const auto& node = root[key];
+  if (node.is_string()) {
+    legacy = node.get<std::string>();
+    if (fwd.empty()) fwd = legacy;
+    return;
+  }
+  if (!node.is_object()) return;
+  fwd = jsonDirString(node, {"fwd", "f", "forward"});
+  bwd = jsonDirString(node, {"bwd", "b", "back", "backward"});
+  left = jsonDirString(node, {"left", "l"});
+  right = jsonDirString(node, {"right", "r"});
+  if (legacy.empty()) legacy = fwd;
+}
+}  // namespace
+
+void NpcManager::parseAnimStatesJson(NpcRuntimeInstance& inst, const std::string& jsonStr) {
+  inst.attackAnimPaths.clear();
+  inst.attackVfxPaths.clear();
+  inst.hitAnimPaths.clear();
+  inst.deathAnimPath.clear();
+  inst.skillAnimPath.clear();
+  inst.idleAnimPath.clear();
+  inst.walkAnimPath.clear();
+  inst.walkFwdPath.clear();
+  inst.walkBwdPath.clear();
+  inst.walkLeftPath.clear();
+  inst.walkRightPath.clear();
+  inst.runFwdPath.clear();
+  inst.runBwdPath.clear();
+  inst.runLeftPath.clear();
+  inst.runRightPath.clear();
+  inst.castAnimPaths.clear();
+  inst.buffAnimPaths.clear();
+  inst.deathDurationMs = 0;
+  if (jsonStr.empty()) return;
+
+  nlohmann::json root = nlohmann::json::parse(jsonStr, nullptr, false);
+  if (root.is_discarded() || !root.is_object()) return;
+
+  if (root.contains("attacks")) {
+    appendAnimPathList(inst.attackAnimPaths, root["attacks"]);
+  } else if (root.contains("attack")) {
+    appendAnimPathList(inst.attackAnimPaths, root["attack"]);
+  }
+  if (root.contains("attack_vfx")) {
+    appendAnimPathList(inst.attackVfxPaths, root["attack_vfx"]);
+  } else if (root.contains("attackVfx")) {
+    appendAnimPathList(inst.attackVfxPaths, root["attackVfx"]);
+  }
+  if (root.contains("hits")) {
+    appendAnimPathList(inst.hitAnimPaths, root["hits"]);
+  } else if (root.contains("hit")) {
+    appendAnimPathList(inst.hitAnimPaths, root["hit"]);
+  }
+  if (root.contains("death") && root["death"].is_string()) {
+    inst.deathAnimPath = root["death"].get<std::string>();
+  }
+  if (root.contains("skill") && root["skill"].is_string()) {
+    inst.skillAnimPath = root["skill"].get<std::string>();
+  }
+  if (root.contains("idle") && root["idle"].is_string()) {
+    inst.idleAnimPath = root["idle"].get<std::string>();
+  }
+  parseDirGroup(root, "walk", inst.walkFwdPath, inst.walkBwdPath, inst.walkLeftPath, inst.walkRightPath,
+                 inst.walkAnimPath);
+  std::string runLegacy;
+  parseDirGroup(root, "run", inst.runFwdPath, inst.runBwdPath, inst.runLeftPath, inst.runRightPath, runLegacy);
+  if (inst.runFwdPath.empty()) inst.runFwdPath = runLegacy;
+  if (root.contains("casts")) {
+    appendAnimPathList(inst.castAnimPaths, root["casts"]);
+  }
+  if (root.contains("buffs")) {
+    appendAnimPathList(inst.buffAnimPaths, root["buffs"]);
+  }
+  if (inst.castAnimPaths.empty() && !inst.skillAnimPath.empty()) {
+    inst.castAnimPaths.push_back(inst.skillAnimPath);
+  }
+  if (root.contains("death_ms")) {
+    try {
+      if (root["death_ms"].is_number_integer()) {
+        inst.deathDurationMs = static_cast<uint16_t>(
+            std::clamp(root["death_ms"].get<int>(), 0, 5000));
+      } else if (root["death_ms"].is_string()) {
+        inst.deathDurationMs = static_cast<uint16_t>(
+            std::clamp(std::stoi(root["death_ms"].get<std::string>()), 0, 5000));
+      }
+    } catch (...) {
+      inst.deathDurationMs = 0;
+    }
+  }
+  if (!inst.deathAnimPath.empty() && inst.deathDurationMs == 0) {
+    inst.deathDurationMs = 1500;
+  }
+  if (inst.deathDurationMs > 0 && inst.deathDurationMs < 500) {
+    inst.deathDurationMs = 500;
+  }
+}
 
 bool NpcManager::reloadFromDatabase() {
   if (!db_ || !db_->isConnected()) return false;
@@ -24,9 +300,7 @@ bool NpcManager::reloadFromDatabase() {
   indexById_.clear();
 
   const std::string zoneStr = std::to_string(zoneId_);
-  auto rows = db_->executePreparedQuery(
-      std::string(kInstanceSelectSql) + "WHERE ni.zone_id = ? AND ni.is_dead = 0",
-      {zoneStr});
+  auto rows = db_->executePreparedQuery(buildNpcInstanceSelectSql(*db_) + zoneWhereClause(), {zoneStr});
 
   for (const auto& row : rows) {
     loadInstanceFromRow(row);
@@ -34,6 +308,12 @@ bool NpcManager::reloadFromDatabase() {
 
   Core::Logger::getInstance().info("[NpcManager] carregadas {} instancias de NPC para zone_id={}",
                                    instances_.size(), zoneId_);
+  for (const auto& inst : instances_) {
+    Core::Logger::getInstance().info(
+        "[NpcManager] NPC id={} tpl={} name='{}' home=({:.1f},{:.1f},{:.1f}) roam={:.0f}",
+        inst.npcInstanceId, inst.templateId, inst.npcName, inst.homeX, inst.homeY, inst.homeZ,
+        inst.roamRadius);
+  }
   return true;
 }
 
@@ -48,9 +328,8 @@ bool NpcManager::loadInstanceById(uint32_t npcInstanceId) {
   const std::string idStr = std::to_string(npcInstanceId);
   const std::string zoneStr = std::to_string(zoneId_);
   auto rows = db_->executePreparedQuery(
-      std::string(kInstanceSelectSql) +
-          "WHERE ni.npc_instance_id = ? AND ni.zone_id = ? AND ni.is_dead = 0 LIMIT 1",
-      {idStr, zoneStr});
+      buildNpcInstanceSelectSql(*db_) + zoneWhereClause() + "AND ni.npc_instance_id = ? LIMIT 1",
+      {zoneStr, idStr});
 
   if (rows.empty()) return false;
 
@@ -64,9 +343,7 @@ size_t NpcManager::reloadMissingInstancesFromDatabase() {
   if (!db_ || !db_->isConnected()) return 0;
 
   const std::string zoneStr = std::to_string(zoneId_);
-  auto rows = db_->executePreparedQuery(
-      std::string(kInstanceSelectSql) + "WHERE ni.zone_id = ? AND ni.is_dead = 0",
-      {zoneStr});
+  auto rows = db_->executePreparedQuery(buildNpcInstanceSelectSql(*db_) + zoneWhereClause(), {zoneStr});
 
   size_t loaded = 0;
   std::lock_guard<std::mutex> lock(mu_);
@@ -90,7 +367,7 @@ size_t NpcManager::reloadMissingInstancesFromDatabase() {
 }
 
 void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
-  if (row.size() < 17) return;
+  if (row.size() < kMinRowFields) return;
 
   NpcRuntimeInstance inst;
   try {
@@ -104,21 +381,243 @@ void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
     inst.currentHealth = std::stoi(row[7]);
     inst.currentMana = std::stoi(row[8]);
     inst.isDead = (std::stoi(row[9]) != 0);
-    inst.npcName = row[10];
-    inst.level = static_cast<uint32_t>(std::stoul(row[11]));
-    inst.maxHealth = std::stoi(row[12]);
-    inst.maxMana = std::stoi(row[13]);
-    inst.physicalDefense = std::stoi(row[14]);
-    inst.skeletalMeshPath = row[15];
-    inst.animBlueprintPath = row[16];
+    const uint64_t respawnUnix = std::stoull(row[10]);
+    inst.npcName = row[11];
+    inst.level = static_cast<uint32_t>(std::stoul(row[12]));
+    inst.maxHealth = std::stoi(row[13]);
+    inst.maxMana = std::stoi(row[14]);
+    inst.physicalAttack = std::stoi(row[15]);
+    inst.magicAttack = std::stoi(row[16]);
+    inst.physicalDefense = std::stoi(row[17]);
+    inst.magicDefense = std::stoi(row[18]);
+    inst.accuracy = std::stoi(row[19]);
+    inst.dodge = std::stoi(row[20]);
+    inst.critical = std::stoi(row[21]);
+    inst.criticalResistance = std::stoi(row[22]);
+    inst.doubleAttackRate = std::stoi(row[23]);
+    inst.doubleAttackResistance = std::stoi(row[24]);
+    inst.skeletalMeshPath = row[25];
+    inst.animBlueprintPath = row[26];
+    inst.meshScale = parseFloatOr(row[27], 1.f);
+    if (inst.meshScale <= 0.01f) inst.meshScale = 1.f;
+    inst.isAttackable = (std::stoi(row[28]) != 0);
+    inst.interactionRadius = parseFloatOr(row[29], 300.f);
+    inst.hasVendor = (std::stoi(row[30]) != 0);
+    inst.hasQuestDialog = (std::stoi(row[31]) != 0);
+    inst.vendorId = static_cast<uint32_t>(std::stoul(row[32]));
+    inst.respawnSeconds = static_cast<uint32_t>(std::stoul(row[33]));
+    if (inst.respawnSeconds == 0) inst.respawnSeconds = kDefaultRespawnSeconds;
+
+    const float tplAggro = parseFloatOr(row[34], 0.f);
+    const float tplLeash = parseFloatOr(row[35], 0.f);
+    inst.attackRange = parseFloatOr(row[36], 150.f);
+    inst.attackCooldownMs = static_cast<uint32_t>(std::max(1, std::stoi(row[37])));
+    const float tplMove = parseFloatOr(row[38], 200.f);
+    const float tplRoam = parseFloatOr(row[39], 0.f);
+    inst.isHostile = (std::stoi(row[40]) != 0);
+
+    // pos_* é a fonte da verdade do admin (MySQL / Manager).
+    // Antes: spawn só em home_* → editar pos_* “não mudava nada”.
+    const float posX = inst.x;
+    const float posY = inst.y;
+    const float posZ = inst.z;
+    float oldHomeX = posX, oldHomeY = posY, oldHomeZ = posZ;
+    const bool hadHome = parseOptionalFloat(row[41], oldHomeX) && parseOptionalFloat(row[42], oldHomeY) &&
+                         parseOptionalFloat(row[43], oldHomeZ);
+    const float homePosDistSq =
+        (oldHomeX - posX) * (oldHomeX - posX) + (oldHomeY - posY) * (oldHomeY - posY) +
+        (oldHomeZ - posZ) * (oldHomeZ - posZ);
+    inst.homeX = posX;
+    inst.homeY = posY;
+    inst.homeZ = posZ;
+    inst.x = posX;
+    inst.y = posY;
+    inst.z = posZ;
+    if (hadHome && homePosDistSq > 1.f) {
+      Core::Logger::getInstance().warn(
+          "[NpcManager] NPC id={} pos!=home — usando pos=({:.1f},{:.1f},{:.1f}) e sync home (home antigo={:.1f},{:.1f},{:.1f})",
+          inst.npcInstanceId, posX, posY, posZ, oldHomeX, oldHomeY, oldHomeZ);
+      persistNpcSql(
+          "UPDATE npc_instances SET home_x = " + std::to_string(posX) + ", home_y = " + std::to_string(posY) +
+          ", home_z = " + std::to_string(posZ) + " WHERE npc_instance_id = " +
+          std::to_string(inst.npcInstanceId));
+    }
+
+    float ov = 0.f;
+    inst.roamRadius = parseOptionalFloat(row[44], ov) ? ov : tplRoam;
+    inst.aggroRadius = parseOptionalFloat(row[45], ov) ? ov : tplAggro;
+    inst.leashRadius = parseOptionalFloat(row[46], ov) ? ov : tplLeash;
+    inst.moveSpeed = parseOptionalFloat(row[47], ov) ? ov : tplMove;
+    if (inst.moveSpeed <= 0.f) inst.moveSpeed = 200.f;
+    if (inst.attackRange <= 0.f) inst.attackRange = 150.f;
+    static int hasCrowdControlColumns = -1;
+    if (hasCrowdControlColumns < 0) {
+      hasCrowdControlColumns =
+          db_ && !db_->executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'stun_resist'").empty()
+              ? 1
+              : 0;
+    }
+    if (hasCrowdControlColumns == 1 && db_) {
+      auto resistanceRows = db_->executeQuery(
+          "SELECT COALESCE(stun_resist,0), COALESCE(silence_resist,0), "
+          "COALESCE(root_resist,0), COALESCE(slow_resist,0) FROM npc_templates "
+          "WHERE npc_template_id = " + std::to_string(inst.templateId) + " LIMIT 1");
+      if (!resistanceRows.empty() && resistanceRows[0].size() >= 4) {
+        inst.stunResist = std::clamp(std::stoi(resistanceRows[0][0]), 0, 100);
+        inst.silenceResist = std::clamp(std::stoi(resistanceRows[0][1]), 0, 100);
+        inst.rootResist = std::clamp(std::stoi(resistanceRows[0][2]), 0, 100);
+        inst.slowResist = std::clamp(std::stoi(resistanceRows[0][3]), 0, 100);
+      }
+    }
+
+    inst.rightHandMeshPath = row.size() > 48 ? row[48] : "";
+    inst.leftHandMeshPath = row.size() > 49 ? row[49] : "";
+    if (row.size() > 56) {
+      inst.rightHandOffset.x = parseFloatOr(row[50], 0.f);
+      inst.rightHandOffset.y = parseFloatOr(row[51], 0.f);
+      inst.rightHandOffset.z = parseFloatOr(row[52], 0.f);
+      inst.rightHandOffset.pitch = parseFloatOr(row[53], 0.f);
+      inst.rightHandOffset.yaw = parseFloatOr(row[54], 0.f);
+      inst.rightHandOffset.roll = parseFloatOr(row[55], 0.f);
+      inst.rightHandOffset.scale = parseFloatOr(row[56], 1.f);
+      if (inst.rightHandOffset.scale <= 0.01f) inst.rightHandOffset.scale = 1.f;
+    }
+    if (row.size() > 63) {
+      inst.leftHandOffset.x = parseFloatOr(row[57], 0.f);
+      inst.leftHandOffset.y = parseFloatOr(row[58], 0.f);
+      inst.leftHandOffset.z = parseFloatOr(row[59], 0.f);
+      inst.leftHandOffset.pitch = parseFloatOr(row[60], 0.f);
+      inst.leftHandOffset.yaw = parseFloatOr(row[61], 0.f);
+      inst.leftHandOffset.roll = parseFloatOr(row[62], 0.f);
+      inst.leftHandOffset.scale = parseFloatOr(row[63], 1.f);
+      if (inst.leftHandOffset.scale <= 0.01f) inst.leftHandOffset.scale = 1.f;
+    }
+    if (row.size() > 64) {
+      parseAnimStatesJson(inst, row[64]);
+    }
+    inst.collisionRadius = 45.f;
+    if (row.size() > 65) {
+      inst.collisionRadius = parseFloatOr(row[65], 45.f);
+      if (inst.collisionRadius < 1.f) inst.collisionRadius = 45.f;
+    }
+    inst.nameplateRadius = 2000.f;
+    if (row.size() > 66) {
+      inst.nameplateRadius = parseFloatOr(row[66], 2000.f);
+      if (inst.nameplateRadius < 1.f) inst.nameplateRadius = 2000.f;
+    }
+
+    static int sHasStopChaseCols = -1;
+    if (sHasStopChaseCols < 0 && db_) {
+      sHasStopChaseCols =
+          !db_->executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'combat_stop_range'").empty() ? 1
+                                                                                               : 0;
+    }
+    static int sHasKiteSpeedCols = -1;
+    if (sHasKiteSpeedCols < 0 && db_) {
+      sHasKiteSpeedCols =
+          !db_->executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'kite_speed_mult'").empty() ? 1 : 0;
+    }
+
+    size_t col = 67;
+    inst.combatStopRange = 0.f;
+    inst.chaseSpeedMult = 1.5f;
+    inst.kiteSpeedMult = 1.f;
+    if (sHasStopChaseCols == 1 && row.size() > col + 3) {
+      const float tplCombatStop = parseFloatOr(row[col], 0.f);
+      const float tplChaseMult = parseFloatOr(row[col + 1], 1.5f);
+      float ovStop = 0.f;
+      float ovChase = 0.f;
+      inst.combatStopRange =
+          parseOptionalFloat(row[col + 2], ovStop) ? ovStop : tplCombatStop;
+      inst.chaseSpeedMult =
+          parseOptionalFloat(row[col + 3], ovChase) ? ovChase : tplChaseMult;
+      col += 4;
+    }
+    if (sHasKiteSpeedCols == 1 && row.size() > col + 1) {
+      const float tplKiteMult = parseFloatOr(row[col], 1.f);
+      float ovKite = 0.f;
+      inst.kiteSpeedMult =
+          parseOptionalFloat(row[col + 1], ovKite) ? ovKite : tplKiteMult;
+      col += 2;
+    }
+    if (inst.combatStopRange < 0.f) inst.combatStopRange = 0.f;
+    if (inst.chaseSpeedMult <= 0.f) inst.chaseSpeedMult = 1.5f;
+    if (inst.kiteSpeedMult <= 0.f) inst.kiteSpeedMult = 1.f;
+
+    // Colunas opcionais no fim do SELECT: [damage_type, basic_power_coef?][basic_vfx, basic_hit_vfx?]
+    static int sHasBasicVfxCols = -1;
+    if (sHasBasicVfxCols < 0 && db_) {
+      sHasBasicVfxCols =
+          !db_->executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'basic_vfx_path'").empty() ? 1 : 0;
+    }
+    static int sHasDamageTypeCols = -1;
+    if (sHasDamageTypeCols < 0 && db_) {
+      sHasDamageTypeCols =
+          !db_->executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'damage_type'").empty() ? 1 : 0;
+    }
+    size_t tail = row.size();
+    if (sHasBasicVfxCols == 1 && tail >= 2) {
+      inst.basicHitVfxPath = row[tail - 1];
+      inst.basicVfxPath = row[tail - 2];
+      tail -= 2;
+    }
+    if (sHasDamageTypeCols == 1 && tail >= 2) {
+      const std::string& dt = row[tail - 2];
+      const std::string& coef = row[tail - 1];
+      inst.damageType = (dt == "TRUE" || dt == "true")
+                            ? 2u
+                            : ((dt == "MAGIC" || dt == "magic") ? 1u : 0u);
+      try {
+        inst.basicPowerCoef = static_cast<uint16_t>(std::stoul(coef));
+      } catch (...) {
+        inst.basicPowerCoef = 100;
+      }
+      if (inst.basicPowerCoef == 0) inst.basicPowerCoef = 100;
+    }
+
+    inst.lastBroadcastX = inst.x;
+    inst.lastBroadcastY = inst.y;
+    inst.lastBroadcastYaw = inst.yaw;
+
+    if (inst.isDead) {
+      inst.respawnAt = respawnTimeFromUnix(respawnUnix);
+    }
+    loadBoundSkills(inst);
+    resetAiState(inst);
   } catch (...) {
     return;
   }
 
-  if (inst.isDead) return;
-
   indexById_[inst.npcInstanceId] = instances_.size();
   instances_.push_back(std::move(inst));
+}
+
+void NpcManager::loadBoundSkills(NpcRuntimeInstance& inst) {
+  inst.boundSkills.clear();
+  if (!db_ || !db_->isConnected() || inst.templateId == 0) return;
+  auto rows = db_->executePreparedQuery(
+      "SELECT nts.npc_skill_id, nts.skill_rank, nts.weight, nts.cooldown_override_ms, "
+      "ns.cooldown_ms, ns.range_max "
+      "FROM npc_template_skills nts "
+      "JOIN npc_skills ns ON ns.npc_skill_id = nts.npc_skill_id "
+      "WHERE nts.npc_template_id = ? AND ns.is_enabled = 1",
+      {std::to_string(inst.templateId)});
+  for (const auto& row : rows) {
+    if (row.size() < 6) continue;
+    NpcRuntimeInstance::NpcBoundSkill b;
+    try {
+      b.npcSkillId = static_cast<uint32_t>(std::stoul(row[0]));
+      b.rank = static_cast<uint8_t>(std::max(1, std::stoi(row[1])));
+      b.weight = std::stoi(row[2]);
+      const uint32_t ov = static_cast<uint32_t>(std::max(0, std::stoi(row[3])));
+      const uint32_t cd = static_cast<uint32_t>(std::max(0, std::stoi(row[4])));
+      b.cooldownMs = ov > 0 ? ov : cd;
+      b.rangeMax = static_cast<uint16_t>(std::max(0, std::stoi(row[5])));
+    } catch (...) {
+      continue;
+    }
+    inst.boundSkills.push_back(b);
+  }
 }
 
 const NpcRuntimeInstance* NpcManager::findInstance(uint32_t npcInstanceId) const {
@@ -128,10 +627,69 @@ const NpcRuntimeInstance* NpcManager::findInstance(uint32_t npcInstanceId) const
   return &instances_[it->second];
 }
 
+void NpcManager::forEachAlive(const std::function<void(NpcRuntimeInstance&)>& fn,
+                              int64_t* lockWaitMs) {
+  const int64_t w0 = lockWaitMs ? Core::steadyNowMs() : 0;
+  std::lock_guard<std::mutex> lock(mu_);
+  if (lockWaitMs) *lockWaitMs = Core::steadyNowMs() - w0;
+  for (auto& inst : instances_) {
+    if (inst.isDead) continue;
+    fn(inst);
+  }
+}
+
+bool NpcManager::mutateInstance(uint32_t npcInstanceId, const std::function<void(NpcRuntimeInstance&)>& fn) {
+  std::lock_guard<std::mutex> lock(mu_);
+  auto it = indexById_.find(npcInstanceId);
+  if (it == indexById_.end()) return false;
+  fn(instances_[it->second]);
+  return true;
+}
+
+void NpcManager::persistNpcSql(const std::string& sql) {
+  if (sql.empty()) return;
+  if (asyncDbWrite_) {
+    asyncDbWrite_(sql);
+    return;
+  }
+  if (db_ && db_->isConnected()) {
+    db_->executeQuery(sql);
+  }
+}
+
+bool NpcManager::respawnInstance(NpcRuntimeInstance& inst) {
+  inst.isDead = false;
+  inst.currentHealth = inst.maxHealth;
+  inst.currentMana = inst.maxMana;
+  inst.respawnAt = {};
+  // Volta ao home (não à última posição de chase).
+  inst.x = inst.homeX;
+  inst.y = inst.homeY;
+  inst.z = inst.homeZ;
+  resetAiState(inst);
+  inst.lastBroadcastX = inst.x;
+  inst.lastBroadcastY = inst.y;
+  inst.lastBroadcastYaw = inst.yaw;
+
+  persistNpcSql(
+      "UPDATE npc_instances SET current_health = " + std::to_string(inst.currentHealth) +
+      ", current_mana = " + std::to_string(inst.currentMana) +
+      ", is_dead = 0, respawn_at = NULL" +
+      ", pos_x = " + std::to_string(inst.x) +
+      ", pos_y = " + std::to_string(inst.y) +
+      ", pos_z = " + std::to_string(inst.z) +
+      " WHERE npc_instance_id = " + std::to_string(inst.npcInstanceId));
+  return true;
+}
+
 int32_t NpcManager::applyDamage(uint32_t npcInstanceId, int32_t delta, bool& outIsCrit, bool* outNpcDied) {
   outIsCrit = false;
   if (outNpcDied) *outNpcDied = false;
   if (delta == 0) return 0;
+
+  if (!findInstance(npcInstanceId)) {
+    loadInstanceById(npcInstanceId);
+  }
 
   std::lock_guard<std::mutex> lock(mu_);
   auto it = indexById_.find(npcInstanceId);
@@ -139,6 +697,7 @@ int32_t NpcManager::applyDamage(uint32_t npcInstanceId, int32_t delta, bool& out
 
   NpcRuntimeInstance& inst = instances_[it->second];
   if (inst.isDead) return 0;
+  if (!inst.isAttackable && delta < 0) return 0;
 
   const int32_t before = inst.currentHealth;
   inst.currentHealth = std::max(0, std::min(inst.maxHealth, inst.currentHealth + delta));
@@ -146,27 +705,25 @@ int32_t NpcManager::applyDamage(uint32_t npcInstanceId, int32_t delta, bool& out
 
   if (inst.currentHealth <= 0) {
     inst.isDead = true;
-    inst.respawnAt = std::chrono::steady_clock::now() +
-                     std::chrono::seconds(kDefaultRespawnSeconds);
+    resetAiState(inst);
+    inst.aiState = NpcAiState::Dying;
+    const uint32_t respawnSec = std::max(1u, inst.respawnSeconds);
+    inst.respawnAt = std::chrono::system_clock::now() + std::chrono::seconds(respawnSec);
     if (outNpcDied) *outNpcDied = true;
+
+    persistNpcSql(
+        "UPDATE npc_instances SET current_health = 0, is_dead = 1, respawn_at = DATE_ADD(NOW(), "
+        "INTERVAL " +
+        std::to_string(respawnSec) +
+        " SECOND), last_combat_at = CURRENT_TIMESTAMP WHERE npc_instance_id = " +
+        std::to_string(npcInstanceId));
+    return applied;
   }
 
-  if (db_ && db_->isConnected()) {
-    const std::string idStr = std::to_string(npcInstanceId);
-    if (inst.isDead) {
-      db_->executePreparedInsert(
-          "UPDATE npc_instances SET current_health = ?, is_dead = 1, "
-          "respawn_at = DATE_ADD(NOW(), INTERVAL " +
-              std::to_string(kDefaultRespawnSeconds) +
-              " SECOND), last_combat_at = CURRENT_TIMESTAMP WHERE npc_instance_id = ?",
-          {std::to_string(inst.currentHealth), idStr});
-    } else {
-      db_->executePreparedInsert(
-          "UPDATE npc_instances SET current_health = ?, is_dead = 0, last_combat_at = CURRENT_TIMESTAMP "
-          "WHERE npc_instance_id = ?",
-          {std::to_string(inst.currentHealth), idStr});
-    }
-  }
+  persistNpcSql(
+      "UPDATE npc_instances SET current_health = " + std::to_string(inst.currentHealth) +
+      ", is_dead = 0, last_combat_at = CURRENT_TIMESTAMP WHERE npc_instance_id = " +
+      std::to_string(npcInstanceId));
 
   return applied;
 }
@@ -174,27 +731,18 @@ int32_t NpcManager::applyDamage(uint32_t npcInstanceId, int32_t delta, bool& out
 std::vector<uint32_t> NpcManager::tickRespawns(float deltaSeconds) {
   (void)deltaSeconds;
   std::vector<uint32_t> respawned;
-  if (!db_ || !db_->isConnected()) return respawned;
+  const auto now = std::chrono::system_clock::now();
 
-  const auto now = std::chrono::steady_clock::now();
+  std::lock_guard<std::mutex> lock(mu_);
+  for (auto& inst : instances_) {
+    if (!inst.isDead) continue;
+    if (inst.pendingDeathDespawn) continue;  // ainda mostrando death no cliente
+    if (inst.respawnAt.time_since_epoch().count() == 0) continue;
+    if (now < inst.respawnAt) continue;
 
-  {
-    std::lock_guard<std::mutex> lock(mu_);
-    for (auto& inst : instances_) {
-      if (!inst.isDead || inst.respawnAt.time_since_epoch().count() == 0) continue;
-      if (now < inst.respawnAt) continue;
-
-      inst.isDead = false;
-      inst.currentHealth = inst.maxHealth;
-      inst.currentMana = inst.maxMana;
-      inst.respawnAt = {};
-      respawned.push_back(inst.npcInstanceId);
-
-      const std::string idStr = std::to_string(inst.npcInstanceId);
-      db_->executePreparedInsert(
-          "UPDATE npc_instances SET current_health = ?, current_mana = ?, is_dead = 0, respawn_at = NULL "
-          "WHERE npc_instance_id = ?",
-          {std::to_string(inst.currentHealth), std::to_string(inst.currentMana), idStr});
+    const uint32_t id = inst.npcInstanceId;
+    if (respawnInstance(inst)) {
+      respawned.push_back(id);
     }
   }
 
@@ -202,6 +750,91 @@ std::vector<uint32_t> NpcManager::tickRespawns(float deltaSeconds) {
     Core::Logger::getInstance().info("[NpcManager] {} NPC(s) respawned", respawned.size());
   }
   return respawned;
+}
+
+std::vector<uint32_t> NpcManager::tickPendingDeathDespawns() {
+  std::vector<uint32_t> ready;
+  const auto now = std::chrono::steady_clock::now();
+  std::lock_guard<std::mutex> lock(mu_);
+  for (auto& inst : instances_) {
+    if (!inst.pendingDeathDespawn) continue;
+    if (now < inst.deathDespawnAt) continue;
+    inst.pendingDeathDespawn = false;
+    inst.deathDespawnAt = {};
+    ready.push_back(inst.npcInstanceId);
+  }
+  return ready;
+}
+
+bool NpcManager::removeInstance(uint32_t npcInstanceId) {
+  std::lock_guard<std::mutex> lock(mu_);
+  auto it = indexById_.find(npcInstanceId);
+  if (it == indexById_.end()) {
+    return false;
+  }
+
+  const size_t idx = it->second;
+  instances_.erase(instances_.begin() + static_cast<long long>(idx));
+  indexById_.erase(it);
+  for (size_t i = idx; i < instances_.size(); ++i) {
+    indexById_[instances_[i].npcInstanceId] = i;
+  }
+  return true;
+}
+
+bool NpcManager::setInstanceTransform(uint32_t npcInstanceId, float x, float y, float z, float yaw,
+                                      bool persistToDb, bool updateHome) {
+  {
+    std::lock_guard<std::mutex> lock(mu_);
+    auto it = indexById_.find(npcInstanceId);
+    if (it == indexById_.end()) {
+      return false;
+    }
+    NpcRuntimeInstance& inst = instances_[it->second];
+    inst.x = x;
+    inst.y = y;
+    inst.z = z;
+    inst.yaw = yaw;
+    if (updateHome) {
+      inst.homeX = x;
+      inst.homeY = y;
+      inst.homeZ = z;
+      resetAiState(inst);
+    }
+    inst.lastBroadcastX = x;
+    inst.lastBroadcastY = y;
+    inst.lastBroadcastYaw = yaw;
+  }
+
+  if (persistToDb) {
+    std::string sql =
+        "UPDATE npc_instances SET pos_x = " + std::to_string(x) + ", pos_y = " + std::to_string(y) +
+        ", pos_z = " + std::to_string(z) + ", yaw = " + std::to_string(yaw);
+    if (updateHome) {
+      sql += ", home_x = " + std::to_string(x) + ", home_y = " + std::to_string(y) +
+             ", home_z = " + std::to_string(z);
+    }
+    sql += " WHERE npc_instance_id = " + std::to_string(npcInstanceId);
+    persistNpcSql(sql);
+  }
+  return true;
+}
+
+bool NpcManager::setAggroTarget(uint32_t npcInstanceId, uint32_t playerId) {
+  if (npcInstanceId == 0 || playerId == 0) return false;
+  std::lock_guard<std::mutex> lock(mu_);
+  auto it = indexById_.find(npcInstanceId);
+  if (it == indexById_.end()) return false;
+  NpcRuntimeInstance& inst = instances_[it->second];
+  if (inst.isDead || !inst.isHostile) return false;
+  // Dummy/estátua: sem roam e sem aggro → nunca entra em chase por dano.
+  if (inst.aggroRadius <= 0.f && inst.roamRadius <= 0.f) return false;
+  if (inst.aiState == NpcAiState::Return) return false;
+  inst.targetPlayerId = playerId;
+  inst.aiState = NpcAiState::Chase;  // força perseguir (não fica em Wander)
+  inst.hasWanderDest = false;
+  inst.nextWanderAt = {};
+  return true;
 }
 
 NpcSpawnPayload NpcManager::toSpawnPayload(const NpcRuntimeInstance& inst) const {
@@ -218,6 +851,36 @@ NpcSpawnPayload NpcManager::toSpawnPayload(const NpcRuntimeInstance& inst) const
   p.npcName = inst.npcName;
   p.skeletalMeshPath = inst.skeletalMeshPath;
   p.animBlueprintPath = inst.animBlueprintPath;
+  p.rightHandMeshPath = inst.rightHandMeshPath;
+  p.leftHandMeshPath = inst.leftHandMeshPath;
+  p.rightHandOffset = inst.rightHandOffset;
+  p.leftHandOffset = inst.leftHandOffset;
+  p.flags = 0;
+  if (inst.isAttackable) p.flags |= 0x01;
+  if (inst.hasVendor) p.flags |= 0x02;
+  if (inst.hasQuestDialog) p.flags |= 0x04;
+  p.interactionRadius = inst.interactionRadius;
+  p.collisionRadius = inst.collisionRadius;
+  p.nameplateRadius = inst.nameplateRadius;
+  p.vendorId = inst.vendorId;
+  p.meshScale = inst.meshScale;
+  p.attackAnimPaths = inst.attackAnimPaths;
+  p.hitAnimPaths = inst.hitAnimPaths;
+  p.deathAnimPath = inst.deathAnimPath;
+  p.skillAnimPath = inst.skillAnimPath;
+  p.idleAnimPath = inst.idleAnimPath;
+  p.walkAnimPath = inst.walkAnimPath;
+  p.walkFwdPath = inst.walkFwdPath;
+  p.walkBwdPath = inst.walkBwdPath;
+  p.walkLeftPath = inst.walkLeftPath;
+  p.walkRightPath = inst.walkRightPath;
+  p.runFwdPath = inst.runFwdPath;
+  p.runBwdPath = inst.runBwdPath;
+  p.runLeftPath = inst.runLeftPath;
+  p.runRightPath = inst.runRightPath;
+  p.castAnimPaths = inst.castAnimPaths;
+  p.buffAnimPaths = inst.buffAnimPaths;
+  p.deathDurationMs = inst.deathDurationMs;
   return p;
 }
 
@@ -230,6 +893,7 @@ NpcStatePayload NpcManager::toStatePayload(const NpcRuntimeInstance& inst) const
   p.y = inst.y;
   p.z = inst.z;
   p.yaw = inst.yaw;
+  p.aiState = static_cast<uint8_t>(inst.aiState);
   return p;
 }
 

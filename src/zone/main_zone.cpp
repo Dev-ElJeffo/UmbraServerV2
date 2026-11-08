@@ -1,4 +1,5 @@
 #include "ZoneServer.hpp"
+#include "core/Timer.hpp"
 #include "admin/AdminBootstrap.hpp"
 #include "admin/ServiceAdminRegister.hpp"
 #include "core/Logger.hpp"
@@ -9,6 +10,7 @@
 #include <thread>
 #include <chrono>
 #include <iostream>
+#include <string>
 
 std::atomic<bool> running(true);
 
@@ -26,6 +28,13 @@ int main(int argc, char* argv[]) {
 
   auto& configManager = Umbra::Core::ConfigManager::getInstance();
   configManager.loadConfig("config/server.json");
+
+  // Aplicar logging.level e logging.console_output do config (o initialize() acima
+  // deixa o arquivo em DEBUG e o console em INFO). Logs por frame ficam em TRACE.
+  Umbra::Core::Logger::getInstance().applyConfig(
+      configManager.get<std::string>("logging.level", "INFO"),
+      configManager.get<bool>("logging.console_output", true));
+
   const uint16_t zoneBase = configManager.get<uint16_t>("zone.base_port", 8082);
   uint16_t zonePort = static_cast<uint16_t>(zoneBase + zoneId);
 
@@ -88,13 +97,67 @@ int main(int argc, char* argv[]) {
   std::cout << "\n  Press Ctrl+C to stop.\n\n";
 
   auto lastUpdate = std::chrono::steady_clock::now();
+  auto nextFullUpdate = lastUpdate;
+  // Pump leve a cada ~3ms (inbound + hits adiados); update pesado a ~16ms (~62Hz).
+  // Antes o loop dormia 16ms fixos, então um cast que chegasse logo após o drain
+  // esperava até ~16ms só para ser enfileirado, e cada skill em sequência
+  // acumulava esse atraso. Agora o inbound é drenado quase na hora.
+  constexpr auto kPumpPeriod = std::chrono::milliseconds(3);
+  constexpr auto kFullUpdatePeriod = std::chrono::milliseconds(16);
 
+  // Telemetria do loop (steady_clock, sem I/O no caminho normal): só loga anomalias
+  // — gap entre pumps >= 200ms (pausa do host/VM) ou fase >= 50ms — com throttle.
+  Umbra::Core::LogThrottle pumpGapThrottle(2000);
+  Umbra::Core::LogThrottle loopPhaseThrottle(2000);
+  int64_t lastPumpMs = Umbra::Core::steadyNowMs();
+  auto nextPumpAt = std::chrono::steady_clock::now();
   while (running) {
     auto now = std::chrono::steady_clock::now();
-    float deltaTime = std::chrono::duration<float>(now - lastUpdate).count();
-    lastUpdate = now;
-    zoneServer.update(deltaTime);
-    std::this_thread::sleep_for(std::chrono::milliseconds(16));
+
+    const int64_t loopT0 = Umbra::Core::steadyNowMs();
+    const int64_t gap = loopT0 - lastPumpMs;
+    if (gap >= 200 && pumpGapThrottle.allow()) {
+      Umbra::Core::Logger::getInstance().warn(
+          "[Zone] loop parado {}ms entre pumps (pausa do host/VM?) +{} omitidos",
+          gap, pumpGapThrottle.takeSuppressed());
+    }
+    zoneServer.pumpInbound();
+    const int64_t pumpMs = Umbra::Core::steadyNowMs() - loopT0;
+
+    int64_t updateMs = 0;
+    if (now >= nextFullUpdate) {
+      float deltaTime = std::chrono::duration<float>(now - lastUpdate).count();
+      lastUpdate = now;
+      const int64_t u0 = Umbra::Core::steadyNowMs();
+      zoneServer.update(deltaTime);
+      updateMs = Umbra::Core::steadyNowMs() - u0;
+      // Agenda o próximo update pesado a partir do alvo (não do fim do trabalho),
+      // para não acumular drift quando um update pontual passar de 16ms.
+      nextFullUpdate += kFullUpdatePeriod;
+      if (nextFullUpdate < now) nextFullUpdate = now + kFullUpdatePeriod;
+    }
+
+    // Catch-up: evidência no Proxmox mostrou sleep_for(3ms) retornando em 2.6–3.0s
+    // (sleepMs dominante; pump/update ~0) a cada ~30s — pause do host/VM.
+    // Se já estamos atrasados, NÃO dormir de novo: bombeia hits pendentes na hora.
+    // Não ler /proc nem fazer I/O aqui (amplificava o lag no Proxmox).
+    int64_t sleepMs = 0;
+    nextPumpAt += kPumpPeriod;
+    now = std::chrono::steady_clock::now();
+    if (nextPumpAt > now) {
+      const int64_t sleepT0 = Umbra::Core::steadyNowMs();
+      std::this_thread::sleep_until(nextPumpAt);
+      sleepMs = Umbra::Core::steadyNowMs() - sleepT0;
+    } else {
+      // Reseta a agenda para não tentar “pagar” segundos de atraso do hypervisor.
+      nextPumpAt = now;
+    }
+    if ((pumpMs >= 50 || updateMs >= 50 || sleepMs >= 50) && loopPhaseThrottle.allow()) {
+      Umbra::Core::Logger::getInstance().warn(
+          "[Zone] fase lenta no loop: pump={}ms update={}ms sleep={}ms +{} omitidos",
+          pumpMs, updateMs, sleepMs, loopPhaseThrottle.takeSuppressed());
+    }
+    lastPumpMs = Umbra::Core::steadyNowMs();
   }
 
   std::cout << "\nShutting down Zone Server...\n";

@@ -9,6 +9,7 @@
 #include <atomic>
 #include <thread>
 #include <chrono>
+#include <condition_variable>
 #include <nlohmann/json.hpp>
 
 namespace Umbra {
@@ -101,6 +102,9 @@ class AuthConnectionPool {
   std::atomic<bool> running_;
   
   std::unique_ptr<std::thread> healthCheckThread_;
+  // Acorda o health check no stop() (antes: sleep_for de até 30s travava o shutdown).
+  std::mutex stopMu_;
+  std::condition_variable stopCv_;
   std::atomic<uint32_t> nextConnectionIndex_;
   
   std::atomic<uint32_t> totalRequests_;

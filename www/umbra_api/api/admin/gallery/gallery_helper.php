@@ -355,37 +355,27 @@ function deleteEntryFromGallery($galleryData, $category, $filename) {
  * @return array Array com resultado da validação
  */
 function verifyGalleryAdmin($db, $username) {
-    try {
-        $query = "SELECT id, username, email, isadmin, banned 
-                 FROM accounts WHERE username = :username";
-        $stmt = $db->prepare($query);
-        $stmt->bindParam(':username', $username);
-        $stmt->execute();
-        
-        if ($stmt->rowCount() > 0) {
-            $account = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            if ($account['banned']) {
-                return ['success' => false, 'message' => 'Conta banida'];
-            }
-            
-            if ($account['isadmin'] != 1) {
-                return ['success' => false, 'message' => 'Acesso negado. Apenas administradores'];
-            }
-            
-            return [
-                'success' => true,
-                'admin' => [
-                    'id' => $account['id'],
-                    'username' => $account['username'],
-                    'email' => $account['email']
-                ]
-            ];
-        } else {
-            return ['success' => false, 'message' => 'Usuário não encontrado'];
+    require_once __DIR__ . '/../require_admin_auth.php';
+    $raw = file_get_contents('php://input');
+    $body = [];
+    if (is_string($raw) && trim($raw) !== '') {
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            $body = $decoded;
         }
-    } catch (Exception $e) {
-        return ['success' => false, 'message' => 'Erro: ' . $e->getMessage()];
     }
+    if (empty($body) && !empty($_POST)) {
+        $body = $_POST;
+    }
+    $auth = authenticateAdminRequest($body);
+    if (!$auth['ok']) {
+        return ['success' => false, 'message' => $auth['message'] ?? 'Não autenticado'];
+    }
+    $role = $auth['admin']['role'] ?? 'content';
+    if (!in_array($role, ['super', 'content'], true)) {
+        return ['success' => false, 'message' => 'Permissão insuficiente'];
+    }
+    $GLOBALS['umbra_admin'] = $auth['admin'];
+    return ['success' => true, 'admin' => $auth['admin']];
 }
 ?>

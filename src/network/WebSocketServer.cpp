@@ -1,26 +1,46 @@
 #include "WebSocketServer.hpp"
 #include "core/Logger.hpp"
 #include "core/Utils.hpp"
+#include <chrono>
 #include <cstring>
+#include <mutex>
 #include <sstream>
+#include <thread>
 
 #ifdef _WIN32
   #include <winsock2.h>
   #include <ws2tcpip.h>
   #define CLOSE_SOCKET closesocket
+  // Non-blocking via FIONBIO em configureClientSocket.
+  #define WS_SEND_FLAGS 0
 #else
   #include <sys/socket.h>
   #include <netinet/in.h>
+  #include <netinet/tcp.h>
   #include <arpa/inet.h>
   #include <unistd.h>
+  #include <errno.h>
   #define SOCKET int
   #define INVALID_SOCKET -1
   #define SOCKET_ERROR -1
   #define CLOSE_SOCKET close
+  #ifndef MSG_NOSIGNAL
+    #define MSG_NOSIGNAL 0
+  #endif
+  // MSG_DONTWAIT só no send: recv do handleClient continua bloqueante.
+  #define WS_SEND_FLAGS (MSG_NOSIGNAL | MSG_DONTWAIT)
 #endif
 
 namespace Umbra {
 namespace Network {
+
+namespace {
+inline int64_t steadyNowMs() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+}  // namespace
 
 WebSocketServer::WebSocketServer(uint16_t port)
     : port_(port),
@@ -52,6 +72,7 @@ bool WebSocketServer::start() {
   
   running_ = true;
   acceptThread_ = std::make_unique<std::thread>(&WebSocketServer::acceptLoop, this);
+  writerThread_ = std::make_unique<std::thread>(&WebSocketServer::writerLoop, this);
   
   Core::Logger::getInstance().info("WebSocketServer started on port {}", port_);
   return true;
@@ -63,31 +84,66 @@ void WebSocketServer::stop() {
   }
   
   running_ = false;
-  
-  if (acceptThread_ && acceptThread_->joinable()) {
-    acceptThread_->join();
-  }
-  
-  for (auto& thread : workerThreads_) {
-    if (thread && thread->joinable()) {
-      thread->join();
-    }
-  }
-  workerThreads_.clear();
-  
-  {
-    std::lock_guard<std::mutex> lock(clientsMutex_);
-    for (auto& [id, client] : clients_) {
-      closeSocket(client.socket);
-    }
-    clients_.clear();
-  }
-  
+  signalWriter();
+
+  // 1) Fechar o socket de escuta antes do join: accept() bloqueado só retorna assim.
   if (serverSocket_ != INVALID_SOCKET) {
+#ifdef _WIN32
+    shutdown(static_cast<SOCKET>(serverSocket_), SD_BOTH);
+#else
+    shutdown(serverSocket_, SHUT_RDWR);
+#endif
     closeSocket(serverSocket_);
     serverSocket_ = INVALID_SOCKET;
   }
-  
+  if (acceptThread_ && acceptThread_->joinable()) {
+    acceptThread_->join();
+  }
+
+  if (writerThread_ && writerThread_->joinable()) {
+    writerThread_->join();
+  }
+  writerThread_.reset();
+
+  // 2) Acordar o recv() de cada cliente; a thread dele faz disconnect + close.
+  std::vector<std::shared_ptr<OutQueue>> queues;
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    for (auto& [id, client] : clients_) {
+      if (client.outQ) queues.push_back(client.outQ);
+    }
+  }
+  for (auto& q : queues) {
+    std::lock_guard<std::mutex> lk(q->mu);
+    q->closed = true;
+    wakeClientSocketLocked(*q);
+  }
+
+  // 3) Join dos workers (stop() chamado de dentro de um callback não dá join em si mesmo).
+  const auto selfId = std::this_thread::get_id();
+  for (auto& worker : workerThreads_) {
+    if (!worker.thread || !worker.thread->joinable()) continue;
+    if (worker.thread->get_id() == selfId) {
+      worker.thread->detach();
+    } else {
+      worker.thread->join();
+    }
+  }
+  workerThreads_.clear();
+
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    for (auto& [id, client] : clients_) {
+      if (client.outQ) {
+        std::lock_guard<std::mutex> lk(client.outQ->mu);
+        closeClientSocketLocked(*client.outQ);
+      } else {
+        closeSocket(client.socket);
+      }
+    }
+    clients_.clear();
+  }
+
   Core::Logger::getInstance().info("WebSocketServer stopped");
 }
 
@@ -108,90 +164,337 @@ void WebSocketServer::setConnectionCallback(ConnectionCallback callback) {
 }
 
 bool WebSocketServer::sendText(uint32_t clientId, const std::string& message) {
-  std::lock_guard<std::mutex> lock(clientsMutex_);
-  
-  auto it = clients_.find(clientId);
-  if (it == clients_.end() || !it->second.handshakeComplete) {
-    return false;
-  }
-  
   WebSocketFrame frame;
   frame.opcode = WebSocketFrame::OpCode::TEXT;
   frame.fin = true;
   frame.payload.assign(message.begin(), message.end());
-  
-  return sendFrame(it->second.socket, frame);
+  return sendFrameToClient(clientId, frame);
 }
 
 bool WebSocketServer::sendBinary(uint32_t clientId, const std::vector<uint8_t>& data) {
-  std::lock_guard<std::mutex> lock(clientsMutex_);
-  
-  auto it = clients_.find(clientId);
-  if (it == clients_.end() || !it->second.handshakeComplete) {
-    return false;
-  }
-  
   WebSocketFrame frame;
   frame.opcode = WebSocketFrame::OpCode::BINARY;
   frame.fin = true;
   frame.payload = data;
-  
-  return sendFrame(it->second.socket, frame);
+  return sendFrameToClient(clientId, frame);
+}
+
+bool WebSocketServer::sendFrameToClient(uint32_t clientId, const WebSocketFrame& frame) {
+  // Envio assíncrono: codifica o frame e enfileira. A writer thread coalesce e
+  // envia via send() não-bloqueante. Nunca bloqueia o chamador (combat/tick/recv).
+  std::vector<uint8_t> bytes;
+  encodeFrame(frame, bytes);
+  return enqueueEncodedFrame(clientId, std::move(bytes));
+}
+
+void WebSocketServer::encodeFrame(const WebSocketFrame& frame, std::vector<uint8_t>& out) {
+  out.clear();
+  uint8_t header = (frame.fin ? 0x80 : 0x00) | static_cast<uint8_t>(frame.opcode);
+  out.push_back(header);
+
+  const size_t payloadLen = frame.payload.size();
+  if (payloadLen < 126) {
+    out.push_back(static_cast<uint8_t>(payloadLen));
+  } else if (payloadLen < 65536) {
+    out.push_back(126);
+    out.push_back(static_cast<uint8_t>((payloadLen >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>(payloadLen & 0xFF));
+  } else {
+    out.push_back(127);
+    for (int i = 7; i >= 0; --i) {
+      out.push_back(static_cast<uint8_t>((payloadLen >> (i * 8)) & 0xFF));
+    }
+  }
+  out.insert(out.end(), frame.payload.begin(), frame.payload.end());
+}
+
+bool WebSocketServer::enqueueEncodedFrame(uint32_t clientId, std::vector<uint8_t>&& bytes) {
+  if (bytes.empty()) return true;
+  std::shared_ptr<OutQueue> q;
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    auto it = clients_.find(clientId);
+    if (it == clients_.end() || !it->second.handshakeComplete || !it->second.outQ) {
+      return false;
+    }
+    q = it->second.outQ;
+  }
+
+  bool overflow = false;
+  {
+    std::lock_guard<std::mutex> lk(q->mu);
+    if (q->closed) return false;
+    if (q->bytes + bytes.size() > kMaxOutboundBytes) {
+      overflow = true;  // cliente lento: fila estourou
+    } else {
+      q->bytes += bytes.size();
+      q->frames.push_back(std::move(bytes));
+    }
+  }
+
+  if (overflow) {
+    Core::Logger::getInstance().warn(
+        "WebSocket client {} outbound queue overflow (>{}B) — disconnecting slow client",
+        clientId, kMaxOutboundBytes);
+    disconnect(clientId);
+    return false;
+  }
+
+  signalWriter();
+  return true;
+}
+
+bool WebSocketServer::sendBinaryBatch(
+    uint32_t clientId, const std::vector<const std::vector<uint8_t>*>& messages) {
+  if (messages.empty()) return true;
+
+  // Codifica todos os frames fora dos locks.
+  std::vector<std::vector<uint8_t>> encoded;
+  encoded.reserve(messages.size());
+  size_t addBytes = 0;
+  for (const auto* m : messages) {
+    if (m == nullptr || m->empty()) continue;
+    WebSocketFrame frame;
+    frame.opcode = WebSocketFrame::OpCode::BINARY;
+    frame.fin = true;
+    frame.payload = *m;
+    std::vector<uint8_t> b;
+    encodeFrame(frame, b);
+    addBytes += b.size();
+    encoded.push_back(std::move(b));
+  }
+  if (encoded.empty()) return true;
+
+  std::shared_ptr<OutQueue> q;
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    auto it = clients_.find(clientId);
+    if (it == clients_.end() || !it->second.handshakeComplete || !it->second.outQ) {
+      return false;
+    }
+    q = it->second.outQ;
+  }
+
+  bool overflow = false;
+  {
+    std::lock_guard<std::mutex> lk(q->mu);
+    if (q->closed) return false;
+    if (q->bytes + addBytes > kMaxOutboundBytes) {
+      overflow = true;
+    } else {
+      for (auto& b : encoded) {
+        q->bytes += b.size();
+        q->frames.push_back(std::move(b));
+      }
+    }
+  }
+
+  if (overflow) {
+    Core::Logger::getInstance().warn(
+        "WebSocket client {} outbound queue overflow (batch) — disconnecting slow client",
+        clientId);
+    disconnect(clientId);
+    return false;
+  }
+
+  signalWriter();
+  return true;
+}
+
+std::vector<std::shared_ptr<WebSocketServer::OutQueue>> WebSocketServer::snapshotOutQueues() {
+  std::vector<std::shared_ptr<OutQueue>> out;
+  std::lock_guard<std::mutex> lock(clientsMutex_);
+  out.reserve(clients_.size());
+  for (const auto& [id, client] : clients_) {
+    if (client.handshakeComplete && client.outQ) {
+      out.push_back(client.outQ);
+    }
+  }
+  return out;
+}
+
+void WebSocketServer::signalWriter() {
+  {
+    std::lock_guard<std::mutex> lk(writerMu_);
+    writerWake_ = true;
+  }
+  writerCv_.notify_one();
+}
+
+void WebSocketServer::flushOutQueue(OutQueue& q, bool& disconnectOut) {
+  std::lock_guard<std::mutex> lk(q.mu);
+  if (q.closed || q.socket == INVALID_SOCKET) {
+    return;
+  }
+  if (q.frames.empty()) {
+    q.stalledSinceMs = 0;
+    return;
+  }
+
+  // Coalesce todos os frames pendentes (até o cap) em um único buffer, honrando
+  // o offset do frame parcialmente enviado na frente.
+  thread_local std::vector<uint8_t> buf;
+  buf.clear();
+  for (size_t i = 0; i < q.frames.size(); ++i) {
+    const auto& f = q.frames[i];
+    const size_t start = (i == 0) ? q.headOffset : 0;
+    if (start >= f.size()) continue;
+    buf.insert(buf.end(), f.begin() + start, f.end());
+    if (buf.size() >= kWriterCoalesceCap) break;
+  }
+  if (buf.empty()) {
+    q.stalledSinceMs = 0;
+    return;
+  }
+
+  const int n = ::send(q.socket, reinterpret_cast<const char*>(buf.data()),
+                       static_cast<int>(buf.size()), WS_SEND_FLAGS);
+  if (n > 0) {
+    // Avança a fila consumindo `n` bytes a partir do headOffset atual.
+    size_t adv = static_cast<size_t>(n);
+    while (adv > 0 && !q.frames.empty()) {
+      auto& front = q.frames.front();
+      const size_t rem = front.size() - q.headOffset;
+      if (adv >= rem) {
+        adv -= rem;
+        q.bytes -= rem;
+        q.frames.pop_front();
+        q.headOffset = 0;
+      } else {
+        q.headOffset += adv;
+        q.bytes -= adv;
+        adv = 0;
+      }
+    }
+    q.stalledSinceMs = 0;  // houve progresso
+    return;
+  }
+
+  // n <= 0: WouldBlock (buffer cheio) ou erro duro.
+#ifdef _WIN32
+  const int err = WSAGetLastError();
+  const bool wouldBlock = (err == WSAEWOULDBLOCK);
+  const bool intr = (err == WSAEINTR);
+#else
+  const int err = errno;
+  const bool wouldBlock = (err == EAGAIN || err == EWOULDBLOCK);
+  const bool intr = (err == EINTR);
+#endif
+  if (intr) {
+    return;  // tenta de novo no próximo ciclo
+  }
+  if (wouldBlock) {
+    const int64_t now = steadyNowMs();
+    if (q.stalledSinceMs == 0) {
+      q.stalledSinceMs = now;
+    } else if (now - q.stalledSinceMs > kSendStallDisconnectMs) {
+      Core::Logger::getInstance().warn(
+          "WebSocket client {} send stalled {}ms ({}B queued) — disconnecting",
+          q.clientId, now - q.stalledSinceMs, q.bytes);
+      disconnectOut = true;
+    }
+    return;
+  }
+  // Erro duro (EPIPE/ECONNRESET/EBADF...): socket morto.
+  Core::Logger::getInstance().debug("WebSocket client {} send error {} — disconnecting",
+                                    q.clientId, err);
+  disconnectOut = true;
+}
+
+void WebSocketServer::writerLoop() {
+  while (running_) {
+    {
+      std::unique_lock<std::mutex> lk(writerMu_);
+      writerCv_.wait_for(lk, std::chrono::milliseconds(kWriterTickMs),
+                         [this] { return !running_ || writerWake_; });
+      writerWake_ = false;
+    }
+    if (!running_) break;
+
+    auto queues = snapshotOutQueues();
+    std::vector<uint32_t> toDisconnect;
+    for (auto& q : queues) {
+      bool disc = false;
+      flushOutQueue(*q, disc);
+      if (disc) toDisconnect.push_back(q->clientId);
+    }
+    // disconnect() adquire clientsMutex_; chamado fora de qualquer q->mu.
+    for (uint32_t id : toDisconnect) {
+      disconnect(id);
+    }
+  }
 }
 
 void WebSocketServer::broadcastText(const std::string& message) {
-  std::lock_guard<std::mutex> lock(clientsMutex_);
-  
   WebSocketFrame frame;
   frame.opcode = WebSocketFrame::OpCode::TEXT;
   frame.fin = true;
   frame.payload.assign(message.begin(), message.end());
-  
-  for (auto& [id, client] : clients_) {
-    if (client.handshakeComplete) {
-      sendFrame(client.socket, frame);
+  std::vector<uint8_t> bytes;
+  encodeFrame(frame, bytes);
+
+  std::vector<uint32_t> ids;
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    ids.reserve(clients_.size());
+    for (const auto& [id, client] : clients_) {
+      if (client.handshakeComplete) ids.push_back(id);
     }
+  }
+  for (uint32_t id : ids) {
+    enqueueEncodedFrame(id, std::vector<uint8_t>(bytes));
   }
 }
 
 void WebSocketServer::broadcastBinary(const std::vector<uint8_t>& data) {
-  // Se não houver clients, apenas retornar (não causar erro)
-  // Isso é seguro e evita trabalho desnecessário
-  {
-    std::lock_guard<std::mutex> lock(clientsMutex_);
-    if (clients_.empty()) {
-      return;
-    }
-  }
-  
   WebSocketFrame frame;
   frame.opcode = WebSocketFrame::OpCode::BINARY;
   frame.fin = true;
   frame.payload = data;
-  
-  // Criar cópia dos client IDs e sockets para evitar problemas se a lista mudar durante o broadcast
-  std::vector<std::pair<uint32_t, int>> clientsToSend;
+  std::vector<uint8_t> bytes;
+  encodeFrame(frame, bytes);
+
+  std::vector<uint32_t> ids;
   {
     std::lock_guard<std::mutex> lock(clientsMutex_);
-    clientsToSend.reserve(clients_.size());
+    ids.reserve(clients_.size());
     for (const auto& [id, client] : clients_) {
-      if (client.handshakeComplete) {
-        clientsToSend.push_back({id, client.socket});
-      }
+      if (client.handshakeComplete) ids.push_back(id);
     }
   }
-  
-  // Enviar para cada client (sem lock para evitar deadlock)
-  for (const auto& [clientId, socket] : clientsToSend) {
-    try {
-      sendFrame(socket, frame);
-    } catch (const std::exception& e) {
-      Core::Logger::getInstance().warn("Exception while broadcasting to client {}: {}", clientId, e.what());
-      // Continuar com outros clients mesmo se um falhar
-    } catch (...) {
-      Core::Logger::getInstance().warn("Unknown exception while broadcasting to client {}", clientId);
-      // Continuar com outros clients mesmo se um falhar
+  for (uint32_t id : ids) {
+    enqueueEncodedFrame(id, std::vector<uint8_t>(bytes));
+  }
+}
+
+void WebSocketServer::broadcastPing() {
+  // PING RFC + BINARY app-level: mantém o receive do cliente vivo.
+  // Agora só enfileira: a writer thread envia e detecta socket morto (stall/erro).
+  WebSocketFrame pingFrame;
+  pingFrame.opcode = WebSocketFrame::OpCode::PING;
+  pingFrame.fin = true;
+  pingFrame.payload.clear();
+
+  WebSocketFrame binaryFrame;
+  binaryFrame.opcode = WebSocketFrame::OpCode::BINARY;
+  binaryFrame.fin = true;
+  binaryFrame.payload = {static_cast<uint8_t>(250)};  // MovementMsgType::WsKeepalive
+
+  std::vector<uint8_t> pingBytes, binBytes;
+  encodeFrame(pingFrame, pingBytes);
+  encodeFrame(binaryFrame, binBytes);
+
+  std::vector<uint32_t> ids;
+  {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    ids.reserve(clients_.size());
+    for (const auto& [id, client] : clients_) {
+      if (client.handshakeComplete) ids.push_back(id);
     }
+  }
+  for (uint32_t id : ids) {
+    enqueueEncodedFrame(id, std::vector<uint8_t>(pingBytes));
+    enqueueEncodedFrame(id, std::vector<uint8_t>(binBytes));
   }
 }
 
@@ -201,7 +504,18 @@ void WebSocketServer::disconnect(uint32_t clientId) {
     std::lock_guard<std::mutex> lock(clientsMutex_);
     auto it = clients_.find(clientId);
     if (it != clients_.end()) {
-      closeSocket(it->second.socket);
+      // Sincroniza com a writer thread: marca closed sob outQ->mu. Se a writer
+      // estiver no meio de um send(), esperamos ela terminar; depois disso ela vê
+      // closed e não toca mais no socket. O recv() da thread do cliente é acordado
+      // e ELA fecha o fd (no Linux close() aqui deixaria o recv preso e o número do
+      // fd poderia ser reaproveitado por outra conexão).
+      if (it->second.outQ) {
+        std::lock_guard<std::mutex> lk(it->second.outQ->mu);
+        it->second.outQ->closed = true;
+        wakeClientSocketLocked(*it->second.outQ);
+      } else {
+        closeSocket(it->second.socket);
+      }
       clients_.erase(it);
       shouldNotify = (connectionCallback_ != nullptr);
     }
@@ -250,6 +564,83 @@ bool WebSocketServer::initializeSocket() {
   return true;
 }
 
+void WebSocketServer::configureClientSocket(int clientSocket) {
+  if (clientSocket == INVALID_SOCKET) return;
+
+  // SNDTIMEO curto + keepalive. O_NONBLOCK só APÓS handshake (senão HTTP falha).
+#ifdef _WIN32
+  DWORD sndTimeoutMs = 50;
+  setsockopt(clientSocket, SOL_SOCKET, SO_SNDTIMEO,
+             reinterpret_cast<const char*>(&sndTimeoutMs), sizeof(sndTimeoutMs));
+  // Buffer de envio maior: absorve rajadas de combate (evita EWOULDBLOCK precoce).
+  int sndBuf = 1024 * 1024;
+  setsockopt(clientSocket, SOL_SOCKET, SO_SNDBUF,
+             reinterpret_cast<const char*>(&sndBuf), sizeof(sndBuf));
+  BOOL keepAlive = TRUE;
+  setsockopt(clientSocket, SOL_SOCKET, SO_KEEPALIVE,
+             reinterpret_cast<const char*>(&keepAlive), sizeof(keepAlive));
+  // Desliga Nagle: frames de combate são pequenos (26-30B) e latência importa
+  // mais que agrupar. Sem isso, casts/vitals em sequência sofrem ~40ms de delay.
+  BOOL noDelay = TRUE;
+  setsockopt(clientSocket, IPPROTO_TCP, TCP_NODELAY,
+             reinterpret_cast<const char*>(&noDelay), sizeof(noDelay));
+#else
+  timeval sndTv{};
+  sndTv.tv_sec = 0;
+  sndTv.tv_usec = 50000;  // 50ms
+  setsockopt(clientSocket, SOL_SOCKET, SO_SNDTIMEO, &sndTv, sizeof(sndTv));
+
+  // Buffer de envio maior: absorve rajadas de combate (evita EWOULDBLOCK precoce).
+  int sndBuf = 1024 * 1024;
+  setsockopt(clientSocket, SOL_SOCKET, SO_SNDBUF, &sndBuf, sizeof(sndBuf));
+
+  int yes = 1;
+  setsockopt(clientSocket, SOL_SOCKET, SO_KEEPALIVE, &yes, sizeof(yes));
+  int idle = 10;
+  int intvl = 3;
+  int cnt = 3;
+  setsockopt(clientSocket, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+  setsockopt(clientSocket, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
+  setsockopt(clientSocket, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
+  // Desliga Nagle: frames de combate são pequenos (26-30B) e latência importa
+  // mais que agrupar. Sem isso, casts/vitals em sequência sofrem ~40ms de delay.
+  int noDelay = 1;
+  setsockopt(clientSocket, IPPROTO_TCP, TCP_NODELAY, &noDelay, sizeof(noDelay));
+#endif
+}
+
+void WebSocketServer::wakeClientSocketLocked(OutQueue& q) {
+  if (q.fdClosed || q.socket == INVALID_SOCKET) return;
+#ifdef _WIN32
+  // Windows: shutdown() não acorda recv() bloqueado em outra thread; closesocket() sim.
+  shutdown(static_cast<SOCKET>(q.socket), SD_BOTH);
+  closeSocket(q.socket);
+  q.fdClosed = true;
+#else
+  shutdown(q.socket, SHUT_RDWR);
+#endif
+}
+
+void WebSocketServer::closeClientSocketLocked(OutQueue& q) {
+  if (q.fdClosed || q.socket == INVALID_SOCKET) return;
+  closeSocket(q.socket);
+  q.fdClosed = true;
+}
+
+void WebSocketServer::reapFinishedWorkers() {
+  auto it = workerThreads_.begin();
+  while (it != workerThreads_.end()) {
+    if (it->done && it->done->load(std::memory_order_acquire)) {
+      if (it->thread && it->thread->joinable()) {
+        it->thread->join();  // já saiu de handleClient: retorno imediato
+      }
+      it = workerThreads_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
 void WebSocketServer::acceptLoop() {
   while (running_) {
     sockaddr_in clientAddr{};
@@ -272,22 +663,41 @@ void WebSocketServer::acceptLoop() {
     Core::Logger::getInstance().info("New WebSocket connection from {}:{}", 
                                      clientAddress, clientPort);
     
-    auto thread = std::make_unique<std::thread>(
-      &WebSocketServer::handleClient, this, clientSocket, clientAddress, clientPort);
-    workerThreads_.push_back(std::move(thread));
+    // Libera threads de conexões já encerradas (antes acumulavam até o stop()).
+    reapFinishedWorkers();
+
+    Worker worker;
+    worker.done = std::make_shared<std::atomic<bool>>(false);
+    worker.thread = std::make_unique<std::thread>(
+      &WebSocketServer::handleClient, this, clientSocket, clientAddress, clientPort,
+      worker.done);
+    workerThreads_.push_back(std::move(worker));
   }
 }
 
-void WebSocketServer::handleClient(int clientSocket, 
-                                   const std::string& address, 
-                                   uint16_t port) {
+void WebSocketServer::handleClient(int clientSocket,
+                                   const std::string& address,
+                                   uint16_t port,
+                                   std::shared_ptr<std::atomic<bool>> done) {
+  // Marca done em qualquer saída (inclusive handshake falho) para o reap.
+  struct DoneGuard {
+    std::shared_ptr<std::atomic<bool>> flag;
+    ~DoneGuard() { flag->store(true, std::memory_order_release); }
+  } doneGuard{std::move(done)};
+
+  configureClientSocket(clientSocket);
   if (!performHandshake(clientSocket)) {
     closeSocket(clientSocket);
     return;
   }
-  
+  // Socket permanece blocking no recv; sends usam MSG_DONTWAIT (Linux) + try_lock.
+
   uint32_t clientId = nextClientId_++;
-  
+
+  auto outQ = std::make_shared<OutQueue>();
+  outQ->socket = clientSocket;
+  outQ->clientId = clientId;
+  size_t clientsAfter = 0;
   {
     std::lock_guard<std::mutex> lock(clientsMutex_);
     ClientState state;
@@ -296,28 +706,27 @@ void WebSocketServer::handleClient(int clientSocket,
     state.handshakeComplete = true;
     state.address = address;
     state.port = port;
-    clients_[clientId] = state;
+    state.outQ = outQ;
+    clients_[clientId] = std::move(state);
+    clientsAfter = clients_.size();
   }
-  
+  Core::Logger::getInstance().debug("WebSocket client {} added ({}:{}), clients={}",
+                                    clientId, address, port, clientsAfter);
+
   if (connectionCallback_) {
     connectionCallback_(clientId, true);
   }
   
+  const char* exitReason = "running_false";
   while (running_) {
     try {
       WebSocketFrame frame = receiveFrame(clientSocket);
       
       if (frame.opcode == WebSocketFrame::OpCode::CLOSE) {
+        exitReason = frame.payload.empty() ? "recv_eof_or_error" : "peer_close_frame";
         break;
       }
-      
-      // Verificar se o frame é válido (não apenas CLOSE por erro)
-      // Se receiveFrame retornou CLOSE devido a erro de recv, sair do loop
-      if (frame.opcode == WebSocketFrame::OpCode::CLOSE && frame.payload.empty()) {
-        // Pode ser um erro de rede, verificar se o socket ainda é válido
-        break;
-      }
-      
+
       if (frame.opcode == WebSocketFrame::OpCode::TEXT && messageCallback_) {
         std::string message(frame.payload.begin(), frame.payload.end());
         messageCallback_(clientId, message);
@@ -328,19 +737,28 @@ void WebSocketServer::handleClient(int clientSocket,
         pong.opcode = WebSocketFrame::OpCode::PONG;
         pong.fin = true;
         pong.payload = frame.payload;
-        sendFrame(clientSocket, pong);
+        sendFrameToClient(clientId, pong);
       }
+      // PONG do cliente (resposta ao nosso keepalive): já contou em touchClientRecv
     } catch (const std::exception& e) {
       Core::Logger::getInstance().error("Exception in WebSocket client handler for client {}: {}", clientId, e.what());
+      exitReason = "exception";
       break;
     } catch (...) {
       Core::Logger::getInstance().error("Unknown exception in WebSocket client handler for client {}", clientId);
+      exitReason = "exception_unknown";
       break;
     }
   }
   
   disconnect(clientId);
-  Core::Logger::getInstance().info("WebSocket client {} disconnected", clientId);
+  {
+    // Esta thread é a dona do fd: fecha só aqui (ou já fechado no Windows/stop).
+    std::lock_guard<std::mutex> lk(outQ->mu);
+    outQ->closed = true;
+    closeClientSocketLocked(*outQ);
+  }
+  Core::Logger::getInstance().info("WebSocket client {} disconnected ({})", clientId, exitReason);
 }
 
 bool WebSocketServer::performHandshake(int clientSocket) {
@@ -379,39 +797,51 @@ bool WebSocketServer::performHandshake(int clientSocket) {
   return true;
 }
 
+bool WebSocketServer::recvExact(int clientSocket, uint8_t* buffer, size_t len) {
+  if (clientSocket == INVALID_SOCKET || buffer == nullptr) {
+    return len == 0;
+  }
+  size_t got = 0;
+  while (got < len) {
+    const int n = ::recv(clientSocket,
+                         reinterpret_cast<char*>(buffer + got),
+                         static_cast<int>(len - got),
+                         0);
+    if (n <= 0) {
+      return false;  // EOF / erro real
+    }
+    got += static_cast<size_t>(n);
+  }
+  return true;
+}
+
 WebSocketFrame WebSocketServer::receiveFrame(int clientSocket) {
   WebSocketFrame frame;
   frame.opcode = WebSocketFrame::OpCode::CLOSE;
-  
+
+  // CRÍTICO: em Linux, recv() em socket blocking PODE devolver menos que o pedido.
+  // Tratar partial como CLOSE derrubava o cliente UE (MoveUpdate contínuo) no Proxmox.
   uint8_t header[2];
-  int bytesReceived = recv(clientSocket, reinterpret_cast<char*>(header), 2, 0);
-  if (bytesReceived <= 0) {
-    // Erro ou conexão fechada
+  if (!recvExact(clientSocket, header, 2)) {
     return frame;
   }
-  if (bytesReceived != 2) {
-    // Header incompleto
-    return frame;
-  }
-  
+
   frame.fin = (header[0] & 0x80) != 0;
   frame.opcode = static_cast<WebSocketFrame::OpCode>(header[0] & 0x0F);
-  
+
   bool masked = (header[1] & 0x80) != 0;
   uint64_t payloadLen = header[1] & 0x7F;
-  
+
   if (payloadLen == 126) {
     uint8_t len[2];
-    bytesReceived = recv(clientSocket, reinterpret_cast<char*>(len), 2, 0);
-    if (bytesReceived != 2) {
+    if (!recvExact(clientSocket, len, 2)) {
       frame.opcode = WebSocketFrame::OpCode::CLOSE;
       return frame;
     }
-    payloadLen = (len[0] << 8) | len[1];
+    payloadLen = (static_cast<uint64_t>(len[0]) << 8) | len[1];
   } else if (payloadLen == 127) {
     uint8_t len[8];
-    bytesReceived = recv(clientSocket, reinterpret_cast<char*>(len), 8, 0);
-    if (bytesReceived != 8) {
+    if (!recvExact(clientSocket, len, 8)) {
       frame.opcode = WebSocketFrame::OpCode::CLOSE;
       return frame;
     }
@@ -420,92 +850,36 @@ WebSocketFrame WebSocketServer::receiveFrame(int clientSocket) {
       payloadLen = (payloadLen << 8) | len[i];
     }
   }
-  
+
   uint8_t maskKey[4] = {0};
   if (masked) {
-    bytesReceived = recv(clientSocket, reinterpret_cast<char*>(maskKey), 4, 0);
-    if (bytesReceived != 4) {
+    if (!recvExact(clientSocket, maskKey, 4)) {
       frame.opcode = WebSocketFrame::OpCode::CLOSE;
       return frame;
     }
   }
-  
-  // Validar tamanho do payload (proteção contra valores inválidos)
-  if (payloadLen > 1024 * 1024) {  // Limite de 1MB
+
+  if (payloadLen > 1024 * 1024) {
     Core::Logger::getInstance().warn("WebSocket frame payload too large: {} bytes", payloadLen);
     frame.opcode = WebSocketFrame::OpCode::CLOSE;
     return frame;
   }
-  
-  frame.payload.resize(payloadLen);
+
+  frame.payload.resize(static_cast<size_t>(payloadLen));
   if (payloadLen > 0) {
-    bytesReceived = recv(clientSocket, reinterpret_cast<char*>(frame.payload.data()), 
-         static_cast<int>(payloadLen), 0);
-    if (bytesReceived <= 0 || static_cast<uint64_t>(bytesReceived) != payloadLen) {
-      // Erro ao receber payload completo
+    if (!recvExact(clientSocket, frame.payload.data(), static_cast<size_t>(payloadLen))) {
       frame.opcode = WebSocketFrame::OpCode::CLOSE;
       frame.payload.clear();
       return frame;
     }
-    
     if (masked) {
-      for (size_t i = 0; i < payloadLen; ++i) {
+      for (size_t i = 0; i < static_cast<size_t>(payloadLen); ++i) {
         frame.payload[i] ^= maskKey[i % 4];
       }
     }
   }
-  
-  return frame;
-}
 
-bool WebSocketServer::sendFrame(int clientSocket, const WebSocketFrame& frame) {
-  // Verificar se o socket é válido antes de tentar enviar
-  if (clientSocket == INVALID_SOCKET) {
-    return false;
-  }
-  
-  try {
-    std::vector<uint8_t> data;
-    
-    uint8_t header = (frame.fin ? 0x80 : 0x00) | static_cast<uint8_t>(frame.opcode);
-    data.push_back(header);
-    
-    size_t payloadLen = frame.payload.size();
-    if (payloadLen < 126) {
-      data.push_back(static_cast<uint8_t>(payloadLen));
-    } else if (payloadLen < 65536) {
-      data.push_back(126);
-      data.push_back(static_cast<uint8_t>((payloadLen >> 8) & 0xFF));
-      data.push_back(static_cast<uint8_t>(payloadLen & 0xFF));
-    } else {
-      data.push_back(127);
-      for (int i = 7; i >= 0; --i) {
-        data.push_back(static_cast<uint8_t>((payloadLen >> (i * 8)) & 0xFF));
-      }
-    }
-    
-    data.insert(data.end(), frame.payload.begin(), frame.payload.end());
-    
-    int result = send(clientSocket, 
-                      reinterpret_cast<const char*>(data.data()), 
-                      static_cast<int>(data.size()), 
-                      0);
-    
-    // Se send falhou, o socket pode ter sido fechado - isso é normal e não deve parar o servidor
-    if (result == SOCKET_ERROR) {
-      // Log apenas em nível debug para não poluir os logs
-      Core::Logger::getInstance().debug("Failed to send frame to socket {} (socket may be closed)", clientSocket);
-      return false;
-    }
-    
-    return true;
-  } catch (const std::exception& e) {
-    Core::Logger::getInstance().warn("Exception in sendFrame for socket {}: {}", clientSocket, e.what());
-    return false;
-  } catch (...) {
-    Core::Logger::getInstance().warn("Unknown exception in sendFrame for socket {}", clientSocket);
-    return false;
-  }
+  return frame;
 }
 
 std::string WebSocketServer::generateAcceptKey(const std::string& clientKey) {

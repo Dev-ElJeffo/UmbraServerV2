@@ -17,6 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/item_weapon_class_helper.php';
 
 $json = file_get_contents('php://input');
 $data = json_decode($json, true) ?: [];
@@ -73,10 +74,11 @@ try {
         exit;
     }
 
+    $allowedSelect = item_templates_allowed_class_select_sql($pdo, 'it');
     $items_q = $pdo->prepare("
         SELECT ti.trade_item_id, ti.player_id, ti.inventory_id, ti.quantity,
                pi.item_template_id, pi.slot_index,
-               it.item_name, it.icon_path, it.item_type, it.rarity, it.max_stack_size
+               it.item_name, it.icon_path, it.item_type, it.rarity, it.max_stack_size{$allowedSelect}
         FROM trade_items ti
         INNER JOIN player_inventory pi ON ti.inventory_id = pi.inventory_id
         INNER JOIN item_templates it ON pi.item_template_id = it.item_id
@@ -99,6 +101,7 @@ try {
             'item_type' => $it['item_type'],
             'rarity' => $it['rarity']
         ];
+        append_allowed_class_fields($item, $it['allowed_class_ids'] ?? null);
         if ((int)$it['player_id'] === $p1) {
             $player1_items[] = $item;
         } else {

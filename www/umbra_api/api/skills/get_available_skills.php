@@ -26,6 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/skill_rank_helper.php';
 
 try {
     $data = json_decode(file_get_contents('php://input'), true);
@@ -133,6 +134,7 @@ try {
             s.threat_modifier,
             s.pvp_modifier,
             s.icon_path,
+            s.cast_anim_path,
             s.description,
             s.tooltip_template,
             s.server_tags,
@@ -153,6 +155,9 @@ try {
         ':class_id' => $player['class_id']
     ]);
     $skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $skillIds = array_map(static fn($s) => (int)$s['skill_id'], $skills);
+    $scalingMap = load_skill_rank_scaling_map($pdo, $skillIds);
     
     // Processar skills para adicionar status
     $processedSkills = [];
@@ -174,9 +179,13 @@ try {
         if ($isBasicAttack) {
             $canLearn = false;
         }
+
+        $rankForStats = max(1, $currentRank > 0 ? $currentRank : 1);
+        $sid = (int)$skill['skill_id'];
+        $eff = compute_effective_skill_stats($skill, $rankForStats, $scalingMap[$sid] ?? null);
         
         $processedSkills[] = [
-            'skill_id' => (int)$skill['skill_id'],
+            'skill_id' => $sid,
             'skill_key' => $skill['skill_key'],
             'skill_name' => $skill['skill_name'],
             'skill_order' => (int)$skill['skill_order'],
@@ -205,19 +214,23 @@ try {
                 'lck' => (int)$skill['lck_scaling']
             ],
             
-            'power_coef' => (int)$skill['power_coef'],
+            'power_coef' => $eff['power_coef'],
+            'power_coef_base' => (int)$skill['power_coef'],
             'secondary_coef' => (int)$skill['secondary_coef'],
             
             'resource' => [
                 'type' => $skill['resource_type'],
-                'cost' => (int)$skill['resource_cost'],
+                'cost' => $eff['resource_cost'],
+                'cost_base' => (int)$skill['resource_cost'],
                 'cost_percent' => (int)$skill['resource_cost_percent']
             ],
             
             'timing' => [
-                'cooldown_ms' => (int)$skill['cooldown_ms'],
+                'cooldown_ms' => $eff['cooldown_ms'],
+                'cooldown_ms_base' => (int)$skill['cooldown_ms'],
                 'cast_time_ms' => (int)$skill['cast_time_ms'],
-                'duration_ms' => (int)$skill['duration_ms']
+                'duration_ms' => $eff['duration_ms'],
+                'duration_ms_base' => (int)$skill['duration_ms']
             ],
             
             'range' => [
@@ -238,10 +251,13 @@ try {
             ],
             
             'icon_path' => $skill['icon_path'],
+            'cast_anim_path' => $skill['cast_anim_path'] ?? '',
             'description' => $skill['description'],
             'tooltip_template' => $skill['tooltip_template'],
             'server_tags' => json_decode($skill['server_tags'] ?? '[]', true),
-            'effects' => json_decode($skill['effects_json'] ?? '[]', true),
+            'effects' => $eff['effects'],
+            'effects_json' => json_encode($eff['effects'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'has_rank_scaling' => $eff['has_scaling_row'],
             
             'status' => [
                 'is_unlocked' => $isUnlocked,

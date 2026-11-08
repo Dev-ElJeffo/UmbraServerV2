@@ -2,7 +2,9 @@
 
 #include "zone/MovementProtocol.hpp"
 #include "database/MySQLConnector.hpp"
+#include <algorithm>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -10,6 +12,15 @@
 
 namespace Umbra {
 namespace Zone {
+
+enum class NpcAiState : uint8_t {
+  Idle = 0,
+  Wander = 1,
+  Combat = 2,
+  Chase = 3,
+  Return = 4,
+  Dying = 5
+};
 
 struct NpcRuntimeInstance {
   uint32_t npcInstanceId = 0;
@@ -19,47 +30,215 @@ struct NpcRuntimeInstance {
   float y = 0.f;
   float z = 0.f;
   float yaw = 0.f;
+  float homeX = 0.f;
+  float homeY = 0.f;
+  float homeZ = 0.f;
   int32_t currentHealth = 0;
   int32_t maxHealth = 0;
   int32_t currentMana = 0;
   int32_t maxMana = 0;
   uint32_t level = 1;
+  int32_t physicalAttack = 0;
+  int32_t magicAttack = 0;
+  /** 0=PHYSICAL, 1=MAGIC — school do auto-attack. */
+  uint8_t damageType = 0;
+  uint16_t basicPowerCoef = 100;
   int32_t physicalDefense = 0;
+  int32_t magicDefense = 0;
+  int32_t accuracy = 0;
+  int32_t dodge = 0;
+  int32_t critical = 0;
+  int32_t criticalResistance = 0;
+  int32_t doubleAttackRate = 0;
+  int32_t doubleAttackResistance = 0;
+  int32_t stunResist = 0;
+  int32_t silenceResist = 0;
+  int32_t rootResist = 0;
+  int32_t slowResist = 0;
   std::string npcName;
   std::string skeletalMeshPath;
   std::string animBlueprintPath;
+  std::vector<std::string> attackAnimPaths;
+  std::vector<std::string> attackVfxPaths;
+  std::vector<std::string> hitAnimPaths;
+  std::string deathAnimPath;
+  std::string skillAnimPath;
+  std::string idleAnimPath;
+  std::string walkAnimPath;
+  std::string walkFwdPath;
+  std::string walkBwdPath;
+  std::string walkLeftPath;
+  std::string walkRightPath;
+  std::string runFwdPath;
+  std::string runBwdPath;
+  std::string runLeftPath;
+  std::string runRightPath;
+  std::vector<std::string> castAnimPaths;
+  std::vector<std::string> buffAnimPaths;
+  std::string basicVfxPath;
+  std::string basicHitVfxPath;
+  uint16_t deathDurationMs = 0;
+  bool pendingDeathDespawn = false;
+  std::chrono::steady_clock::time_point deathDespawnAt{};
+  std::string rightHandMeshPath;
+  std::string leftHandMeshPath;
+  NpcHandAttachOffset rightHandOffset;
+  NpcHandAttachOffset leftHandOffset;
+  float meshScale = 1.f;
+  bool isAttackable = true;
+  bool isHostile = true;
+  float interactionRadius = 300.f;
+  float collisionRadius = 45.f;
+  float nameplateRadius = 2000.f;
+
+  float bodyMinDist() const {
+    const float cr = collisionRadius > 1.f ? collisionRadius : 45.f;
+    const float sc = meshScale > 0.01f ? meshScale : 1.f;
+    return cr * sc + 42.f;
+  }
+  float aggroRadius = 0.f;
+  float leashRadius = 0.f;
+  float attackRange = 150.f;
+  /** Distância para parar o chase e atacar; 0 no load → usa attackRange. */
+  float combatStopRange = 0.f;
+  uint32_t attackCooldownMs = 1500;
+  float moveSpeed = 200.f;
+  /** Multiplicador de moveSpeed no Chase (clamp 0.5–5 no AI). */
+  float chaseSpeedMult = 1.5f;
+  /** Multiplicador de moveSpeed no recuo/kite (clamp 0.25–5; default 1.0 = roam). */
+  float kiteSpeedMult = 1.f;
+  float roamRadius = 0.f;
+  bool hasVendor = false;
+  bool hasQuestDialog = false;
+  uint32_t vendorId = 0;
   bool isDead = false;
-  std::chrono::steady_clock::time_point respawnAt{};
+  uint32_t respawnSeconds = 30;
+  std::chrono::system_clock::time_point respawnAt{};
+
+  // AI runtime (não persistido a cada tick)
+  NpcAiState aiState = NpcAiState::Idle;
+  uint32_t targetPlayerId = 0;
+  float wanderDestX = 0.f;
+  float wanderDestY = 0.f;
+  float wanderDestZ = 0.f;
+  bool hasWanderDest = false;
+  std::chrono::steady_clock::time_point nextWanderAt{};
+  std::chrono::steady_clock::time_point lastAttackAt{};
+  /** Round-robin de attacks[] / casts[]. */
+  uint32_t nextAttackAnimIndex = 0;
+  uint32_t nextCastAnimIndex = 0;
+  struct NpcBoundSkill {
+    uint32_t npcSkillId = 0;
+    uint8_t rank = 1;
+    int32_t weight = 100;
+    uint32_t cooldownMs = 4000;
+    uint16_t rangeMax = 200;
+    std::chrono::steady_clock::time_point lastUsedAt{};
+  };
+  std::vector<NpcBoundSkill> boundSkills;
+  std::chrono::steady_clock::time_point lastBroadcastAt{};
+  float lastBroadcastX = 0.f;
+  float lastBroadcastY = 0.f;
+  float lastBroadcastYaw = 0.f;
+
+  float effectiveLeashRadius() const {
+    if (leashRadius > 0.f) return leashRadius;
+    if (aggroRadius > 0.f) return aggroRadius * 2.f;
+    // Aggro só por dano: leash curto para não arrastar o mob para longe do spawn.
+    if (roamRadius > 0.f) return std::max(roamRadius * 2.f, 1200.f);
+    return 1200.f;
+  }
+
+  /** Distância 2D além da qual o mob desiste do alvo e volta ao home. */
+  float effectiveDeaggroRadius() const {
+    // Deve cobrir o leash — senão o mob “roama” de novo a poucos metros do player.
+    const float leash = effectiveLeashRadius();
+    if (aggroRadius > 0.f) return std::max(aggroRadius * 2.5f, leash);
+    return std::max(std::max(attackRange * 3.f, 600.f), leash);
+  }
+
+  /** Alcance 2D efetivo do basic (mesma fórmula de processNpcBasicAttack). */
+  float effectiveNpcMeleeReach2D() const {
+    return std::max(50.f, std::max(attackRange, bodyMinDist())) * 1.15f;
+  }
+
+  float effectiveCombatStopRange() const {
+    const float stop = combatStopRange > 0.f ? combatStopRange : attackRange;
+    const float computed = std::max(std::max(40.f, stop), bodyMinDist());
+    // Nunca parar além do hit — senão Combat parado com basic rejeitado por range.
+    return std::min(computed, effectiveNpcMeleeReach2D());
+  }
+
+  float effectiveChaseSpeedMult() const {
+    if (chaseSpeedMult <= 0.f) return 1.f;
+    return std::clamp(chaseSpeedMult, 0.5f, 5.f);
+  }
+
+  float effectiveKiteSpeedMult() const {
+    if (kiteSpeedMult <= 0.f) return 1.f;
+    return std::clamp(kiteSpeedMult, 0.25f, 5.f);
+  }
 };
 
 class NpcManager {
 public:
-  static constexpr int kDefaultRespawnSeconds = 10;
+  static constexpr uint32_t kDefaultRespawnSeconds = 30;
 
   explicit NpcManager(std::shared_ptr<Database::MySQLConnector> db, uint32_t zoneId);
 
   bool reloadFromDatabase();
-  /** Carrega uma instância viva do DB; retorna true se já estava carregada ou foi adicionada. */
+  /** Carrega instância do DB (viva ou morta aguardando respawn). */
   bool loadInstanceById(uint32_t npcInstanceId);
-  /** Carrega instâncias vivas presentes no DB mas ausentes na memória. Retorna quantas foram adicionadas. */
+  /** Carrega instâncias do DB ausentes na memória. Retorna quantas foram adicionadas. */
   size_t reloadMissingInstancesFromDatabase();
 
   const std::vector<NpcRuntimeInstance>& getAllInstances() const { return instances_; }
   const NpcRuntimeInstance* findInstance(uint32_t npcInstanceId) const;
 
+  /**
+   * Mutação segura sob lock (AI tick).
+   * @param lockWaitMs (opcional) recebe o tempo esperando o mu_ — telemetria de contenção.
+   */
+  void forEachAlive(const std::function<void(NpcRuntimeInstance&)>& fn,
+                    int64_t* lockWaitMs = nullptr);
+  bool mutateInstance(uint32_t npcInstanceId, const std::function<void(NpcRuntimeInstance&)>& fn);
+
   /** Aplica dano/cura; retorna delta aplicado. outNpcDied=true quando HP chegou a 0. */
   int32_t applyDamage(uint32_t npcInstanceId, int32_t delta, bool& outIsCrit, bool* outNpcDied = nullptr);
+
+  /** Escrita assíncrona de SQL (write-behind). Se não definido, usa DB síncrono. */
+  void setAsyncDbWrite(std::function<void(std::string)> fn) { asyncDbWrite_ = std::move(fn); }
+
   /** Processa respawns pendentes; retorna IDs que voltaram a ficar vivos. */
   std::vector<uint32_t> tickRespawns(float deltaSeconds);
+  /** IDs mortos cujo delay de death anim expirou (cliente pode receber 101). */
+  std::vector<uint32_t> tickPendingDeathDespawns();
+  bool removeInstance(uint32_t npcInstanceId);
+  /**
+   * Atualiza transform em memória (e opcionalmente persiste no MySQL).
+   * Se updateHome=true, redefine home_* (admin move / nova área de roam).
+   */
+  bool setInstanceTransform(uint32_t npcInstanceId, float x, float y, float z, float yaw,
+                            bool persistToDb = false, bool updateHome = false);
+
+  /** Aggro por dano: fixa alvo e entra em combate se hostil. */
+  bool setAggroTarget(uint32_t npcInstanceId, uint32_t playerId);
 
   NpcSpawnPayload toSpawnPayload(const NpcRuntimeInstance& inst) const;
   NpcStatePayload toStatePayload(const NpcRuntimeInstance& inst) const;
 
 private:
   static const char* kInstanceSelectSql;
+  static std::string zoneWhereClause();
   void loadInstanceFromRow(const std::vector<std::string>& row);
+  void loadBoundSkills(NpcRuntimeInstance& inst);
+  bool respawnInstance(NpcRuntimeInstance& inst);
+  void resetAiState(NpcRuntimeInstance& inst);
+  void parseAnimStatesJson(NpcRuntimeInstance& inst, const std::string& jsonStr);
+  void persistNpcSql(const std::string& sql);
 
   std::shared_ptr<Database::MySQLConnector> db_;
+  std::function<void(std::string)> asyncDbWrite_;
   uint32_t zoneId_;
   mutable std::mutex mu_;
   std::vector<NpcRuntimeInstance> instances_;

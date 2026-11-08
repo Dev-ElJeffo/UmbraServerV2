@@ -223,25 +223,28 @@ std::string Utils::hashPasswordSimple(const std::string& password,
 
 std::string Utils::sanitizeInput(const std::string& input) {
   std::string result = input;
-  
+
+  // Null bytes não podem usar find("") (string vazia → loop infinito).
+  result.erase(std::remove(result.begin(), result.end(), '\0'), result.end());
+
   // Replace dangerous characters
   std::vector<std::pair<std::string, std::string>> replacements = {
     {"'", "''"},
     {"\\", "\\\\"},
-    {"\0", ""},
     {"\n", "\\n"},
     {"\r", "\\r"},
     {"\x1a", "\\Z"}
   };
-  
+
   for (const auto& [from, to] : replacements) {
+    if (from.empty()) continue;
     size_t pos = 0;
     while ((pos = result.find(from, pos)) != std::string::npos) {
       result.replace(pos, from.length(), to);
       pos += to.length();
     }
   }
-  
+
   return result;
 }
 

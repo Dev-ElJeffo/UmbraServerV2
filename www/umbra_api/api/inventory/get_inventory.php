@@ -22,6 +22,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/stat_key_mapping.php';
+require_once __DIR__ . '/../../helpers/enchant_helper.php';
+require_once __DIR__ . '/../../helpers/item_weapon_class_helper.php';
 
 // Obter dados da requisição (aceita GET ou POST)
 $json = file_get_contents('php://input');
@@ -47,6 +50,9 @@ try {
     
     // Query para obter inventário completo com informações dos templates
     // IMPORTANTE: Filtrar apenas slots 0-49 (inventário), excluindo slots 50-149 (storage)
+    $hasAllowedClasses = item_templates_has_allowed_class_ids($pdo);
+    $allowedSelect = $hasAllowedClasses ? ",\n            it.allowed_class_ids" : "";
+
     $query = "
         SELECT 
             pi.inventory_id,
@@ -60,6 +66,7 @@ try {
             pi.acquired_at,
             pi.refinement_level,
             pi.refinement_bonus_stats,
+            pi.enchantments_json,
             it.item_name,
             it.item_description,
             it.item_type,
@@ -74,7 +81,7 @@ try {
             it.weight,
             it.can_be_refined,
             it.tradeable,
-            it.item_category
+            it.item_category{$allowedSelect}
         FROM player_inventory pi
         INNER JOIN item_templates it ON pi.item_template_id = it.item_id
     WHERE pi.player_id = :player_id
@@ -105,12 +112,21 @@ try {
         } else {
             $item['refinement_bonus_stats'] = [];
         }
+
+        $item['enchantments'] = enchant_parse_list($item['enchantments_json'] ?? null);
+        unset($item['enchantments_json']);
         
         // Decodificar custom_properties
         if ($item['custom_properties']) {
             $item['custom_properties'] = json_decode($item['custom_properties'], true);
         } else {
             $item['custom_properties'] = [];
+        }
+
+        if (array_key_exists('allowed_class_ids', $item)) {
+            $parsedAllowed = parse_allowed_class_ids($item['allowed_class_ids'] ?? null);
+            $item['allowed_class_ids'] = $parsedAllowed;
+            $item['allow_all_classes'] = ($parsedAllowed === null);
         }
         
         // Converter valores booleanos

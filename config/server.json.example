@@ -12,12 +12,15 @@
     "auto_reconnect": true,
     "pool_size": 5
   },
-  "auth": { "port": 8080, "jwt_secret": "CHANGE_ME", "session_duration": 60 },
+  "auth": { "port": 8080, "jwt_secret": "umbra_eternum_secret_key_2024_very_secure", "session_duration": 60 },
   "world": { "port": 8081, "tick_rate": 20 },
   "zone": { "base_port": 8082, "max_players_per_zone": 1000, "tick_rate": 60 },
   "chat": { "port": 8083 },
   "gateway": { "port": 9000 },
   "logging": { "level": "DEBUG", "file": "logs/umbra_server.log" },
+  "party": {
+    "share_radius_uu": 5000
+  },
   "admin": {
     "enabled": true,
     "shared_secret": "CHANGE_ME_HEX_64",

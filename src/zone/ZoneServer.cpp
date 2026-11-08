@@ -1,11 +1,14 @@
 #include "ZoneServer.hpp"
+#include "auth/JWTManager.hpp"
 #include "zone/CombatCoreEngine.hpp"
 #include "zone/ExperienceService.hpp"
 #include "zone/ExpZoneManager.hpp"
+#include "core/Timer.hpp"
 #include "core/Logger.hpp"
 #include "core/ConfigManager.hpp"
 #include "database/MySQLConnector.hpp"
 #include "database/PlayerDAO.hpp"
+#include <algorithm>
 #include <vector>
 
 namespace Umbra {
@@ -15,7 +18,12 @@ namespace {
 void removePlayerFromSessions(Umbra::Database::MySQLConnector* db, uint32_t playerId) {
   if (!db || !db->isConnected()) return;
   std::string pid = std::to_string(playerId);
-  if (db->executePreparedInsert("DELETE FROM player_sessions WHERE player_id = ?", {pid})) {
+  // Login duplicado: o PHP (report_online) do client NOVO grava a sessão no mesmo instante
+  // em que o kick do antigo chega aqui. Sem a condição de last_seen, o DELETE (que ficava
+  // esperando o lock da linha) apagava a sessão nova → personagem online aparecia offline.
+  if (db->executePreparedInsert(
+          "DELETE FROM player_sessions WHERE player_id = ? AND last_seen < NOW() - INTERVAL 2 SECOND",
+          {pid})) {
     Core::Logger::getInstance().info("Player {} removed from player_sessions (disconnect)", playerId);
   }
 }
@@ -103,9 +111,20 @@ bool ZoneServer::start() {
   Core::Logger::getInstance().info("Zone chat limits: max_message_length={}, rate_limit_per_minute={}",
                                    maxMessageLength, rateLimitPerMinute);
 
+  {
+    std::string jwtSecret = configManager.get<std::string>("auth.jwt_secret", "");
+    if (jwtSecret.empty() || jwtSecret.find("CHANGE_ME") != std::string::npos) {
+      jwtSecret = "umbra_eternum_secret_key_2024_very_secure";
+      Core::Logger::getInstance().warn(
+          "auth.jwt_secret nao configurado; usando chave padrao de desenvolvimento (alinhar com PHP)");
+    }
+    jwtManager_ = std::make_unique<Umbra::Auth::JWTManager>(jwtSecret);
+  }
+
   if (config_.dbConnector && config_.dbConnector->isConnected()) {
     combatService_ = std::make_unique<ZoneCombatService>(config_.dbConnector, config_.zoneId);
     movementServer_->setZoneId(config_.zoneId);
+    movementServer_->setSessionAuth(jwtManager_.get(), config_.dbConnector);
     movementServer_->setOnPlayerDisconnectCallback(
       [db = config_.dbConnector.get()](uint32_t playerId) {
         removePlayerFromSessions(db, playerId);  // lista de amigos: marcar offline
@@ -116,12 +135,35 @@ bool ZoneServer::start() {
         return resolvePartyMembers(db, playerId);
       });
     movementServer_->setRespawnHandler(
-      [this](uint32_t playerId, uint32_t zoneId, const std::string& spawnKey,
+      [this](uint32_t playerId, uint32_t zoneId, const std::string& spawnKey, bool memorySaysDead,
              PlayerRespawnPayload& outPayload) -> bool {
         if (!combatService_) return false;
-        auto result = combatService_->processRespawn(playerId, zoneId, spawnKey);
-        if (!result.success) return false;
+        int32_t preferMaxH = 0;
+        int32_t preferMaxM = 0;
+        if (combatCoreEngine_) {
+          if (auto* loader = combatCoreEngine_->getCharacterStateLoader()) {
+            Combat::CharacterState st;
+            if (loader->tryGetCachedState(playerId, st) || loader->loadPlayerState(playerId, st)) {
+              preferMaxH = std::max(1, st.buffedStats.maxHealth);
+              preferMaxM = std::max(1, st.buffedStats.maxMana);
+            }
+          }
+        }
+        auto result = combatService_->processRespawn(playerId, zoneId, spawnKey, memorySaysDead,
+                                                     preferMaxH, preferMaxM);
+        if (!result.success) {
+          Core::Logger::getInstance().warn("processRespawn player {} error={}", playerId,
+                                           result.error.empty() ? "?" : result.error);
+          return false;
+        }
         outPayload = result.payload;
+        // Cache: HP cheio + isAlive=true (patchCachedHealth atualiza isAlive).
+        if (combatCoreEngine_) {
+          if (auto* loader = combatCoreEngine_->getCharacterStateLoader()) {
+            loader->patchCachedHealth(playerId, result.payload.currentHealth);
+            loader->patchCachedMana(playerId, result.payload.currentMana);
+          }
+        }
         return true;
       });
 
@@ -133,12 +175,34 @@ bool ZoneServer::start() {
           });
       movementServer_->setCombatCoreEngine(combatCoreEngine_.get());
 
+      const float partyShareRadius = static_cast<float>(
+          configManager.get<int>("party.share_radius_uu", 5000));
+      auto partyCb = [db = config_.dbConnector.get()](uint32_t playerId) {
+        return resolvePartyMembers(db, playerId);
+      };
+
       experienceService_ = std::make_unique<ExperienceService>(config_.dbConnector);
       experienceService_->setStateLoader(combatCoreEngine_->getCharacterStateLoader());
       expZoneManager_ = std::make_unique<ExpZoneManager>(
           config_.zoneId, config_.dbConnector, experienceService_.get(), movementServer_.get());
-      Core::Logger::getInstance().info("ExperienceService and ExpZoneManager initialized for zone {}",
-                                         config_.zoneId);
+      lootService_ = std::make_unique<LootService>(
+          config_.zoneId, config_.dbConnector, movementServer_.get(), experienceService_.get());
+      lootService_->setShareRadiusUu(partyShareRadius);
+      lootService_->setResolvePartyMembers(partyCb);
+      lootService_->loadFromDatabase();
+      experienceService_->loadGameRates();
+      lootService_->loadGameRates();
+      combatCoreEngine_->setLootService(lootService_.get());
+      if (auto* questProgress = combatCoreEngine_->getQuestProgressService()) {
+        questProgress->setMovementServer(movementServer_.get());
+        questProgress->setResolvePartyMembers(partyCb);
+        questProgress->setShareRadiusUu(partyShareRadius);
+      }
+      movementServer_->setLootService(lootService_.get());
+      Core::Logger::getInstance().info(
+          "ExperienceService, ExpZoneManager and LootService initialized for zone {} "
+          "(party.share_radius_uu={})",
+          config_.zoneId, partyShareRadius);
     } else {
       combatCoreEngine_.reset();
       Core::Logger::getInstance().warn("CombatCoreEngine failed to initialize");
@@ -155,6 +219,9 @@ bool ZoneServer::start() {
 
 void ZoneServer::stop() {
   running_ = false;
+  if (combatCoreEngine_) {
+    combatCoreEngine_->shutdown();
+  }
   if (movementServer_) movementServer_->stop();
   Core::Logger::getInstance().info("ZoneServer '{}' stopped", config_.zoneName);
 }
@@ -164,48 +231,91 @@ bool ZoneServer::isRunning() const {
 }
 
 void ZoneServer::update(float deltaTime) {
+  // Telemetria leve por fase (steady_clock, sem I/O). Só loga update lento (>= 50ms).
+  const int64_t updCpu0 = Core::threadCpuMs();
+  const int64_t updT0 = Core::steadyNowMs();
+  int64_t tDrain = 0, tSnap = 0, tKa = 0, tCombat = 0, tRegen = 0, tExp = 0;
+
   playerManager_->update(deltaTime);
   entitySystem_->update(deltaTime);
 
+  if (movementServer_) {
+    const int64_t a = Core::steadyNowMs();
+    movementServer_->drainInboundQueue();
+    movementServer_->tickSessionAuth();
+    movementServer_->refreshPartyCache();
+    tDrain = Core::steadyNowMs() - a;
+  }
+
   snapshotAccumulator_ += deltaTime;
   if (snapshotAccumulator_ >= 0.1f) {
+    const int64_t a = Core::steadyNowMs();
     if (movementServer_) movementServer_->broadcastSnapshot();
+    tSnap = Core::steadyNowMs() - a;
     snapshotAccumulator_ = 0.0f;
+  }
+
+  wsKeepaliveAccumulator_ += deltaTime;
+  if (wsKeepaliveAccumulator_ >= 2.0f) {
+    const int64_t a = Core::steadyNowMs();
+    if (movementServer_) movementServer_->sendKeepalivePings();
+    tKa = Core::steadyNowMs() - a;
+    wsKeepaliveAccumulator_ = 0.0f;
   }
 
   dotTickAccumulator_ += deltaTime;
   if (dotTickAccumulator_ >= 0.25f) {
-    if (combatService_ && movementServer_) {
-      combatService_->tickActiveDots(movementServer_.get());
-    }
     dotTickAccumulator_ = 0.0f;
   }
 
-  buffTickAccumulator_ += deltaTime;
-  if (buffTickAccumulator_ >= 0.5f) {
-    if (combatCoreEngine_) {
-      combatCoreEngine_->tickBuffExpirations();
-    }
-    buffTickAccumulator_ = 0.0f;
-  }
-
   if (combatCoreEngine_) {
+    const int64_t a = Core::steadyNowMs();
     combatCoreEngine_->tick(deltaTime);
+    tCombat = Core::steadyNowMs() - a;
+    const int64_t b = Core::steadyNowMs();
     combatCoreEngine_->tickRegen(deltaTime);
+    tRegen = Core::steadyNowMs() - b;
   }
 
   expZoneTickAccumulator_ += deltaTime;
   if (expZoneTickAccumulator_ >= 1.0f) {
+    const int64_t a = Core::steadyNowMs();
     if (expZoneManager_) {
       expZoneManager_->tick(expZoneTickAccumulator_);
     }
+    if (lootService_) {
+      lootService_->tick(expZoneTickAccumulator_);
+    }
+    tExp = Core::steadyNowMs() - a;
     expZoneTickAccumulator_ = 0.0f;
   }
 
-  // Auto-save desabilitado: as posicoes sao salvas pelo PHP (update_position.php)
-  // O auto-save C++ competia por locks na tabela players com o PHP, causando
-  // "Lock wait timeout exceeded" em todas as APIs (select_character, party, trade, etc.)
-  // TODO: reabilitar quando o update_position.php for removido do fluxo do UE5
+  const int64_t total = Core::steadyNowMs() - updT0;
+  if (total >= 50) {
+    static Core::LogThrottle slowUpdateThrottle(2000);
+    if (slowUpdateThrottle.allow()) {
+      Core::Logger::getInstance().warn(
+          "[Zone] update lento {}ms cpu={}ms (drain={} snap={} keepalive={} combat={} regen={} exp={}) "
+          "+{} omitidos",
+          total, Core::threadCpuMs() - updCpu0, tDrain, tSnap, tKa, tCombat, tRegen, tExp,
+          slowUpdateThrottle.takeSuppressed());
+    }
+  }
+}
+
+void ZoneServer::pumpInbound() {
+  // Chamado ~3ms pelo loop principal. Só trabalho barato e sensível a latência:
+  // - drainInboundQueue: tira o cast (opcode 96) do inbound e joga na fila de
+  //   combate quase na hora, em vez de esperar até 16ms pelo update pesado.
+  // - tickPendingSkillHits: dispara o dano dos casts com castTimeMs no momento
+  //   certo (idempotente: só processa hits já vencidos, então chamar junto ao
+  //   update não duplica dano).
+  if (movementServer_) {
+    movementServer_->drainInboundQueue();
+  }
+  if (combatCoreEngine_) {
+    combatCoreEngine_->tickPendingSkillHits();
+  }
 }
 
 void ZoneServer::autoSavePlayerPositions() {
@@ -254,6 +364,11 @@ const ZoneServer::Config& ZoneServer::getConfig() const {
 
 void ZoneServer::forceSavePositions() {
   autoSavePlayerPositions();
+}
+
+void ZoneServer::reloadGameRates() {
+  if (experienceService_) experienceService_->loadGameRates();
+  if (lootService_) lootService_->loadGameRates();
 }
 
 }  // namespace Zone

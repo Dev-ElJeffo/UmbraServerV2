@@ -6,8 +6,10 @@
  * com o JWTManager C++ do AuthServer.
  * 
  * Formato do token: header.payload.signature
- * Payload esperado: {account_id, player_id, username, iat, exp}
+ * Payload esperado: {account_id, player_id, username, session_version, iat, exp}
  */
+
+require_once __DIR__ . '/../../config/secrets.php';
 
 /**
  * Valida um token JWT e retorna o payload
@@ -21,9 +23,11 @@ function validateJWT($token, $secret = null) {
         return false;
     }
     
-    // Usar chave secreta padrão (DEVE ser a mesma de helpers/jwt_helper.php)
     if ($secret === null) {
-        $secret = getenv('JWT_SECRET') ?: 'umbra_eternum_secret_key_2024_very_secure';
+        $secret = umbra_jwt_secret();
+        if ($secret === '') {
+            return false;
+        }
     }
     
     // Separar token em partes
@@ -159,10 +163,12 @@ function base64UrlEncode($input) {
  * @param string $secret Chave secreta para assinatura (padrão: lê de JWT_SECRET ou usa padrão)
  * @return string Token JWT completo (header.payload.signature)
  */
-function generateJWT($accountId, $playerId, $username, $expirationMinutes = 60, $secret = null) {
-    // Usar chave secreta padrão (DEVE ser a mesma de helpers/jwt_helper.php)
+function generateJWT($accountId, $playerId, $username, $expirationMinutes = 60, $secret = null, $sessionVersion = 0) {
     if ($secret === null) {
-        $secret = getenv('JWT_SECRET') ?: 'umbra_eternum_secret_key_2024_very_secure';
+        $secret = umbra_jwt_secret();
+        if ($secret === '') {
+            return false;
+        }
     }
     
     // Criar header (mesmo formato do C++)
@@ -179,6 +185,7 @@ function generateJWT($accountId, $playerId, $username, $expirationMinutes = 60, 
         'account_id' => (int)$accountId,
         'player_id' => (int)$playerId,
         'username' => $username,
+        'session_version' => (int)$sessionVersion,
         'iat' => $now,
         'exp' => $now + ($expirationMinutes * 60)
     ];

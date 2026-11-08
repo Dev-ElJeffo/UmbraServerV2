@@ -319,6 +319,7 @@ SendBytes (execute)
 
 5. ✅ **`Lerp` para Yaw** (StateA → StateB, Alpha):
    - `Lerp` (`K2Node_CallFunction_34`) ✅
+   - **Atualização 2026-08:** substituir por `InterpolateNetworkYawDegrees` ou `ApplyInterpolatedNetworkYawToActor` — ver [`GUIA_BP_APLICAR_YAW_REMOTE_UE561.md`](GUIA_BP_APLICAR_YAW_REMOTE_UE561.md) e [`UmbraServer/docs_main/GUIA_MOVIMENTO_REMOTE_YAW.md`](../UmbraServer/docs_main/GUIA_MOVIMENTO_REMOTE_YAW.md).
    - Input `A`: `StateA_Yaw` (Float) ✅
    - Input `B`: `StateB_Yaw` (Float) ✅
    - Input `Alpha`: `ClampedAlpha` (Double) ✅

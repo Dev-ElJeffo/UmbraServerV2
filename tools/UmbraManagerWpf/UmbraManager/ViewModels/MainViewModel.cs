@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows;
@@ -10,6 +11,7 @@ using LiveChartsCore.SkiaSharpView;
 using LiveChartsCore.SkiaSharpView.Painting;
 using SkiaSharp;
 using UmbraManager.Models;
+using UmbraManager.Models.Editors;
 using UmbraManager.Services;
 using UmbraManager.Views;
 
@@ -21,11 +23,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly DispatcherTimer _playersTimer = new();
     private readonly Dictionary<string, string> _serviceStats = new();
     private readonly Dictionary<string, List<(DateTime, double)>> _cpuSeries = new();
+    private DateTime _statusStickyUntilUtc = DateTime.MinValue;
 
     public ObservableCollection<ServerRow> Servers { get; } = new();
     public ObservableCollection<ZoneInfo> Zones { get; } = new();
     public ObservableCollection<PlayerInfo> Players { get; } = new();
     public ObservableCollection<string> GmOutput { get; } = new();
+    [ObservableProperty] private string _gmOutputText = "";
     public ObservableCollection<string> AllLogs { get; } = new();
     public ObservableCollection<ScheduledTaskItem> ScheduledTasks { get; } = new();
     public ObservableCollection<ISeries> CpuChartSeries { get; } = new();
@@ -35,13 +39,24 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<NpcTemplateRow> NpcTemplates { get; } = new();
     public ObservableCollection<NpcInstanceRow> NpcInstances { get; } = new();
     public ObservableCollection<LogTabViewModel> LogTabs { get; } = new();
+    public ItemsViewModel ItemsFeature { get; private set; } = null!;
+    public SkillsViewModel SkillsFeature { get; private set; } = null!;
+    public NpcSkillsViewModel NpcSkillsFeature { get; private set; } = null!;
+    public NpcContentViewModel NpcContentFeature { get; private set; } = null!;
+    public OperationsViewModel OperationsFeature { get; private set; } = null!;
+    public AdminHubViewModel AdminHubFeature { get; private set; } = null!;
+    public SystemViewModel SystemFeature { get; private set; } = null!;
+    public AuditViewModel AuditFeature { get; private set; } = null!;
+    public GmConsoleViewModel GmConsoleFeature { get; private set; } = null!;
+    public PlayerInspectorViewModel PlayerInspectorFeature { get; private set; } = null!;
 
-    public static readonly string[] GmKnownCommands =
-    [
-        "ping", "stats", "players", "kick_player", "teleport", "broadcast",
-        "reload_config", "shutdown", "set_log_level", "zone_info", "force_save_positions",
-        "spawn_npc_instance", "reload_npc_instances", "list_npcs"
-    ];
+    [ObservableProperty] private PlayerInfo? _selectedPlayer;
+    [ObservableProperty] private string _auditFilter = "";
+    public ObservableCollection<AuditLogRow> AuditLogs { get; } = new();
+
+    [ObservableProperty] private Visibility _tabVisibilityOps = Visibility.Collapsed;
+    [ObservableProperty] private Visibility _tabVisibilityContent = Visibility.Collapsed;
+    [ObservableProperty] private Visibility _tabVisibilitySuper = Visibility.Collapsed;
 
     [ObservableProperty] private string _statusText = "Pronto";
     [ObservableProperty] private int _totalPlayers;
@@ -62,6 +77,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _newItemSlot = "none";
     [ObservableProperty] private string _newItemCategory = "misc";
     [ObservableProperty] private string _newItemIconPath = "";
+    [ObservableProperty] private string _newItemSkeletalMeshPath = "";
     [ObservableProperty] private int _newItemRequiredLevel = 1;
     [ObservableProperty] private int _newItemMaxStack = 1;
     [ObservableProperty] private int _newItemValue = 0;
@@ -76,6 +92,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private int _editingItemId; // 0 = modo "novo", >0 = editando
 
     [ObservableProperty] private int _editingNpcTemplateId;
+    [ObservableProperty] private long _editingNpcInstanceId;
     [ObservableProperty] private string _newNpcName = "";
     [ObservableProperty] private int _newNpcLevel = 1;
     [ObservableProperty] private int _newNpcMaxHealth = 5000;
@@ -86,8 +103,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private int _newNpcIntelligence = 20;
     [ObservableProperty] private int _newNpcLuck = 20;
     [ObservableProperty] private int _newNpcPhysicalAttack = 120;
-    [ObservableProperty] private int _newNpcMagicAttack = 120;
+    [ObservableProperty] private int _newNpcMagicAttack = 80;
+    [ObservableProperty] private string _newNpcDamageType = "PHYSICAL";
+    [ObservableProperty] private int _newNpcBasicPowerCoef = 100;
     [ObservableProperty] private int _newNpcPhysicalDefense = 80;
+
+    public string[] NpcDamageTypeOptions { get; } = ["PHYSICAL", "MAGIC", "TRUE"];
     [ObservableProperty] private int _newNpcMagicDefense = 80;
     [ObservableProperty] private int _newNpcAccuracy = 100;
     [ObservableProperty] private int _newNpcDodge = 20;
@@ -97,6 +118,39 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private int _newNpcDoubleAttackResistance = 5;
     [ObservableProperty] private string _newNpcSkeletalMeshPath = "";
     [ObservableProperty] private string _newNpcAnimBlueprintPath = "";
+    [ObservableProperty] private string _newNpcAnimAttacksCsv = "";
+    [ObservableProperty] private string _newNpcAnimHitsCsv = "";
+    [ObservableProperty] private string _newNpcAnimDeathPath = "";
+    [ObservableProperty] private string _newNpcAnimSkillPath = "";
+    [ObservableProperty] private string _newNpcAnimIdlePath = "";
+    [ObservableProperty] private string _newNpcAnimWalkPath = "";
+    [ObservableProperty] private string _newNpcAnimWalkFwdPath = "";
+    [ObservableProperty] private string _newNpcAnimWalkBwdPath = "";
+    [ObservableProperty] private string _newNpcAnimWalkLeftPath = "";
+    [ObservableProperty] private string _newNpcAnimWalkRightPath = "";
+    [ObservableProperty] private string _newNpcAnimRunFwdPath = "";
+    [ObservableProperty] private string _newNpcAnimRunBwdPath = "";
+    [ObservableProperty] private string _newNpcAnimRunLeftPath = "";
+    [ObservableProperty] private string _newNpcAnimRunRightPath = "";
+    [ObservableProperty] private string _newNpcAnimCastsCsv = "";
+    [ObservableProperty] private string _newNpcAnimBuffsCsv = "";
+    [ObservableProperty] private int _newNpcAnimDeathMs = 1500;
+    [ObservableProperty] private string _newNpcRightHandMeshPath = "";
+    [ObservableProperty] private string _newNpcLeftHandMeshPath = "";
+    [ObservableProperty] private float _newNpcRightHandRelX;
+    [ObservableProperty] private float _newNpcRightHandRelY;
+    [ObservableProperty] private float _newNpcRightHandRelZ;
+    [ObservableProperty] private float _newNpcRightHandRelRotX;
+    [ObservableProperty] private float _newNpcRightHandRelRotY;
+    [ObservableProperty] private float _newNpcRightHandRelRotZ;
+    [ObservableProperty] private float _newNpcRightHandRelScale = 1f;
+    [ObservableProperty] private float _newNpcLeftHandRelX;
+    [ObservableProperty] private float _newNpcLeftHandRelY;
+    [ObservableProperty] private float _newNpcLeftHandRelZ;
+    [ObservableProperty] private float _newNpcLeftHandRelRotX;
+    [ObservableProperty] private float _newNpcLeftHandRelRotY;
+    [ObservableProperty] private float _newNpcLeftHandRelRotZ;
+    [ObservableProperty] private float _newNpcLeftHandRelScale = 1f;
     [ObservableProperty] private int _spawnZoneId = 0;
     [ObservableProperty] private float _spawnPosX = 1000;
     [ObservableProperty] private float _spawnPosY = 0;
@@ -108,9 +162,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public string ItemFormTitle => EditingItemId > 0 ? $"Editar item #{EditingItemId}" : "Novo item";
     public string ItemFormSubtitle => EditingItemId > 0
-        ? "Os campos abaixo refletem o item selecionado. Concluir gravará um novo registro pois o backend cria por nome."
+        ? "Os campos abaixo refletem o item selecionado. Concluir atualizará o template existente no backend admin."
         : "Preencha os campos para criar um novo template em item_templates.";
-    public string ItemSaveButtonText => EditingItemId > 0 ? "Salvar (criar cópia)" : "Criar item";
+    public string ItemSaveButtonText => EditingItemId > 0 ? "Salvar item" : "Criar item";
 
     partial void OnEditingItemIdChanged(int value)
     {
@@ -122,16 +176,74 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public string NpcFormTitle => EditingNpcTemplateId > 0 ? $"Editar NPC template #{EditingNpcTemplateId}" : "Novo template NPC";
     public string NpcSaveButtonText => EditingNpcTemplateId > 0 ? "Salvar template" : "Criar template";
 
+    partial void OnSelectedNpcTemplateChanged(NpcTemplateRow? value)
+    {
+        if (value == null)
+        {
+            OnPropertyChanged(nameof(SpawnTemplateLabel));
+            return;
+        }
+        LoadNpcTemplateFromRow(value);
+        SelectedLootNpcTemplateId = value.Id;
+        SelectedLootNpcTemplateName = value.Name;
+        OnPropertyChanged(nameof(LootTargetLabel));
+        OnPropertyChanged(nameof(SpawnTemplateLabel));
+        OnPropertyChanged(nameof(VendorTargetLabel));
+        OnPropertyChanged(nameof(QuestTargetLabel));
+        OnPropertyChanged(nameof(CanEditNpcVendorStock));
+        OnPropertyChanged(nameof(CanEditNpcQuests));
+        _ = RefreshVendorAndQuestsForSelectedTemplateAsync();
+        _ = RefreshNpcTemplateSkillsAsync();
+        if (NpcSkills.Count == 0)
+            _ = RefreshNpcSkillsAsync();
+    }
+
     partial void OnEditingNpcTemplateIdChanged(int value)
     {
         OnPropertyChanged(nameof(NpcFormTitle));
         OnPropertyChanged(nameof(NpcSaveButtonText));
+        OnPropertyChanged(nameof(SpawnTemplateLabel));
+        OnPropertyChanged(nameof(VendorTargetLabel));
+        OnPropertyChanged(nameof(QuestTargetLabel));
+        OnPropertyChanged(nameof(CanEditNpcVendorStock));
+        OnPropertyChanged(nameof(CanEditNpcQuests));
+        OnPropertyChanged(nameof(VendorTabHint));
+        OnPropertyChanged(nameof(QuestTabHint));
     }
 
-    partial void OnSelectedNpcTemplateChanged(NpcTemplateRow? value)
+    partial void OnSelectedNpcInstanceChanged(NpcInstanceRow? value)
     {
-        if (value != null)
-            LoadNpcTemplateFromRow(value);
+        if (value == null) return;
+        EditingNpcInstanceId = value.InstanceId;
+        SpawnZoneId = value.ZoneId;
+        SpawnPosX = value.PosX;
+        SpawnPosY = value.PosY;
+        SpawnPosZ = value.PosZ;
+        SpawnYaw = value.Yaw;
+        StatusText = $"Instância #{value.InstanceId} selecionada — altere X/Y/Z e clique Atualizar posição.";
+        OnPropertyChanged(nameof(EditingNpcInstanceLabel));
+    }
+
+    partial void OnEditingNpcInstanceIdChanged(long value) =>
+        OnPropertyChanged(nameof(EditingNpcInstanceLabel));
+
+    public string EditingNpcInstanceLabel =>
+        EditingNpcInstanceId > 0
+            ? $"Instância em edição: #{EditingNpcInstanceId} (só para Atualizar posição)"
+            : "Nenhuma instância — OK para Criar nova instância a partir do template";
+
+    public string SpawnTemplateLabel
+    {
+        get
+        {
+            var id = ResolveNpcTemplateIdForSpawn();
+            if (id <= 0)
+                return "Template para criar: (nenhum — selecione na lista à esquerda)";
+            var name = SelectedNpcTemplate?.Id == id
+                ? SelectedNpcTemplate.Name
+                : (NpcTemplates.FirstOrDefault(t => t.Id == id)?.Name ?? NewNpcName);
+            return $"Template para criar: #{id} {name}";
+        }
     }
 
     public IReadOnlyList<string> ItemTypes { get; } = new[] { "weapon", "armor", "consumable", "material", "quest", "misc" };
@@ -144,10 +256,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>Subtipos sugeridos por tipo. O backend não valida — é só guia.</summary>
     private static readonly Dictionary<string, string[]> SubtypeByType = new()
     {
-        ["weapon"]     = new[] { "sword", "dagger", "axe", "mace", "hammer", "bow", "crossbow", "staff", "wand", "polearm", "spear", "shield", "fist" },
+        ["weapon"]     = new[] { "axe", "cestus", "scythe", "dagger", "sword", "staff", "mace", "hammer", "bow", "crossbow", "wand", "polearm", "spear", "shield", "fist" },
         ["armor"]      = new[] { "helmet", "chest", "legs", "boots", "gloves", "cloak", "belt", "ring", "amulet", "earring", "bracelet" },
         ["consumable"] = new[] { "potion", "elixir", "scroll", "food", "drink", "bandage", "stone" },
-        ["material"]   = new[] { "metal", "cloth", "leather", "wood", "gem", "ore", "herb", "essence", "shard", "dust" },
+        ["material"]   = new[] { "metal", "cloth", "leather", "wood", "gem", "ore", "herb", "essence", "shard", "dust", "enchant_crystal", "enchant_extractor" },
         ["quest"]      = new[] { "key", "document", "token", "relic" },
         ["misc"]       = new[] { "misc", "currency", "tool", "lockpick", "container" }
     };
@@ -165,6 +277,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             NewItemSubtype = ItemSubtypes.FirstOrDefault() ?? "";
         else if (string.IsNullOrEmpty(NewItemSubtype))
             NewItemSubtype = ItemSubtypes.FirstOrDefault() ?? "";
+        OnPropertyChanged(nameof(ItemDesignerSummary));
     }
 
     public Dictionary<string, ObservableCollection<string>> LogLines { get; } = new();
@@ -182,47 +295,85 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public IReadOnlyList<ServiceDefinition> Definitions { get; }
 
     public MainViewModel()
+        : this(
+            AppConfig.Instance,
+            new AdminChannelHub(AppConfig.Instance.AdminSecret),
+            new ProcessManagerService(AppConfig.Instance.BuildDirectory),
+            new LogTailerService(),
+            new MetricsStore(),
+            new AuditLogService(),
+            new SchedulerService(),
+            new PhpAdminClient())
     {
-        AppConfig.Instance.Load();
-        Definitions = AppConfig.Instance.GetServiceDefinitions().ToList();
+    }
+
+    public MainViewModel(
+        AppConfig config,
+        AdminChannelHub adminHub,
+        ProcessManagerService processManager,
+        LogTailerService logTailer,
+        MetricsStore metrics,
+        AuditLogService audit,
+        SchedulerService scheduler,
+        PhpAdminClient php)
+    {
+        if (string.IsNullOrEmpty(config.ManagerConfigPath))
+            config.Load();
+        Definitions = config.GetServiceDefinitions().ToList();
 
         if (Definitions.Count == 0)
         {
-            var msg = string.IsNullOrEmpty(AppConfig.Instance.ManagerConfigPath)
+            var msg = string.IsNullOrEmpty(config.ManagerConfigPath)
                 ? "Nenhum config/manager.json encontrado.\n\nProcurado a partir de:\n" +
                   AppContext.BaseDirectory +
                   "\n\nCopie config/manager.json (ou .example) para uma das pastas pai, ou para a pasta do exe."
-                : $"manager.json carregado: {AppConfig.Instance.ManagerConfigPath}\n" +
-                  $"server.json: {AppConfig.Instance.AbsolutePath(AppConfig.Instance.ConfigPath)}\n\n" +
+                : $"manager.json carregado: {config.ManagerConfigPath}\n" +
+                  $"server.json: {config.AbsolutePath(config.ConfigPath)}\n\n" +
                   "Mas nenhum serviço foi reconhecido. Verifique se server.json contém os blocos auth/world/zone/chat/gateway.";
             StatusText = "Sem serviços — abra o Config para mais detalhes.";
             ConfigStatus = msg;
         }
         else
         {
-            StatusText = $"Carregado: {AppConfig.Instance.ManagerConfigPath}";
+            StatusText = $"Carregado: {config.ManagerConfigPath}";
         }
 
-        AdminHub = new AdminChannelHub(AppConfig.Instance.AdminSecret);
-        ProcessManager = new ProcessManagerService(AppConfig.Instance.BuildDirectory);
-        LogTailer = new LogTailerService();
-        Metrics = new MetricsStore();
-        Audit = new AuditLogService();
-        Scheduler = new SchedulerService();
-        Php = new PhpAdminClient();
-        Php.Configure(AppConfig.Instance.PhpApiBase, AppConfig.Instance.AdminUsername);
+        AdminHub = adminHub;
+        ProcessManager = processManager;
+        LogTailer = logTailer;
+        Metrics = metrics;
+        Audit = audit;
+        Scheduler = scheduler;
+        Php = php;
+        Php.Configure(config.PhpApiBase, config.AdminUsername, config.AdminToken);
+        Audit.AttachPhpClient(Php);
+        ItemsFeature = new ItemsViewModel(this);
+        SkillsFeature = new SkillsViewModel(this);
+        NpcSkillsFeature = new NpcSkillsViewModel(this);
+        NpcContentFeature = new NpcContentViewModel(this);
+        OperationsFeature = new OperationsViewModel(this);
+        AdminHubFeature = new AdminHubViewModel(this);
+        SystemFeature = new SystemViewModel(this);
+        AuditFeature = new AuditViewModel(this);
+        GmConsoleFeature = new GmConsoleViewModel(this);
+        PlayerInspectorFeature = new PlayerInspectorViewModel(this);
 
         foreach (var def in Definitions)
         {
-            Servers.Add(new ServerRow { Definition = def, AutoRestart = AppConfig.Instance.AutoRestartOnCrash });
+            Servers.Add(new ServerRow { Definition = def, AutoRestart = config.AutoRestartOnCrash });
             LogLines[def.Id] = new ObservableCollection<string>();
             LogTabs.Add(new LogTabViewModel { ServiceId = def.Id, DisplayName = def.DisplayName });
             DashboardCards.Add(new DashboardCard { ServiceId = def.Id, DisplayName = def.DisplayName });
-            var logCandidates = new[]
+            var logCandidates = new List<string>
             {
-                Path.Combine(AppConfig.Instance.BuildDirectory, "logs", def.LogFile),
-                Path.Combine(AppConfig.Instance.AbsolutePath(AppConfig.Instance.LogDir), def.LogFile),
+                Path.Combine(config.BuildDirectory, "logs", def.LogFile),
+                Path.Combine(config.AbsolutePath(config.LogDir), def.LogFile),
             };
+            if (def.IsZone)
+            {
+                logCandidates.Add(Path.Combine(config.BuildDirectory, "logs", "zone_server.log"));
+                logCandidates.Add(Path.Combine(config.AbsolutePath(config.LogDir), "zone_server.log"));
+            }
             var logPath = logCandidates.FirstOrDefault(File.Exists) ?? logCandidates[0];
             LogTailer.WatchLog(def.Id, logPath);
             try
@@ -240,11 +391,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         var configPath = AppConfig.Instance.AbsolutePath(AppConfig.Instance.ConfigPath);
         if (File.Exists(configPath)) ConfigJson = File.ReadAllText(configPath);
+        try { ConfigModel = ServerConfigModel.FromJson(ConfigJson); } catch { ConfigModel = new ServerConfigModel(); }
+        ConfigPreviewJson = ConfigJson;
+        LoadItemStatFields("{}");
+        BuildNavRoutes();
+        RestorePersistedScheduler();
 
         AdminHub.ResponseReceived += OnAdminResponse;
         // Não floodar o GM Console com erros transitórios de reconexão.
         // O AdminState do card/server-row já mostra o último erro de forma estável.
-        AdminHub.ClientError += (id, err) => StatusText = $"[{id}] {err}";
+        AdminHub.ClientError += (id, err) =>
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null) return;
+            dispatcher.BeginInvoke(() => SetStickyStatus($"[{id}] {err}", 20));
+        };
         AdminHub.ClientDisconnected += id => Application.Current.Dispatcher.Invoke(() =>
         {
             // Quando o socket admin cai, atualiza UI imediatamente
@@ -255,6 +416,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         // Inicializa lista de subtipos com base no tipo padrão
         OnNewItemTypeChanged(NewItemType);
+        EnsureItemAllowedClassOptions();
         ProcessManager.ServiceStateChanged += (_, _) => Application.Current.Dispatcher.Invoke(RefreshServerRows);
         ProcessManager.ServiceCrashed += (id, code) => Application.Current.Dispatcher.Invoke(() =>
         {
@@ -280,20 +442,56 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _pollTimer.Tick += (_, _) => _ = PollStatsAsync();
         _playersTimer.Interval = TimeSpan.FromMilliseconds(AppConfig.Instance.PlayersPollMs);
         _playersTimer.Tick += (_, _) => _ = PollPlayersAsync();
+    }
 
+    private bool _runtimeStarted;
+    private bool _isDisposed;
+
+    public void StartRuntime()
+    {
+        if (_isDisposed || _runtimeStarted) return;
+        _runtimeStarted = true;
         _ = InitAsync();
     }
 
     private async Task InitAsync()
     {
+        if (_isDisposed) return;
         await AdminHub.ConnectAllAsync(Definitions);
+        if (_isDisposed) return;
         await AdminHub.SendCommandAsync("auth", "ping");
+        if (_isDisposed) return;
         _pollTimer.Start();
         _playersTimer.Start();
-        await RefreshAccountsAsync();
-        await RefreshItemsAsync();
-        await RefreshNpcTemplatesAsync();
-        await RefreshNpcInstancesAsync();
+        await RefreshGameClassesAsync();
+        if (_isDisposed) return;
+        EnsureItemAllowedClassOptions();
+        if (TabVisibilitySuper == Visibility.Visible)
+            await RefreshAccountsAsync();
+        if (_isDisposed) return;
+        if (TabVisibilityContent == Visibility.Visible)
+        {
+            await RefreshItemsAsync();
+            if (_isDisposed) return;
+            await RefreshSkillsAsync();
+            if (_isDisposed) return;
+            await RefreshNpcTemplatesAsync();
+            if (_isDisposed) return;
+            await RefreshNpcInstancesAsync();
+            if (_isDisposed) return;
+            await RefreshExpZonesAsync();
+            if (_isDisposed) return;
+            await RefreshRefinementConfigsAsync();
+            if (_isDisposed) return;
+            await RefreshEnchantConfigAsync();
+        }
+        if (_isDisposed) return;
+        if (TabVisibilitySuper == Visibility.Visible)
+            await RefreshGameRatesAsync();
+        if (_isDisposed) return;
+        await RefreshProjectStateAsync();
+        if (!_isDisposed)
+            await RefreshAudit();
     }
 
     private void OnAdminResponse(string serviceId, string cmd, JsonElement json)
@@ -342,7 +540,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
             // Resposta de comando enviado pelo GM Console: mostra o JSON
             _lastUserCmd.Remove((serviceId, cmd));
             AppendGm($"[{serviceId}] {cmd} OK:");
-            AppendGm(PrettyJson(data));
+            var pretty = PrettyJson(data);
+            if (pretty.Length > 12000)
+                pretty = pretty[..12000] + $"\n… (truncado, total {pretty.Length} chars — use Copiar se necessário)";
+            AppendGm(pretty);
         });
     }
 
@@ -389,8 +590,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (!obj.TryGetProperty(prop, out var v)) return 0;
         return v.ValueKind switch
         {
-            JsonValueKind.Number => v.TryGetInt32(out var n) ? n : 0,
-            JsonValueKind.String => int.TryParse(v.GetString(), out var n) ? n : 0,
+            JsonValueKind.Number => v.TryGetInt32(out var n) ? n : (int)v.GetDouble(),
+            JsonValueKind.String => int.TryParse(v.GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : 0,
             _ => 0
         };
     }
@@ -404,13 +605,252 @@ public partial class MainViewModel : ObservableObject, IDisposable
         return v.ValueKind switch
         {
             JsonValueKind.Number => (float)v.GetDouble(),
-            JsonValueKind.String => float.TryParse(v.GetString(), out var f) ? f : 0,
+            JsonValueKind.String => float.TryParse(v.GetString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var f) ? f : 0,
+            _ => 0
+        };
+    }
+
+    private static string TryGetAnimStatesJsonRaw(JsonElement obj)
+    {
+        if (!obj.TryGetProperty("anim_states_json", out var v)) return "";
+        return v.ValueKind switch
+        {
+            JsonValueKind.String => v.GetString() ?? "",
+            JsonValueKind.Object or JsonValueKind.Array => v.GetRawText(),
+            JsonValueKind.Null => "",
+            _ => ""
+        };
+    }
+
+    private static List<string> SplitAnimPathCsv(string? csv)
+    {
+        var list = new List<string>();
+        if (string.IsNullOrWhiteSpace(csv)) return list;
+        foreach (var part in csv.Replace('\n', ';').Replace('\r', ';').Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var t = part.Trim();
+            if (!string.IsNullOrEmpty(t)) list.Add(t);
+        }
+        return list;
+    }
+
+    private static string JoinAnimPathCsv(IEnumerable<string>? paths) =>
+        paths == null ? "" : string.Join(";", paths.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p.Trim()));
+
+    private object? BuildAnimStatesJsonObject()
+    {
+        var attacks = SplitAnimPathCsv(NewNpcAnimAttacksCsv);
+        var hits = SplitAnimPathCsv(NewNpcAnimHitsCsv);
+        var death = (NewNpcAnimDeathPath ?? "").Trim();
+        var skill = (NewNpcAnimSkillPath ?? "").Trim();
+        var idle = (NewNpcAnimIdlePath ?? "").Trim();
+        var walk = (NewNpcAnimWalkPath ?? "").Trim();
+        var walkFwd = (NewNpcAnimWalkFwdPath ?? "").Trim();
+        var walkBwd = (NewNpcAnimWalkBwdPath ?? "").Trim();
+        var walkLeft = (NewNpcAnimWalkLeftPath ?? "").Trim();
+        var walkRight = (NewNpcAnimWalkRightPath ?? "").Trim();
+        var runFwd = (NewNpcAnimRunFwdPath ?? "").Trim();
+        var runBwd = (NewNpcAnimRunBwdPath ?? "").Trim();
+        var runLeft = (NewNpcAnimRunLeftPath ?? "").Trim();
+        var runRight = (NewNpcAnimRunRightPath ?? "").Trim();
+        var casts = SplitAnimPathCsv(NewNpcAnimCastsCsv);
+        var buffs = SplitAnimPathCsv(NewNpcAnimBuffsCsv);
+        if (attacks.Count == 0 && hits.Count == 0 && death.Length == 0 && skill.Length == 0
+            && idle.Length == 0 && walk.Length == 0
+            && walkFwd.Length == 0 && walkBwd.Length == 0 && walkLeft.Length == 0 && walkRight.Length == 0
+            && runFwd.Length == 0 && runBwd.Length == 0 && runLeft.Length == 0 && runRight.Length == 0
+            && casts.Count == 0 && buffs.Count == 0)
+        {
+            return null;
+        }
+
+        var root = new JsonObject();
+        if (attacks.Count > 0)
+        {
+            var arr = new JsonArray();
+            foreach (var p in attacks) arr.Add(p);
+            root["attacks"] = arr;
+        }
+        if (hits.Count > 0)
+        {
+            var arr = new JsonArray();
+            foreach (var p in hits) arr.Add(p);
+            root["hits"] = arr;
+        }
+        if (death.Length > 0) root["death"] = death;
+        if (skill.Length > 0) root["skill"] = skill;
+        if (idle.Length > 0) root["idle"] = idle;
+        if (walkFwd.Length > 0 || walkBwd.Length > 0 || walkLeft.Length > 0 || walkRight.Length > 0)
+        {
+            var w = new JsonObject();
+            if (walkFwd.Length > 0) w["fwd"] = walkFwd;
+            if (walkBwd.Length > 0) w["bwd"] = walkBwd;
+            if (walkLeft.Length > 0) w["left"] = walkLeft;
+            if (walkRight.Length > 0) w["right"] = walkRight;
+            root["walk"] = w;
+        }
+        else if (walk.Length > 0)
+        {
+            root["walk"] = walk;
+        }
+        if (runFwd.Length > 0 || runBwd.Length > 0 || runLeft.Length > 0 || runRight.Length > 0)
+        {
+            var r = new JsonObject();
+            if (runFwd.Length > 0) r["fwd"] = runFwd;
+            if (runBwd.Length > 0) r["bwd"] = runBwd;
+            if (runLeft.Length > 0) r["left"] = runLeft;
+            if (runRight.Length > 0) r["right"] = runRight;
+            root["run"] = r;
+        }
+        if (casts.Count > 0)
+        {
+            var arr = new JsonArray();
+            foreach (var p in casts) arr.Add(p);
+            root["casts"] = arr;
+        }
+        if (buffs.Count > 0)
+        {
+            var arr = new JsonArray();
+            foreach (var p in buffs) arr.Add(p);
+            root["buffs"] = arr;
+        }
+        if (death.Length > 0 || NewNpcAnimDeathMs > 0)
+        {
+            root["death_ms"] = NewNpcAnimDeathMs <= 0 ? 1500 : NewNpcAnimDeathMs;
+        }
+        return root;
+    }
+
+    private void ApplyAnimStatesJsonToForm(string? json)
+    {
+        NewNpcAnimAttacksCsv = "";
+        NewNpcAnimHitsCsv = "";
+        NewNpcAnimDeathPath = "";
+        NewNpcAnimSkillPath = "";
+        NewNpcAnimIdlePath = "";
+        NewNpcAnimWalkPath = "";
+        NewNpcAnimWalkFwdPath = "";
+        NewNpcAnimWalkBwdPath = "";
+        NewNpcAnimWalkLeftPath = "";
+        NewNpcAnimWalkRightPath = "";
+        NewNpcAnimRunFwdPath = "";
+        NewNpcAnimRunBwdPath = "";
+        NewNpcAnimRunLeftPath = "";
+        NewNpcAnimRunRightPath = "";
+        NewNpcAnimCastsCsv = "";
+        NewNpcAnimBuffsCsv = "";
+        NewNpcAnimDeathMs = 1500;
+        if (string.IsNullOrWhiteSpace(json)) return;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            NewNpcAnimAttacksCsv = JoinAnimPathCsv(ReadAnimPathList(root, "attacks", "attack"));
+            NewNpcAnimHitsCsv = JoinAnimPathCsv(ReadAnimPathList(root, "hits", "hit"));
+            NewNpcAnimDeathPath = ReadAnimPathScalar(root, "death");
+            NewNpcAnimSkillPath = ReadAnimPathScalar(root, "skill");
+            NewNpcAnimIdlePath = ReadAnimPathScalar(root, "idle");
+            ReadDirPaths(root, "walk", out var wFwd, out var wBwd, out var wLeft, out var wRight, out var wLegacy);
+            NewNpcAnimWalkPath = wLegacy;
+            NewNpcAnimWalkFwdPath = wFwd;
+            NewNpcAnimWalkBwdPath = wBwd;
+            NewNpcAnimWalkLeftPath = wLeft;
+            NewNpcAnimWalkRightPath = wRight;
+            ReadDirPaths(root, "run", out var rFwd, out var rBwd, out var rLeft, out var rRight, out _);
+            NewNpcAnimRunFwdPath = rFwd;
+            NewNpcAnimRunBwdPath = rBwd;
+            NewNpcAnimRunLeftPath = rLeft;
+            NewNpcAnimRunRightPath = rRight;
+            NewNpcAnimCastsCsv = JoinAnimPathCsv(ReadAnimPathList(root, "casts", "cast"));
+            NewNpcAnimBuffsCsv = JoinAnimPathCsv(ReadAnimPathList(root, "buffs", "buff"));
+            if (root.TryGetProperty("death_ms", out var ms))
+            {
+                if (ms.ValueKind == JsonValueKind.Number && ms.TryGetInt32(out var n) && n > 0)
+                    NewNpcAnimDeathMs = n;
+                else if (ms.ValueKind == JsonValueKind.String && int.TryParse(ms.GetString(), out var ns) && ns > 0)
+                    NewNpcAnimDeathMs = ns;
+            }
+        }
+        catch
+        {
+            // ignore invalid JSON from DB
+        }
+    }
+
+    private static List<string> ReadAnimPathList(JsonElement root, string pluralKey, string singularKey)
+    {
+        var list = new List<string>();
+        if (root.TryGetProperty(pluralKey, out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var el in arr.EnumerateArray())
+            {
+                if (el.ValueKind == JsonValueKind.String)
+                {
+                    var s = (el.GetString() ?? "").Trim();
+                    if (s.Length > 0) list.Add(s);
+                }
+            }
+            return list;
+        }
+        var one = ReadAnimPathScalar(root, singularKey);
+        if (one.Length > 0) list.Add(one);
+        return list;
+    }
+
+    private static void ReadDirPaths(JsonElement root, string key,
+        out string fwd, out string bwd, out string left, out string right, out string legacy)
+    {
+        fwd = bwd = left = right = legacy = "";
+        if (!root.TryGetProperty(key, out var node)) return;
+        if (node.ValueKind == JsonValueKind.String)
+        {
+            legacy = (node.GetString() ?? "").Trim();
+            fwd = legacy;
+            return;
+        }
+        if (node.ValueKind != JsonValueKind.Object) return;
+        string Pick(params string[] keys)
+        {
+            foreach (var k in keys)
+            {
+                if (node.TryGetProperty(k, out var el) && el.ValueKind == JsonValueKind.String)
+                {
+                    var s = (el.GetString() ?? "").Trim();
+                    if (s.Length > 0) return s;
+                }
+            }
+            return "";
+        }
+        fwd = Pick("fwd", "f", "forward");
+        bwd = Pick("bwd", "b", "back", "backward");
+        left = Pick("left", "l");
+        right = Pick("right", "r");
+        legacy = fwd;
+    }
+
+    private static string ReadAnimPathScalar(JsonElement root, string key)
+    {
+        if (!root.TryGetProperty(key, out var v) || v.ValueKind != JsonValueKind.String) return "";
+        return (v.GetString() ?? "").Trim();
+    }
+
+    private static double TryGetDoubleProp(JsonElement obj, string prop)
+    {
+        if (!obj.TryGetProperty(prop, out var v)) return 0;
+        return v.ValueKind switch
+        {
+            JsonValueKind.Number => v.GetDouble(),
+            JsonValueKind.String => double.TryParse(v.GetString(), out var d) ? d : 0,
             _ => 0
         };
     }
 
     private int ResolveNpcTemplateIdForSpawn() =>
-        SelectedNpcTemplate?.Id ?? EditingNpcTemplateId;
+        SelectedNpcTemplate?.Id > 0
+            ? SelectedNpcTemplate.Id
+            : (EditingNpcTemplateId > 0
+                ? EditingNpcTemplateId
+                : SelectedNpcInstance?.TemplateId ?? 0);
 
     private static int ParseZoneIdFromService(string zoneService)
     {
@@ -419,23 +859,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         return m.Success && int.TryParse(m.Groups[1].Value, out var z) ? z : -1;
     }
 
-    /// <summary>Zone efetiva: player online &gt; zone admin conectada &gt; campo SpawnZoneId.</summary>
-    private int ResolveEffectiveSpawnZoneId()
-    {
-        foreach (var player in Players)
-        {
-            var z = ParseZoneIdFromService(player.ZoneService);
-            if (z >= 0) return z;
-        }
-
-        foreach (var def in Definitions.Where(d => d.IsZone))
-        {
-            if (AdminHub.GetClient(def.Id)?.IsAuthenticated != true) continue;
-            if (int.TryParse(def.Arguments, out var z)) return z;
-        }
-
-        return SpawnZoneId;
-    }
+    /// <summary>Zone efetiva para spawn: somente o campo informado.</summary>
+    private int ResolveSpawnZoneId() => SpawnZoneId;
 
     private IReadOnlyList<string> GetAuthenticatedZoneServices() =>
         Definitions.Where(d => d.IsZone && AdminHub.GetClient(d.Id)?.IsAuthenticated == true)
@@ -465,38 +890,49 @@ public partial class MainViewModel : ObservableObject, IDisposable
             }
         }
         _playersByZone[serviceId] = list;
-        Players.Clear();
-        foreach (var pl in _playersByZone.Values.SelectMany(x => x))
-            Players.Add(pl);
-        TotalPlayers = Players.Count;
+        ReconcilePlayers(_playersByZone.Values.SelectMany(x => x));
     }
 
     private async Task PollStatsAsync()
     {
-        ProcessManager.RefreshExternalProcesses(Definitions);
-        await AdminHub.ReconnectMissingAsync(ProcessManager.IsRunning);
-        foreach (var def in Definitions)
+        try
         {
-            if (!ProcessManager.IsRunning(def.Id)) continue;
-            await AdminHub.SendCommandAsync(def.Id, "stats");
-            if (def.IsZone) await AdminHub.SendCommandAsync(def.Id, "zone_info");
-        }
-        RefreshServerRows();
-        ActiveZones = Zones.Count(z => z.Online);
-        var connected = Definitions.Count(d => AdminHub.GetClient(d.Id)?.IsAuthenticated == true);
-        StatusText = $"Poll {DateTime.Now:HH:mm:ss} | Players {TotalPlayers} | Admin {connected}/{Definitions.Count}";
+            try { ProcessManager.RefreshExternalProcesses(Definitions); }
+            catch (Exception ex) { StatusText = $"Detecção PID: {ex.Message}"; }
 
-        // Atualiza countdown das tarefas agendadas
-        foreach (var task in ScheduledTasks)
+            await AdminHub.ReconnectMissingAsync();
+            foreach (var def in Definitions)
+            {
+                // Stats via canal admin autenticado (não depende de PID detectado)
+                if (AdminHub.GetClient(def.Id)?.IsAuthenticated != true) continue;
+                await AdminHub.SendCommandAsync(def.Id, "stats");
+                if (def.IsZone) await AdminHub.SendCommandAsync(def.Id, "zone_info");
+            }
+            RefreshServerRows();
+            ActiveZones = Zones.Count(z => z.Online);
+            var connected = Definitions.Count(d => AdminHub.GetClient(d.Id)?.IsAuthenticated == true);
+            if (DateTime.UtcNow >= _statusStickyUntilUtc)
+            {
+                StatusText = $"Poll {DateTime.Now:HH:mm:ss} | Players {TotalPlayers} | Admin {connected}/{Definitions.Count}";
+            }
+
+            foreach (var task in ScheduledTasks)
+            {
+                var nr = Scheduler.GetNextRun(task.Id);
+                if (nr.HasValue && nr.Value != task.NextRun) task.NextRun = nr.Value;
+            }
+        }
+        catch (Exception ex)
         {
-            var nr = Scheduler.GetNextRun(task.Id);
-            if (nr.HasValue && nr.Value != task.NextRun) task.NextRun = nr.Value;
+            try { RefreshServerRows(); } catch { /* ignore */ }
+            StatusText = $"Poll erro: {ex.Message}";
         }
     }
 
     private async Task PollPlayersAsync()
     {
-        foreach (var def in Definitions.Where(d => d.IsZone && ProcessManager.IsRunning(d.Id)))
+        foreach (var def in Definitions.Where(d =>
+                     d.IsZone && AdminHub.GetClient(d.Id)?.IsAuthenticated == true))
             await AdminHub.SendCommandAsync(def.Id, "players");
 
         // Atualiza Zones in-place: 1 entry por zona em Definitions, sem duplicar
@@ -509,15 +945,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 Zones.Add(zone);
             }
             var client = AdminHub.GetClient(def.Id);
-            var processRunning = ProcessManager.IsRunning(def.Id);
+            var authenticated = client?.IsAuthenticated == true;
             zone.ZoneId = int.TryParse(def.Arguments, out var zid) ? zid : 0;
             zone.ZoneName = def.DisplayName;
             zone.Port = def.GamePort;
             zone.AdminPort = def.AdminPort;
-            // Online só se o processo estiver vivo E o admin client autenticado.
-            // Isso evita "Online fantasma" quando o admin TCP demora a notar que
-            // o servidor caiu.
-            zone.Online = processRunning && client?.IsAuthenticated == true;
+            // Online = canal admin autenticado (processo pode ainda não ter sido detectado)
+            zone.Online = authenticated;
             zone.PlayersOnline = zone.Online && _playersByZone.TryGetValue(def.Id, out var pl) ? pl.Count : 0;
         }
 
@@ -532,28 +966,31 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void RefreshServerRows()
     {
-        ProcessManager.RefreshExternalProcesses(Definitions);
+        try { ProcessManager.RefreshExternalProcesses(Definitions); }
+        catch { /* PID opcional; admin continua */ }
         var onlineCount = 0;
         var adminCount = 0;
         foreach (var row in Servers)
         {
             var running = ProcessManager.IsRunning(row.Definition.Id);
             var external = ProcessManager.IsExternal(row.Definition.Id);
-            row.Status = running ? (external ? "Running (ext)" : "Running") : "Stopped";
-            row.Pid = ProcessManager.GetPid(row.Definition.Id);
-
             var client = AdminHub.GetClient(row.Definition.Id);
             var authenticated = client?.IsAuthenticated == true;
-            if (running) onlineCount++;
+
+            row.Status = authenticated
+                ? (running ? (external ? "Running (ext)" : "Running") : "Admin OK")
+                : (running ? (external ? "Running (ext)" : "Running") : "Stopped");
+            row.Pid = ProcessManager.GetPid(row.Definition.Id);
+
+            if (authenticated) onlineCount++;
             if (authenticated) adminCount++;
 
-            var adminState = !running ? "off"
-                : authenticated ? "OK"
+            var adminState = authenticated ? "OK"
                 : !string.IsNullOrEmpty(client?.LastError) ? client.LastError!
                 : "off";
             row.AdminState = adminState;
-            row.Stats = running ? GetServiceStat(row.Definition.Id) : "-";
-            if (!running)
+            row.Stats = authenticated || running ? GetServiceStat(row.Definition.Id) : "-";
+            if (!authenticated && !running)
                 _serviceStats.Remove(row.Definition.Id);
 
             var card = DashboardCards.FirstOrDefault(c => c.ServiceId == row.Definition.Id);
@@ -564,10 +1001,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 card.Pid = row.Pid;
                 card.GamePort = row.Definition.GamePort;
                 card.AdminPort = row.Definition.AdminPort;
-                card.IsOnline = running && authenticated;
+                card.IsOnline = authenticated;
                 card.IsExternal = external;
-                // CPU/RAM/uptime são preenchidos em OnAdminResponse(stats)
-                if (!card.IsOnline)
+                // Zera métricas só quando admin caiu (stats vêm do canal admin)
+                if (!authenticated)
                 {
                     card.CpuPct = 0;
                     card.MemMb = 0;
@@ -601,6 +1038,33 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         GmOutput.Add(line);
         while (GmOutput.Count > 2000) GmOutput.RemoveAt(0);
+        // Mantém buffer + texto unificado para TextBox selecionável
+        const int maxChars = 200_000;
+        var next = string.IsNullOrEmpty(GmOutputText) ? line : GmOutputText + "\n" + line;
+        if (next.Length > maxChars)
+            next = next[(next.Length - maxChars)..];
+        GmOutputText = next;
+    }
+
+    [RelayCommand]
+    private void ClearGmOutput()
+    {
+        GmOutput.Clear();
+        GmOutputText = "";
+    }
+
+    [RelayCommand]
+    private void CopyGmOutput()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(GmOutputText))
+                Clipboard.SetText(GmOutputText);
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Copiar GM: {ex.Message}";
+        }
     }
 
     private void UpdateCpuChart(string serviceId, double cpu)
@@ -640,28 +1104,95 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
         Audit.Log(AppConfig.Instance.AdminUsername, "start", row.Definition.Id);
         ProcessManager.RefreshExternalProcesses(Definitions);
-        await Task.Delay(row.Definition.IsZone ? 800 : 500);
+
+        // Zone demora a carregar NPC/skills; espera porta admin + processo vivo antes do handshake.
+        var ready = await WaitServiceReadyAsync(row.Definition, row.Definition.IsZone ? 12000 : 5000);
+        if (!ready)
+        {
+            var dead = !ProcessManager.IsRunning(row.Definition.Id);
+            var msg = dead
+                ? $"{row.Definition.Id} encerrou ao iniciar. Veja logs/{row.Definition.LogFile}"
+                : $"{row.Definition.Id} iniciou mas a porta admin {row.Definition.AdminPort} não abriu a tempo";
+            SetStickyStatus(msg, 30);
+            MessageBox.Show(msg, "UmbraManager — Start", MessageBoxButton.OK, MessageBoxImage.Warning);
+            RefreshServerRows();
+            return;
+        }
+
         var timeout = row.Definition.IsZone ? 5000 : 3000;
-        await AdminHub.ForceReconnectAsync(row.Definition.Id, timeout);
+        var adminOk = false;
+        for (var attempt = 0; attempt < 5 && !adminOk; attempt++)
+        {
+            if (attempt > 0) await Task.Delay(400);
+            if (!ProcessManager.IsRunning(row.Definition.Id)) break;
+            adminOk = await AdminHub.ForceReconnectAsync(row.Definition.Id, timeout);
+        }
         RefreshServerRows();
-        StatusText = $"{row.Definition.DisplayName} iniciado.";
+        if (adminOk)
+        {
+            SetStickyStatus($"{row.Definition.DisplayName} iniciado (admin OK).", 8);
+        }
+        else
+        {
+            var last = AdminHub.GetLastError(row.Definition.Id) ?? "admin sem resposta";
+            var stillUp = ProcessManager.IsRunning(row.Definition.Id);
+            var failMsg = stillUp
+                ? $"{row.Definition.DisplayName} rodando, admin falhou: {last}"
+                : $"{row.Definition.DisplayName} caiu após o start: {last}";
+            SetStickyStatus(failMsg, 30);
+            if (!stillUp)
+            {
+                MessageBox.Show(failMsg, "UmbraManager — Start", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
     }
 
-    [RelayCommand] private void StopService(ServerRow? row)
+    private void SetStickyStatus(string message, int stickySeconds)
+    {
+        StatusText = message;
+        _statusStickyUntilUtc = DateTime.UtcNow.AddSeconds(Math.Max(1, stickySeconds));
+    }
+
+    private async Task<bool> WaitServiceReadyAsync(ServiceDefinition def, int timeoutMs)
+    {
+        var until = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < until)
+        {
+            if (!ProcessManager.IsRunning(def.Id))
+                return false;
+            if (def.AdminPort > 0 && ProcessManager.IsPortListening(def.AdminPort))
+                return true;
+            await Task.Delay(200);
+        }
+        return ProcessManager.IsRunning(def.Id) &&
+               (def.AdminPort == 0 || ProcessManager.IsPortListening(def.AdminPort));
+    }
+
+    [RelayCommand] private async Task StopService(ServerRow? row)
     {
         if (row == null) return;
         var r = MessageBox.Show(
-            $"Parar serviço {row.Definition.DisplayName} ({row.Definition.Id})?\n\nIsso vai encerrar o processo do servidor.",
+            $"Parar serviço {row.Definition.DisplayName} ({row.Definition.Id})?\n\nSerá tentado shutdown gracioso antes do kill.",
             "Confirmar Stop", MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (r != MessageBoxResult.Yes) return;
+        await StopServiceCoreAsync(row);
+    }
 
-        // Desconecta admin client antes para evitar status fantasma "Online"
+    private async Task StopServiceCoreAsync(ServerRow row)
+    {
+        var client = AdminHub.GetClient(row.Definition.Id);
+        if (client?.IsAuthenticated == true)
+        {
+            if (row.Definition.IsZone)
+                await client.SendCommandAndWaitAsync("force_save_positions", null, 4000);
+            await client.SendCommandAndWaitAsync("shutdown", new JsonObject { ["grace_sec"] = 3 }, 4000);
+            await Task.Delay(3000);
+        }
         AdminHub.GetClient(row.Definition.Id)?.Disconnect();
         _serviceStats.Remove(row.Definition.Id);
         ProcessManager.StopServiceByDefinition(row.Definition);
         Audit.Log(AppConfig.Instance.AdminUsername, "stop", row.Definition.Id);
         RefreshServerRows();
-        // Atualiza tabela de zonas imediatamente para refletir o stop
         _ = PollPlayersAsync();
         StatusText = $"{row.Definition.DisplayName} parado.";
     }
@@ -674,9 +1205,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
             "Confirmar Restart", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (r != MessageBoxResult.Yes) return;
 
-        AdminHub.GetClient(row.Definition.Id)?.Disconnect();
-        _serviceStats.Remove(row.Definition.Id);
-        ProcessManager.RestartService(row.Definition);
+        await StopServiceCoreAsync(row);
+        await Task.Delay(400);
+        if (!ProcessManager.StartService(row.Definition, out var err))
+        {
+            StatusText = $"{row.Definition.Id}: {err}";
+            return;
+        }
         RefreshServerRows();
         StatusText = $"{row.Definition.DisplayName} reiniciando...";
         await Task.Delay(1500);
@@ -707,7 +1242,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         foreach (var def in Definitions)
             AdminHub.GetClient(def.Id)?.Disconnect();
-        ProcessManager.StopAll();
+        ProcessManager.StopAll(Definitions);
         Audit.Log(AppConfig.Instance.AdminUsername, "stop_all", "stack");
         RefreshServerRows();
         _ = PollPlayersAsync();
@@ -719,15 +1254,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (string.IsNullOrWhiteSpace(GmInput)) return;
         GmHistory.Add(GmInput);
         GmHistoryIndex = GmHistory.Count;
-        var parts = GmInput.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 0) return;
-        var cmd = parts[0];
-        var args = new JsonObject();
-        for (int i = 1; i < parts.Length; i++)
-        {
-            var eq = parts[i].IndexOf('=');
-            if (eq > 0) args[parts[i][..eq]] = parts[i][(eq + 1)..];
-        }
+        var (cmd, args) = GmCommandLineParser.Parse(GmInput);
+        if (string.IsNullOrWhiteSpace(cmd)) return;
+        var meta = GmCommands.FirstOrDefault(c => string.Equals(c.Name, cmd, StringComparison.OrdinalIgnoreCase));
+        if (meta?.IsDestructive == true &&
+            MessageBox.Show($"Executar comando destrutivo '{cmd}' em {SelectedGmService}?", "Confirmar comando",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            return;
         AppendGm($"> [{SelectedGmService}] {GmInput}");
         Audit.Log(AppConfig.Instance.AdminUsername, "gm", $"{SelectedGmService} {GmInput}");
         _lastUserCmd.Add((SelectedGmService, cmd));
@@ -748,10 +1281,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         try
         {
+            if (ConfigModel != null)
+                ConfigJson = ConfigModel.MergeInto(ConfigJson);
             JsonDocument.Parse(ConfigJson);
             var path = AppConfig.Instance.AbsolutePath(AppConfig.Instance.ConfigPath);
             File.WriteAllText(path, ConfigJson);
-            ConfigStatus = $"Salvo: {path}";
+            var notes = AppConfig.Instance.ReloadServerJsonFromDisk();
+            ConfigPreviewJson = ConfigJson;
+            ConfigStatus = $"Salvo: {path}. {notes}";
             Audit.Log(AppConfig.Instance.AdminUsername, "save_config", path);
         }
         catch (Exception ex)
@@ -813,7 +1350,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     [RelayCommand] private async Task RefreshItemsAsync()
     {
-        var (ok, err, data) = await Php.ListItemsAsync();
+        var (ok, err, data) = await Php.ListItemsAsync(ItemFilterType, ItemFilterRarity, ItemFilterText);
         if (!ok) { ItemsJson = err; return; }
         ItemsJson = data!.RootElement.GetRawText();
         Items.Clear();
@@ -827,6 +1364,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
                 int id = TryGetIntProp(it, "item_id");
                 if (id == 0) id = TryGetIntProp(it, "id");
+
+                TryParseAllowedClassIds(it, out var allowedIds, out var allowAll);
 
                 Items.Add(new ItemRow
                 {
@@ -843,9 +1382,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     Weight = it.TryGetProperty("weight", out var w) && w.ValueKind == JsonValueKind.Number ? w.GetDouble() : 0,
                     Tradeable = TryGetBoolProp(it, "tradeable"),
                     CanBeRefined = TryGetBoolProp(it, "can_be_refined"),
+                    UseCooldownMs = TryGetIntProp(it, "use_cooldown_ms"),
                     IconPath = TryGetStringProp(it, "icon_path"),
+                    SkeletalMeshPath = TryGetStringProp(it, "skeletal_mesh_path"),
+                    VisualMeshesJson = TryGetStringProp(it, "visual_meshes_json"),
                     Description = TryGetStringProp(it, "item_description"),
-                    StatsJson = statsRaw
+                    StatsJson = statsRaw,
+                    AllowedClassIds = allowAll ? null : allowedIds,
+                    AllowAllClasses = allowAll
                 });
             }
         }
@@ -860,21 +1404,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // Stats: tenta parsear como objeto JSON. Se inválido, manda vazio.
-        Dictionary<string, object>? stats = null;
-        if (!string.IsNullOrWhiteSpace(NewItemStatsJson))
-        {
-            try
-            {
-                stats = JsonSerializer.Deserialize<Dictionary<string, object>>(NewItemStatsJson);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"stats_json inválido: {ex.Message}\n\nEnvie JSON tipo:\n{{\"strength\":10,\"physical_attack\":50}}",
-                    "Validação");
-                return;
-            }
-        }
+        Dictionary<string, object>? stats = CurrentItemStatsMap().ToDictionary(kv => kv.Key, kv => (object)kv.Value);
 
         var payload = new Dictionary<string, object?>
         {
@@ -883,6 +1413,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["item_type"] = NewItemType,
             ["item_subtype"] = NewItemSubtype,
             ["icon_path"] = NewItemIconPath,
+            ["skeletal_mesh_path"] = NewItemSkeletalMeshPath,
             ["max_stack_size"] = NewItemMaxStack,
             ["equipment_slot"] = string.IsNullOrWhiteSpace(NewItemSlot) ? "none" : NewItemSlot,
             ["required_level"] = NewItemRequiredLevel,
@@ -891,21 +1422,40 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["weight"] = NewItemWeight,
             ["can_be_refined"] = NewItemCanBeRefined,
             ["tradeable"] = NewItemTradeable,
+            ["use_cooldown_ms"] = NewItemUseCooldownMs,
             ["item_category"] = string.IsNullOrWhiteSpace(NewItemCategory) ? "misc" : NewItemCategory,
-            ["stats"] = stats ?? new Dictionary<string, object>()
+            ["stats"] = stats ?? new Dictionary<string, object>(),
+            ["allowed_class_ids"] = BuildAllowedClassIdsPayload()
         };
 
-        var (ok, err, _) = await Php.CreateItemAsync(payload);
-        if (!ok) { MessageBox.Show(err, "Erro ao criar item"); return; }
-        Audit.Log(AppConfig.Instance.AdminUsername, "create_item", NewItemName);
-        StatusText = $"Item '{NewItemName}' criado com sucesso.";
-        NewItem(); // limpa form e volta ao modo "novo"
+        SeedDefaultVisualFromLegacyPath();
+        payload["visual_meshes_json"] = BuildVisualMeshesPayload();
+
+        bool ok;
+        string err;
+        if (EditingItemId > 0)
+        {
+            payload["item_id"] = EditingItemId;
+            (ok, err, _) = await Php.UpdateItemAsync(payload);
+            if (!ok) { MessageBox.Show(err, "Erro ao salvar item"); return; }
+            Audit.Log(AppConfig.Instance.AdminUsername, "update_item", $"{EditingItemId}:{NewItemName}");
+            StatusText = $"Item '{NewItemName}' atualizado com sucesso.";
+        }
+        else
+        {
+            (ok, err, _) = await Php.CreateItemAsync(payload);
+            if (!ok) { MessageBox.Show(err, "Erro ao criar item"); return; }
+            Audit.Log(AppConfig.Instance.AdminUsername, "create_item", NewItemName);
+            StatusText = $"Item '{NewItemName}' criado com sucesso.";
+            NewItem(); // limpa form e volta ao modo "novo"
+        }
         await RefreshItemsAsync();
     }
 
     [RelayCommand] private void EditItem(ItemRow? item)
     {
         if (item == null) return;
+        if (!ConfirmDiscardChanges()) return;
         EditingItemId = item.Id;
         NewItemName = item.Name;
         NewItemDescription = item.Description;
@@ -915,17 +1465,23 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewItemSlot = string.IsNullOrEmpty(item.EquipmentSlot) ? "none" : item.EquipmentSlot;
         NewItemCategory = string.IsNullOrEmpty(item.Category) ? "misc" : item.Category;
         NewItemIconPath = item.IconPath;
+        NewItemSkeletalMeshPath = item.SkeletalMeshPath;
+        LoadItemVisualMeshesFromJson(item.VisualMeshesJson);
         NewItemRequiredLevel = item.RequiredLevel <= 0 ? 1 : item.RequiredLevel;
         NewItemMaxStack = item.MaxStackSize <= 0 ? 1 : item.MaxStackSize;
         NewItemValue = item.Value;
         NewItemWeight = item.Weight;
         NewItemTradeable = item.Tradeable;
         NewItemCanBeRefined = item.CanBeRefined;
-        NewItemStatsJson = string.IsNullOrEmpty(item.StatsJson) ? "{}" : item.StatsJson;
+        NewItemUseCooldownMs = item.UseCooldownMs <= 0 ? 5000 : item.UseCooldownMs;
+        LoadItemStatFields(item.StatsJson);
+        ApplyAllowedClassesFromIds(item.AllowedClassIds, item.AllowAllClasses);
+        MarkEditorClean();
     }
 
     [RelayCommand] private void NewItem()
     {
+        if (!ConfirmDiscardChanges()) return;
         EditingItemId = 0;
         NewItemName = "";
         NewItemDescription = "";
@@ -935,13 +1491,18 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewItemSlot = "none";
         NewItemCategory = "misc";
         NewItemIconPath = "";
+        NewItemSkeletalMeshPath = "";
+        ClearItemVisualMeshEditor();
         NewItemRequiredLevel = 1;
         NewItemMaxStack = 1;
         NewItemValue = 0;
         NewItemWeight = 0.0;
         NewItemTradeable = true;
         NewItemCanBeRefined = false;
-        NewItemStatsJson = "{}";
+        NewItemUseCooldownMs = 5000;
+        LoadItemStatFields("{}");
+        ResetItemAllowedClassesToAll();
+        MarkEditorClean();
     }
 
     [RelayCommand] private async Task DeleteItemAsync(ItemRow? item)
@@ -956,8 +1517,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     [RelayCommand] private async Task RefreshNpcTemplatesAsync()
     {
+        if (_isDisposed) return;
         var (ok, err, data) = await Php.ListNpcTemplatesAsync();
-        if (!ok) { MessageBox.Show(err, "Erro ao listar NPCs"); return; }
+        if (!ok)
+        {
+            if (_isDisposed || err.Contains("encerrado", StringComparison.OrdinalIgnoreCase))
+                return;
+            StatusText = $"NPCs: {err}";
+            MessageBox.Show(err, "Erro ao listar NPCs");
+            return;
+        }
         NpcTemplates.Clear();
         if (data!.RootElement.TryGetProperty("templates", out var arr))
         {
@@ -979,6 +1548,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     Luck = TryGetIntProp(t, "luck"),
                     PhysicalAttack = TryGetIntProp(t, "physical_attack"),
                     MagicAttack = TryGetIntProp(t, "magic_attack"),
+                    DamageType = string.IsNullOrWhiteSpace(TryGetStringProp(t, "damage_type"))
+                        ? "PHYSICAL"
+                        : TryGetStringProp(t, "damage_type").ToUpperInvariant(),
+                    BasicPowerCoef = Math.Max(1, TryGetIntProp(t, "basic_power_coef") is var bpc && bpc > 0 ? bpc : 100),
                     PhysicalDefense = TryGetIntProp(t, "physical_defense"),
                     MagicDefense = TryGetIntProp(t, "magic_defense"),
                     Accuracy = TryGetIntProp(t, "accuracy"),
@@ -989,7 +1562,49 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     DoubleAttackResistance = TryGetIntProp(t, "double_attack_resistance"),
                     SkeletalMeshPath = TryGetStringProp(t, "skeletal_mesh_path"),
                     AnimBlueprintPath = TryGetStringProp(t, "anim_blueprint_path"),
+                    AnimStatesJson = TryGetAnimStatesJsonRaw(t),
+                    RightHandMeshPath = TryGetStringProp(t, "right_hand_mesh_path"),
+                    LeftHandMeshPath = TryGetStringProp(t, "left_hand_mesh_path"),
+                    RightHandRelX = TryGetFloatProp(t, "right_hand_rel_x"),
+                    RightHandRelY = TryGetFloatProp(t, "right_hand_rel_y"),
+                    RightHandRelZ = TryGetFloatProp(t, "right_hand_rel_z"),
+                    // DB pitch/yaw/roll ↔ UI Rot Y/Z/X (Details UE: X=Roll, Y=Pitch, Z=Yaw)
+                    RightHandRelRotX = TryGetFloatProp(t, "right_hand_rel_roll"),
+                    RightHandRelRotY = TryGetFloatProp(t, "right_hand_rel_pitch"),
+                    RightHandRelRotZ = TryGetFloatProp(t, "right_hand_rel_yaw"),
+                    RightHandRelScale = TryGetFloatProp(t, "right_hand_rel_scale") is float rhs && rhs > 0.01f ? rhs : 1f,
+                    LeftHandRelX = TryGetFloatProp(t, "left_hand_rel_x"),
+                    LeftHandRelY = TryGetFloatProp(t, "left_hand_rel_y"),
+                    LeftHandRelZ = TryGetFloatProp(t, "left_hand_rel_z"),
+                    LeftHandRelRotX = TryGetFloatProp(t, "left_hand_rel_roll"),
+                    LeftHandRelRotY = TryGetFloatProp(t, "left_hand_rel_pitch"),
+                    LeftHandRelRotZ = TryGetFloatProp(t, "left_hand_rel_yaw"),
+                    LeftHandRelScale = TryGetFloatProp(t, "left_hand_rel_scale") is float lhs && lhs > 0.01f ? lhs : 1f,
+                    MeshScale = TryGetFloatProp(t, "mesh_scale"),
                     IsEditable = TryGetBoolProp(t, "is_editable"),
+                    IsAttackable = TryGetBoolProp(t, "is_attackable"),
+                    InteractionRadius = TryGetFloatProp(t, "interaction_radius"),
+                    CollisionRadius = TryGetFloatProp(t, "collision_radius") is float cr && cr > 0 ? cr : 45f,
+                    NameplateRadius = TryGetFloatProp(t, "nameplate_radius") is float nr && nr > 0 ? nr : 2000f,
+                    HasVendor = TryGetBoolProp(t, "has_vendor"),
+                    VendorId = TryGetIntProp(t, "vendor_id"),
+                    HasQuestDialog = TryGetBoolProp(t, "has_quest_dialog"),
+                    DialogTitle = TryGetStringProp(t, "dialog_title"),
+                    DialogText = TryGetStringProp(t, "dialog_text"),
+                    RespawnSeconds = TryGetIntProp(t, "respawn_seconds"),
+                    KillExp = TryGetIntProp(t, "kill_exp"),
+                    AggroRadius = TryGetFloatProp(t, "aggro_radius"),
+                    LeashRadius = TryGetFloatProp(t, "leash_radius"),
+                    AttackRange = TryGetFloatProp(t, "attack_range") is float ar && ar > 0 ? ar : 150f,
+                    CombatStopRange = TryGetFloatProp(t, "combat_stop_range"),
+                    AttackCooldownMs = TryGetIntProp(t, "attack_cooldown_ms") is int cd && cd > 0 ? cd : 1500,
+                    MoveSpeed = TryGetFloatProp(t, "move_speed") is float ms && ms > 0 ? ms : 200f,
+                    ChaseSpeedMult = TryGetFloatProp(t, "chase_speed_mult") is float csm && csm > 0 ? csm : 1.5f,
+                    KiteSpeedMult = TryGetFloatProp(t, "kite_speed_mult") is float ksm && ksm > 0 ? ksm : 1f,
+                    RoamRadius = TryGetFloatProp(t, "roam_radius"),
+                    IsHostile = !t.TryGetProperty("is_hostile", out _) || TryGetBoolProp(t, "is_hostile"),
+                    BasicVfxPath = TryGetStringProp(t, "basic_vfx_path"),
+                    BasicHitVfxPath = TryGetStringProp(t, "basic_hit_vfx_path"),
                 });
             }
         }
@@ -1042,11 +1657,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
             p.ZoneService.Equals(zoneKey, StringComparison.OrdinalIgnoreCase) ||
             p.ZoneService.EndsWith($"_{SpawnZoneId}", StringComparison.OrdinalIgnoreCase));
 
-        player ??= Players.FirstOrDefault();
+        player ??= Players.FirstOrDefault(p =>
+            SelectedNpcInstance != null &&
+            ParseZoneIdFromService(p.ZoneService) == SelectedNpcInstance.ZoneId);
 
         if (player == null)
         {
-            MessageBox.Show("Nenhum jogador online para copiar posição.", "Spawn NPC");
+            MessageBox.Show("Nenhum jogador online na zona informada para copiar posição.", "Spawn NPC");
             return;
         }
 
@@ -1063,12 +1680,153 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand] private void FillSpawnFromInstance(NpcInstanceRow? row)
     {
         if (row == null) return;
-        SpawnZoneId = row.ZoneId;
-        SpawnPosX = row.PosX;
-        SpawnPosY = row.PosY;
-        SpawnPosZ = row.PosZ;
-        SpawnYaw = row.Yaw;
-        StatusText = $"Spawn preenchido da instância #{row.InstanceId}";
+        SelectedNpcInstance = row;
+    }
+
+    [RelayCommand] private async Task UpdateNpcInstancePositionAsync(NpcInstanceRow? row = null)
+    {
+        // Garante que o TextBox com foco commitou o valor digitado
+        if (System.Windows.Input.Keyboard.FocusedElement is System.Windows.Controls.TextBox tb)
+            tb.GetBindingExpression(System.Windows.Controls.TextBox.TextProperty)?.UpdateSource();
+
+        if (row != null)
+            SelectedNpcInstance = row;
+
+        var instanceId = EditingNpcInstanceId > 0
+            ? EditingNpcInstanceId
+            : SelectedNpcInstance?.InstanceId ?? 0;
+        if (instanceId <= 0)
+        {
+            MessageBox.Show(
+                "Nenhuma instância selecionada.\n\n" +
+                "1) Aba NPCs → Instâncias no mundo\n" +
+                "2) Clique na linha do Warrior Goblin\n" +
+                "3) Volte em Templates, altere X/Y/Z\n" +
+                "4) Clique em Atualizar posição (não em Salvar template)",
+                "Nenhuma instância selecionada");
+            return;
+        }
+
+        var instanceZone = SelectedNpcInstance?.ZoneId
+            ?? (SpawnZoneId > 0 ? SpawnZoneId : 0);
+        if (instanceZone < 0)
+            instanceZone = 0;
+        var effectiveZone = instanceZone;
+        if (SpawnZoneId != instanceZone && SpawnZoneId >= 0
+            && MessageBox.Show(
+                $"A instância está na zona {instanceZone}, mas o campo Zone está {SpawnZoneId}.\n\nAlterar a zona da instância para {SpawnZoneId}?",
+                "Mudar zona",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question) == MessageBoxResult.Yes)
+        {
+            effectiveZone = SpawnZoneId;
+        }
+        else
+        {
+            SpawnZoneId = effectiveZone;
+        }
+
+        var x = SpawnPosX;
+        var y = SpawnPosY;
+        var z = SpawnPosZ;
+        var yaw = SpawnYaw;
+
+        StatusText = $"Gravando posição #{instanceId} → ({x:F1},{y:F1},{z:F1}) zone={effectiveZone}...";
+        var (ok, err, data) = await Php.UpdateNpcInstanceAsync(instanceId, effectiveZone, x, y, z, yaw);
+        data?.Dispose();
+        if (!ok)
+        {
+            StatusText = $"Erro MySQL ao atualizar posição: {err}";
+            MessageBox.Show(
+                $"Falha ao gravar no MySQL:\n{err}\n\n" +
+                "Verifique WAMP e se update_npc_instance.php está em www/umbra_api/api/admin/.",
+                "Erro ao atualizar posição");
+            return;
+        }
+
+        Audit.Log(AppConfig.Instance.AdminUsername, "update_npc_instance",
+            $"{instanceId} zone={effectiveZone} ({x:F1},{y:F1},{z:F1})");
+
+        var zoneServiceId = $"zone_{effectiveZone}";
+        var onlineZones = GetAuthenticatedZoneServices();
+        var moved = false;
+        string? moveMsg = null;
+
+        async Task<(bool movedOk, string? msg)> TryMoveOnZoneAsync(string serviceId)
+        {
+            var zoneArgs = new JsonObject
+            {
+                ["npc_instance_id"] = instanceId,
+                ["pos_x"] = x,
+                ["pos_y"] = y,
+                ["pos_z"] = z,
+                ["yaw"] = yaw,
+            };
+            var (zoneOk, zoneResp) = await AdminHub.SendCommandAndWaitAsync(serviceId, "move_npc_instance", zoneArgs, 5000);
+            if (zoneOk && zoneResp != null &&
+                zoneResp.Value.TryGetProperty("success", out var okEl) && okEl.GetBoolean() &&
+                zoneResp.Value.TryGetProperty("data", out var zdata) &&
+                zdata.TryGetProperty("moved", out var movedEl) && movedEl.GetBoolean())
+            {
+                var m = zdata.TryGetProperty("message", out var msgEl) ? msgEl.GetString() : null;
+                return (true, m);
+            }
+            if (zoneOk && zoneResp != null)
+            {
+                var m = zoneResp.Value.TryGetProperty("error", out var e)
+                    ? e.GetString()
+                    : (zoneResp.Value.TryGetProperty("data", out var d2) && d2.TryGetProperty("message", out var m2)
+                        ? m2.GetString()
+                        : "zone retornou moved=false");
+                return (false, m);
+            }
+            return (false, $"{serviceId} não respondeu ao move_npc_instance");
+        }
+
+        if (onlineZones.Contains(zoneServiceId, StringComparer.OrdinalIgnoreCase))
+        {
+            (moved, moveMsg) = await TryMoveOnZoneAsync(zoneServiceId);
+        }
+
+        if (!moved)
+        {
+            moveMsg = $"{zoneServiceId} não moveu a instância. MySQL gravado na zona {effectiveZone}.";
+        }
+
+        if (!moved && onlineZones.Count == 0)
+        {
+            moveMsg = $"{zoneServiceId} offline — MySQL atualizado; reinicie o zone ou suba o admin TCP";
+        }
+
+        await RefreshNpcInstancesAsync();
+        var refreshed = NpcInstances.FirstOrDefault(i => i.InstanceId == instanceId);
+        var dbConfirm = refreshed != null
+            ? $"DB agora: ({refreshed.PosX:F1}, {refreshed.PosY:F1}, {refreshed.PosZ:F1})"
+            : "DB: instância não apareceu no refresh";
+
+        if (moved)
+        {
+            StatusText = $"Instância #{instanceId} movida. {dbConfirm}";
+            MessageBox.Show(
+                $"Posição da instância #{instanceId} atualizada.\n" +
+                $"Enviado: ({x:F1}, {y:F1}, {z:F1}) zone={effectiveZone}\n{dbConfirm}\n\n" +
+                "Runtime zone notificado (opcode 100).",
+                "Posição atualizada",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        else
+        {
+            StatusText = $"MySQL OK #{instanceId}. Runtime: {moveMsg}. {dbConfirm}";
+            MessageBox.Show(
+                $"MySQL gravou a posição da instância #{instanceId}.\n" +
+                $"Enviado: ({x:F1}, {y:F1}, {z:F1})\n{dbConfirm}\n\n" +
+                $"Runtime: {moveMsg}\n\n" +
+                "Se o goblin não se moveu no PIE, reinicie o zone_server (build com move_npc_instance).",
+                "Posição no banco (runtime pendente)",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
     }
 
     [RelayCommand] private async Task DeleteNpcInstanceAsync(NpcInstanceRow? row)
@@ -1077,6 +1835,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (MessageBox.Show($"Excluir instância NPC #{row.InstanceId} ({row.TemplateLabel})?", "Confirmar",
                 MessageBoxButton.YesNo) != MessageBoxResult.Yes)
             return;
+
+        var zoneServiceId = $"zone_{row.ZoneId}";
+        if (GetAuthenticatedZoneServices().Contains(zoneServiceId, StringComparer.OrdinalIgnoreCase))
+        {
+            var zoneArgs = new JsonObject { ["npc_instance_id"] = row.InstanceId };
+            await AdminHub.SendCommandAsync(zoneServiceId, "despawn_npc_instance", zoneArgs);
+        }
 
         var (ok, err, _) = await Php.DeleteNpcInstanceAsync(row.InstanceId);
         if (!ok)
@@ -1106,6 +1871,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["luck"] = NewNpcLuck,
             ["physical_attack"] = NewNpcPhysicalAttack,
             ["magic_attack"] = NewNpcMagicAttack,
+            ["damage_type"] = NewNpcDamageType is "MAGIC" or "TRUE" ? NewNpcDamageType : "PHYSICAL",
+            ["basic_power_coef"] = NewNpcBasicPowerCoef > 0 ? NewNpcBasicPowerCoef : 100,
             ["physical_defense"] = NewNpcPhysicalDefense,
             ["magic_defense"] = NewNpcMagicDefense,
             ["accuracy"] = NewNpcAccuracy,
@@ -1116,7 +1883,47 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["double_attack_resistance"] = NewNpcDoubleAttackResistance,
             ["skeletal_mesh_path"] = NewNpcSkeletalMeshPath,
             ["anim_blueprint_path"] = NewNpcAnimBlueprintPath,
+            ["anim_states_json"] = BuildAnimStatesJsonObject(),
+            ["right_hand_mesh_path"] = NewNpcRightHandMeshPath,
+            ["left_hand_mesh_path"] = NewNpcLeftHandMeshPath,
+            ["right_hand_rel_x"] = NewNpcRightHandRelX,
+            ["right_hand_rel_y"] = NewNpcRightHandRelY,
+            ["right_hand_rel_z"] = NewNpcRightHandRelZ,
+            ["right_hand_rel_pitch"] = NewNpcRightHandRelRotY,
+            ["right_hand_rel_yaw"] = NewNpcRightHandRelRotZ,
+            ["right_hand_rel_roll"] = NewNpcRightHandRelRotX,
+            ["right_hand_rel_scale"] = NewNpcRightHandRelScale <= 0.01f ? 1f : NewNpcRightHandRelScale,
+            ["left_hand_rel_x"] = NewNpcLeftHandRelX,
+            ["left_hand_rel_y"] = NewNpcLeftHandRelY,
+            ["left_hand_rel_z"] = NewNpcLeftHandRelZ,
+            ["left_hand_rel_pitch"] = NewNpcLeftHandRelRotY,
+            ["left_hand_rel_yaw"] = NewNpcLeftHandRelRotZ,
+            ["left_hand_rel_roll"] = NewNpcLeftHandRelRotX,
+            ["left_hand_rel_scale"] = NewNpcLeftHandRelScale <= 0.01f ? 1f : NewNpcLeftHandRelScale,
+            ["mesh_scale"] = NewNpcMeshScale,
             ["is_editable"] = 1,
+            ["is_attackable"] = NewNpcIsAttackable ? 1 : 0,
+            ["interaction_radius"] = NewNpcInteractionRadius,
+            ["collision_radius"] = NewNpcCollisionRadius < 1f ? 45f : NewNpcCollisionRadius,
+            ["nameplate_radius"] = NewNpcNameplateRadius < 1f ? 2000f : NewNpcNameplateRadius,
+            ["has_vendor"] = NewNpcHasVendor ? 1 : 0,
+            ["has_quest_dialog"] = NewNpcHasQuestDialog ? 1 : 0,
+            ["dialog_title"] = NewNpcDialogTitle,
+            ["dialog_text"] = NewNpcDialogText,
+            ["respawn_seconds"] = NewNpcRespawnSeconds,
+            ["kill_exp"] = NewNpcKillExp,
+            ["aggro_radius"] = NewNpcAggroRadius,
+            ["leash_radius"] = NewNpcLeashRadius,
+            ["attack_range"] = NewNpcAttackRange,
+            ["combat_stop_range"] = NewNpcCombatStopRange,
+            ["attack_cooldown_ms"] = NewNpcAttackCooldownMs,
+            ["move_speed"] = NewNpcMoveSpeed,
+            ["chase_speed_mult"] = NewNpcChaseSpeedMult,
+            ["kite_speed_mult"] = NewNpcKiteSpeedMult,
+            ["roam_radius"] = NewNpcRoamRadius,
+            ["is_hostile"] = NewNpcIsHostile ? 1 : 0,
+            ["basic_vfx_path"] = string.IsNullOrWhiteSpace(NewNpcBasicVfxPath) ? null : NewNpcBasicVfxPath.Trim(),
+            ["basic_hit_vfx_path"] = string.IsNullOrWhiteSpace(NewNpcBasicHitVfxPath) ? null : NewNpcBasicHitVfxPath.Trim(),
         };
     }
 
@@ -1131,6 +1938,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var payload = BuildNpcTemplatePayload();
         bool ok;
         string err;
+        int savedTemplateId = EditingNpcTemplateId;
         if (EditingNpcTemplateId > 0)
         {
             payload["npc_template_id"] = EditingNpcTemplateId;
@@ -1138,16 +1946,83 @@ public partial class MainViewModel : ObservableObject, IDisposable
             if (!ok) { MessageBox.Show(err, "Erro ao salvar template"); return; }
             Audit.Log(AppConfig.Instance.AdminUsername, "update_npc_template", EditingNpcTemplateId.ToString());
             StatusText = $"Template NPC '{NewNpcName}' atualizado.";
+            if (NewNpcHasVendor)
+            {
+                SelectedVendorNpcTemplateId = EditingNpcTemplateId;
+                SelectedVendorNpcTemplateName = NewNpcName;
+                await EnsureVendorInternalAsync(showErrors: false);
+            }
+            if (EditingNpcInstanceId > 0 &&
+                MessageBox.Show(
+                    $"Template salvo.\n\nTambém atualizar a posição da instância #{EditingNpcInstanceId} " +
+                    $"para ({SpawnPosX:F1}, {SpawnPosY:F1}, {SpawnPosZ:F1})?",
+                    "Atualizar posição da instância?",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question) == MessageBoxResult.Yes)
+            {
+                await UpdateNpcInstancePositionAsync();
+            }
+            await ReloadZoneNpcInstancesAfterTemplateSaveAsync();
         }
         else
         {
-            (ok, err, _) = await Php.CreateNpcTemplateAsync(payload);
+            JsonDocument? created = null;
+            (ok, err, created) = await Php.CreateNpcTemplateAsync(payload);
             if (!ok) { MessageBox.Show(err, "Erro ao criar template"); return; }
+            if (created!.RootElement.TryGetProperty("npc_template_id", out var idEl) && idEl.ValueKind == System.Text.Json.JsonValueKind.Number)
+                savedTemplateId = idEl.GetInt32();
+            created.Dispose();
             Audit.Log(AppConfig.Instance.AdminUsername, "create_npc_template", NewNpcName);
             StatusText = $"Template NPC '{NewNpcName}' criado.";
-            NewNpcTemplate();
+            if (NewNpcHasVendor && savedTemplateId > 0)
+            {
+                SelectedVendorNpcTemplateId = savedTemplateId;
+                SelectedVendorNpcTemplateName = NewNpcName;
+                EditingNpcTemplateId = savedTemplateId;
+                await EnsureVendorInternalAsync(showErrors: false);
+            }
+            if (savedTemplateId <= 0)
+                NewNpcTemplate();
         }
         await RefreshNpcTemplatesAsync();
+        if (savedTemplateId > 0)
+        {
+            var row = NpcTemplates.FirstOrDefault(t => t.Id == savedTemplateId);
+            if (row != null)
+                SelectedNpcTemplate = row;
+        }
+    }
+
+    private async Task ReloadZoneNpcInstancesAfterTemplateSaveAsync()
+    {
+        var zones = GetAuthenticatedZoneServices();
+        if (zones.Count == 0)
+        {
+            StatusText += " (offsets no MySQL; reinicie a zone ou conecte admin para reload)";
+            return;
+        }
+
+        var reloaded = 0;
+        foreach (var zoneServiceId in zones)
+        {
+            var (reloadOk, reloadResp) = await AdminHub.SendCommandAndWaitAsync(
+                zoneServiceId, "reload_npc_instances", null, 8000);
+            if (!reloadOk || reloadResp == null) continue;
+            if (!reloadResp.Value.TryGetProperty("success", out var okEl) || !okEl.GetBoolean()) continue;
+            if (reloadResp.Value.TryGetProperty("data", out var data) &&
+                data.TryGetProperty("loaded", out var loadedEl))
+            {
+                reloaded += loadedEl.GetInt32();
+            }
+            else
+            {
+                ++reloaded;
+            }
+        }
+
+        StatusText += reloaded > 0
+            ? $" Zone reload OK ({reloaded} NPC(s))."
+            : " Zone reload enviado.";
     }
 
     [RelayCommand] private void EditNpcTemplate(NpcTemplateRow? row)
@@ -1170,6 +2045,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcLuck = row.Luck;
         NewNpcPhysicalAttack = row.PhysicalAttack;
         NewNpcMagicAttack = row.MagicAttack;
+        NewNpcDamageType = string.IsNullOrWhiteSpace(row.DamageType) ? "PHYSICAL" : row.DamageType;
+        NewNpcBasicPowerCoef = row.BasicPowerCoef > 0 ? row.BasicPowerCoef : 100;
         NewNpcPhysicalDefense = row.PhysicalDefense;
         NewNpcMagicDefense = row.MagicDefense;
         NewNpcAccuracy = row.Accuracy;
@@ -1180,11 +2057,52 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcDoubleAttackResistance = row.DoubleAttackResistance;
         NewNpcSkeletalMeshPath = row.SkeletalMeshPath ?? "";
         NewNpcAnimBlueprintPath = row.AnimBlueprintPath ?? "";
+        ApplyAnimStatesJsonToForm(row.AnimStatesJson);
+        NewNpcRightHandMeshPath = row.RightHandMeshPath ?? "";
+        NewNpcLeftHandMeshPath = row.LeftHandMeshPath ?? "";
+        NewNpcRightHandRelX = row.RightHandRelX;
+        NewNpcRightHandRelY = row.RightHandRelY;
+        NewNpcRightHandRelZ = row.RightHandRelZ;
+        NewNpcRightHandRelRotX = row.RightHandRelRotX;
+        NewNpcRightHandRelRotY = row.RightHandRelRotY;
+        NewNpcRightHandRelRotZ = row.RightHandRelRotZ;
+        NewNpcRightHandRelScale = row.RightHandRelScale <= 0.01f ? 1f : row.RightHandRelScale;
+        NewNpcLeftHandRelX = row.LeftHandRelX;
+        NewNpcLeftHandRelY = row.LeftHandRelY;
+        NewNpcLeftHandRelZ = row.LeftHandRelZ;
+        NewNpcLeftHandRelRotX = row.LeftHandRelRotX;
+        NewNpcLeftHandRelRotY = row.LeftHandRelRotY;
+        NewNpcLeftHandRelRotZ = row.LeftHandRelRotZ;
+        NewNpcLeftHandRelScale = row.LeftHandRelScale <= 0.01f ? 1f : row.LeftHandRelScale;
+        NewNpcMeshScale = row.MeshScale <= 0 ? 1f : row.MeshScale;
+        NewNpcIsAttackable = row.IsAttackable;
+        NewNpcInteractionRadius = row.InteractionRadius <= 0 ? 300f : row.InteractionRadius;
+        NewNpcCollisionRadius = row.CollisionRadius < 1f ? 45f : row.CollisionRadius;
+        NewNpcNameplateRadius = row.NameplateRadius < 1f ? 2000f : row.NameplateRadius;
+        NewNpcHasVendor = row.HasVendor;
+        NewNpcHasQuestDialog = row.HasQuestDialog;
+        NewNpcDialogTitle = row.DialogTitle ?? "";
+        NewNpcDialogText = row.DialogText ?? "";
+        NewNpcRespawnSeconds = row.RespawnSeconds <= 0 ? 30 : row.RespawnSeconds;
+        NewNpcKillExp = row.KillExp;
+        NewNpcAggroRadius = row.AggroRadius;
+        NewNpcLeashRadius = row.LeashRadius;
+        NewNpcAttackRange = row.AttackRange <= 0 ? 150f : row.AttackRange;
+        NewNpcCombatStopRange = row.CombatStopRange;
+        NewNpcAttackCooldownMs = row.AttackCooldownMs <= 0 ? 1500 : row.AttackCooldownMs;
+        NewNpcMoveSpeed = row.MoveSpeed <= 0 ? 200f : row.MoveSpeed;
+        NewNpcChaseSpeedMult = row.ChaseSpeedMult <= 0 ? 1.5f : row.ChaseSpeedMult;
+        NewNpcKiteSpeedMult = row.KiteSpeedMult <= 0 ? 1f : row.KiteSpeedMult;
+        NewNpcRoamRadius = row.RoamRadius;
+        NewNpcIsHostile = row.IsHostile;
+        NewNpcBasicVfxPath = row.BasicVfxPath ?? "";
+        NewNpcBasicHitVfxPath = row.BasicHitVfxPath ?? "";
     }
 
     [RelayCommand] private void NewNpcTemplate()
     {
         EditingNpcTemplateId = 0;
+        EditingNpcInstanceId = 0;
         NewNpcName = "";
         NewNpcLevel = 1;
         NewNpcMaxHealth = 5000;
@@ -1195,7 +2113,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcIntelligence = 20;
         NewNpcLuck = 20;
         NewNpcPhysicalAttack = 120;
-        NewNpcMagicAttack = 120;
+        NewNpcMagicAttack = 80;
+        NewNpcDamageType = "PHYSICAL";
+        NewNpcBasicPowerCoef = 100;
         NewNpcPhysicalDefense = 80;
         NewNpcMagicDefense = 80;
         NewNpcAccuracy = 100;
@@ -1206,26 +2126,98 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcDoubleAttackResistance = 5;
         NewNpcSkeletalMeshPath = "";
         NewNpcAnimBlueprintPath = "";
+        NewNpcAnimAttacksCsv = "";
+        NewNpcAnimHitsCsv = "";
+        NewNpcAnimDeathPath = "";
+        NewNpcAnimSkillPath = "";
+        NewNpcAnimIdlePath = "";
+        NewNpcAnimWalkPath = "";
+        NewNpcAnimWalkFwdPath = "";
+        NewNpcAnimWalkBwdPath = "";
+        NewNpcAnimWalkLeftPath = "";
+        NewNpcAnimWalkRightPath = "";
+        NewNpcAnimRunFwdPath = "";
+        NewNpcAnimRunBwdPath = "";
+        NewNpcAnimRunLeftPath = "";
+        NewNpcAnimRunRightPath = "";
+        NewNpcAnimCastsCsv = "";
+        NewNpcAnimBuffsCsv = "";
+        NewNpcAnimDeathMs = 1500;
+        NewNpcRightHandMeshPath = "";
+        NewNpcLeftHandMeshPath = "";
+        NewNpcRightHandRelX = 0f;
+        NewNpcRightHandRelY = 0f;
+        NewNpcRightHandRelZ = 0f;
+        NewNpcRightHandRelRotX = 0f;
+        NewNpcRightHandRelRotY = 0f;
+        NewNpcRightHandRelRotZ = 0f;
+        NewNpcRightHandRelScale = 1f;
+        NewNpcLeftHandRelX = 0f;
+        NewNpcLeftHandRelY = 0f;
+        NewNpcLeftHandRelZ = 0f;
+        NewNpcLeftHandRelRotX = 0f;
+        NewNpcLeftHandRelRotY = 0f;
+        NewNpcLeftHandRelRotZ = 0f;
+        NewNpcLeftHandRelScale = 1f;
+        NewNpcMeshScale = 1f;
+        NewNpcIsAttackable = true;
+        NewNpcInteractionRadius = 300f;
+        NewNpcCollisionRadius = 45f;
+        NewNpcNameplateRadius = 2000f;
+        NewNpcHasVendor = false;
+        NewNpcHasQuestDialog = false;
+        NewNpcDialogTitle = "";
+        NewNpcDialogText = "";
+        NewNpcRespawnSeconds = 30;
+        NewNpcKillExp = 0;
+        NewNpcAggroRadius = 0f;
+        NewNpcLeashRadius = 0f;
+        NewNpcAttackRange = 150f;
+        NewNpcCombatStopRange = 0f;
+        NewNpcAttackCooldownMs = 1500;
+        NewNpcMoveSpeed = 200f;
+        NewNpcChaseSpeedMult = 1.5f;
+        NewNpcKiteSpeedMult = 1f;
+        NewNpcRoamRadius = 800f;
+        NewNpcIsHostile = false;
+        NewNpcBasicVfxPath = "";
+        NewNpcBasicHitVfxPath = "";
     }
 
     [RelayCommand] private async Task SpawnNpcAsync()
     {
+        if (System.Windows.Input.Keyboard.FocusedElement is System.Windows.Controls.TextBox tb)
+            tb.GetBindingExpression(System.Windows.Controls.TextBox.TextProperty)?.UpdateSource();
+
         var templateId = ResolveNpcTemplateIdForSpawn();
         if (templateId <= 0)
         {
-            StatusText = "Spawn NPC: selecione um template na lista (coluna ID) antes de spawnar.";
-            MessageBox.Show("Selecione um template na lista ou clique em Editar antes de spawnar.", "Validação");
+            StatusText = "Criar instância: selecione um template na lista antes.";
+            MessageBox.Show(
+                "Selecione um template na aba Templates (ex.: Warrior Goblin).\n\n" +
+                "Depois informe Zone/X/Y/Z e clique em Criar nova instância.",
+                "Validação");
             return;
         }
 
-        StatusText = $"Spawnando NPC template #{templateId} na zone {SpawnZoneId}...";
+        var effectiveZone = ResolveSpawnZoneId();
 
-        var effectiveZone = ResolveEffectiveSpawnZoneId();
-        if (effectiveZone != SpawnZoneId)
-        {
-            SpawnZoneId = effectiveZone;
-            StatusText = $"Zone ajustada para {effectiveZone} (player/zone online). Spawnando template #{templateId}...";
-        }
+        var x = SpawnPosX;
+        var y = SpawnPosY;
+        var z = SpawnPosZ;
+        var yaw = SpawnYaw;
+
+        if (MessageBox.Show(
+                $"Criar NOVA instância do template #{templateId}?\n\n" +
+                $"Zone: {effectiveZone}\n" +
+                $"Posição: ({x:F1}, {y:F1}, {z:F1}) yaw={yaw:F1}\n\n" +
+                "Isso NÃO move a instância já existente — cria outra cópia no mundo.",
+                "Criar nova instância",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question) != MessageBoxResult.Yes)
+            return;
+
+        StatusText = $"Criando instância template #{templateId} na zone {effectiveZone}...";
 
         var zoneServiceId = $"zone_{effectiveZone}";
         var onlineZones = GetAuthenticatedZoneServices();
@@ -1233,7 +2225,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             MessageBox.Show(
                 "Nenhum zone_server com admin conectado.\n\n" +
-                "Inicie zone_0 ou zone_1 na aba Servers e faça login no UmbraManager.",
+                "Inicie zone_0 na aba Servers para o NPC aparecer no PIE.",
                 "Zone offline",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
@@ -1257,34 +2249,40 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             ["npc_template_id"] = templateId,
             ["zone_id"] = effectiveZone,
-            ["pos_x"] = SpawnPosX,
-            ["pos_y"] = SpawnPosY,
-            ["pos_z"] = SpawnPosZ,
-            ["yaw"] = SpawnYaw,
+            ["pos_x"] = x,
+            ["pos_y"] = y,
+            ["pos_z"] = z,
+            ["yaw"] = yaw,
         };
 
         var (ok, err, data) = await Php.SpawnNpcAsync(payload);
         if (!ok)
         {
-            StatusText = $"Spawn NPC falhou: {err}";
-            MessageBox.Show(err, "Erro ao spawnar NPC");
+            StatusText = $"Criar instância falhou: {err}";
+            MessageBox.Show(err, "Erro ao criar instância");
             return;
         }
 
         int instanceId = 0;
         if (data != null && data.RootElement.TryGetProperty("npc_instance_id", out var idEl))
-            instanceId = idEl.GetInt32();
+        {
+            instanceId = idEl.ValueKind == JsonValueKind.Number
+                ? idEl.GetInt32()
+                : (int.TryParse(idEl.GetString(), out var parsed) ? parsed : 0);
+        }
         data?.Dispose();
 
         if (instanceId <= 0)
         {
-            StatusText = "Spawn retornou sucesso mas sem npc_instance_id.";
-            MessageBox.Show("A API não retornou npc_instance_id. Verifique logs PHP/MySQL.", "Spawn NPC");
+            StatusText = "API retornou sucesso sem npc_instance_id.";
+            MessageBox.Show("A API não retornou npc_instance_id. Verifique logs PHP/MySQL.", "Criar instância");
             return;
         }
 
+        EditingNpcInstanceId = instanceId;
         Audit.Log(AppConfig.Instance.AdminUsername, "spawn_npc", $"{templateId} zone={effectiveZone} instance={instanceId}");
         await RefreshNpcInstancesAsync();
+        SelectedNpcInstance = NpcInstances.FirstOrDefault(i => i.InstanceId == instanceId);
 
         var zoneArgs = new JsonObject { ["npc_instance_id"] = instanceId };
         var (zoneOk, zoneResp) = await AdminHub.SendCommandAndWaitAsync(zoneServiceId, "spawn_npc_instance", zoneArgs, 6000);
@@ -1293,11 +2291,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             if (spawned)
             {
-                StatusText = $"NPC #{instanceId} spawnado — enviado ao {zoneServiceId} (opcode 100).";
+                StatusText = $"Nova instância #{instanceId} criada e enviada ao {zoneServiceId}.";
                 MessageBox.Show(
-                    $"NPC spawnado (instance #{instanceId}) na zone {effectiveZone}.\n\n" +
-                    "O dummy deve aparecer no PIE imediatamente (sem reiniciar o zone).",
-                    "Spawn OK",
+                    $"Nova instância #{instanceId} criada.\n" +
+                    $"Template #{templateId} em ({x:F1}, {y:F1}, {z:F1}) zone={effectiveZone}.\n\n" +
+                    "Deve aparecer no PIE sem reiniciar o zone.",
+                    "Instância criada",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
                 return;
@@ -1305,18 +2304,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
             if (spawnMsg?.Contains("CombatCoreEngine", StringComparison.OrdinalIgnoreCase) == true)
             {
-                StatusText = $"MySQL OK #{instanceId}; zone sem CombatCoreEngine (MySQL?).";
+                StatusText = $"MySQL OK #{instanceId}; zone sem CombatCoreEngine.";
                 MessageBox.Show(
-                    $"Instância #{instanceId} gravada no MySQL, mas o zone não tem CombatCoreEngine.\n\n" +
-                    $"{spawnMsg}\n\nVerifique conexão MySQL em logs/zone_server.log.",
-                    "Spawn parcial — MySQL zone",
+                    $"Instância #{instanceId} gravada no MySQL, mas o zone não tem CombatCoreEngine.\n\n{spawnMsg}",
+                    "Instância no banco",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
                 return;
             }
         }
 
-        // Fallback: recarrega instâncias faltantes do MySQL e broadcast opcode 100
         if (onlineZones.Contains(zoneServiceId, StringComparer.OrdinalIgnoreCase))
         {
             var (reloadOk, reloadResp) = await AdminHub.SendCommandAndWaitAsync(zoneServiceId, "reload_npc_instances", null, 6000);
@@ -1325,11 +2322,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 reloadResp.Value.TryGetProperty("data", out var reloadData) &&
                 reloadData.TryGetProperty("loaded", out var loadedEl) && loadedEl.GetInt32() > 0)
             {
-                StatusText = $"NPC #{instanceId} carregado via reload_npc_instances ({loadedEl.GetInt32()} inst.).";
+                StatusText = $"Instância #{instanceId} carregada via reload ({loadedEl.GetInt32()}).";
                 MessageBox.Show(
-                    $"spawn_npc_instance falhou; reload_npc_instances carregou {loadedEl.GetInt32()} instância(s).\n\n" +
-                    "O dummy deve aparecer no PIE se zone_id e posição estiverem corretos.",
-                    "Spawn OK (reload)",
+                    $"Nova instância #{instanceId} no MySQL; reload carregou {loadedEl.GetInt32()} NPC(s) no zone.",
+                    "Instância criada (reload)",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
                 return;
@@ -1345,35 +2341,81 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 StatusText = $"MySQL OK #{instanceId}; zone: {zoneErr}";
                 MessageBox.Show(
                     $"Instância #{instanceId} gravada no MySQL, mas o zone retornou erro:\n{zoneErr}",
-                    "Spawn parcial",
+                    "Instância parcial",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
                 return;
             }
 
-            StatusText = $"MySQL OK #{instanceId}; zone: {spawnMsg ?? "Falha no zone"}";
+            StatusText = $"MySQL OK #{instanceId}; zone: {spawnMsg ?? "falha"}";
             MessageBox.Show(
-                $"Instância #{instanceId} gravada no MySQL (zone_id={effectiveZone}), mas o zone não spawnou:\n{spawnMsg}\n\n" +
-                $"Servidor admin: {zoneServiceId} (zone_id={serverZoneId}).\n" +
-                "O zone_id do spawn deve ser o mesmo do zone_server em execução (ex.: zone_0 → Zone ID 0).",
-                "Spawn parcial",
+                $"Instância #{instanceId} no MySQL (zone_id={effectiveZone}), mas o zone não spawnou:\n{spawnMsg}\n\n" +
+                $"Servidor: {zoneServiceId} (zone_id={serverZoneId}).",
+                "Instância parcial",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
             return;
         }
 
         var onlineZonesList = onlineZones.Count > 0 ? string.Join(", ", onlineZones) : "(nenhuma)";
-        StatusText = $"MySQL OK #{instanceId}; {zoneServiceId} sem resposta admin.";
+        StatusText = $"MySQL OK #{instanceId}; {zoneServiceId} sem resposta.";
         MessageBox.Show(
             $"Instância #{instanceId} gravada no MySQL (zone_id={effectiveZone}).\n\n" +
-            $"{zoneServiceId} não respondeu ao comando spawn_npc_instance.\n" +
-            $"Zones admin online: {onlineZonesList}\n\n" +
-            "Inicie zone_0 pelo Manager (Admin TCP = OK) e use Zone ID 0 no spawn.",
-            "Spawn no banco (zone não notificado)",
+            $"{zoneServiceId} não respondeu ao spawn_npc_instance.\n" +
+            $"Zones admin online: {onlineZonesList}",
+            "Instância no banco",
             MessageBoxButton.OK,
             MessageBoxImage.Warning);
     }
 
+    /// <summary>Duplica o template da instância selecionada nas coords atuais do formulário.</summary>
+    [RelayCommand] private async Task DuplicateNpcInstanceAsync(NpcInstanceRow? row)
+    {
+        row ??= SelectedNpcInstance;
+        if (row == null)
+        {
+            MessageBox.Show(
+                "Selecione uma instância na aba Instâncias no mundo.\n\n" +
+                "Depois ajuste X/Y/Z (ou Copiar posição do player) e use Duplicar.",
+                "Duplicar instância");
+            return;
+        }
+
+        if (SelectedNpcTemplate == null || SelectedNpcTemplate.Id != row.TemplateId)
+        {
+            var tpl = NpcTemplates.FirstOrDefault(t => t.Id == row.TemplateId);
+            if (tpl != null)
+                SelectedNpcTemplate = tpl;
+            else
+                EditingNpcTemplateId = row.TemplateId;
+        }
+
+        var samePos = Math.Abs(SpawnPosX - row.PosX) < 0.01f
+                      && Math.Abs(SpawnPosY - row.PosY) < 0.01f
+                      && Math.Abs(SpawnPosZ - row.PosZ) < 0.01f;
+        if (samePos)
+        {
+            var r = MessageBox.Show(
+                $"As coordenadas do formulário são as mesmas da instância #{row.InstanceId}.\n\n" +
+                "Deseja copiar a posição do player online antes de duplicar?\n\n" +
+                "Sim = copiar player e criar\nNão = criar mesmo assim nestas coords\nCancelar = abortar",
+                "Mesma posição",
+                MessageBoxButton.YesNoCancel,
+                MessageBoxImage.Question);
+            if (r == MessageBoxResult.Cancel) return;
+            if (r == MessageBoxResult.Yes)
+            {
+                if (Players.Count == 0)
+                {
+                    MessageBox.Show("Nenhum player online para copiar a posição.", "Duplicar");
+                    return;
+                }
+                CopySpawnFromPlayer();
+            }
+        }
+
+        await SpawnNpcAsync();
+    }
     private static bool TryParseSpawnZoneResponse(JsonElement? zoneResp, out bool spawned, out string? message, out int serverZoneId)
     {
         spawned = false;
@@ -1468,7 +2510,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         var parts = GmInput.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var prefix = parts.Length > 0 ? parts[0] : GmInput.Trim();
-        var match = GmKnownCommands.FirstOrDefault(c => c.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        var match = GmCommands
+            .Where(c => c.AppliesTo(SelectedGmService))
+            .Select(c => c.Name)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(c => c.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
         if (match != null) GmInput = match + (parts.Length > 1 ? " " + string.Join(' ', parts.Skip(1)) : " ");
     }
 
@@ -1486,53 +2532,20 @@ public partial class MainViewModel : ObservableObject, IDisposable
     };
 
     [RelayCommand] private void ScheduleRestartAll() =>
-        AddSchedulerTask("restart_all", "Restart stack", 360, "restart_stack", "",
-            () => Application.Current.Dispatcher.Invoke(() =>
-            {
-                foreach (var d in Definitions) AdminHub.GetClient(d.Id)?.Disconnect();
-                ProcessManager.StopAll();
-                Task.Delay(3000).ContinueWith(_ => Application.Current.Dispatcher.Invoke(
-                    () => ProcessManager.StartAll(Definitions)));
-            }));
+        AddSchedulerTask("restart_all", "Restart stack", 360, "restart_stack", "");
 
     [RelayCommand] private void ScheduleSavePositions() =>
-        AddSchedulerTask("save_positions", "Save player positions (force)", 15, "save_positions", "",
-            () => Application.Current.Dispatcher.Invoke(async () =>
-            {
-                foreach (var d in Definitions.Where(x => x.IsZone))
-                    await AdminHub.SendCommandAsync(d.Id, "force_save_positions");
-            }));
+        AddSchedulerTask("save_positions", "Save player positions (force)", 15, "save_positions", "");
 
     [RelayCommand] private void ScheduleReloadConfig() =>
-        AddSchedulerTask("reload_config", "Reload config in all services", 60, "reload_config", "",
-            () => Application.Current.Dispatcher.Invoke(async () =>
-            {
-                await AdminHub.BroadcastCommandAsync("reload_config");
-            }));
+        AddSchedulerTask("reload_config", "Reload config in all services", 60, "reload_config", "");
 
     [RelayCommand] private void ScheduleHourlyBroadcast() =>
         AddSchedulerTask("broadcast", "Broadcast '[ServerInfo] Online' a todas zonas", 30,
-            "broadcast_zones", "[ServerInfo] Servidor online — boas aventuras!",
-            () => Application.Current.Dispatcher.Invoke(async () =>
-            {
-                var args = new System.Text.Json.Nodes.JsonObject
-                {
-                    ["message"] = "[ServerInfo] Servidor online — boas aventuras!"
-                };
-                foreach (var d in Definitions.Where(x => x.IsZone))
-                    await AdminHub.SendCommandAsync(d.Id, "broadcast", args);
-            }));
+            "broadcast_zones", "[ServerInfo] Servidor online — boas aventuras!");
 
     [RelayCommand] private void ScheduleStatsLog() =>
-        AddSchedulerTask("stats_log", "Logar stats no auditoria", 5, "custom_command", "",
-            () => Application.Current.Dispatcher.Invoke(() =>
-            {
-                foreach (var d in Definitions)
-                {
-                    var s = GetServiceStat(d.Id);
-                    Audit.Log(AppConfig.Instance.AdminUsername, "stats_log", $"{d.Id}: {s}");
-                }
-            }));
+        AddSchedulerTask("stats_log", "Logar stats no auditoria", 5, "custom_command", "");
 
     [RelayCommand] private void AddCustomTask()
     {
@@ -1546,70 +2559,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
             MessageBox.Show("Intervalo deve ser maior que zero (em minutos).", "Validação");
             return;
         }
-
-        var action = NewTaskAction;
-        var target = NewTaskTarget?.Trim() ?? "";
-
-        Action runner = action switch
-        {
-            "restart_stack" => () => Application.Current.Dispatcher.Invoke(() =>
-            {
-                ProcessManager.StopAll();
-                Task.Delay(3000).ContinueWith(_ => Application.Current.Dispatcher.Invoke(
-                    () => ProcessManager.StartAll(Definitions)));
-            }),
-            "restart_service" => () => Application.Current.Dispatcher.Invoke(() =>
-            {
-                var def = Definitions.FirstOrDefault(d =>
-                    string.Equals(d.Id, target, StringComparison.OrdinalIgnoreCase));
-                if (def != null)
-                {
-                    AdminHub.GetClient(def.Id)?.Disconnect();
-                    ProcessManager.RestartService(def);
-                }
-            }),
-            "broadcast_zones" => () => Application.Current.Dispatcher.Invoke(async () =>
-            {
-                var args = new System.Text.Json.Nodes.JsonObject { ["message"] = target };
-                foreach (var d in Definitions.Where(x => x.IsZone))
-                    await AdminHub.SendCommandAsync(d.Id, "broadcast", args);
-            }),
-            "save_positions" => () => Application.Current.Dispatcher.Invoke(async () =>
-            {
-                foreach (var d in Definitions.Where(x => x.IsZone))
-                    await AdminHub.SendCommandAsync(d.Id, "force_save_positions");
-            }),
-            "reload_config" => () => Application.Current.Dispatcher.Invoke(async () =>
-            {
-                await AdminHub.BroadcastCommandAsync("reload_config");
-            }),
-            "custom_command" => () => Application.Current.Dispatcher.Invoke(async () =>
-            {
-                // formato: service|cmd|{json_args}
-                var parts = target.Split('|', 3);
-                if (parts.Length < 2) return;
-                var svc = parts[0].Trim();
-                var cmd = parts[1].Trim();
-                System.Text.Json.Nodes.JsonObject? args = null;
-                if (parts.Length == 3 && !string.IsNullOrWhiteSpace(parts[2]))
-                {
-                    try { args = System.Text.Json.Nodes.JsonNode.Parse(parts[2])?.AsObject(); } catch { }
-                }
-                await AdminHub.SendCommandAsync(svc, cmd, args);
-            }),
-            _ => () => { }
-        };
-
-        AddSchedulerTask(action, NewTaskDescription, NewTaskIntervalMinutes, action, target, runner);
-
+        AddSchedulerTask(NewTaskAction, NewTaskDescription, NewTaskIntervalMinutes, NewTaskAction, NewTaskTarget);
         NewTaskDescription = "";
         NewTaskTarget = "";
     }
 
     private void AddSchedulerTask(string baseId, string description, int minutes,
-                                  string action, string target, Action runner)
+                                  string action, string target)
     {
-        var id = Scheduler.AddTask(baseId, description, minutes, runner);
+        var runner = BuildSchedulerRunner(action, target);
+        var id = Scheduler.AddTask(baseId, description, minutes, action, target, runner);
         var item = new ScheduledTaskItem
         {
             Id = id,
@@ -1624,10 +2583,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         StatusText = $"Tarefa '{id}' agendada (a cada {minutes} min).";
     }
 
-    [RelayCommand] private void RunTaskNow(ScheduledTaskItem? task)
+    [RelayCommand] private async Task RunTaskNow(ScheduledTaskItem? task)
     {
         if (task == null) return;
-        Scheduler.RunNow(task.Id);
+        await Scheduler.RunNowAsync(task.Id);
     }
 
     [RelayCommand] private void ToggleTask(ScheduledTaskItem? task)
@@ -1653,12 +2612,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        if (_isDisposed) return;
+        _isDisposed = true;
         _pollTimer.Stop();
         _playersTimer.Stop();
-        AdminHub.Dispose();
-        LogTailer.Dispose();
-        Metrics.Dispose();
-        Audit.Dispose();
-        Scheduler.Dispose();
+        try { AdminHub.Dispose(); } catch { /* ignore */ }
+        try { LogTailer.Dispose(); } catch { /* ignore */ }
+        try { Metrics.Dispose(); } catch { /* ignore */ }
+        try { Audit.Dispose(); } catch { /* ignore */ }
+        try { Scheduler.Dispose(); } catch { /* ignore */ }
     }
 }

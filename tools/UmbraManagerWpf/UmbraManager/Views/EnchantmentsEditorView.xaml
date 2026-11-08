@@ -1,0 +1,61 @@
+<UserControl x:Class="UmbraManager.Views.EnchantmentsEditorView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes">
+    <Grid Margin="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <DockPanel Grid.Row="0" Margin="0,0,0,8">
+            <Button DockPanel.Dock="Left" Content="Atualizar" Command="{Binding RefreshEnchantConfigCommand}"
+                    Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,8,0"/>
+            <Button DockPanel.Dock="Left" Content="Salvar" Command="{Binding SaveEnchantConfigCommand}"
+                    Style="{StaticResource ManagerActionButton}" Margin="0,0,12,0"/>
+            <TextBlock Text="Pesos relativos do roll no spawn e no cristal. Não altera stats_json do template."
+                       VerticalAlignment="Center" Opacity="0.75" TextWrapping="Wrap"/>
+        </DockPanel>
+
+        <DataGrid Grid.Row="1" Style="{StaticResource ManagerDataGrid}"
+                  ItemsSource="{Binding EnchantStatRows}"
+                  AutoGenerateColumns="False"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Stat" Binding="{Binding StatKey}" IsReadOnly="True" Width="160"/>
+                <DataGridTextColumn Header="Nome" Binding="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Width="170"/>
+                <DataGridTextColumn Header="Tier" Binding="{Binding Tier, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
+                <DataGridTextColumn Header="Peso" Binding="{Binding Weight, UpdateSourceTrigger=PropertyChanged}" Width="70"/>
+                <DataGridTextColumn Header="Peso %" Binding="{Binding WeightPercent, StringFormat=F1}" IsReadOnly="True" Width="80"/>
+                <DataGridTextColumn Header="Min" Binding="{Binding ValueMin, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
+                <DataGridTextColumn Header="Max" Binding="{Binding ValueMax, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <Border Grid.Row="2" Margin="0,12,0,0" Padding="12" CornerRadius="6" Background="#FF252526">
+            <StackPanel>
+                <TextBlock Text="Chance de nascer com N slots (peso relativo)" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <WrapPanel>
+                    <StackPanel Margin="0,0,16,4" Width="120">
+                        <TextBlock Text="0 slots" Opacity="0.7"/>
+                        <TextBox Text="{Binding EnchantSlotWeight0, UpdateSourceTrigger=PropertyChanged}"/>
+                    </StackPanel>
+                    <StackPanel Margin="0,0,16,4" Width="120">
+                        <TextBlock Text="1 slot" Opacity="0.7"/>
+                        <TextBox Text="{Binding EnchantSlotWeight1, UpdateSourceTrigger=PropertyChanged}"/>
+                    </StackPanel>
+                    <StackPanel Margin="0,0,16,4" Width="120">
+                        <TextBlock Text="2 slots" Opacity="0.7"/>
+                        <TextBox Text="{Binding EnchantSlotWeight2, UpdateSourceTrigger=PropertyChanged}"/>
+                    </StackPanel>
+                    <StackPanel Margin="0,0,16,4" Width="120">
+                        <TextBlock Text="3 slots" Opacity="0.7"/>
+                        <TextBox Text="{Binding EnchantSlotWeight3, UpdateSourceTrigger=PropertyChanged}"/>
+                    </StackPanel>
+                </WrapPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

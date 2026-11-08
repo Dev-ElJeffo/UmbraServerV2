@@ -1,0 +1,33 @@
+<UserControl x:Class="UmbraManager.Views.ProgressionEditorView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <DockPanel Margin="8">
+    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+      <Button Content="Atualizar" Command="{Binding RefreshProgressionCommand}" Margin="0,0,8,4"
+              Style="{StaticResource ManagerActionOutlinedButton}"/>
+      <Button Content="Recalcular EXP acumulado" Command="{Binding RecalcProgressionExpRequiredCommand}" Margin="0,0,8,4"
+              Style="{StaticResource ManagerActionOutlinedButton}"
+              ToolTip="Define exp_required de cada nível como a soma dos EXP para o próximo anteriores"/>
+      <Button Content="Salvar tudo" Command="{Binding SaveProgressionCommand}" Margin="0,0,8,4"
+              Style="{StaticResource ManagerActionButton}"/>
+      <TextBlock Text="{Binding ProgressionLevels.Count, StringFormat={}{0} níveis}"
+                 VerticalAlignment="Center" Opacity="0.7"/>
+    </WrapPanel>
+    <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding ProgressionLevels}"
+              AutoGenerateColumns="False" CanUserAddRows="False">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Nv" Binding="{Binding Level}" Width="50" IsReadOnly="True"/>
+        <DataGridTextColumn Header="EXP acumulado" Binding="{Binding ExpRequired, UpdateSourceTrigger=PropertyChanged}" Width="110"/>
+        <DataGridTextColumn Header="EXP p/ próximo" Binding="{Binding ExpForNextLevel, UpdateSourceTrigger=PropertyChanged}" Width="110"/>
+        <DataGridTextColumn Header="Pts status" Binding="{Binding StatPointsGained, UpdateSourceTrigger=PropertyChanged}" Width="80"/>
+        <DataGridTextColumn Header="Pts skill" Binding="{Binding SkillPointsGranted, UpdateSourceTrigger=PropertyChanged}" Width="80"/>
+        <DataGridTextColumn Header="HP" Binding="{Binding HpGain, UpdateSourceTrigger=PropertyChanged}" Width="55"/>
+        <DataGridTextColumn Header="MP" Binding="{Binding MpGain, UpdateSourceTrigger=PropertyChanged}" Width="55"/>
+        <DataGridTextColumn Header="P.Atk" Binding="{Binding PhysAtkGain, UpdateSourceTrigger=PropertyChanged}" Width="55"/>
+        <DataGridTextColumn Header="M.Atk" Binding="{Binding MagAtkGain, UpdateSourceTrigger=PropertyChanged}" Width="55"/>
+        <DataGridTextColumn Header="P.Def" Binding="{Binding PhysDefGain, UpdateSourceTrigger=PropertyChanged}" Width="55"/>
+        <DataGridTextColumn Header="M.Def" Binding="{Binding MagDefGain, UpdateSourceTrigger=PropertyChanged}" Width="55"/>
+      </DataGrid.Columns>
+    </DataGrid>
+  </DockPanel>
+</UserControl>

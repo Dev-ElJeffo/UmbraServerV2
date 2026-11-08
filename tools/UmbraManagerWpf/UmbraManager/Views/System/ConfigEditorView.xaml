@@ -1,0 +1,61 @@
+<UserControl x:Class="UmbraManager.Views.SystemPages.ConfigEditorView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
+             xmlns:views="clr-namespace:UmbraManager.Views"
+             xmlns:controls="clr-namespace:UmbraManager.Controls"
+             xmlns:helpers="clr-namespace:UmbraManager.Helpers">
+<Grid Margin="8">
+    <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" MinWidth="360"/>
+        <ColumnDefinition Width="6"/>
+        <ColumnDefinition Width="*"/>
+    </Grid.ColumnDefinitions>
+    <ScrollViewer>
+        <StackPanel>
+            <TextBlock Text="Configuração do servidor" Style="{StaticResource ManagerPageHeader}"/>
+            <TextBlock Text="Segredos só mudam se você marcar o checkbox de alteração explícita." Style="{StaticResource ManagerEditorSubtitle}" Margin="0,0,0,12"/>
+            <TextBox Text="{Binding ConfigModel.Environment}" materialDesign:HintAssist.Hint="environment" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,8"/>
+            <TextBox Text="{Binding ConfigModel.DbHost}" materialDesign:HintAssist.Hint="database.host" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,8"/>
+            <TextBox Text="{Binding ConfigModel.DbPort}" materialDesign:HintAssist.Hint="database.port" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,8"/>
+            <TextBox Text="{Binding ConfigModel.DbName}" materialDesign:HintAssist.Hint="database.name" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,8"/>
+            <TextBox Text="{Binding ConfigModel.DbUser}" materialDesign:HintAssist.Hint="database.user" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,8"/>
+            <CheckBox Content="Alterar senha DB" IsChecked="{Binding ConfigModel.DbPasswordDirty}" Margin="0,0,0,8"/>
+            <PasswordBox Margin="0,0,0,8"
+                         helpers:PasswordBoxHelper.BindPassword="True"
+                         helpers:PasswordBoxHelper.BoundPassword="{Binding ConfigModel.DbPassword, UpdateSourceTrigger=PropertyChanged}"
+                         materialDesign:HintAssist.Hint="database.password (só envia se marcado)"
+                         materialDesign:HintAssist.IsFloating="True"
+                         IsEnabled="{Binding ConfigModel.DbPasswordDirty}"/>
+            <CheckBox Content="Alterar JWT secret" IsChecked="{Binding ConfigModel.JwtSecretDirty}" Margin="0,0,0,8"/>
+            <PasswordBox Margin="0,0,0,8"
+                         helpers:PasswordBoxHelper.BindPassword="True"
+                         helpers:PasswordBoxHelper.BoundPassword="{Binding ConfigModel.JwtSecret, UpdateSourceTrigger=PropertyChanged}"
+                         materialDesign:HintAssist.Hint="auth.jwt_secret (só envia se marcado)"
+                         materialDesign:HintAssist.IsFloating="True"
+                         IsEnabled="{Binding ConfigModel.JwtSecretDirty}"/>
+            <TextBox Text="{Binding ConfigModel.AuthPort}" materialDesign:HintAssist.Hint="auth.port" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,8"/>
+            <TextBox Text="{Binding ConfigModel.WorldPort}" materialDesign:HintAssist.Hint="world.port" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,8"/>
+            <TextBox Text="{Binding ConfigModel.ZoneBasePort}" materialDesign:HintAssist.Hint="zone.base_port" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,8"/>
+            <TextBox Text="{Binding ConfigModel.ChatPort}" materialDesign:HintAssist.Hint="chat.port" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,8"/>
+            <TextBox Text="{Binding ConfigModel.GatewayPort}" materialDesign:HintAssist.Hint="gateway.port" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,8"/>
+            <TextBox Text="{Binding ConfigModel.LogLevel}" materialDesign:HintAssist.Hint="logging.level" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,8"/>
+            <TextBox Text="{Binding ConfigModel.AdminBindHost}" materialDesign:HintAssist.Hint="admin.bind_host" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,8"/>
+            <TextBox Text="{Binding ConfigModel.MaxLevel}" materialDesign:HintAssist.Hint="gameplay.max_level" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,8"/>
+            <WrapPanel Margin="0,8,0,0">
+                <Button Content="Validar" Command="{Binding ValidateConfigCommand}" Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,8,4"/>
+                <Button Content="Salvar arquivo" Command="{Binding SaveConfigCommand}" Style="{StaticResource ManagerActionButton}" Margin="0,0,8,4"/>
+                <Button Content="Reload runtime" Command="{Binding ReloadConfigCommand}" Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,8,4"/>
+            </WrapPanel>
+            <TextBlock Text="{Binding ConfigStatus}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+        </StackPanel>
+    </ScrollViewer>
+    <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"/>
+    <DockPanel Grid.Column="2">
+        <TextBlock DockPanel.Dock="Top" Text="Preview JSON (somente leitura)" FontWeight="SemiBold" Margin="0,0,0,8"/>
+        <TextBox Text="{Binding ConfigJson, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True"
+                 VerticalScrollBarVisibility="Auto" FontFamily="Consolas" Background="#FF252526"/>
+    </DockPanel>
+</Grid>
+</UserControl>

@@ -29,6 +29,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
 require_once __DIR__ . '/../../helpers/auction_helper.php';
+require_once __DIR__ . '/../../helpers/item_visual_helper.php';
+require_once __DIR__ . '/../../helpers/item_weapon_class_helper.php';
 
 // Obter dados do POST
 $json = file_get_contents('php://input');
@@ -64,8 +66,21 @@ try {
     $pdo->beginTransaction();
     
     // Obter informações do item e template
+    $hasItemSkmPath = false;
+    try {
+        $chkSkm = $pdo->query("SHOW COLUMNS FROM item_templates LIKE 'skeletal_mesh_path'");
+        $hasItemSkmPath = $chkSkm && $chkSkm->rowCount() > 0;
+    } catch (Exception $e) {
+        $hasItemSkmPath = false;
+    }
+    $hasVisualJson = item_templates_has_visual_meshes_json($pdo);
+    $hasAllowedClasses = item_templates_has_allowed_class_ids($pdo);
+    $skmSelect = $hasItemSkmPath ? ", it.skeletal_mesh_path" : "";
+    $visualJsonSelect = $hasVisualJson ? ", it.visual_meshes_json" : "";
+    $allowedSelect = $hasAllowedClasses ? ", it.allowed_class_ids, it.item_subtype" : ", it.item_subtype";
+
     $item_query = "
-        SELECT pi.*, it.equipment_slot, it.item_name, it.item_type, it.required_level
+        SELECT pi.*, it.equipment_slot, it.item_name, it.item_type, it.required_level{$skmSelect}{$visualJsonSelect}{$allowedSelect}
         FROM player_inventory pi
         INNER JOIN item_templates it ON pi.item_template_id = it.item_id
         WHERE pi.inventory_id = :inventory_id AND pi.player_id = :player_id
@@ -100,12 +115,13 @@ try {
         exit;
     }
     
-    // Obter nível do jogador
-    $player_query = "SELECT level FROM players WHERE id = :player_id";
+    // Obter nível e classe do jogador
+    $player_query = "SELECT level, class_id FROM players WHERE id = :player_id";
     $player_stmt = $pdo->prepare($player_query);
     $player_stmt->execute(['player_id' => $player_id]);
     $player_info = $player_stmt->fetch(PDO::FETCH_ASSOC);
     $player_level = (int)$player_info['level'];
+    $player_class_id = (int)($player_info['class_id'] ?? 0);
     
     // Verificar nível requerido
     if ($equip && $player_level < $required_level) {
@@ -114,6 +130,17 @@ try {
         echo json_encode([
             'success' => false,
             'message' => "Nível insuficiente. Requerido: $required_level, Atual: $player_level"
+        ]);
+        exit;
+    }
+
+    // Restrição de arma por classe (allowed_class_ids; null/[] = todas)
+    if ($equip && !item_can_be_equipped_by_class($item, $player_class_id)) {
+        $pdo->rollBack();
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Este item não pode ser usado pela sua classe'
         ]);
         exit;
     }
@@ -197,6 +224,11 @@ try {
         $equip_stmt->execute(['inventory_id' => $inventory_id]);
         
         $pdo->commit();
+
+        $aggregated_visual = aggregate_player_equipped_visual($pdo, $player_id, $player_class_id);
+        $legacy_path = !empty($aggregated_visual)
+            ? $aggregated_visual[0]['skeletal_mesh_path']
+            : ($item['skeletal_mesh_path'] ?? null);
         
         http_response_code(200);
         echo json_encode([
@@ -206,6 +238,8 @@ try {
             'item_name' => $item['item_name'],
             'equipment_slot' => $equipment_slot,
             'is_equipped' => true,
+            'skeletal_mesh_path' => $legacy_path,
+            'visual_entries' => $aggregated_visual,
             'unequipped_other' => $unequipped_count > 0
         ], JSON_UNESCAPED_UNICODE);
         
@@ -261,6 +295,9 @@ try {
         ]);
         
         $pdo->commit();
+
+        $cleared_visual = resolve_item_visual_entries($item, $player_class_id);
+        $aggregated_visual = aggregate_player_equipped_visual($pdo, $player_id, $player_class_id);
         
         http_response_code(200);
         echo json_encode([
@@ -270,6 +307,9 @@ try {
             'item_name' => $item['item_name'],
             'equipment_slot' => $equipment_slot,
             'is_equipped' => false,
+            'skeletal_mesh_path' => null,
+            'visual_entries' => $aggregated_visual,
+            'cleared_visual_entries' => $cleared_visual,
             'slot_index' => $target_slot
         ], JSON_UNESCAPED_UNICODE);
     }

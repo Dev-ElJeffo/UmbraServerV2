@@ -128,6 +128,26 @@ O cliente **só** deve chamar **Learn Skill** quando houver uma skill **selecion
 | GET | `/api/skills/export_skills_json.php` | Exportar JSON |
 | GET | `/api/skills/export_skills_csv.php` | Exportar CSV (DataTable) |
 
+### Admin (UmbraManager)
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| POST | `/api/admin/list_skills.php` | Lista skills (+ filtros) |
+| POST | `/api/admin/get_skill.php` | Skill + `skill_rank_scaling` |
+| POST | `/api/admin/create_skill.php` / `update_skill.php` / `delete_skill.php` | CRUD |
+| POST | `/api/admin/upsert_skill_rank_scaling.php` | Upsert rank (bonus + extra_effects) |
+| POST | `/api/admin/delete_skill_rank_scaling.php` | Remove linha de rank |
+| POST | `/api/admin/list_skill_lookups.php` | types/targets/elements/classes |
+| POST | `/api/admin/reload_skills.php` | Sinaliza reload (Manager envia TCP `reload_skills`) |
+
+Tooltips de jogador (`get_player_skills` / `get_available_skills`) calculam power/CD/mana/duração efetivos via `helpers/skill_rank_helper.php` (mesma regra do C++).
+
+### Rank scaling
+
+Tabela `skill_rank_scaling`: bônus por rank + `extra_effects_json` cumulativo (unlock de STUN/SILENCE etc.). Seed: `scripts/seed_skill_rank_scaling_defaults.sql`.
+
+No UmbraManager: aba **Skills** → editar formulário + grade de ranks → **Recarregar no Zone**.
+
 ### Exemplo de Request
 
 ```json
@@ -159,10 +179,21 @@ O cliente **só** deve chamar **Learn Skill** quando houver uma skill **selecion
 
 ## Fórmulas de Cálculo
 
+### Power coef efetivo (rank)
+
+```
+Se existe skill_rank_scaling[rank]:
+  power = power_coef + power_coef_bonus
+Senão (fallback):
+  power = power_coef × (1 + (rank-1)×0.1)
+```
+
+CD / mana / duração seguem as colunas de bonus da mesma linha. Efeitos = `effects_json` + extras de todos os ranks ≤ atual.
+
 ### Dano Físico
 
 ```
-Damage = (BaseStat × power_coef) 
+Damage = (BaseStat × power_coef_efetivo) 
        × (1 + AttributeScaling) 
        × BuffMultipliers 
        × CritMultiplier 

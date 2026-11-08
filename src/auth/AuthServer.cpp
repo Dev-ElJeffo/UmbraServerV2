@@ -23,6 +23,14 @@ AuthServer::AuthServer(const Config& config,
     [this](uint32_t clientId, const std::vector<uint8_t>& data) {
       handleClientMessage(clientId, data);
     });
+
+  networkServer_->setConnectionCallback(
+    [this](uint32_t clientId, bool connected) {
+      if (!connected) {
+        std::lock_guard<std::mutex> lock(recvBuffersMutex_);
+        recvBuffers_.erase(clientId);
+      }
+    });
 }
 
 AuthServer::~AuthServer() {
@@ -241,15 +249,85 @@ void AuthServer::recordLoginAttempt(const std::string& identifier, bool success)
   }
 }
 
-void AuthServer::handleClientMessage(uint32_t clientId, 
+void AuthServer::handleClientMessage(uint32_t clientId,
                                      const std::vector<uint8_t>& data) {
+  constexpr size_t kMaxPendingBytes = 64 * 1024;
+  std::vector<std::string> messages;
+  bool overflow = false;
+  {
+    std::lock_guard<std::mutex> lock(recvBuffersMutex_);
+    std::string& buffer = recvBuffers_[clientId];
+    buffer.append(data.begin(), data.end());
+
+    // Mensagens completas: uma por linha.
+    size_t start = 0;
+    size_t newline = 0;
+    while ((newline = buffer.find('\n', start)) != std::string::npos) {
+      std::string line = buffer.substr(start, newline - start);
+      if (!line.empty() && line.back() == '\r') line.pop_back();
+      if (line.find_first_not_of(" \t") != std::string::npos) {
+        messages.push_back(std::move(line));
+      }
+      start = newline + 1;
+    }
+    buffer.erase(0, start);
+
+    // Compatibilidade: clientes antigos mandam um JSON sem '\n'.
+    if (!buffer.empty() && nlohmann::json::accept(buffer)) {
+      messages.push_back(buffer);
+      buffer.clear();
+    } else if (buffer.size() > kMaxPendingBytes) {
+      buffer.clear();
+      overflow = true;
+    }
+  }
+
+  if (overflow) {
+    Core::Logger::getInstance().warn("Auth: client {} exceeded pending buffer, disconnecting",
+                                     clientId);
+    networkServer_->disconnectClient(clientId);
+    return;
+  }
+
+  for (const auto& message : messages) {
+    processRequest(clientId, message);
+  }
+}
+
+void AuthServer::processRequest(uint32_t clientId, const std::string& message) {
   try {
-    std::string message(data.begin(), data.end());
     auto json = nlohmann::json::parse(message);
-    
-    std::string action = json["action"];
-    
-    if (action == "register") {
+
+    std::string action = json.value("action", "");
+
+    if (action == "validate_token") {
+      // Pedido do Gateway (AuthClient::validateToken): {action, data:{token}}.
+      std::string token = json.value("token", "");
+      if (token.empty() && json.contains("data") && json["data"].is_object()) {
+        token = json["data"].value("token", "");
+      }
+
+      nlohmann::json response;
+      response["action"] = action;
+      response["success"] = true;
+      response["valid"] = false;
+
+      std::optional<JWTPayload> payload;
+      if (!token.empty()) {
+        payload = validateToken(token);
+      }
+      if (payload && !payload->isExpired()) {
+        response["valid"] = true;
+        response["message"] = "Token valid";
+        response["account_id"] = payload->accountId;
+        response["player_id"] = payload->playerId;
+        response["username"] = payload->username;
+      } else {
+        response["message"] = token.empty() ? "Token required" : "Invalid token";
+      }
+
+      sendResponse(clientId, response.dump());
+    } else if (action == "register") {
       auto result = registerAccount(
         json["username"], json["email"], json["password"]);
       
@@ -275,14 +353,27 @@ void AuthServer::handleClientMessage(uint32_t clientId,
       }
       
       sendResponse(clientId, response.dump());
+    } else {
+      // Sempre responder: o AuthClient casa respostas por ordem (FIFO).
+      nlohmann::json response;
+      response["action"] = action;
+      response["success"] = false;
+      response["message"] = "Unknown action: " + action;
+      sendResponse(clientId, response.dump());
     }
   } catch (const std::exception& e) {
     Core::Logger::getInstance().error("Error handling auth message: {}", e.what());
+    nlohmann::json response;
+    response["success"] = false;
+    response["message"] = "Invalid request";
+    sendResponse(clientId, response.dump());
   }
 }
 
 void AuthServer::sendResponse(uint32_t clientId, const std::string& response) {
+  // JSON por linha (mesmo contrato do AuthClient::createRequest).
   std::vector<uint8_t> data(response.begin(), response.end());
+  data.push_back('\n');
   networkServer_->sendToClient(clientId, data);
 }
 

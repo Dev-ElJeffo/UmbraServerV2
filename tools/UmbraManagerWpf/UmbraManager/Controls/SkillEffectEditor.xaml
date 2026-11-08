@@ -1,0 +1,91 @@
+<UserControl x:Class="UmbraManager.Controls.SkillEffectEditor"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:svc="clr-namespace:UmbraManager.Services">
+  <UserControl.Resources>
+    <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
+  </UserControl.Resources>
+  <DockPanel>
+    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+      <Button Content="Adicionar efeito" Click="AddEffect_Click"
+              Style="{StaticResource ManagerActionButton}" Margin="0,0,8,4"
+              AutomationProperties.Name="Adicionar efeito"/>
+      <TextBlock Text="Os campos exibidos acompanham o contrato de cada tipo no runtime."
+                 Opacity="0.7" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="420"/>
+    </WrapPanel>
+    <ItemsControl x:Name="EffectsList" ItemsSource="{Binding}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate>
+          <Border Style="{StaticResource ManagerEditorCard}" Margin="0,0,0,8" Padding="10">
+            <StackPanel>
+              <DockPanel Margin="0,0,0,6">
+                <Button DockPanel.Dock="Right" Content="Remover" Click="RemoveEffect_Click" Tag="{Binding}"
+                        Style="{StaticResource ManagerActionOutlinedButton}"
+                        AutomationProperties.Name="Remover efeito"/>
+                <Button DockPanel.Dock="Right" Content="Duplicar" Click="DuplicateEffect_Click" Tag="{Binding}"
+                        Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,4,0"
+                        AutomationProperties.Name="Duplicar efeito"/>
+                <TextBlock Text="{Binding UnsupportedType, StringFormat=Não suportado: {0}}"
+                           Foreground="#FFCC6666" FontWeight="SemiBold">
+                  <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                      <Setter Property="Visibility" Value="Collapsed"/>
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsUnsupported}" Value="True">
+                          <Setter Property="Visibility" Value="Visible"/>
+                        </DataTrigger>
+                      </Style.Triggers>
+                    </Style>
+                  </TextBlock.Style>
+                </TextBlock>
+              </DockPanel>
+              <UniformGrid Columns="2">
+                <ComboBox ItemsSource="{x:Static svc:SchemaCatalogService.ImplementedEffectTypes}"
+                          SelectedItem="{Binding Type}" Margin="0,0,8,6"
+                          materialDesign:HintAssist.Hint="Tipo" materialDesign:HintAssist.IsFloating="True"/>
+                <ComboBox ItemsSource="{x:Static svc:SchemaCatalogService.CanonicalTargetStats}"
+                          Text="{Binding TargetStat, UpdateSourceTrigger=PropertyChanged}"
+                          IsEditable="True" Margin="0,0,0,6"
+                          Visibility="{Binding UsesTargetStat, Converter={StaticResource BoolToVisibility}}"
+                          materialDesign:HintAssist.Hint="status-alvo" materialDesign:HintAssist.IsFloating="True"/>
+                <TextBox Text="{Binding ValueFlat, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,6"
+                         Visibility="{Binding UsesValue, Converter={StaticResource BoolToVisibility}}"
+                         materialDesign:HintAssist.Hint="flat" materialDesign:HintAssist.IsFloating="True"/>
+                <TextBox Text="{Binding ValuePercent, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                         Visibility="{Binding UsesValue, Converter={StaticResource BoolToVisibility}}"
+                         materialDesign:HintAssist.Hint="percent (0-100)" materialDesign:HintAssist.IsFloating="True"/>
+                <TextBox Text="{Binding DurationMs, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,6"
+                         Visibility="{Binding UsesDuration, Converter={StaticResource BoolToVisibility}}"
+                         materialDesign:HintAssist.Hint="duração ms" materialDesign:HintAssist.IsFloating="True"/>
+                <TextBox Text="{Binding TickIntervalMs, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                         Visibility="{Binding UsesTickInterval, Converter={StaticResource BoolToVisibility}}"
+                         materialDesign:HintAssist.Hint="tick ms" materialDesign:HintAssist.IsFloating="True"/>
+                <TextBox Text="{Binding ChancePercent, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,6"
+                         materialDesign:HintAssist.Hint="chance %" materialDesign:HintAssist.IsFloating="True"/>
+                <TextBox Text="{Binding ResistPenetration, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                         Visibility="{Binding UsesResistPenetration, Converter={StaticResource BoolToVisibility}}"
+                         materialDesign:HintAssist.Hint="penetração resist %" materialDesign:HintAssist.IsFloating="True"/>
+                <TextBox Text="{Binding HealthBelowPercent, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,6"
+                         materialDesign:HintAssist.Hint="HP abaixo %" materialDesign:HintAssist.IsFloating="True"/>
+                <ComboBox ItemsSource="{x:Static svc:SchemaCatalogService.ConditionTriggers}"
+                          Text="{Binding Trigger, UpdateSourceTrigger=PropertyChanged}"
+                          IsEditable="True" Margin="0,0,0,6"
+                          materialDesign:HintAssist.Hint="trigger" materialDesign:HintAssist.IsFloating="True"/>
+                <TextBox Text="{Binding MaxUses, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,6"
+                         materialDesign:HintAssist.Hint="max uses" materialDesign:HintAssist.IsFloating="True"/>
+                <CheckBox Content="Redirecionar para si" IsChecked="{Binding RedirectToSelf}" VerticalAlignment="Center"/>
+                <ComboBox ItemsSource="{x:Static svc:SchemaCatalogService.EffectTargetOverrides}"
+                          SelectedItem="{Binding TargetOverride}" Margin="0,0,8,6"
+                          materialDesign:HintAssist.Hint="alvo do efeito" materialDesign:HintAssist.IsFloating="True"/>
+                <CheckBox Content="Incluir caster (marcado=sim, vazio=não, indeterminado=herdar)"
+                          IsThreeState="True" IsChecked="{Binding IncludeCaster}"
+                          VerticalAlignment="Center" ToolTip="Indeterminado herda o padrão geral da skill."/>
+              </UniformGrid>
+            </StackPanel>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+  </DockPanel>
+</UserControl>

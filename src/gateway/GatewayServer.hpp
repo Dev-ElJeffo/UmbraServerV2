@@ -5,10 +5,12 @@
 #include "AuthConnectionPool.hpp"
 #include "auth/JWTManager.hpp"
 #include "network/SocketServer.hpp"
+#include "network/LengthPrefixedFramer.hpp"
 #include <memory>
 #include <string>
 #include <map>
 #include <mutex>
+#include <unordered_map>
 
 namespace Umbra {
 namespace Gateway {
@@ -72,7 +74,13 @@ class GatewayServer {
   std::map<std::string, AuthResponse> clientSessions_;
   std::mutex sessionsMutex_;
   
+  // Framing por conexão (prefixo 4B BE do UmbraTCPClient; Legacy = pedaço cru).
+  std::unordered_map<uint32_t, Network::LengthPrefixedFramer> framers_;
+  mutable std::mutex framersMutex_;
+
   void handleConnection(uint32_t clientId);
+  void handleRawData(uint32_t clientId, const std::vector<uint8_t>& data);
+  bool isFramedClient(uint32_t clientId) const;
   void handleClientMessage(uint32_t clientId, const std::vector<uint8_t>& data);
   void sendResponse(uint32_t clientId, const std::string& response);
   void cleanupExpiredSessions();

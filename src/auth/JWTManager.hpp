@@ -14,6 +14,7 @@ namespace Auth {
 struct JWTPayload {
   uint64_t accountId = 0;
   uint64_t playerId = 0;
+  uint32_t sessionVersion = 0;
   std::string username;
   std::chrono::system_clock::time_point issuedAt;
   std::chrono::system_clock::time_point expiresAt;
@@ -48,7 +49,8 @@ class JWTManager {
   std::string generateToken(uint64_t accountId, 
                             uint64_t playerId,
                             const std::string& username,
-                            uint32_t expirationMinutes = 60);
+                            uint32_t expirationMinutes = 60,
+                            uint32_t sessionVersion = 0);
   
   /**
    * @brief Valida e decodifica token JWT

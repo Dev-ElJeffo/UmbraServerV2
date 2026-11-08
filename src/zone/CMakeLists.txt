@@ -5,20 +5,30 @@ add_library(umbra_zone STATIC
   EntitySystem.cpp
   ZoneOrchestrator.cpp
   NpcManager.cpp
+  NpcAiSystem.cpp
   CombatCoreEngine.cpp
+  CombatEffectRuntime.cpp
   CharacterStateLoader.cpp
   ReactionEngine.cpp
   ExperienceService.cpp
   ExpZoneManager.cpp
+  QuestProgressService.cpp
+  LootService.cpp
   MovementServer.hpp
   MovementProtocol.hpp
   SpatialGrid.hpp
   ZoneOrchestrator.hpp
   ZoneCombatService.hpp
   NpcManager.hpp
+  NpcAiSystem.hpp
   CombatCoreEngine.hpp
+  CombatEffectRuntime.hpp
   CharacterStateLoader.hpp
   ReactionEngine.hpp
+  QuestProgressService.hpp
+  LootService.hpp
+  ExperienceService.hpp
+  ExpZoneManager.hpp
 )
 
 target_link_libraries(umbra_zone
@@ -26,6 +36,7 @@ target_link_libraries(umbra_zone
   umbra_network
   umbra_database
   umbra_services
+  umbra_auth
   Threads::Threads
 )
 

@@ -1,0 +1,200 @@
+<UserControl x:Class="UmbraManager.Views.Operations.DashboardView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
+             xmlns:views="clr-namespace:UmbraManager.Views"
+             xmlns:controls="clr-namespace:UmbraManager.Controls">
+<ScrollViewer>
+    <StackPanel Margin="12">
+        <!-- Linha de KPIs no topo -->
+        <UniformGrid Columns="4" Margin="0,0,0,16">
+            <Border Margin="0,0,8,0" Padding="14,10" CornerRadius="6"
+                    Background="#FF252526">
+                <StackPanel>
+                    <TextBlock Text="Players online" FontSize="11" Opacity="0.7"/>
+                    <TextBlock Text="{Binding TotalPlayers}" FontSize="28" FontWeight="Bold"/>
+                </StackPanel>
+            </Border>
+            <Border Margin="4,0,4,0" Padding="14,10" CornerRadius="6"
+                    Background="#FF252526">
+                <StackPanel>
+                    <TextBlock Text="Zones ativas" FontSize="11" Opacity="0.7"/>
+                    <TextBlock Text="{Binding ActiveZones}" FontSize="28" FontWeight="Bold"/>
+                </StackPanel>
+            </Border>
+            <Border Margin="4,0,4,0" Padding="14,10" CornerRadius="6"
+                    Background="#FF252526">
+                <StackPanel>
+                    <TextBlock Text="Serviços online" FontSize="11" Opacity="0.7"/>
+                    <TextBlock Text="{Binding OnlineServiceCount}" FontSize="28" FontWeight="Bold"/>
+                </StackPanel>
+            </Border>
+            <Border Margin="8,0,0,0" Padding="14,10" CornerRadius="6"
+                    Background="#FF252526">
+                <StackPanel>
+                    <TextBlock Text="Admin conectados" FontSize="11" Opacity="0.7"/>
+                    <TextBlock Text="{Binding AdminConnectedSummary}" FontSize="28" FontWeight="Bold"/>
+                </StackPanel>
+            </Border>
+        </UniformGrid>
+
+        <!-- Gráfico CPU -->
+        <Border Padding="10" CornerRadius="6"
+                Background="#FF252526"
+                Margin="0,0,0,16">
+            <StackPanel>
+                <TextBlock Text="CPU últimos minutos" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                <lvc:CartesianChart Series="{Binding CpuChartSeries}" Height="200"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Cards detalhados por serviço -->
+        <TextBlock Text="Serviços" FontWeight="SemiBold" Margin="0,0,0,8"/>
+        <ItemsControl ItemsSource="{Binding DashboardCards}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border Margin="0,0,10,10" Padding="12" CornerRadius="6"
+                            Width="320" BorderThickness="2"
+                            Background="#FF252526">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="BorderBrush" Value="#444"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsOnline}" Value="True">
+                                        <Setter Property="BorderBrush" Value="#4CAF50"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsOnline}" Value="False">
+                                        <Setter Property="BorderBrush" Value="#E53935"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- Linha 1: Nome + LED de status -->
+                            <DockPanel Grid.Row="0" LastChildFill="True">
+                                <Ellipse DockPanel.Dock="Left" Width="12" Height="12"
+                                         Margin="0,0,8,0" VerticalAlignment="Center">
+                                    <Ellipse.Style>
+                                        <Style TargetType="Ellipse">
+                                            <Setter Property="Fill" Value="#E53935"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsOnline}" Value="True">
+                                                    <Setter Property="Fill" Value="#4CAF50"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Ellipse.Style>
+                                </Ellipse>
+                                <TextBlock Text="{Binding DisplayName}" FontWeight="Bold" FontSize="14"
+                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                            </DockPanel>
+
+                            <!-- Linha 2: ID + status texto -->
+                            <DockPanel Grid.Row="1" Margin="20,2,0,0">
+                                <TextBlock Text="{Binding ServiceId}" FontFamily="Consolas"
+                                           FontSize="11" Opacity="0.7"/>
+                                <TextBlock Text="{Binding Status}" Margin="10,0,0,0"
+                                           FontSize="11" HorizontalAlignment="Right">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="#E53935"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsOnline}" Value="True">
+                                                    <Setter Property="Foreground" Value="#4CAF50"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </DockPanel>
+
+                            <!-- Linha 3: grade de métricas -->
+                            <Grid Grid.Row="2" Margin="20,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="PID" FontSize="10" Opacity="0.6"/>
+                                <TextBlock Grid.Row="0" Grid.Column="1" Text="Porta" FontSize="10" Opacity="0.6"/>
+                                <TextBlock Grid.Row="0" Grid.Column="2" Text="Uptime" FontSize="10" Opacity="0.6"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding Pid}" FontFamily="Consolas"/>
+                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding GamePort}" FontFamily="Consolas"/>
+                                <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding UptimeFormatted}" FontFamily="Consolas"/>
+                            </Grid>
+
+                            <!-- Linha 4: CPU/RAM/Admin -->
+                            <Grid Grid.Row="3" Margin="20,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="CPU" FontSize="10" Opacity="0.6"/>
+                                <TextBlock Grid.Row="0" Grid.Column="1" Text="RAM" FontSize="10" Opacity="0.6"/>
+                                <TextBlock Grid.Row="0" Grid.Column="2" Text="Admin" FontSize="10" Opacity="0.6"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0"
+                                           Text="{Binding CpuPct, StringFormat={}{0:F1}%}"
+                                           FontFamily="Consolas"/>
+                                <TextBlock Grid.Row="1" Grid.Column="1"
+                                           Text="{Binding MemMb, StringFormat={}{0:F0} MB}"
+                                           FontFamily="Consolas"/>
+                                <TextBlock Grid.Row="1" Grid.Column="2"
+                                           Text="{Binding AdminState}"
+                                           FontSize="11" TextTrimming="CharacterEllipsis"/>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <WrapPanel/>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+        </ItemsControl>
+
+        <Border Style="{StaticResource ManagerEditorCard}" Margin="0,8,0,0">
+            <StackPanel>
+                <DockPanel Margin="0,0,0,8">
+                    <TextBlock Text="Panorama do projeto" FontWeight="SemiBold"/>
+                    <Button DockPanel.Dock="Right" Content="Atualizar panorama"
+                            Command="{Binding RefreshProjectStateCommand}"
+                            Style="{StaticResource MaterialDesignOutlinedButton}"/>
+                </DockPanel>
+                <TextBlock Text="{Binding ProjectStateText}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                <UniformGrid Columns="4">
+                    <TextBlock Text="{Binding SummaryItemCount, StringFormat=Itens: {0}}" Margin="0,0,8,4"/>
+                    <TextBlock Text="{Binding SummaryNpcTemplateCount, StringFormat=NPC Templates: {0}}" Margin="0,0,8,4"/>
+                    <TextBlock Text="{Binding SummaryNpcLootCount, StringFormat=NPC Loot: {0}}" Margin="0,0,8,4"/>
+                    <TextBlock Text="{Binding SummaryExpZoneCount, StringFormat=EXP Zones: {0}}" Margin="0,0,8,4"/>
+                    <TextBlock Text="{Binding SummaryGuildCount, StringFormat=Guilds: {0}}" Margin="0,0,8,4"/>
+                    <TextBlock Text="{Binding SummaryPartyCount, StringFormat=Parties: {0}}" Margin="0,0,8,4"/>
+                    <TextBlock Text="{Binding SummaryAuctionCount, StringFormat=Leilões ativos: {0}}" Margin="0,0,8,4"/>
+                    <TextBlock Text="{Binding SummaryOpenShopCount, StringFormat=Lojas abertas: {0}}" Margin="0,0,8,4"/>
+                </UniformGrid>
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</ScrollViewer>
+</UserControl>

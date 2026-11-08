@@ -65,6 +65,8 @@ enum class MovementMsgType : uint8_t {
   ChatGlobalReceived = 70,             // Servidor -> Cliente: [msgType][fromPlayerId:4][nameLen:2][name:utf8][msgLen:2][msg:utf8]
   ChatGroupReceived = 71,              // Servidor -> Cliente: [msgType][fromPlayerId:4][nameLen:2][name:utf8][msgLen:2][msg:utf8]
   ChatServerError = 72,                // Servidor -> Cliente: [msgType][errorCode:2][msgLen:2][error:utf8]
+  SystemBroadcast = 73,                // Servidor -> Cliente: [msgType][severity:1][durationMs:2][nameLen:2][name][msgLen:2][msg]
+  MailNotify = 74,                     // Servidor -> Cliente: [msgType][mailId:4][fromLen:2][from][subjLen:2][subject]
   GuildInviteReceived = 80,            // Servidor -> Cliente: [msgType][inviteId:4][guildId:4][fromPlayerId:4]
   GuildStateRefresh = 81,              // Servidor -> Cliente: [msgType][guildId:4]
   GuildMemberUpdated = 82,             // Servidor -> Cliente: [msgType][guildId:4][playerId:4]
@@ -93,7 +95,82 @@ enum class MovementMsgType : uint8_t {
   SkillCastRejected = 105,             // Servidor -> Cliente: cast rejeitado (range/mana/etc.)
   ExpGainNotify = 106,                 // Servidor -> Cliente: ganho de EXP
   LevelUpNotify = 107,                 // Servidor -> Cliente: subiu de nível
-  NpcBuffSnapshotRequest = 108         // Cliente -> Servidor: pede snapshot buffs de um NPC
+  NpcBuffSnapshotRequest = 108,        // Cliente -> Servidor: pede snapshot buffs de um NPC
+  SessionAuthNotify = 109,             // Cliente -> Servidor: [msgType][tokenLen:2 LE][token:utf8]
+  SessionRevokedNotify = 110,            // Servidor -> Cliente: [msgType][reason:1][msgLen:2 LE][msg:utf8]
+  LootWindowOpen = 111,                // Servidor -> Cliente: janela de loot (killer)
+  LootWindowClose = 112,               // Servidor -> Cliente: fecha janela
+  LootTakeItem = 113,                  // Cliente -> Servidor: loot slot selecionado
+  LootTakeAll = 114,                   // Cliente -> Servidor: loot all
+  LootWindowUpdate = 115,              // Servidor -> Cliente: slots restantes + gold opcional
+	QuestProgressNotify = 116,           // Servidor -> Cliente: progresso/ready de quest (kill)
+	PlayerEquipmentVisualUpdate = 117,   // Cliente <-> Servidor: visual de equipamento (paths por slot)
+	CombatControlState = 118,            // Servidor -> Cliente: flags CC/visibilidade + velocidade autoritativa
+	WsKeepalive = 250                      // Servidor -> Cliente: heartbeat (1 byte); cliente ignora
+};
+
+/** kind em slots de loot: 0=item, 1=gold */
+enum class LootEntryKind : uint8_t {
+  Item = 0,
+  Gold = 1
+};
+
+enum class LootCloseReason : uint8_t {
+  Empty = 0,
+  Expired = 1,
+  ClosedByClient = 2,
+  Error = 3
+};
+
+struct LootSlotPayload {
+  uint8_t slotIndex = 0;
+  uint8_t kind = 0;           // LootEntryKind
+  uint32_t itemTemplateId = 0;  // 0 se gold
+  uint32_t quantity = 0;
+};
+
+struct LootWindowOpenPayload {
+  uint64_t corpseId = 0;
+  uint32_t npcTemplateId = 0;
+  uint32_t npcInstanceId = 0;
+  std::vector<LootSlotPayload> slots;  // <= 10
+};
+
+struct LootWindowClosePayload {
+  uint64_t corpseId = 0;
+  uint8_t reason = 0;
+};
+
+struct LootTakeItemPayload {
+  uint64_t corpseId = 0;
+  uint8_t slotIndex = 0;
+};
+
+struct LootTakeAllPayload {
+  uint64_t corpseId = 0;
+};
+
+struct LootWindowUpdatePayload {
+  uint64_t corpseId = 0;
+  int64_t playerGold = -1;  // <0 = não atualizar; >=0 = novo saldo
+  uint8_t inventoryChanged = 0;
+  std::vector<LootSlotPayload> slots;  // slots ainda não taken
+};
+
+/** Opcode 116: progresso de quest (kill) — status 1=active, 2=ready; flags bit0=progress, bit1=became_ready */
+struct QuestProgressNotifyPayload {
+  uint32_t playerId = 0;
+  uint32_t questId = 0;
+  uint8_t status = 1;
+  uint8_t flags = 0;
+};
+
+/** Motivo de revogacao de sessao WS (opcode 110) */
+enum class SessionRevokeReason : uint8_t {
+  Generic = 0,
+  DuplicateLogin = 1,
+  AuthTimeout = 2,
+  InvalidToken = 3
 };
 
 /** Motivo de rejeição de skill (opcode 105) */
@@ -177,6 +254,18 @@ struct SkillBuffSyncPayload {
   std::string iconPath;
   /** 0 = jogador (targetPlayerId), 1 = NPC (npc_instance_id em targetPlayerId). */
   uint8_t targetType = 0;
+  /** STUN/SILENCE/ROOT/SLOW/BUFF_STAT/... — append após targetType (compatível). */
+  std::string effectType;
+  /** Niagara loop no corpo enquanto o buff estiver ativo (compatível: frames antigos sem campo). */
+  std::string buffVfxPath;
+};
+
+/** Opcode 118: estado agregado derivado dos efeitos runtime. */
+struct CombatControlStatePayload {
+  uint32_t targetId = 0;
+  uint8_t targetType = 0;  // 0=player, 1=NPC
+  uint8_t flags = 0;       // bit0 stun, bit1 silence, bit2 root, bit3 stealth, bit4 invulnerable
+  uint16_t movementSpeedPercent = 100;
 };
 
 enum class ChatChannel : uint8_t {
@@ -356,13 +445,16 @@ inline std::vector<uint8_t> encodePlayerDisconnected(uint32_t playerId) {
 
 // Codificar mensagem PlayerInfoUpdate:
 // [msgType:uint8][playerId:uint32][nameLen:uint16][name:bytes][titleLen:uint16][title:bytes][guildLen:uint16][guild:bytes]
-// Compatível: clientes antigos ignoram dados extras.
+// [classId:uint32][hair:uint32][head:uint32] — opcional; clientes antigos param após guild
 inline std::vector<uint8_t> encodePlayerInfoUpdate(uint32_t playerId, 
                                                     const std::string& name, 
                                                     const std::string& title,
-                                                    const std::string& guildName = "") {
+                                                    const std::string& guildName = "",
+                                                    uint32_t classId = 0,
+                                                    uint32_t hair = 0,
+                                                    uint32_t head = 0) {
   std::vector<uint8_t> out;
-  out.reserve(1 + 4 + 2 + name.size() + 2 + title.size() + 2 + guildName.size());
+  out.reserve(1 + 4 + 2 + name.size() + 2 + title.size() + 2 + guildName.size() + 12);
   
   out.push_back(static_cast<uint8_t>(MovementMsgType::PlayerInfoUpdate));
   
@@ -385,6 +477,9 @@ inline std::vector<uint8_t> encodePlayerInfoUpdate(uint32_t playerId,
   out.insert(out.end(), title.begin(), title.end());
   write16(static_cast<uint16_t>(guildName.size()));
   out.insert(out.end(), guildName.begin(), guildName.end());
+  write32(classId);
+  write32(hair);
+  write32(head);
   
   return out;
 }
@@ -394,8 +489,14 @@ inline bool decodePlayerInfoUpdate(const std::vector<uint8_t>& data,
                                    uint32_t& playerId,
                                    std::string& name,
                                    std::string& title,
-                                   std::string& guildName) {
+                                   std::string& guildName,
+                                   uint32_t* classId = nullptr,
+                                   uint32_t* hair = nullptr,
+                                   uint32_t* head = nullptr) {
   guildName.clear();
+  if (classId) *classId = 0;
+  if (hair) *hair = 0;
+  if (head) *head = 0;
   if (data.size() < 7) return false;  // Mínimo: msgType(1) + playerId(4) + nameLen(2)
   
   size_t off = 0;
@@ -436,6 +537,15 @@ inline bool decodePlayerInfoUpdate(const std::vector<uint8_t>& data,
     guildName.assign(reinterpret_cast<const char*>(data.data() + off), guildLen);
     off += guildLen;
   }
+
+  if (data.size() >= off + 12) {
+    if (classId) *classId = read32(off);
+    else off += 4;
+    if (hair) *hair = read32(off);
+    else off += 4;
+    if (head) *head = read32(off);
+    else off += 4;
+  }
   return true;
 }
 
@@ -446,6 +556,110 @@ inline bool decodePlayerInfoUpdate(const std::vector<uint8_t>& data,
                                    std::string& title) {
   std::string ignoredGuild;
   return decodePlayerInfoUpdate(data, playerId, name, title, ignoredGuild);
+}
+
+struct EquippedVisualWireEntry {
+  uint8_t equipSlot = 0;
+  std::string meshPath;
+  uint8_t flags = 0;  // bit0 = hide_hair
+  uint8_t refinementLevel = 0;  // 0–12; frames antigos sem byte → 0
+};
+
+// PlayerEquipmentVisualUpdate (117):
+// [msgType:uint8][playerId:uint32][count:uint8]
+// repeat count: [equipSlot:uint8][pathLen:uint16 LE][path:utf8]
+// trailing (opcional, legado ignora se curto): repeat count [flags:uint8]  bit0=hide_hair
+// trailing2 (opcional): repeat count [refinementLevel:uint8]
+inline std::vector<uint8_t> encodePlayerEquipmentVisualUpdate(
+    uint32_t playerId,
+    const std::vector<EquippedVisualWireEntry>& entries) {
+  std::vector<uint8_t> out;
+  out.reserve(6 + entries.size() * 10);
+  out.push_back(static_cast<uint8_t>(MovementMsgType::PlayerEquipmentVisualUpdate));
+
+  auto write32 = [&out](uint32_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  auto write16 = [&out](uint16_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  };
+
+  write32(playerId);
+  const uint8_t count = static_cast<uint8_t>(std::min<size_t>(entries.size(), 255));
+  out.push_back(count);
+  for (size_t i = 0; i < count; ++i) {
+    const auto& e = entries[i];
+    out.push_back(e.equipSlot);
+    const uint16_t pathLen = static_cast<uint16_t>(std::min<size_t>(e.meshPath.size(), 65535));
+    write16(pathLen);
+    out.insert(out.end(), e.meshPath.begin(), e.meshPath.begin() + pathLen);
+  }
+  for (size_t i = 0; i < count; ++i) {
+    out.push_back(entries[i].flags);
+  }
+  for (size_t i = 0; i < count; ++i) {
+    out.push_back(entries[i].refinementLevel);
+  }
+  return out;
+}
+
+inline bool decodePlayerEquipmentVisualUpdate(
+    const std::vector<uint8_t>& data,
+    uint32_t& playerId,
+    std::vector<EquippedVisualWireEntry>& outEntries) {
+  outEntries.clear();
+  if (data.size() < 6) return false;
+  if (static_cast<MovementMsgType>(data[0]) != MovementMsgType::PlayerEquipmentVisualUpdate) return false;
+
+  size_t off = 1;
+  auto read32 = [&]() -> uint32_t {
+    if (off + 4 > data.size()) return 0;
+    uint32_t v = static_cast<uint32_t>(data[off])
+               | (static_cast<uint32_t>(data[off + 1]) << 8)
+               | (static_cast<uint32_t>(data[off + 2]) << 16)
+               | (static_cast<uint32_t>(data[off + 3]) << 24);
+    off += 4;
+    return v;
+  };
+  auto read16 = [&]() -> uint16_t {
+    if (off + 2 > data.size()) return 0;
+    uint16_t v = static_cast<uint16_t>(data[off])
+               | (static_cast<uint16_t>(data[off + 1]) << 8);
+    off += 2;
+    return v;
+  };
+
+  playerId = read32();
+  if (off >= data.size()) return false;
+  const uint8_t count = data[off++];
+  outEntries.reserve(count);
+  for (uint8_t i = 0; i < count; ++i) {
+    if (off >= data.size()) return false;
+    EquippedVisualWireEntry entry;
+    entry.equipSlot = data[off++];
+    const uint16_t pathLen = read16();
+    if (off + pathLen > data.size()) return false;
+    entry.meshPath.assign(reinterpret_cast<const char*>(data.data() + off), pathLen);
+    off += pathLen;
+    outEntries.push_back(std::move(entry));
+  }
+  // Flags trailing (compat: buffer curto → flags=0)
+  if (off + count <= data.size()) {
+    for (uint8_t i = 0; i < count; ++i) {
+      outEntries[i].flags = data[off++];
+    }
+  }
+  // Refinement trailing (compat: buffer curto → 0)
+  if (off + count <= data.size()) {
+    for (uint8_t i = 0; i < count; ++i) {
+      outEntries[i].refinementLevel = data[off++];
+    }
+  }
+  return true;
 }
 
 inline std::vector<uint8_t> encodeGuildNotify(MovementMsgType msgType, uint32_t guildId) {
@@ -725,6 +939,94 @@ inline std::vector<uint8_t> encodeChatReceived(MovementMsgType msgType, uint32_t
   write16(static_cast<uint16_t>(message.size()));
   out.insert(out.end(), message.begin(), message.end());
   return out;
+}
+
+// System broadcast toast (73): [msgType][severity:u8][durationMs:u16 LE][nameLen:u16][name][msgLen:u16][msg]
+inline std::vector<uint8_t> encodeSystemBroadcast(uint8_t severity, uint16_t durationMs,
+                                                   const std::string& fromName,
+                                                   const std::string& message) {
+  std::vector<uint8_t> out;
+  out.reserve(1 + 1 + 2 + 2 + fromName.size() + 2 + message.size());
+  out.push_back(static_cast<uint8_t>(MovementMsgType::SystemBroadcast));
+  out.push_back(severity);
+  out.push_back(static_cast<uint8_t>(durationMs & 0xFF));
+  out.push_back(static_cast<uint8_t>((durationMs >> 8) & 0xFF));
+  auto write16 = [&out](uint16_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  };
+  write16(static_cast<uint16_t>(fromName.size()));
+  out.insert(out.end(), fromName.begin(), fromName.end());
+  write16(static_cast<uint16_t>(message.size()));
+  out.insert(out.end(), message.begin(), message.end());
+  return out;
+}
+
+inline bool decodeSystemBroadcast(const std::vector<uint8_t>& data, uint8_t& severity,
+                                  uint16_t& durationMs, std::string& fromName,
+                                  std::string& message) {
+  if (data.size() < 6) return false;
+  size_t off = 1;
+  severity = data[off++];
+  durationMs = static_cast<uint16_t>(data[off] | (static_cast<uint16_t>(data[off + 1]) << 8));
+  off += 2;
+  if (off + 2 > data.size()) return false;
+  uint16_t nameLen = static_cast<uint16_t>(data[off] | (static_cast<uint16_t>(data[off + 1]) << 8));
+  off += 2;
+  if (off + nameLen + 2 > data.size()) return false;
+  fromName.assign(reinterpret_cast<const char*>(data.data() + off), nameLen);
+  off += nameLen;
+  uint16_t msgLen = static_cast<uint16_t>(data[off] | (static_cast<uint16_t>(data[off + 1]) << 8));
+  off += 2;
+  if (off + msgLen > data.size()) return false;
+  message.assign(reinterpret_cast<const char*>(data.data() + off), msgLen);
+  return true;
+}
+
+// Mail notify (74): [msgType][mailId:u32 LE][fromLen:u16][from][subjLen:u16][subject]
+inline std::vector<uint8_t> encodeMailNotify(uint32_t mailId, const std::string& fromName,
+                                              const std::string& subject) {
+  std::vector<uint8_t> out;
+  out.reserve(1 + 4 + 2 + fromName.size() + 2 + subject.size());
+  out.push_back(static_cast<uint8_t>(MovementMsgType::MailNotify));
+  auto write32 = [&out](uint32_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  auto write16 = [&out](uint16_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  };
+  write32(mailId);
+  write16(static_cast<uint16_t>(fromName.size()));
+  out.insert(out.end(), fromName.begin(), fromName.end());
+  write16(static_cast<uint16_t>(subject.size()));
+  out.insert(out.end(), subject.begin(), subject.end());
+  return out;
+}
+
+inline bool decodeMailNotify(const std::vector<uint8_t>& data, uint32_t& mailId,
+                             std::string& fromName, std::string& subject) {
+  if (data.size() < 7) return false;
+  size_t off = 1;
+  mailId = static_cast<uint32_t>(data[off]) |
+           (static_cast<uint32_t>(data[off + 1]) << 8) |
+           (static_cast<uint32_t>(data[off + 2]) << 16) |
+           (static_cast<uint32_t>(data[off + 3]) << 24);
+  off += 4;
+  if (off + 2 > data.size()) return false;
+  uint16_t fromLen = static_cast<uint16_t>(data[off] | (static_cast<uint16_t>(data[off + 1]) << 8));
+  off += 2;
+  if (off + fromLen + 2 > data.size()) return false;
+  fromName.assign(reinterpret_cast<const char*>(data.data() + off), fromLen);
+  off += fromLen;
+  uint16_t subjLen = static_cast<uint16_t>(data[off] | (static_cast<uint16_t>(data[off + 1]) << 8));
+  off += 2;
+  if (off + subjLen > data.size()) return false;
+  subject.assign(reinterpret_cast<const char*>(data.data() + off), subjLen);
+  return true;
 }
 
 inline bool decodeChatReceived(const std::vector<uint8_t>& data, uint32_t& fromPlayerId,
@@ -1757,6 +2059,9 @@ struct SkillCastBroadcastPayload {
   std::string castAnimPath;
   std::string vfxPath;
   std::string sfxPath;
+  uint8_t sourceType = static_cast<uint8_t>(CombatTargetType::Player);
+  std::string hitVfxPath;
+  uint8_t targetType = static_cast<uint8_t>(CombatTargetType::Player);
 };
 
 struct BasicAttackPayload {
@@ -1771,6 +2076,24 @@ struct BasicAttackBroadcastPayload {
   uint32_t targetId = 0;
   uint32_t hitWindowMs = 300;
   std::string castAnimPath;
+  /** 1 = player (default legado), 2 = NPC. Byte opcional no fim do frame. */
+  uint8_t sourceType = static_cast<uint8_t>(CombatTargetType::Player);
+  /** Índice em attacks[]; 255 = default (0). Byte opcional após sourceType. */
+  uint8_t animIndex = 0;
+  /** Niagara (opcional após animIndex; frames antigos sem estes campos). */
+  std::string vfxPath;
+  std::string sfxPath;
+  std::string hitVfxPath;
+};
+
+struct NpcHandAttachOffset {
+  float x = 0.f;
+  float y = 0.f;
+  float z = 0.f;
+  float pitch = 0.f;
+  float yaw = 0.f;
+  float roll = 0.f;
+  float scale = 1.f;
 };
 
 struct NpcSpawnPayload {
@@ -1786,6 +2109,33 @@ struct NpcSpawnPayload {
   std::string npcName;
   std::string skeletalMeshPath;
   std::string animBlueprintPath;
+  uint8_t flags = 0x01;  // bit0=attackable, bit1=vendor, bit2=quest
+  float interactionRadius = 300.f;
+  uint32_t vendorId = 0;
+  float meshScale = 1.f;
+  float collisionRadius = 42.f;
+  float nameplateRadius = 2000.f;
+  std::string rightHandMeshPath;
+  std::string leftHandMeshPath;
+  NpcHandAttachOffset rightHandOffset;
+  NpcHandAttachOffset leftHandOffset;
+  std::vector<std::string> attackAnimPaths;
+  std::vector<std::string> hitAnimPaths;
+  std::string deathAnimPath;
+  std::string skillAnimPath;
+  std::string idleAnimPath;
+  std::string walkAnimPath;
+  std::string walkFwdPath;
+  std::string walkBwdPath;
+  std::string walkLeftPath;
+  std::string walkRightPath;
+  std::string runFwdPath;
+  std::string runBwdPath;
+  std::string runLeftPath;
+  std::string runRightPath;
+  std::vector<std::string> castAnimPaths;
+  std::vector<std::string> buffAnimPaths;
+  uint16_t deathDurationMs = 0;
 };
 
 struct NpcDespawnPayload {
@@ -1801,6 +2151,7 @@ struct NpcStatePayload {
   float y = 0.f;
   float z = 0.f;
   float yaw = 0.f;
+  uint8_t aiState = 0;  // NpcAiState; compat se ausente
 };
 
 struct NpcCombatEventPayload {
@@ -1810,6 +2161,7 @@ struct NpcCombatEventPayload {
   uint8_t reason = 1;
   uint8_t isCrit = 0;
   uint8_t isDouble = 0;
+  uint8_t animIndex = 255;  // 255 = cliente escolhe (random); futuro: índice em hits[]
 };
 
 struct BasicAttackDef {
@@ -1817,7 +2169,12 @@ struct BasicAttackDef {
   uint16_t powerCoef = 80;
   uint32_t cooldownMs = 800;
   uint16_t rangeMax = 250;
+  /** 0=PHYSICAL, 1=MAGIC, 2=TRUE (espelha Combat::DamageType). */
+  uint8_t damageType = 0;
   std::string castAnimPath;
+  std::string vfxPath;
+  std::string sfxPath;
+  std::string hitVfxPath;
 };
 
 inline std::vector<uint8_t> encodeSkillCastNotify(const SkillCastPayload& p) {
@@ -1889,6 +2246,9 @@ inline std::vector<uint8_t> encodeSkillCastBroadcast(const SkillCastBroadcastPay
   appendStringField(data, p.castAnimPath, 255);
   appendStringField(data, p.vfxPath, 255);
   appendStringField(data, p.sfxPath, 255);
+  data.push_back(p.sourceType == 0 ? static_cast<uint8_t>(CombatTargetType::Player) : p.sourceType);
+  appendStringField(data, p.hitVfxPath, 255);
+  data.push_back(p.targetType == 0 ? static_cast<uint8_t>(CombatTargetType::Player) : p.targetType);
   return data;
 }
 
@@ -1908,6 +2268,21 @@ inline bool decodeSkillCastBroadcast(const std::vector<uint8_t>& data, SkillCast
   if (!readStringField(data, off, p.castAnimPath, 255)) return false;
   if (!readStringField(data, off, p.vfxPath, 255)) return false;
   if (!readStringField(data, off, p.sfxPath, 255)) return false;
+  p.sourceType = (off < data.size())
+                     ? data[off++]
+                     : static_cast<uint8_t>(CombatTargetType::Player);
+  if (p.sourceType == 0) p.sourceType = static_cast<uint8_t>(CombatTargetType::Player);
+  if (off < data.size()) {
+    if (!readStringField(data, off, p.hitVfxPath, 255)) p.hitVfxPath.clear();
+  } else {
+    p.hitVfxPath.clear();
+  }
+  p.targetType = (off < data.size())
+                      ? data[off++]
+                      : (p.sourceType == static_cast<uint8_t>(CombatTargetType::Npc)
+                             ? static_cast<uint8_t>(CombatTargetType::Player)
+                             : static_cast<uint8_t>(CombatTargetType::Npc));
+  if (p.targetType == 0) p.targetType = static_cast<uint8_t>(CombatTargetType::Player);
   return true;
 }
 
@@ -1953,6 +2328,11 @@ inline std::vector<uint8_t> encodeBasicAttackBroadcast(const BasicAttackBroadcas
   writeU32(p.targetId);
   writeU32(p.hitWindowMs);
   appendStringField(data, p.castAnimPath, 255);
+  data.push_back(p.sourceType == 0 ? static_cast<uint8_t>(CombatTargetType::Player) : p.sourceType);
+  data.push_back(p.animIndex);
+  appendStringField(data, p.vfxPath, 255);
+  appendStringField(data, p.sfxPath, 255);
+  appendStringField(data, p.hitVfxPath, 255);
   return data;
 }
 
@@ -1969,7 +2349,26 @@ inline bool decodeBasicAttackBroadcast(const std::vector<uint8_t>& data, BasicAt
   p.classId = readU32();
   p.targetId = readU32();
   p.hitWindowMs = readU32();
-  return readStringField(data, off, p.castAnimPath, 255);
+  if (!readStringField(data, off, p.castAnimPath, 255)) return false;
+  // Compat: frames antigos sem sourceType → Player.
+  p.sourceType = (off < data.size())
+                     ? data[off++]
+                     : static_cast<uint8_t>(CombatTargetType::Player);
+  if (p.sourceType == 0) p.sourceType = static_cast<uint8_t>(CombatTargetType::Player);
+  p.animIndex = (off < data.size()) ? data[off++] : 0;
+  p.vfxPath.clear();
+  p.sfxPath.clear();
+  p.hitVfxPath.clear();
+  if (off < data.size()) {
+    if (!readStringField(data, off, p.vfxPath, 255)) p.vfxPath.clear();
+  }
+  if (off < data.size()) {
+    if (!readStringField(data, off, p.sfxPath, 255)) p.sfxPath.clear();
+  }
+  if (off < data.size()) {
+    if (!readStringField(data, off, p.hitVfxPath, 255)) p.hitVfxPath.clear();
+  }
+  return true;
 }
 
 inline std::vector<uint8_t> encodeNpcSpawnNotify(const NpcSpawnPayload& p) {
@@ -2002,6 +2401,51 @@ inline std::vector<uint8_t> encodeNpcSpawnNotify(const NpcSpawnPayload& p) {
   appendStringField(data, p.npcName, 100);
   appendStringField(data, p.skeletalMeshPath, 255);
   appendStringField(data, p.animBlueprintPath, 255);
+  data.push_back(p.flags);
+  writeF32(p.interactionRadius);
+  writeU32(p.vendorId);
+  writeF32(p.meshScale);
+  appendStringField(data, p.rightHandMeshPath, 255);
+  appendStringField(data, p.leftHandMeshPath, 255);
+  auto writeHand = [&](const NpcHandAttachOffset& h) {
+    writeF32(h.x);
+    writeF32(h.y);
+    writeF32(h.z);
+    writeF32(h.pitch);
+    writeF32(h.yaw);
+    writeF32(h.roll);
+    writeF32(h.scale);
+  };
+  writeHand(p.rightHandOffset);
+  writeHand(p.leftHandOffset);
+  auto writePathList = [&](const std::vector<std::string>& paths) {
+    const size_t n = paths.size() > 16 ? 16 : paths.size();
+    const uint8_t count = static_cast<uint8_t>(n);
+    data.push_back(count);
+    for (uint8_t i = 0; i < count; ++i) {
+      appendStringField(data, paths[i], 255);
+    }
+  };
+  writePathList(p.attackAnimPaths);
+  writePathList(p.hitAnimPaths);
+  appendStringField(data, p.deathAnimPath, 255);
+  appendStringField(data, p.skillAnimPath, 255);
+  appendStringField(data, p.idleAnimPath, 255);
+  appendStringField(data, p.walkAnimPath, 255);
+  data.push_back(static_cast<uint8_t>(p.deathDurationMs & 0xFF));
+  data.push_back(static_cast<uint8_t>((p.deathDurationMs >> 8) & 0xFF));
+  appendStringField(data, p.walkFwdPath, 255);
+  appendStringField(data, p.walkBwdPath, 255);
+  appendStringField(data, p.walkLeftPath, 255);
+  appendStringField(data, p.walkRightPath, 255);
+  appendStringField(data, p.runFwdPath, 255);
+  appendStringField(data, p.runBwdPath, 255);
+  appendStringField(data, p.runLeftPath, 255);
+  appendStringField(data, p.runRightPath, 255);
+  writePathList(p.castAnimPaths);
+  writePathList(p.buffAnimPaths);
+  writeF32(p.collisionRadius);
+  writeF32(p.nameplateRadius);
   return data;
 }
 
@@ -2033,6 +2477,88 @@ inline bool decodeNpcSpawnNotify(const std::vector<uint8_t>& data, NpcSpawnPaylo
   if (!readStringField(data, off, p.npcName, 100)) return false;
   if (!readStringField(data, off, p.skeletalMeshPath, 255)) return false;
   if (!readStringField(data, off, p.animBlueprintPath, 255)) return false;
+  if (off < data.size()) {
+    p.flags = data[off++];
+    if (off + 4 <= data.size()) {
+      p.interactionRadius = readF32();
+    }
+    if (off + 4 <= data.size()) {
+      p.vendorId = readU32();
+    }
+    if (off + 4 <= data.size()) {
+      p.meshScale = readF32();
+    }
+    if (off < data.size()) {
+      if (!readStringField(data, off, p.rightHandMeshPath, 255)) return false;
+    }
+    if (off < data.size()) {
+      if (!readStringField(data, off, p.leftHandMeshPath, 255)) return false;
+    }
+    auto readHand = [&](NpcHandAttachOffset& h) {
+      if (off + 28 > data.size()) return;
+      h.x = readF32();
+      h.y = readF32();
+      h.z = readF32();
+      h.pitch = readF32();
+      h.yaw = readF32();
+      h.roll = readF32();
+      h.scale = readF32();
+      if (h.scale <= 0.01f) h.scale = 1.f;
+    };
+    readHand(p.rightHandOffset);
+    readHand(p.leftHandOffset);
+    auto readPathList = [&](std::vector<std::string>& out) {
+      out.clear();
+      if (off >= data.size()) return;
+      const uint8_t count = data[off++];
+      out.reserve(count);
+      for (uint8_t i = 0; i < count; ++i) {
+        std::string path;
+        if (!readStringField(data, off, path, 255)) return;
+        out.push_back(std::move(path));
+      }
+    };
+    if (off < data.size()) {
+      readPathList(p.attackAnimPaths);
+      readPathList(p.hitAnimPaths);
+      if (off < data.size()) {
+        if (!readStringField(data, off, p.deathAnimPath, 255)) return false;
+      }
+      if (off < data.size()) {
+        if (!readStringField(data, off, p.skillAnimPath, 255)) return false;
+      }
+      if (off < data.size()) {
+        if (!readStringField(data, off, p.idleAnimPath, 255)) return false;
+      }
+      if (off < data.size()) {
+        if (!readStringField(data, off, p.walkAnimPath, 255)) return false;
+      }
+      if (off + 2 <= data.size()) {
+        p.deathDurationMs = static_cast<uint16_t>(data[off] | (static_cast<uint16_t>(data[off + 1]) << 8));
+        off += 2;
+      }
+      if (off < data.size()) {
+        if (!readStringField(data, off, p.walkFwdPath, 255)) return false;
+        if (off < data.size() && !readStringField(data, off, p.walkBwdPath, 255)) return false;
+        if (off < data.size() && !readStringField(data, off, p.walkLeftPath, 255)) return false;
+        if (off < data.size() && !readStringField(data, off, p.walkRightPath, 255)) return false;
+        if (off < data.size() && !readStringField(data, off, p.runFwdPath, 255)) return false;
+        if (off < data.size() && !readStringField(data, off, p.runBwdPath, 255)) return false;
+        if (off < data.size() && !readStringField(data, off, p.runLeftPath, 255)) return false;
+        if (off < data.size() && !readStringField(data, off, p.runRightPath, 255)) return false;
+        if (off < data.size()) readPathList(p.castAnimPaths);
+        if (off < data.size()) readPathList(p.buffAnimPaths);
+      }
+    }
+  }
+  if (off + 4 <= data.size()) {
+    p.collisionRadius = readF32();
+    if (p.collisionRadius < 1.f) p.collisionRadius = 42.f;
+  }
+  if (off + 4 <= data.size()) {
+    p.nameplateRadius = readF32();
+    if (p.nameplateRadius < 1.f) p.nameplateRadius = 2000.f;
+  }
   return true;
 }
 
@@ -2082,6 +2608,7 @@ inline std::vector<uint8_t> encodeNpcStateUpdate(const NpcStatePayload& p) {
   writeF32(p.y);
   writeF32(p.z);
   writeF32(p.yaw);
+  data.push_back(p.aiState);
   return data;
 }
 
@@ -2108,6 +2635,7 @@ inline bool decodeNpcStateUpdate(const std::vector<uint8_t>& data, NpcStatePaylo
   p.y = readF32();
   p.z = readF32();
   p.yaw = readF32();
+  p.aiState = (off < data.size()) ? data[off] : 0;
   return true;
 }
 
@@ -2128,6 +2656,7 @@ inline std::vector<uint8_t> encodeNpcCombatEvent(const NpcCombatEventPayload& p)
   data.push_back(p.reason);
   data.push_back(p.isCrit);
   data.push_back(p.isDouble);
+  data.push_back(p.animIndex);
   return data;
 }
 
@@ -2145,8 +2674,24 @@ inline bool decodeNpcCombatEvent(const std::vector<uint8_t>& data, NpcCombatEven
   p.delta = static_cast<int32_t>(readU32());
   p.reason = data[off++];
   p.isCrit = data[off++];
-  p.isDouble = (data.size() > off) ? data[off] : 0;
+  p.isDouble = (data.size() > off) ? data[off++] : 0;
+  p.animIndex = (data.size() > off) ? data[off] : 255;
   return true;
+}
+
+inline std::vector<uint8_t> encodeCombatControlState(const CombatControlStatePayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(9);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::CombatControlState));
+  data.push_back(static_cast<uint8_t>(p.targetId & 0xFF));
+  data.push_back(static_cast<uint8_t>((p.targetId >> 8) & 0xFF));
+  data.push_back(static_cast<uint8_t>((p.targetId >> 16) & 0xFF));
+  data.push_back(static_cast<uint8_t>((p.targetId >> 24) & 0xFF));
+  data.push_back(p.targetType);
+  data.push_back(p.flags);
+  data.push_back(static_cast<uint8_t>(p.movementSpeedPercent & 0xFF));
+  data.push_back(static_cast<uint8_t>((p.movementSpeedPercent >> 8) & 0xFF));
+  return data;
 }
 
 inline std::vector<uint8_t> encodeSkillBuffSync(const SkillBuffSyncPayload& p) {
@@ -2183,6 +2728,8 @@ inline std::vector<uint8_t> encodeSkillBuffSync(const SkillBuffSyncPayload& p) {
   appendStringField(data, p.skillName, 64);
   appendStringField(data, p.iconPath, 128);
   data.push_back(p.targetType);
+  appendStringField(data, p.effectType, 16);
+  appendStringField(data, p.buffVfxPath, 512);
   return data;
 }
 
@@ -2227,6 +2774,18 @@ inline bool decodeSkillBuffSync(const std::vector<uint8_t>& data, SkillBuffSyncP
   if (!readStringField(data, off, p.skillName, 64)) return false;
   if (!readStringField(data, off, p.iconPath, 128)) return false;
   p.targetType = (off < data.size()) ? data[off++] : 0;
+  p.effectType.clear();
+  p.buffVfxPath.clear();
+  if (off < data.size()) {
+    if (!readStringField(data, off, p.effectType, 16)) {
+      p.effectType.clear();
+    }
+  }
+  if (off < data.size()) {
+    if (!readStringField(data, off, p.buffVfxPath, 512)) {
+      p.buffVfxPath.clear();
+    }
+  }
   return true;
 }
 
@@ -2388,6 +2947,238 @@ inline bool decodeNpcBuffSnapshotRequest(const std::vector<uint8_t>& data, uint3
   npcInstanceId = static_cast<uint32_t>(data[1]) | (static_cast<uint32_t>(data[2]) << 8) |
                   (static_cast<uint32_t>(data[3]) << 16) | (static_cast<uint32_t>(data[4]) << 24);
   return npcInstanceId > 0;
+}
+
+inline std::vector<uint8_t> encodeSessionAuthNotify(const std::string& token) {
+  std::vector<uint8_t> data;
+  data.reserve(3 + token.size());
+  data.push_back(static_cast<uint8_t>(MovementMsgType::SessionAuthNotify));
+  const size_t capped = token.size() > 4096 ? 4096 : token.size();
+  const uint16_t len = static_cast<uint16_t>(capped);
+  data.push_back(static_cast<uint8_t>(len & 0xFF));
+  data.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
+  data.insert(data.end(), token.begin(), token.begin() + static_cast<std::ptrdiff_t>(capped));
+  return data;
+}
+
+inline bool decodeSessionAuthNotify(const std::vector<uint8_t>& data, std::string& outToken) {
+  if (data.size() < 3 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::SessionAuthNotify) return false;
+  const uint16_t len = static_cast<uint16_t>(data[1]) | (static_cast<uint16_t>(data[2]) << 8);
+  if (data.size() < 3u + len) return false;
+  outToken.assign(reinterpret_cast<const char*>(data.data() + 3), len);
+  return !outToken.empty();
+}
+
+inline std::vector<uint8_t> encodeSessionRevokedNotify(SessionRevokeReason reason, const std::string& message) {
+  std::vector<uint8_t> data;
+  data.reserve(4 + message.size());
+  data.push_back(static_cast<uint8_t>(MovementMsgType::SessionRevokedNotify));
+  data.push_back(static_cast<uint8_t>(reason));
+  const size_t capped = message.size() > 512 ? 512 : message.size();
+  const uint16_t len = static_cast<uint16_t>(capped);
+  data.push_back(static_cast<uint8_t>(len & 0xFF));
+  data.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
+  data.insert(data.end(), message.begin(), message.begin() + static_cast<std::ptrdiff_t>(capped));
+  return data;
+}
+
+inline bool decodeSessionRevokedNotify(const std::vector<uint8_t>& data, uint8_t& outReason, std::string& outMessage) {
+  if (data.size() < 4 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::SessionRevokedNotify) return false;
+  outReason = data[1];
+  const uint16_t len = static_cast<uint16_t>(data[2]) | (static_cast<uint16_t>(data[3]) << 8);
+  if (data.size() < 4u + len) return false;
+  outMessage.assign(reinterpret_cast<const char*>(data.data() + 4), len);
+  return true;
+}
+
+// ---- Loot window (111–115) ----
+// 111: [type][corpseId:u64][npcTemplateId:u32][npcInstanceId:u32][count:u8]
+//      repeating count× [slot:u8][kind:u8][itemId:u32][qty:u32]
+// 112: [type][corpseId:u64][reason:u8]
+// 113: [type][corpseId:u64][slot:u8]
+// 114: [type][corpseId:u64]
+// 115: [type][corpseId:u64][playerGold:i64][invChanged:u8][count:u8] + slots...
+
+inline void appendLootU64(std::vector<uint8_t>& data, uint64_t v) {
+  for (int i = 0; i < 8; ++i) {
+    data.push_back(static_cast<uint8_t>((v >> (i * 8)) & 0xFF));
+  }
+}
+
+inline void appendLootU32(std::vector<uint8_t>& data, uint32_t v) {
+  data.push_back(static_cast<uint8_t>(v & 0xFF));
+  data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  data.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+  data.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+}
+
+inline void appendLootI64(std::vector<uint8_t>& data, int64_t v) {
+  appendLootU64(data, static_cast<uint64_t>(v));
+}
+
+inline uint64_t readLootU64(const std::vector<uint8_t>& data, size_t& off) {
+  uint64_t v = 0;
+  for (int i = 0; i < 8; ++i) {
+    v |= (static_cast<uint64_t>(data[off + static_cast<size_t>(i)]) << (i * 8));
+  }
+  off += 8;
+  return v;
+}
+
+inline uint32_t readLootU32(const std::vector<uint8_t>& data, size_t& off) {
+  uint32_t v = static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) |
+               (static_cast<uint32_t>(data[off + 2]) << 16) | (static_cast<uint32_t>(data[off + 3]) << 24);
+  off += 4;
+  return v;
+}
+
+inline void appendLootSlots(std::vector<uint8_t>& data, const std::vector<LootSlotPayload>& slots) {
+  const uint8_t count = static_cast<uint8_t>(slots.size() > 10 ? 10 : slots.size());
+  data.push_back(count);
+  for (uint8_t i = 0; i < count; ++i) {
+    const auto& s = slots[i];
+    data.push_back(s.slotIndex);
+    data.push_back(s.kind);
+    appendLootU32(data, s.itemTemplateId);
+    appendLootU32(data, s.quantity);
+  }
+}
+
+inline bool readLootSlots(const std::vector<uint8_t>& data, size_t& off, std::vector<LootSlotPayload>& slots) {
+  if (off >= data.size()) return false;
+  const uint8_t count = data[off++];
+  slots.clear();
+  slots.reserve(count);
+  for (uint8_t i = 0; i < count; ++i) {
+    if (off + 10 > data.size()) return false;
+    LootSlotPayload s;
+    s.slotIndex = data[off++];
+    s.kind = data[off++];
+    s.itemTemplateId = readLootU32(data, off);
+    s.quantity = readLootU32(data, off);
+    slots.push_back(s);
+  }
+  return true;
+}
+
+inline std::vector<uint8_t> encodeLootWindowOpen(const LootWindowOpenPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(1 + 8 + 4 + 4 + 1 + p.slots.size() * 10);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::LootWindowOpen));
+  appendLootU64(data, p.corpseId);
+  appendLootU32(data, p.npcTemplateId);
+  appendLootU32(data, p.npcInstanceId);
+  appendLootSlots(data, p.slots);
+  return data;
+}
+
+inline bool decodeLootWindowOpen(const std::vector<uint8_t>& data, LootWindowOpenPayload& p) {
+  if (data.size() < 18 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::LootWindowOpen) return false;
+  size_t off = 1;
+  p.corpseId = readLootU64(data, off);
+  p.npcTemplateId = readLootU32(data, off);
+  p.npcInstanceId = readLootU32(data, off);
+  return readLootSlots(data, off, p.slots);
+}
+
+inline std::vector<uint8_t> encodeLootWindowClose(const LootWindowClosePayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(10);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::LootWindowClose));
+  appendLootU64(data, p.corpseId);
+  data.push_back(p.reason);
+  return data;
+}
+
+inline bool decodeLootWindowClose(const std::vector<uint8_t>& data, LootWindowClosePayload& p) {
+  if (data.size() < 10 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::LootWindowClose) return false;
+  size_t off = 1;
+  p.corpseId = readLootU64(data, off);
+  p.reason = data[off];
+  return true;
+}
+
+inline std::vector<uint8_t> encodeLootTakeItem(const LootTakeItemPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(10);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::LootTakeItem));
+  appendLootU64(data, p.corpseId);
+  data.push_back(p.slotIndex);
+  return data;
+}
+
+inline bool decodeLootTakeItem(const std::vector<uint8_t>& data, LootTakeItemPayload& p) {
+  if (data.size() < 10 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::LootTakeItem) return false;
+  size_t off = 1;
+  p.corpseId = readLootU64(data, off);
+  p.slotIndex = data[off];
+  return true;
+}
+
+inline std::vector<uint8_t> encodeLootTakeAll(const LootTakeAllPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(9);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::LootTakeAll));
+  appendLootU64(data, p.corpseId);
+  return data;
+}
+
+inline bool decodeLootTakeAll(const std::vector<uint8_t>& data, LootTakeAllPayload& p) {
+  if (data.size() < 9 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::LootTakeAll) return false;
+  size_t off = 1;
+  p.corpseId = readLootU64(data, off);
+  return true;
+}
+
+inline std::vector<uint8_t> encodeLootWindowUpdate(const LootWindowUpdatePayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(1 + 8 + 8 + 1 + 1 + p.slots.size() * 10);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::LootWindowUpdate));
+  appendLootU64(data, p.corpseId);
+  appendLootI64(data, p.playerGold);
+  data.push_back(p.inventoryChanged);
+  appendLootSlots(data, p.slots);
+  return data;
+}
+
+inline bool decodeLootWindowUpdate(const std::vector<uint8_t>& data, LootWindowUpdatePayload& p) {
+  if (data.size() < 19 || static_cast<MovementMsgType>(data[0]) != MovementMsgType::LootWindowUpdate) return false;
+  size_t off = 1;
+  p.corpseId = readLootU64(data, off);
+  p.playerGold = static_cast<int64_t>(readLootU64(data, off));
+  p.inventoryChanged = data[off++];
+  return readLootSlots(data, off, p.slots);
+}
+
+inline std::vector<uint8_t> encodeQuestProgressNotify(const QuestProgressNotifyPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(11);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::QuestProgressNotify));
+  auto writeU32 = [&data](uint32_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+  };
+  writeU32(p.playerId);
+  writeU32(p.questId);
+  data.push_back(p.status);
+  data.push_back(p.flags);
+  return data;
+}
+
+inline bool decodeQuestProgressNotify(const std::vector<uint8_t>& data, QuestProgressNotifyPayload& p) {
+  if (data.size() < 11 ||
+      static_cast<MovementMsgType>(data[0]) != MovementMsgType::QuestProgressNotify) {
+    return false;
+  }
+  p.playerId = static_cast<uint32_t>(data[1]) | (static_cast<uint32_t>(data[2]) << 8) |
+               (static_cast<uint32_t>(data[3]) << 16) | (static_cast<uint32_t>(data[4]) << 24);
+  p.questId = static_cast<uint32_t>(data[5]) | (static_cast<uint32_t>(data[6]) << 8) |
+              (static_cast<uint32_t>(data[7]) << 16) | (static_cast<uint32_t>(data[8]) << 24);
+  p.status = data[9];
+  p.flags = data[10];
+  return true;
 }
 
 } // namespace Zone

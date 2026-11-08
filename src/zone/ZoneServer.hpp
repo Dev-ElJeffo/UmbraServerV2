@@ -9,8 +9,10 @@
 #include "zone/CombatCoreEngine.hpp"
 #include "zone/ExperienceService.hpp"
 #include "zone/ExpZoneManager.hpp"
+#include "zone/LootService.hpp"
 
 namespace Umbra {
+namespace Auth { class JWTManager; }
 namespace Database { class MySQLConnector; }
 namespace Zone {
 
@@ -32,13 +34,20 @@ class ZoneServer {
   void stop();
   bool isRunning() const;
   void update(float deltaTime);
+  // Trabalho leve e sensível a latência, chamado em alta frequência (~3ms) pelo
+  // loop principal: drena o inbound (casts entram na fila de combate quase na
+  // hora) e dispara os hits adiados por castTimeMs sem esperar o tick pesado.
+  void pumpInbound();
   
   PlayerManager& getPlayerManager();
   EntitySystem& getEntitySystem();
   MovementServer* getMovementServer();
   CombatCoreEngine* getCombatCoreEngine();
+  ExperienceService* getExperienceService() { return experienceService_.get(); }
+  LootService* getLootService() { return lootService_.get(); }
   const Config& getConfig() const;
   void forceSavePositions();
+  void reloadGameRates();
 
  private:
   Config config_;
@@ -49,8 +58,11 @@ class ZoneServer {
   std::unique_ptr<CombatCoreEngine> combatCoreEngine_;
   std::unique_ptr<ExperienceService> experienceService_;
   std::unique_ptr<ExpZoneManager> expZoneManager_;
+  std::unique_ptr<LootService> lootService_;
+  std::unique_ptr<Umbra::Auth::JWTManager> jwtManager_;
   float expZoneTickAccumulator_ = 0.0f;
   float snapshotAccumulator_ = 0.0f;
+  float wsKeepaliveAccumulator_ = 0.0f;
   float dotTickAccumulator_ = 0.0f;
   float buffTickAccumulator_ = 0.0f;
   float autoSaveAccumulator_ = 0.0f;

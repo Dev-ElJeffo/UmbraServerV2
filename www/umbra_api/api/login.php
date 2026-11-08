@@ -53,11 +53,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 // Verificar senha
                 else if (password_verify($data->password, $account['password_hash'])) {
-                    // Atualizar last_login
-                    $update = "UPDATE accounts SET last_login_at = NOW() WHERE id = :id";
-                    $stmt = $db->prepare($update);
-                    $stmt->bindParam(':id', $account['id']);
-                    $stmt->execute();
+                    // Invalida sessões anteriores (novo login desconecta clientes antigos na zone)
+                    $sessionVersion = 0;
+                    try {
+                        $update = "UPDATE accounts SET session_version = session_version + 1, last_login_at = NOW() WHERE id = :id";
+                        $stmt = $db->prepare($update);
+                        $stmt->bindParam(':id', $account['id']);
+                        $stmt->execute();
+                        $svStmt = $db->prepare("SELECT session_version FROM accounts WHERE id = :id LIMIT 1");
+                        $svStmt->bindParam(':id', $account['id']);
+                        $svStmt->execute();
+                        $svRow = $svStmt->fetch(PDO::FETCH_ASSOC);
+                        if ($svRow && isset($svRow['session_version'])) {
+                            $sessionVersion = (int)$svRow['session_version'];
+                        }
+                    } catch (Exception $e) {
+                        // Coluna session_version pode não existir ainda — rodar add_account_session_version.sql
+                        $update = "UPDATE accounts SET last_login_at = NOW() WHERE id = :id";
+                        $stmt = $db->prepare($update);
+                        $stmt->bindParam(':id', $account['id']);
+                        $stmt->execute();
+                        error_log("login.php: session_version indisponível — " . $e->getMessage());
+                    }
                     
                     // Buscar personagens
                     $query = "SELECT id, character_name, level, current_zone,
@@ -116,7 +133,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             (int)$account['id'],
                             $firstPlayerId,
                             $account['username'],
-                            60 // 60 minutos
+                            60,
+                            null,
+                            $sessionVersion
                         );
                         
                         $response['token'] = $jwtToken;

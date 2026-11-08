@@ -29,6 +29,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/stat_key_mapping.php';
+require_once __DIR__ . '/../../helpers/enchant_helper.php';
 
 // Obter dados do POST
 $json = file_get_contents('php://input');
@@ -197,6 +199,7 @@ try {
     ]);
     
     $inventory_id = $pdo->lastInsertId();
+    enchant_apply_roll_to_inventory_id($pdo, (int)$inventory_id, $template);
     
     $pdo->commit();
     

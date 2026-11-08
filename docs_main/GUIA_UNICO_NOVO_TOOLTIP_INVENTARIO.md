@@ -88,6 +88,7 @@ Recomendado:
   - cor amarela
 
 Demais opcionais (aparecem se existirem):
+- `Text_AllowedClasses` (TextBlock) — classes permitidas (armas/armaduras); vermelho se a classe atual nao puder equipar. Coloque perto de `Text_SubType` / `Text_Required_Level`.
 - `StrengthText`, `DexterityText`, `IntelligenceText`, `VitalityText`, `LuckText`
 - `PhysicalAttackText`, `MagicAttackText`, `PhysicalDefenseText`, `MagicDefenseText`
 - `AccuracyText`, `DodgeText`, `CriticalText`, `CriticalResistanceText`

@@ -14,8 +14,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$data = json_decode(file_get_contents('php://input'), true) ?? [];
 require_once __DIR__ . '/require_admin_auth.php';
+$data = admin_decode_json_body();
 requireAdminAuth($data);
 
 $templateId = (int)($data['npc_template_id'] ?? 0);
@@ -28,10 +28,20 @@ if ($templateId <= 0) {
 $allowed = [
     'npc_name', 'level', 'max_health', 'max_mana',
     'strength', 'dexterity', 'vitality', 'intelligence', 'luck',
-    'physical_attack', 'magic_attack', 'physical_defense', 'magic_defense',
+    'physical_attack', 'magic_attack', 'damage_type', 'basic_power_coef', 'physical_defense', 'magic_defense',
     'accuracy', 'dodge', 'critical', 'critical_resistance',
     'double_attack_rate', 'double_attack_resistance',
-    'skeletal_mesh_path', 'anim_blueprint_path', 'is_editable',
+    'skeletal_mesh_path', 'anim_blueprint_path', 'anim_states_json', 'mesh_scale', 'is_editable',
+    'kill_exp', 'is_attackable', 'interaction_radius', 'collision_radius', 'nameplate_radius', 'has_vendor', 'has_quest_dialog',
+    'dialog_title', 'dialog_text', 'respawn_seconds',
+    'aggro_radius', 'leash_radius', 'attack_range', 'combat_stop_range', 'attack_cooldown_ms',
+    'move_speed', 'chase_speed_mult', 'kite_speed_mult', 'roam_radius', 'is_hostile',
+    'basic_vfx_path', 'basic_hit_vfx_path',
+    'right_hand_mesh_path', 'left_hand_mesh_path',
+    'right_hand_rel_x', 'right_hand_rel_y', 'right_hand_rel_z',
+    'right_hand_rel_pitch', 'right_hand_rel_yaw', 'right_hand_rel_roll', 'right_hand_rel_scale',
+    'left_hand_rel_x', 'left_hand_rel_y', 'left_hand_rel_z',
+    'left_hand_rel_pitch', 'left_hand_rel_yaw', 'left_hand_rel_roll', 'left_hand_rel_scale',
 ];
 $sets = [];
 $params = [':id' => $templateId];
@@ -39,7 +49,42 @@ foreach ($allowed as $field) {
     if (array_key_exists($field, $data)) {
         $key = ':' . $field;
         $sets[] = "$field = $key";
-        $params[$key] = $data[$field];
+        $value = $data[$field];
+        if ($field === 'anim_states_json') {
+            if ($value === null || $value === '') {
+                $value = null;
+            } elseif (is_array($value) || is_object($value)) {
+                $value = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            } else {
+                $raw = trim((string)$value);
+                if ($raw === '') {
+                    $value = null;
+                } else {
+                    json_decode($raw, true);
+                    $value = (json_last_error() === JSON_ERROR_NONE) ? $raw : null;
+                }
+            }
+        }
+        if ($field === 'collision_radius') {
+            $value = (float)$value;
+            if ($value < 1.0) {
+                $value = 45.0;
+            }
+        }
+        if ($field === 'nameplate_radius') {
+            $value = (float)$value;
+            if ($value < 1.0) {
+                $value = 2000.0;
+            }
+        }
+        if ($field === 'damage_type') {
+            $dt = strtoupper(trim((string)$value));
+            $value = in_array($dt, ['MAGIC', 'TRUE'], true) ? $dt : 'PHYSICAL';
+        }
+        if ($field === 'basic_power_coef') {
+            $value = max(1, min(1000, (int)$value));
+        }
+        $params[$key] = $value;
     }
 }
 if (empty($sets)) {
