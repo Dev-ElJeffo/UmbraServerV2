@@ -4,6 +4,7 @@
 #include "zone/CombatRange.hpp"
 #include "zone/MovementServer.hpp"
 #include "core/Logger.hpp"
+#include "core/Timer.hpp"
 
 #include <chrono>
 #include <cmath>
@@ -119,13 +120,21 @@ NpcAiSystem::NpcAiSystem(NpcManager* npcManager, MovementServer* movementServer,
 void NpcAiSystem::tick(float deltaSeconds) {
   if (!npcManager_ || !movementServer_ || deltaSeconds <= 0.f) return;
 
-  const auto players = movementServer_->getPlayerStates();
+  // Telemetria (ver CombatCoreEngine::tick): separa espera de lock de trabalho real.
+  const int64_t cpu0 = Core::threadCpuMs();
+  const int64_t t0 = Core::steadyNowMs();
+  const auto players = movementServer_->getPlayerStates();  // trava MovementServer::mu_
+  const int64_t tPlayers = Core::steadyNowMs() - t0;
   const auto now = std::chrono::steady_clock::now();
+  int64_t npcLockWait = 0;
+  size_t npcCount = 0;
 
   std::vector<PendingNpcAttack> attackQueue;
   attackQueue.reserve(8);
 
+  const int64_t tLoop0 = Core::steadyNowMs();
   npcManager_->forEachAlive([&](NpcRuntimeInstance& inst) {
+    ++npcCount;
     // Usar overloads com `inst` — NÃO chamar findInstance aqui (forEachAlive já segura mu_).
     const bool npcCanMove = !combat_ || combat_->canNpcMove(inst);
     const bool npcCanAct = !combat_ || combat_->canNpcAct(inst, false);
@@ -372,8 +381,11 @@ void NpcAiSystem::tick(float deltaSeconds) {
         forceBroadcast(combat_, npcManager_, inst, now);
       }
     }
-  });
+  }, &npcLockWait);
+  const int64_t tLoop = Core::steadyNowMs() - tLoop0;
 
+  const int64_t tAtk0 = Core::steadyNowMs();
+  const size_t attackCount = attackQueue.size();
   for (const PendingNpcAttack& atk : attackQueue) {
     if (!combat_) break;
     uint32_t targetId = 0;
@@ -385,6 +397,19 @@ void NpcAiSystem::tick(float deltaSeconds) {
       combat_->processNpcSkillCast(atk.npcInstanceId, targetId, atk.npcSkillId);
     } else {
       combat_->processNpcBasicAttack(atk.npcInstanceId, targetId);
+    }
+  }
+  const int64_t tAttacks = Core::steadyNowMs() - tAtk0;
+
+  const int64_t total = Core::steadyNowMs() - t0;
+  if (total >= 30) {
+    static Core::LogThrottle slowAiThrottle(2000);
+    if (slowAiThrottle.allow()) {
+      Core::Logger::getInstance().warn(
+          "[NpcAi] tick lento {}ms cpu={}ms (players={}ms [{} jogadores], npcLoop={}ms [lockWait={}ms, "
+          "{} NPCs vivos], ataques={}ms [{}]) +{} omitidos",
+          total, Core::threadCpuMs() - cpu0, tPlayers, players.size(), tLoop, npcLockWait, npcCount, tAttacks, attackCount,
+          slowAiThrottle.takeSuppressed());
     }
   }
 }

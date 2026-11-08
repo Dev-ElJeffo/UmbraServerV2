@@ -20,6 +20,14 @@ inline int64_t steadyNowMs() {
 }
 
 /**
+ * @brief Tempo de CPU (user+kernel) consumido pela thread atual, em ms.
+ * Comparado ao relógio, separa trabalho real de preempção pelo SO (thread parada
+ * esperando CPU). Windows: GetThreadTimes (resolução ~15,6ms — avança por tick do
+ * relógio do SO); Linux: CLOCK_THREAD_CPUTIME_ID (ns).
+ */
+int64_t threadCpuMs();
+
+/**
  * @brief Limita a frequência de um log de anomalia (thread-safe, sem lock).
  *
  * Uso: `static Core::LogThrottle t(5000); if (t.allow()) Logger.warn(...)`.

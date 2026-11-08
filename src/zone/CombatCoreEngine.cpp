@@ -562,15 +562,24 @@ bool CombatCoreEngine::loadBasicAttacks() {
 }
 
 void CombatCoreEngine::tick(float deltaSeconds) {
+  // Telemetria por fase (steady_clock, sem I/O): só loga tick lento (>= 30ms). Investiga
+  // o pico de 69-88ms que aparece ~5-8s após o 1º join, sem log nenhum no intervalo.
+  const int64_t cpu0 = Core::threadCpuMs();
+  const int64_t t0 = Core::steadyNowMs();
+  int64_t tDespawn = 0, tRespawn = 0, tHits = 0, tDots = 0, tBuffs = 0, tAi = 0;
+
   if (npcManager_) {
+    const int64_t a = Core::steadyNowMs();
     const auto deathReady = npcManager_->tickPendingDeathDespawns();
     for (const uint32_t id : deathReady) {
       broadcastNpcDespawnToAll(id, 1);
     }
+    tDespawn = Core::steadyNowMs() - a;
   }
 
   respawnTickAccum_ += deltaSeconds;
   if (respawnTickAccum_ >= 1.f && npcManager_) {
+    const int64_t a = Core::steadyNowMs();
     const auto respawned = npcManager_->tickRespawns(respawnTickAccum_);
     for (const uint32_t id : respawned) {
       if (const NpcRuntimeInstance* inst = npcManager_->findInstance(id)) {
@@ -578,20 +587,47 @@ void CombatCoreEngine::tick(float deltaSeconds) {
       }
     }
     respawnTickAccum_ = 0.f;
+    tRespawn = Core::steadyNowMs() - a;
   }
 
   // Hits adiados por castTimeMs (antes dos DOTs).
-  tickPendingSkillHits();
+  {
+    const int64_t a = Core::steadyNowMs();
+    tickPendingSkillHits();
+    tHits = Core::steadyNowMs() - a;
+  }
 
   // DOT/HOT + expiração de buffs de player/NPC (in-memory) — sem poll MySQL.
-  tickNpcDots();
-  tickPlayerDots();
-  tickNpcBuffExpirations();
-  tickBuffExpirations();
-  tickSummonExpirations();
+  {
+    const int64_t a = Core::steadyNowMs();
+    tickNpcDots();
+    tickPlayerDots();
+    tDots = Core::steadyNowMs() - a;
+  }
+  {
+    const int64_t a = Core::steadyNowMs();
+    tickNpcBuffExpirations();
+    tickBuffExpirations();
+    tickSummonExpirations();
+    tBuffs = Core::steadyNowMs() - a;
+  }
 
   if (npcAi_) {
+    const int64_t a = Core::steadyNowMs();
     npcAi_->tick(deltaSeconds);
+    tAi = Core::steadyNowMs() - a;
+  }
+
+  const int64_t total = Core::steadyNowMs() - t0;
+  if (total >= 30) {
+    static Core::LogThrottle slowTickThrottle(2000);
+    if (slowTickThrottle.allow()) {
+      Core::Logger::getInstance().warn(
+          "[CombatCoreEngine] tick lento {}ms cpu={}ms (despawn={} respawn={} hits={} dots={} "
+          "buffs={} ai={}) +{} omitidos",
+          total, Core::threadCpuMs() - cpu0, tDespawn, tRespawn, tHits, tDots, tBuffs, tAi,
+          slowTickThrottle.takeSuppressed());
+    }
   }
 }
 

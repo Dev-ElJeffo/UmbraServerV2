@@ -1,5 +1,6 @@
 #include "zone/NpcManager.hpp"
 #include "core/Logger.hpp"
+#include "core/Timer.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <initializer_list>
@@ -626,8 +627,11 @@ const NpcRuntimeInstance* NpcManager::findInstance(uint32_t npcInstanceId) const
   return &instances_[it->second];
 }
 
-void NpcManager::forEachAlive(const std::function<void(NpcRuntimeInstance&)>& fn) {
+void NpcManager::forEachAlive(const std::function<void(NpcRuntimeInstance&)>& fn,
+                              int64_t* lockWaitMs) {
+  const int64_t w0 = lockWaitMs ? Core::steadyNowMs() : 0;
   std::lock_guard<std::mutex> lock(mu_);
+  if (lockWaitMs) *lockWaitMs = Core::steadyNowMs() - w0;
   for (auto& inst : instances_) {
     if (inst.isDead) continue;
     fn(inst);

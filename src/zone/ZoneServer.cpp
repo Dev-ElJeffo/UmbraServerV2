@@ -232,6 +232,7 @@ bool ZoneServer::isRunning() const {
 
 void ZoneServer::update(float deltaTime) {
   // Telemetria leve por fase (steady_clock, sem I/O). Só loga update lento (>= 50ms).
+  const int64_t updCpu0 = Core::threadCpuMs();
   const int64_t updT0 = Core::steadyNowMs();
   int64_t tDrain = 0, tSnap = 0, tKa = 0, tCombat = 0, tRegen = 0, tExp = 0;
 
@@ -294,9 +295,9 @@ void ZoneServer::update(float deltaTime) {
     static Core::LogThrottle slowUpdateThrottle(2000);
     if (slowUpdateThrottle.allow()) {
       Core::Logger::getInstance().warn(
-          "[Zone] update lento {}ms (drain={} snap={} keepalive={} combat={} regen={} exp={}) "
+          "[Zone] update lento {}ms cpu={}ms (drain={} snap={} keepalive={} combat={} regen={} exp={}) "
           "+{} omitidos",
-          total, tDrain, tSnap, tKa, tCombat, tRegen, tExp,
+          total, Core::threadCpuMs() - updCpu0, tDrain, tSnap, tKa, tCombat, tRegen, tExp,
           slowUpdateThrottle.takeSuppressed());
     }
   }

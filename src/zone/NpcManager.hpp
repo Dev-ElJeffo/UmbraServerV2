@@ -195,8 +195,12 @@ public:
   const std::vector<NpcRuntimeInstance>& getAllInstances() const { return instances_; }
   const NpcRuntimeInstance* findInstance(uint32_t npcInstanceId) const;
 
-  /** Mutação segura sob lock (AI tick). */
-  void forEachAlive(const std::function<void(NpcRuntimeInstance&)>& fn);
+  /**
+   * Mutação segura sob lock (AI tick).
+   * @param lockWaitMs (opcional) recebe o tempo esperando o mu_ — telemetria de contenção.
+   */
+  void forEachAlive(const std::function<void(NpcRuntimeInstance&)>& fn,
+                    int64_t* lockWaitMs = nullptr);
   bool mutateInstance(uint32_t npcInstanceId, const std::function<void(NpcRuntimeInstance&)>& fn);
 
   /** Aplica dano/cura; retorna delta aplicado. outNpcDied=true quando HP chegou a 0. */

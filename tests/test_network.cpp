@@ -3,6 +3,7 @@
 #include "network/SocketServer.hpp"
 #include "network/LengthPrefixedFramer.hpp"
 #include "network/WebSocketServer.hpp"
+#include "core/Timer.hpp"
 
 #include <string>
 
@@ -467,6 +468,29 @@ TEST(WebSocketServerTest, ManySequentialConnections) {
   }
   EXPECT_EQ(server.getClientCount(), 0u);
   server.stop();
+}
+
+// ---------------------------------------------------------------------------
+// Core::threadCpuMs — base do diagnóstico "trabalho real x preempção" da zone
+// ---------------------------------------------------------------------------
+TEST(ThreadCpuTimeTest, BusyLoopConsumesCpuSleepDoesNot) {
+  // Busy ~200ms: CPU da thread deve acompanhar o relógio (tolerância p/ resolução de 15,6ms
+  // do GetThreadTimes e para a máquina de CI estar ocupada).
+  const int64_t wall0 = Umbra::Core::steadyNowMs();
+  const int64_t cpu0 = Umbra::Core::threadCpuMs();
+  volatile uint64_t sink = 0;
+  while (Umbra::Core::steadyNowMs() - wall0 < 200) {
+    for (int i = 0; i < 1000; ++i) sink = sink + static_cast<uint64_t>(i) * 2654435761u;
+  }
+  const int64_t busyCpu = Umbra::Core::threadCpuMs() - cpu0;
+  EXPECT_GE(busyCpu, 100) << "thread ocupada 200ms deveria somar CPU";
+
+  // Sleep 200ms: thread parada → CPU ~0 (mesmo sintoma de preempção pelo SO).
+  const int64_t cpu1 = Umbra::Core::threadCpuMs();
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  const int64_t sleepCpu = Umbra::Core::threadCpuMs() - cpu1;
+  EXPECT_LE(sleepCpu, 20) << "thread dormindo não deveria somar CPU";
+  (void)sink;
 }
 
 int main(int argc, char** argv) {

@@ -2,8 +2,37 @@
 #include "Logger.hpp"
 #include <algorithm>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <ctime>
+#endif
+
 namespace Umbra {
 namespace Core {
+
+int64_t threadCpuMs() {
+#ifdef _WIN32
+  FILETIME creation, exitTime, kernel, user;
+  if (!GetThreadTimes(GetCurrentThread(), &creation, &exitTime, &kernel, &user)) return 0;
+  ULARGE_INTEGER k, u;
+  k.LowPart = kernel.dwLowDateTime;
+  k.HighPart = kernel.dwHighDateTime;
+  u.LowPart = user.dwLowDateTime;
+  u.HighPart = user.dwHighDateTime;
+  return static_cast<int64_t>((k.QuadPart + u.QuadPart) / 10000ULL);  // 100ns → ms
+#else
+  timespec ts{};
+  if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts) != 0) return 0;
+  return static_cast<int64_t>(ts.tv_sec) * 1000 + ts.tv_nsec / 1000000;
+#endif
+}
 
 Timer::Timer() : running_(false), nextTaskId_(1) {}
 
