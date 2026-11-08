@@ -31,6 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
 require_once __DIR__ . '/../../helpers/character_info_helper.php';
+require_once __DIR__ . '/../../helpers/personal_shop_helper.php';
 
 $json = file_get_contents('php://input');
 $data = json_decode($json, true) ?: [];
@@ -54,6 +55,19 @@ if ($player_id <= 0) {
 
 try {
     $pdo = getConnection();
+
+    // IDOR: só respawna personagem da própria conta.
+    $account_id = (int)($validation['payload']['account_id'] ?? 0);
+    if ($account_id <= 0) {
+        http_response_code(401);
+        echo json_encode(['success' => false, 'message' => 'Token inválido (account_id ausente)']);
+        exit;
+    }
+    if (!assertPlayerBelongsToAccount($pdo, $player_id, $account_id)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Sem permissão para este personagem']);
+        exit;
+    }
 
     $charInfo = get_character_info_data($pdo, $player_id, ['create_stat_points_if_missing' => false]);
     if (!$charInfo) {

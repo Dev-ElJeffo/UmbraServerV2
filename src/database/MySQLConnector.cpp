@@ -628,6 +628,14 @@ bool MySQLConnector::executePrepared(uint32_t statementId, const std::vector<std
 
 bool MySQLConnector::executePreparedInsert(const std::string& query,
                                            const std::vector<std::string>& params) {
+  uint64_t ignoredInsertId = 0;
+  return executePreparedInsert(query, params, ignoredInsertId);
+}
+
+bool MySQLConnector::executePreparedInsert(const std::string& query,
+                                           const std::vector<std::string>& params,
+                                           uint64_t& outInsertId) {
+  outInsertId = 0;
   ConnectionLease lease = acquireLease(5000);
   if (!lease.valid()) {
     logError("Cannot execute prepared insert: pool exhausted or not connected");
@@ -670,7 +678,9 @@ bool MySQLConnector::executePreparedInsert(const std::string& query,
           }
         } else {
           ok = true;
+          // ID lido do MESMO statement/conexão do pool: imune a inserts concorrentes.
           const uint64_t insertId = mysql_stmt_insert_id(stmt);
+          outInsertId = insertId;
           if (lease.index() < pool_.size()) {
             pool_[lease.index()].lastInsertId = insertId;
           }

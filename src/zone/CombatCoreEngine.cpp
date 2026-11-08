@@ -325,6 +325,8 @@ void CombatCoreEngine::enqueueJob(CombatJob job) {
       processSkillCast(job.sourcePlayerId, job.skill);
     } else if (job.kind == CombatJobKind::SkillCastHitOnly) {
       finalizeSkillCastHit(job.sourcePlayerId, job.skill);
+    } else if (job.kind == CombatJobKind::ForeignVitals) {
+      processForeignVitals(job.sourcePlayerId, job.vitals);
     } else {
       processBasicAttack(job.sourcePlayerId, job.basic);
     }
@@ -452,6 +454,103 @@ void CombatCoreEngine::enqueueBasicAttack(uint32_t sourcePlayerId, const BasicAt
   combatQueueCv_.notify_one();
 }
 
+void CombatCoreEngine::enqueueForeignVitals(uint32_t senderPlayerId,
+                                            const PlayerVitalsPayload& payload) {
+  if (senderPlayerId == 0 || payload.playerId == 0) return;
+  // O source é sempre quem enviou o frame; source divergente no payload é spoof.
+  if (payload.sourcePlayerId != 0 && payload.sourcePlayerId != senderPlayerId) {
+    Core::Logger::getInstance().warn(
+        "[CombatCoreEngine] ForeignVitalsNotify rejeitado: sender={} source_payload={} target={}",
+        senderPlayerId, payload.sourcePlayerId, payload.playerId);
+    return;
+  }
+
+  CombatJob job;
+  job.kind = CombatJobKind::ForeignVitals;
+  job.sourcePlayerId = senderPlayerId;
+  job.vitals = payload;
+  job.vitals.sourcePlayerId = senderPlayerId;
+
+  if (!workerRunning_) {
+    processForeignVitals(senderPlayerId, job.vitals);
+    return;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(combatQueueMu_);
+    // Latest-wins por (sender, alvo): o worker relê o DB, então só o último frame importa.
+    for (auto& existing : combatQueue_) {
+      if (existing.kind == CombatJobKind::ForeignVitals &&
+          existing.sourcePlayerId == senderPlayerId &&
+          existing.vitals.playerId == payload.playerId) {
+        existing.vitals.reason = job.vitals.reason;
+        existing.vitals.deltaAppliedHealth += job.vitals.deltaAppliedHealth;
+        return;
+      }
+    }
+    while (combatQueue_.size() >= kCombatQueueCap) {
+      combatQueue_.pop_front();
+      warnCombatQueueOverflow();
+    }
+    combatQueue_.push_back(std::move(job));
+  }
+  combatQueueCv_.notify_one();
+}
+
+void CombatCoreEngine::processForeignVitals(uint32_t senderPlayerId,
+                                            const PlayerVitalsPayload& payload) {
+  if (!movementServer_ || !db_ || !db_->isConnected() || senderPlayerId == 0 ||
+      payload.playerId == 0) {
+    return;
+  }
+  const uint32_t targetPlayerId = payload.playerId;
+  const std::string tid = std::to_string(targetPlayerId);
+
+  // Fonte da verdade: o apply_vitals.php acabou de gravar no DB (o cache da zone está stale).
+  auto healthOpt = db_->executePreparedScalar("SELECT health FROM players WHERE id = ? LIMIT 1", {tid});
+  auto manaOpt = db_->executePreparedScalar("SELECT mana FROM players WHERE id = ? LIMIT 1", {tid});
+  if (!healthOpt || !manaOpt) {
+    Core::Logger::getInstance().warn(
+        "[CombatCoreEngine] ForeignVitalsNotify: alvo {} não encontrado (sender={})", targetPlayerId,
+        senderPlayerId);
+    return;
+  }
+  int32_t curHealth = 0;
+  int32_t curMana = 0;
+  try {
+    curHealth = std::stoi(*healthOpt);
+    curMana = std::stoi(*manaOpt);
+  } catch (...) {
+    return;
+  }
+
+  int32_t maxHealth = 100;
+  int32_t maxMana = 50;
+  Combat::CharacterState st;
+  if (stateLoader_ && (stateLoader_->tryGetCachedState(targetPlayerId, st) ||
+                       stateLoader_->loadPlayerState(targetPlayerId, st))) {
+    maxHealth = std::max(1, st.buffedStats.maxHealth);
+    maxMana = std::max(1, st.buffedStats.maxMana);
+  }
+  curHealth = std::clamp(curHealth, 0, maxHealth);
+  curMana = std::clamp(curMana, 0, maxMana);
+  if (stateLoader_) {
+    stateLoader_->patchCachedHealth(targetPlayerId, curHealth);
+    stateLoader_->patchCachedMana(targetPlayerId, curMana);
+  }
+
+  PlayerVitalsPayload vitals;
+  vitals.playerId = targetPlayerId;
+  vitals.currentHealth = curHealth;
+  vitals.maxHealth = maxHealth;
+  vitals.currentMana = curMana;
+  vitals.maxMana = maxMana;
+  vitals.sourcePlayerId = senderPlayerId;
+  vitals.reason = payload.reason;
+  vitals.deltaAppliedHealth = std::clamp(payload.deltaAppliedHealth, -maxHealth, maxHealth);
+  movementServer_->broadcastForeignVitals(targetPlayerId, vitals, senderPlayerId);
+}
+
 void CombatCoreEngine::combatWorkerLoop() {
   while (workerRunning_) {
     CombatJob job;
@@ -480,6 +579,8 @@ void CombatCoreEngine::combatWorkerLoop() {
         processSkillCast(job.sourcePlayerId, job.skill);
       } else if (job.kind == CombatJobKind::SkillCastHitOnly) {
         finalizeSkillCastHit(job.sourcePlayerId, job.skill);
+      } else if (job.kind == CombatJobKind::ForeignVitals) {
+        processForeignVitals(job.sourcePlayerId, job.vitals);
       } else {
         processBasicAttack(job.sourcePlayerId, job.basic);
       }

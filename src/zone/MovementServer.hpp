@@ -118,6 +118,28 @@ public:
     flushOutbox(outbox);
   }
 
+  /** Opcode 88 validado pelo CombatCoreEngine (vitals vindos do DB). Calcula o delta pelo
+   *  último HP conhecido; o hint do cliente só vale quando não há HP anterior em memória. */
+  void broadcastForeignVitals(uint32_t targetPlayerId, const PlayerVitalsPayload& vitals,
+                              uint32_t sourcePlayerId) {
+    Outbox outbox;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      int32_t delta = 0;
+      auto prevIt = lastKnownHealth_.find(targetPlayerId);
+      if (prevIt != lastKnownHealth_.end()) {
+        delta = vitals.currentHealth - prevIt->second;
+      } else {
+        delta = vitals.deltaAppliedHealth;
+      }
+      lastKnownHealth_[targetPlayerId] = vitals.currentHealth;
+      const bool triggerDeath = (vitals.currentHealth <= 0);
+      handleVitalsBroadcastUnlocked(targetPlayerId, vitals, sourcePlayerId, delta, triggerDeath,
+                                    false, false, outbox);
+    }
+    flushOutbox(outbox);
+  }
+
   /** Entrada na zone já morto no DB: respawna automaticamente (evita 0 HP / sem controle). */
   bool autoRespawnOnJoin(uint32_t playerId) {
     if (!respawnHandler_ || playerId == 0) return false;
@@ -777,33 +799,24 @@ public:
         return;
       }
 
-      // HP/MP de alvo (dano/cura via apply_vitals.php) — rebroadcast party+AOI do TARGET
+      // HP/MP de alvo (dano/cura via apply_vitals.php) — rebroadcast party+AOI do TARGET.
+      // Segurança: HP/MP do payload NÃO são confiáveis. O sender vira o source e o combat
+      // worker relê os vitals no DB antes do broadcast (sem DB no tick nem no recv).
       if (msgType == MovementMsgType::ForeignVitalsNotify) {
         PlayerVitalsPayload payload;
         if (decodeForeignVitalsNotify(data, payload)) {
-          const uint32_t targetPlayerId = payload.playerId;
-          Outbox outbox;
+          uint32_t senderPlayerId = 0;
           {
             std::lock_guard<std::mutex> lock(mu_);
             auto cidIt = clientIdToPlayerId_.find(cid);
-            uint32_t sourcePlayerId = payload.sourcePlayerId;
-            if (sourcePlayerId == 0 && cidIt != clientIdToPlayerId_.end()) {
-              sourcePlayerId = cidIt->second;
-            }
-            int32_t delta = 0;
-            auto prevIt = lastKnownHealth_.find(targetPlayerId);
-            if (prevIt != lastKnownHealth_.end()) {
-              delta = payload.currentHealth - prevIt->second;
-            }
-            if (delta == 0 && payload.deltaAppliedHealth != 0) {
-              delta = payload.deltaAppliedHealth;
-            }
-            lastKnownHealth_[targetPlayerId] = payload.currentHealth;
-            const bool triggerDeath = (payload.currentHealth <= 0);
-            handleVitalsBroadcastUnlocked(targetPlayerId, payload, sourcePlayerId, delta, triggerDeath,
-                                          false, false, outbox);
+            if (cidIt != clientIdToPlayerId_.end()) senderPlayerId = cidIt->second;
           }
-          flushOutbox(outbox);
+          if (senderPlayerId == 0) {
+            Umbra::Core::Logger::getInstance().warn(
+                "ForeignVitalsNotify ignorado: client {} sem player associado", cid);
+          } else if (combatCoreEngine_) {
+            combatCoreEngine_->enqueueForeignVitals(senderPlayerId, payload);
+          }
         }
         return;
       }
