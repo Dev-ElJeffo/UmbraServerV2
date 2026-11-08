@@ -23,6 +23,25 @@ namespace Zone {
 
 namespace {
 
+// true enquanto um NPC aplica efeitos de skill em um player (processNpcSkillCast →
+// applySkillEffects, que recebe o npcInstanceId no lugar de sourcePlayerId).
+thread_local bool g_npcSourceEffects = false;
+
+struct NpcSourceScope {
+  NpcSourceScope() { g_npcSourceEffects = true; }
+  ~NpcSourceScope() { g_npcSourceEffects = false; }
+};
+
+/**
+ * source_player_id para active_buffs/active_dots. Fonte NPC → NULL: a coluna tem FK para
+ * players(id); gravar o npcInstanceId falhava (fk_buff_source) ou, pior, atribuía o
+ * buff a um jogador que por acaso tivesse esse id.
+ */
+std::string sourcePlayerSql(uint32_t sourcePlayerId) {
+  return (g_npcSourceEffects || sourcePlayerId == 0) ? std::string("NULL")
+                                                     : std::to_string(sourcePlayerId);
+}
+
 /** Fila de combate estourou (worker não acompanha): job antigo descartado em silêncio. */
 void warnCombatQueueOverflow() {
   static Core::LogThrottle throttle(5000);
@@ -868,7 +887,7 @@ uint64_t CombatCoreEngine::applyPlayerBuffInMemory(uint32_t targetPlayerId, uint
   enqueueDbWrite(
       "INSERT INTO active_buffs (target_player_id, source_player_id, skill_id, buff_type, "
       "current_stacks, value_snapshot, expires_at, snapshot_json) VALUES (" +
-      std::to_string(targetPlayerId) + ", " + std::to_string(sourcePlayerId) + ", " +
+      std::to_string(targetPlayerId) + ", " + sourcePlayerSql(sourcePlayerId) + ", " +
       std::to_string(skillId) + ", '" + buffTypeStr + "', " + std::to_string(static_cast<unsigned>(stacks)) +
       ", " + std::to_string(valueSnapshot) +
       ", DATE_ADD(NOW(3), INTERVAL " + std::to_string(static_cast<uint64_t>(durationMs) * 1000ULL) +
@@ -1269,6 +1288,28 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
   }
   if (!effectOnSelf && !targetIsNpc && !targetIsPlayer && effectPlayerId == 0) return;
 
+  // Golpe fatal: o dano já matou o NPC antes dos efeitos rodarem. Efeitos no ALVO
+  // (buff/debuff/DOT/CC/knockback...) eram aplicados no cadáver e iam no snapshot.
+  // Efeitos no CASTER (lifesteal, manasteal, summon, reset de cooldown...) continuam.
+  bool targetNpcDead = false;
+  if (targetIsNpc && !effectOnSelf && npcManager_) {
+    const NpcRuntimeInstance* npc = npcManager_->findInstance(targetId);
+    targetNpcDead = (npc == nullptr) || npc->isDead;
+  }
+  auto isCasterSideEffect = [](Combat::EffectType type) {
+    switch (type) {
+      case Combat::EffectType::LIFESTEAL:
+      case Combat::EffectType::MANASTEAL:
+      case Combat::EffectType::SUMMON:
+      case Combat::EffectType::TELEPORT:
+      case Combat::EffectType::COOLDOWN_RESET:
+      case Combat::EffectType::RESOURCE_RESTORE:
+        return true;
+      default:
+        return false;
+    }
+  };
+
   auto adjustMana = [&](uint32_t playerId, int32_t delta) {
     if (!stateLoader_ || playerId == 0 || delta == 0) return;
     Combat::CharacterState state;
@@ -1286,6 +1327,12 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
 
   for (const auto& eff : skill.effects) {
     if (eff.conditions.is_object() && eff.conditions.contains("trigger")) continue;
+    if (targetNpcDead && !isCasterSideEffect(eff.effectType)) {
+      Core::Logger::getInstance().debug(
+          "[CombatCoreEngine] efeito {} da skill {} ignorado: NPC {} já morreu no golpe",
+          static_cast<int>(eff.effectType), skill.skillId, targetId);
+      continue;
+    }
     const nlohmann::json conditions =
         eff.conditions.is_object() ? eff.conditions : nlohmann::json::object();
     if (conditions.contains("caster_health_below_percent") && haveAttacker) {
@@ -1827,7 +1874,7 @@ void CombatCoreEngine::insertPlayerDot(uint32_t sourcePlayerId, uint32_t targetP
       "INSERT INTO active_dots ("
       "target_player_id, source_player_id, skill_id, dot_type, target_resource, tick_value, tick_interval_ms, "
       "ticks_remaining, next_tick_at, expires_at) VALUES (" +
-      std::to_string(targetPlayerId) + ", " + std::to_string(sourcePlayerId) + ", " +
+      std::to_string(targetPlayerId) + ", " + sourcePlayerSql(sourcePlayerId) + ", " +
       std::to_string(skillId) + ", '" + (isHeal ? "HEAL" : "DAMAGE") + "', '" +
       (restoresMana ? "mana" : "health") + "', " +
       std::to_string(tickValue) + ", " + std::to_string(interval) + ", " +
@@ -2898,7 +2945,7 @@ bool CombatCoreEngine::validateSkillRange(uint32_t sourcePlayerId, const Combat:
       haveTargetPos = tryGetTargetPosition(payload.targetType, payload.targetId, tx, ty, tz);
     }
     if (!haveTargetPos) {
-      Core::Logger::getInstance().warn("[CombatCoreEngine] RANGE: skill AREA {} sem ponto alvo",
+      Core::Logger::getInstance().debug("[CombatCoreEngine] RANGE: skill AREA {} sem ponto alvo",
                                        skill.skillId);
       return fail(SkillCastRejectReason::NoTarget);
     }
@@ -2907,7 +2954,7 @@ bool CombatCoreEngine::validateSkillRange(uint32_t sourcePlayerId, const Combat:
       return true;
     }
     if (payload.targetId == 0) {
-      Core::Logger::getInstance().warn("[CombatCoreEngine] RANGE: skill {} sem targetId",
+      Core::Logger::getInstance().debug("[CombatCoreEngine] RANGE: skill {} sem targetId",
                                        skill.skillId);
       return fail(SkillCastRejectReason::NoTarget);
     }
@@ -3539,7 +3586,8 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
 
   const auto validation = skillService_->validateSkillUse(sourceState, req);
   if (!validation.isValid) {
-    Core::Logger::getInstance().warn("[CombatCoreEngine] skill cast rejeitado: {}", validation.errorCode);
+    // Gameplay (stun/silence/mana/cooldown): o cliente já recebe o 105 — não é anomalia.
+    Core::Logger::getInstance().debug("[CombatCoreEngine] skill cast rejeitado: {}", validation.errorCode);
     sendSkillCastRejected(sourcePlayerId, payload.skillId,
                           rejectReasonFromErrorCode(validation.errorCode), validation.errorMessage);
     return;
@@ -3827,7 +3875,7 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
       }
     }
     if (!anyHealApplied) {
-      Core::Logger::getInstance().warn(
+      Core::Logger::getInstance().debug(
           "[CombatCoreEngine] HEAL sem efeito player={} skill={} (alvos com HP cheio ou invalidos)",
           sourcePlayerId, payload.skillId);
     }
@@ -4523,6 +4571,8 @@ void CombatCoreEngine::processNpcSkillCast(uint32_t npcInstanceId, uint32_t targ
     single.effects = {effect};
     single.effects[0].targetOverride = 0;
     single.effects[0].includeCaster = -1;
+    // Fonte é NPC: persistência grava source_player_id = NULL (ver sourcePlayerSql).
+    NpcSourceScope npcSource;
     applySkillEffects(npcInstanceId, static_cast<uint8_t>(CombatTargetType::Player),
                       targetPlayerId, single, attacker, true, std::abs(totalDelta));
   }

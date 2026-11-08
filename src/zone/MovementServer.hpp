@@ -828,7 +828,7 @@ public:
             const auto now = std::chrono::steady_clock::now();
             auto cdIt = respawnCooldownUntil_.find(playerId);
             if (cdIt != respawnCooldownUntil_.end() && now < cdIt->second) {
-              Umbra::Core::Logger::getInstance().warn("RespawnRequest: cooldown player {}", playerId);
+              Umbra::Core::Logger::getInstance().debug("RespawnRequest: cooldown player {}", playerId);
               return;
             }
             auto pit = players_.find(playerId);
