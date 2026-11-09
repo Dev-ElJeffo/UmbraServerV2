@@ -196,10 +196,72 @@ Agora o `AUmbraCharacterSelectionManager` faz tudo no `BeginPlay`, com chamadas 
 | Create Character / Return to Main | `Lvl_Character_Creation` / logout + tela de login |
 | Voltar à seleção várias vezes | Sem `Ensure ... InvocationList` no log |
 
+## 4.1d) Criação de personagem
+
+O fluxo antes:
+- o `WBP_CreateCharacter` (327 nós, 8 funções) procurava o manager com `Get Actor Of Class` a cada clique;
+- cada um dos 6 botões de classe tinha uma cópia do mesmo fluxo, com um `Print String` em cada passo;
+- o `BP_CharacterCreationManager` ligava o clique 3D dos placeholders. Esse caminho nunca funcionou, porque o PlayerController tem `bEnableClickEvents = false`.
+
+Agora a tela é C++. O manager continua **colocado no mapa**: é só um, e o Level BP não o spawna.
+
+| Asset | Path | Parent Class |
+|-------|------|--------------|
+| Tela | `/Game/Widgets/WBP_CreateCharacter` | `UmbraCreateCharacterWidget` |
+| Dados da classe | `/Game/Widgets/UI/ClassSelectorItem/WBP_ClassSelectorItem` | `UmbraClassSelectorItemWidget` |
+| Manager | `/Game/Widgets/UI/ClassSelectorItem/BP_CharacterCreationManager` | `UmbraCharacterCreationManager` (já era; o graph sai) |
+| Placeholders | `BP_Class_Placeholder` e os 6 filhos | **sem mudança**. O clique 3D continua desligado |
+| Level | `/Game/Maps/Lvl_Character_Creation` | O Level BP **fica**: câmera, input, cria a tela e toca a música |
+
+**Binds do `WBP_CreateCharacter`:**
+
+| Nome do bind | Tipo | Função |
+|---|---|---|
+| `BTN_Class1`..`BTN_Class6` | `Button` | Escolhe a classe. A ordem segue `ClassButtonShots`: Barbarian 1, Assassin 5, Cleric 4, Dark Mage 3, Templar 2, Monk 6 |
+| `Border_BTN_Classes`, `BTN_Cancel` | `Border` / `Button` | Etapa "escolher classe". Cancel volta à seleção |
+| `Border_WBP_Creator` + `VBox_ClassList` | `Border` / `VerticalBox` | Dados da classe escolhida (`WBP_ClassSelectorItem`) |
+| `Border_CreationPanel`: `TXT_Name`, `SpinBox_Hair`, `SpinBox_Head`, `BTN_Create`, `BTN_Return`, `TXT_Validation` | — | Nome, aparência, criar e voltar |
+
+**Class Defaults** (`Umbra|CharacterCreation`):
+- `ClassButtonShots`: ClassID e posição/rotação da câmera de cada botão, com os valores do BP;
+- `CameraMoveDuration` (1 s), `MinNameLength` (3), `MaxNameLength` (20) e `ReturnDelayAfterCreate` (1 s);
+- `ClassInfoWidgetClass` e `CharacterSelectionLevel`;
+- os sons de clique, cancelar, painel, hover e digitação.
+
+**O que o C++ faz:**
+
+| Peça | Comportamento |
+|---|---|
+| `UUmbraCreateCharacterWidget` | `LoadClasses` no Construct. O botão de classe chama `Manager->SelectClassAndMoveCamera`, aplica Hair/Head no preview, mostra os dados da classe e troca para a etapa de criação. Os SpinBoxes chamam `RefreshSelectedClassAppearance`. Create valida o nome (3–20) e a classe e chama `CreateCharacter`; no sucesso, espera 1 s e vai para `Lvl_Character_Selection`; na falha, mostra o erro em vermelho e libera o botão. Return chama `Manager->ReturnToClassList()` e volta os botões |
+| `UUmbraClassSelectorItemWidget` | Preenche nome, descrição, STR/DEX/INT/VIT/LUK, HP/MP/Movement, ATK/DEF e Accuracy/Dodge/Crit/Double |
+| `AUmbraCharacterCreationManager` | Guarda a posição dos placeholders logo antes de trocá-los pelo preview, porque no `BeginPlay` eles ainda não têm `ClassID`. `ReturnToClassList` some com o preview, respawna os placeholders nas posições originais e volta a câmera. O `ResetCharacterCreation` não mexe mais no widget por reflexão |
+
+**Diferenças em relação ao BP:**
+- **Create sem classe** agora mostra "Selecione uma classe.". Antes não acontecia nada.
+- **Nome com mais de 20 caracteres** é bloqueado já no Create, e não só avisado ao digitar.
+- **O botão Create** fica desabilitado enquanto espera a resposta.
+- **O clique 3D nos placeholders** não foi migrado, porque estava desligado.
+
+**QA 4.1d:**
+
+| Cenário | Esperado |
+|---------|----------|
+| Entrar na criação | 6 placeholders e os 6 botões; nenhum `Print String` |
+| Clicar em cada classe | Os placeholders somem, o preview da classe aparece, a câmera vai para o enquadramento da classe e os dados da classe aparecem |
+| Mudar Hair/Head | A aparência do preview muda |
+| Digitar o nome | "Mínimo 3 caracteres" / "Máximo 20 caracteres" / "Nome válido" |
+| Create com nome curto ou sem classe | A mensagem correspondente; nada é enviado |
+| Create com nome já usado | Erro do servidor em vermelho, e o botão volta a funcionar |
+| Create válido | "Criando..." → "Personagem criado com sucesso!" → seleção com o personagem novo |
+| Return | Os 6 placeholders voltam nas posições originais, a câmera volta e os botões reaparecem |
+| Cancel | Volta à seleção |
+
 ## 8) Referência de código
 
 - `UmbraEternumUE/Source/UmbraEternumUE/UI/UmbraCharacterSelectionWidget.cpp`, `UmbraCharacterSelectButtonWidget.cpp`, `UmbraCharacterItemWidget.cpp`
 - `UmbraEternumUE/Source/UmbraEternumUE/Actors/UmbraCharacterSelectionManager.cpp` (`StartSelectionScreen`, `PreviewCharacter`, `ResetSelection`)
+- `UmbraEternumUE/Source/UmbraEternumUE/UI/UmbraCreateCharacterWidget.cpp`, `UmbraClassSelectorItemWidget.cpp`
+- `UmbraEternumUE/Source/UmbraEternumUE/Actors/UmbraCharacterCreationManager.cpp` (`CapturePlaceholderLayout`, `ReturnToClassList`, `SelectClassAndMoveCamera`)
 - `UmbraEternumUE/Source/UmbraEternumUE/UI/UmbraLoginWidget.cpp`
 - `UmbraEternumUE/Source/UmbraEternumUE/UI/UmbraRegisterWidget.cpp`
 - `UmbraEternumUE/Source/UmbraEternumUE/Core/UmbraGameInstance.cpp`: `LoginUser`, `RegisterUser`, `OnTCPConnectionSuccess`
