@@ -42,7 +42,10 @@ uint32_t removePlayerFromParty(Umbra::Database::MySQLConnector* db, uint32_t pla
     auto countOpt = db->executePreparedScalar(
       "SELECT COUNT(*) FROM party_members WHERE party_id = ?", {partyIdStr});
     int count = countOpt ? std::stoi(*countOpt) : 0;
-    if (count == 0) {
+    // Grupo com 1 membro (ou nenhum) deixa de existir, igual ao leave_party.php.
+    // O membro restante recebe o PartyMemberLeft, recarrega e o painel some.
+    if (count <= 1) {
+      db->executePreparedInsert("DELETE FROM party_members WHERE party_id = ?", {partyIdStr});
       db->executePreparedInsert("DELETE FROM parties WHERE party_id = ?", {partyIdStr});
     } else {
       auto leaderOpt = db->executePreparedScalar(

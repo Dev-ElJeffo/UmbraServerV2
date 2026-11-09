@@ -108,8 +108,14 @@ try {
         $expiresAtMs = strtotime($buff['expires_at']) * 1000;
         $startedAtMs = strtotime($buff['started_at']) * 1000;
         $remainingMs = $buff['is_permanent'] ? -1 : max(0, $expiresAtMs - $currentTime);
-        $totalDurationMs = $buff['total_duration_ms'];
-        $progress = $buff['is_permanent'] ? 0 : min(100, (($totalDurationMs - $remainingMs) / $totalDurationMs) * 100);
+        // skills.duration_ms pode ser 0 quando a duração vem do efeito: usa a janela real do buff.
+        $totalDurationMs = (int)($buff['total_duration_ms'] ?? 0);
+        if ($totalDurationMs <= 0) {
+            $totalDurationMs = max(0, (int)($expiresAtMs - $startedAtMs));
+        }
+        $progress = ($buff['is_permanent'] || $totalDurationMs <= 0)
+            ? 0
+            : max(0, min(100, (($totalDurationMs - $remainingMs) / $totalDurationMs) * 100));
         
         $snapshot = json_decode($buff['snapshot_json'] ?? '{}', true);
         if (!is_array($snapshot)) {
@@ -214,12 +220,9 @@ try {
         ]
     ], JSON_UNESCAPED_UNICODE);
     
-} catch (PDOException $e) {
-    error_log("Erro em get_active_buffs: " . $e->getMessage());
+} catch (Throwable $e) {
+    // Throwable também pega Error (ex.: DivisionByZeroError), que antes escapava e virava HTML do xdebug.
+    error_log('[skills/get_active_buffs] ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Erro interno do servidor']);
-} catch (Exception $e) {
-    error_log("Erro em get_active_buffs: " . $e->getMessage());
-    http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Erro interno do servidor']);
+    echo json_encode(['success' => false, 'message' => 'Erro interno'], JSON_UNESCAPED_UNICODE);
 }
