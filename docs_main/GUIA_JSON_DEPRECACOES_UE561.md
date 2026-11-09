@@ -52,6 +52,26 @@ Rodada 4, bloco 1 (R4.2 + R4.3 itens 1–2) do `docs_main/PLANO_RODADAS_UI_UE561
 | `No field with name X` vindo de BP (sem acesso C++ correspondente) | Nó VaRest em Blueprint (telas de entrada) | Some com a R4.1 |
 | Erro de compilação em `VaRestJsonParser.cpp` após atualizar o plugin | Patch local perdido ou API mudou | Reaplicar `EAllowShrinking::No` |
 
+## 9) Segunda limpeza do Output Log (depois do QA da Rodada 4)
+
+A análise do log de uma sessão completa (login → seleção → criação → jogo com party) achou estes problemas:
+
+| Problema | Linhas | Correção |
+|---|---|---|
+| `Invalid material [...] used on Nanite static mesh` em `SM_cobweb_01/02/03` e `SM_window_latice_small` (Necropolis) | 73.245 | Nanite **desligado** nessas 4 meshes (MCP, `NaniteSettings.bEnabled = false`). Nanite só aceita material opaco/masked, e teia e vidro são translúcidos. A Necropolis não é versionada, então a mudança fica só no disco |
+| `FUmbraItemStats::<campo> is not initialized properly` | 18 erros | `= 0` nos 18 campos legados em `Data/UmbraDataStructures.h`. Antes, um item novo podia carregar lixo de memória |
+| Debug do nameplate, do `SendPlayerInfoUpdate` e do `SavePlayerPosition` como `Warning` | ~4 mil | Viraram `Verbose` (`Core/UmbraGameInstance.cpp`). Os `❌` e os `⚠️` de falha real continuam `Warning` |
+| `[UmbraPlayerController] ❌ Nenhuma câmera encontrada no nível!` | 8 | Virou `Log`. Nos níveis de jogo não existe câmera de cenário, e a câmera do pawn é a que vale |
+| `failed to register BulkData` (Heightmap/Weightmap de `Lvl_Tutorial_` e `Lvl_Character_Selection`) | 1.920 | **Sem ação.** Sai quando o editor recarrega um mapa já carregado na mesma sessão. Não vem do jogo e não corrompe o mapa |
+| `get_active_buffs.php` respondia HTML do xdebug (`DivisionByZeroError` na linha 112) | a cada refresh de buffs | `www/umbra_api/api/skills/get_active_buffs.php`: quando `skills.duration_ms` é 0, o progresso usa a janela real do buff (`expires_at - started_at`) e nunca divide por 0. O `catch` passou a ser `Throwable`, então qualquer erro volta como JSON `{"success":false,"message":"Erro interno"}` (500), com `error_log('[skills/get_active_buffs] ...')`. Já sincronizado com o WAMP |
+| `[Appearance] Falha ao carregar mesh/AnimBP da classe N` | 644 | **Manager:** nas 6 classes, deixar `skeletal_mesh_path` e `anim_blueprint_path` vazios. Hoje apontam para `SKM_Manny`, que não existe, e para `ABP_Unarmed` sem `.ABP_Unarmed_C`. A aparência usa as partes modulares e o AnimBP do pawn, então nada muda na tela |
+
+**QA:**
+- Depois do rebuild, abra o editor e rode PIE na Necropolis e no `Lvl_Tutorial_`.
+- `Invalid material` não deve aparecer, e as teias e o vidro devem renderizar normalmente.
+- Se o aviso continuar, abra a mesh e clique em **Apply Changes** no painel **Nanite Settings**, para forçar o rebuild.
+- Depois do ajuste no Manager, `[Appearance] Falha ao carregar` também deve sumir.
+
 ## 8) Referência de código
 
 - `UmbraEternumUE/Source/UmbraEternumUE/Core/UmbraJsonHelpers.h`
