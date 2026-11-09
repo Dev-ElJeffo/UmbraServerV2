@@ -45,6 +45,8 @@ struct PlayerStateNet {
   uint32_t hair = 0;
   uint32_t head = 0;
   std::vector<EquippedVisualWireEntry> equippedVisual;
+  /** Opcode 119: 0 = relaxado (arma nas costas), 1 = combate. Comeca relaxado ao logar. */
+  uint8_t combatStance = 0;
 };
 
 class MovementServer {
@@ -1164,6 +1166,40 @@ public:
         return;
       }
 
+      // Opcode 119: modo relaxado/combate. So guarda o estado e retransmite (sem DB, sem combate).
+      if (msgType == MovementMsgType::CombatStanceState) {
+        CombatStancePayload payload;
+        if (!decodeCombatStanceState(data, payload)) return;
+        // O player vem do cid (mapeado no movimento/visual); o playerId do payload precisa bater.
+        uint32_t senderPlayerId = 0;
+        {
+          std::lock_guard<std::mutex> lock(mu_);
+          auto it = clientIdToPlayerId_.find(cid);
+          if (it != clientIdToPlayerId_.end()) senderPlayerId = it->second;
+        }
+        if (senderPlayerId == 0 || senderPlayerId != payload.playerId) {
+          Umbra::Core::Logger::getInstance().warn(
+              "CombatStanceState ignorado: client {} sender {} payload player {}",
+              cid, senderPlayerId, payload.playerId);
+          return;
+        }
+        std::vector<uint8_t> broadcastMsg;
+        {
+          std::lock_guard<std::mutex> lock(mu_);
+          auto pit = players_.find(senderPlayerId);
+          if (pit == players_.end()) return;
+          if (pit->second.combatStance == payload.stance) return;  // sem mudanca: nao retransmite
+          pit->second.combatStance = payload.stance;
+          CombatStancePayload out;
+          out.playerId = senderPlayerId;
+          out.stance = payload.stance;
+          out.flags = payload.flags & kCombatStanceFlagAuto;
+          broadcastMsg = encodeCombatStanceState(out);
+        }
+        ws_.broadcastBinary(broadcastMsg);
+        return;
+      }
+
       // Guild refresh/member notifications encaminhadas pelo cliente (após sucesso HTTP).
       if (msgType == MovementMsgType::GuildInviteReceived) {
         uint32_t inviteId = 0, guildId = 0, fromPlayerId = 0, toPlayerId = 0;
@@ -1533,6 +1569,17 @@ private:
     for (const auto& [pid, st] : players_) {
       if (!st.equippedVisual.empty()) {
         outbox.emplace_back(clientId, encodePlayerEquipmentVisualUpdate(st.playerId, st.equippedVisual));
+      }
+    }
+
+    // Opcode 119: quem chega ve quem ja esta em combate (flag auto = sem anim de sacar).
+    for (const auto& [pid, st] : players_) {
+      if (st.combatStance != 0) {
+        CombatStancePayload cs;
+        cs.playerId = st.playerId;
+        cs.stance = st.combatStance;
+        cs.flags = kCombatStanceFlagAuto;
+        outbox.emplace_back(clientId, encodeCombatStanceState(cs));
       }
     }
 

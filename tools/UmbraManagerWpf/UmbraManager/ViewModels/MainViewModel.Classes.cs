@@ -55,6 +55,25 @@ public partial class MainViewModel
     [ObservableProperty] private string _classAnimBuffsCsv = "";
     [ObservableProperty] private string _classAnimDeathPath = "";
     [ObservableProperty] private int _classAnimDeathMs = 1500;
+
+    // Modo combate (opcode 119): conjunto de combate + sacar/guardar. Vazio = usa o conjunto normal / sem anim.
+    [ObservableProperty] private string _classAnimCombatIdlePath = "";
+    [ObservableProperty] private string _classAnimCombatWalkFwdPath = "";
+    [ObservableProperty] private string _classAnimCombatWalkBwdPath = "";
+    [ObservableProperty] private string _classAnimCombatWalkLeftPath = "";
+    [ObservableProperty] private string _classAnimCombatWalkRightPath = "";
+    [ObservableProperty] private string _classAnimCombatRunFwdPath = "";
+    [ObservableProperty] private string _classAnimCombatRunBwdPath = "";
+    [ObservableProperty] private string _classAnimCombatRunLeftPath = "";
+    [ObservableProperty] private string _classAnimCombatRunRightPath = "";
+    /** Anim de sacar a arma (costas -> mãos). */
+    [ObservableProperty] private string _classAnimDrawPath = "";
+    /** Anim de guardar a arma (mãos -> costas). */
+    [ObservableProperty] private string _classAnimSheathePath = "";
+    /** Ms da anim de sacar em que a arma passa para a mão (0 = no início). */
+    [ObservableProperty] private int _classAnimDrawSwapMs;
+    /** Ms da anim de guardar em que a arma passa para as costas (0 = no início). */
+    [ObservableProperty] private int _classAnimSheatheSwapMs;
     [ObservableProperty] private string _classFormSkeletalMeshPath = "";
     [ObservableProperty] private string _classFormAnimBlueprintPath = "";
     [ObservableProperty] private string _classFormTorsoMeshPath = "";
@@ -347,13 +366,41 @@ public partial class MainViewModel
         var runBwd = (ClassAnimRunBwdPath ?? "").Trim();
         var runLeft = (ClassAnimRunLeftPath ?? "").Trim();
         var runRight = (ClassAnimRunRightPath ?? "").Trim();
+        var combatIdle = (ClassAnimCombatIdlePath ?? "").Trim();
+        var cWalk = new[] { ClassAnimCombatWalkFwdPath, ClassAnimCombatWalkBwdPath, ClassAnimCombatWalkLeftPath, ClassAnimCombatWalkRightPath }
+            .Select(s => (s ?? "").Trim()).ToArray();
+        var cRun = new[] { ClassAnimCombatRunFwdPath, ClassAnimCombatRunBwdPath, ClassAnimCombatRunLeftPath, ClassAnimCombatRunRightPath }
+            .Select(s => (s ?? "").Trim()).ToArray();
+        var draw = (ClassAnimDrawPath ?? "").Trim();
+        var sheathe = (ClassAnimSheathePath ?? "").Trim();
+        var hasCombat = combatIdle.Length > 0 || cWalk.Any(s => s.Length > 0) || cRun.Any(s => s.Length > 0)
+            || draw.Length > 0 || sheathe.Length > 0;
         if (hits.Count == 0 && buffs.Count == 0 && death.Length == 0 && idle.Length == 0 && walk.Length == 0
             && walkFwd.Length == 0 && walkBwd.Length == 0 && walkLeft.Length == 0 && walkRight.Length == 0
-            && runFwd.Length == 0 && runBwd.Length == 0 && runLeft.Length == 0 && runRight.Length == 0)
+            && runFwd.Length == 0 && runBwd.Length == 0 && runLeft.Length == 0 && runRight.Length == 0
+            && !hasCombat)
         {
             return null;
         }
         var root = new JsonObject();
+        // Modo combate (opcode 119)
+        if (combatIdle.Length > 0) root["combat_idle"] = combatIdle;
+        static JsonObject? DirObj(string[] v)
+        {
+            if (v.All(s => s.Length == 0)) return null;
+            var o = new JsonObject();
+            if (v[0].Length > 0) o["fwd"] = v[0];
+            if (v[1].Length > 0) o["bwd"] = v[1];
+            if (v[2].Length > 0) o["left"] = v[2];
+            if (v[3].Length > 0) o["right"] = v[3];
+            return o;
+        }
+        if (DirObj(cWalk) is { } cw) root["combat_walk"] = cw;
+        if (DirObj(cRun) is { } cr) root["combat_run"] = cr;
+        if (draw.Length > 0) root["draw"] = draw;
+        if (sheathe.Length > 0) root["sheathe"] = sheathe;
+        if (draw.Length > 0) root["draw_swap_ms"] = ClassAnimDrawSwapMs <= 0 ? 0 : ClassAnimDrawSwapMs;
+        if (sheathe.Length > 0) root["sheathe_swap_ms"] = ClassAnimSheatheSwapMs <= 0 ? 0 : ClassAnimSheatheSwapMs;
         if (idle.Length > 0) root["idle"] = idle;
         if (walkFwd.Length > 0 || walkBwd.Length > 0 || walkLeft.Length > 0 || walkRight.Length > 0)
         {
@@ -413,6 +460,19 @@ public partial class MainViewModel
         ClassAnimBuffsCsv = "";
         ClassAnimDeathPath = "";
         ClassAnimDeathMs = 1500;
+        ClassAnimCombatIdlePath = "";
+        ClassAnimCombatWalkFwdPath = "";
+        ClassAnimCombatWalkBwdPath = "";
+        ClassAnimCombatWalkLeftPath = "";
+        ClassAnimCombatWalkRightPath = "";
+        ClassAnimCombatRunFwdPath = "";
+        ClassAnimCombatRunBwdPath = "";
+        ClassAnimCombatRunLeftPath = "";
+        ClassAnimCombatRunRightPath = "";
+        ClassAnimDrawPath = "";
+        ClassAnimSheathePath = "";
+        ClassAnimDrawSwapMs = 0;
+        ClassAnimSheatheSwapMs = 0;
     }
 
     private void ApplyClassAnimJsonToForm(string? json)
@@ -443,6 +503,26 @@ public partial class MainViewModel
                 if (ms.ValueKind == JsonValueKind.Number && ms.TryGetInt32(out var n) && n > 0)
                     ClassAnimDeathMs = n;
             }
+            // Modo combate (opcode 119)
+            ClassAnimCombatIdlePath = ReadAnimPathScalar(root, "combat_idle");
+            ReadDirPaths(root, "combat_walk", out var cwF, out var cwB, out var cwL, out var cwR, out _);
+            ClassAnimCombatWalkFwdPath = cwF;
+            ClassAnimCombatWalkBwdPath = cwB;
+            ClassAnimCombatWalkLeftPath = cwL;
+            ClassAnimCombatWalkRightPath = cwR;
+            ReadDirPaths(root, "combat_run", out var crF, out var crB, out var crL, out var crR, out _);
+            ClassAnimCombatRunFwdPath = crF;
+            ClassAnimCombatRunBwdPath = crB;
+            ClassAnimCombatRunLeftPath = crL;
+            ClassAnimCombatRunRightPath = crR;
+            ClassAnimDrawPath = ReadAnimPathScalar(root, "draw");
+            ClassAnimSheathePath = ReadAnimPathScalar(root, "sheathe");
+            if (root.TryGetProperty("draw_swap_ms", out var dms) && dms.ValueKind == JsonValueKind.Number
+                && dms.TryGetInt32(out var dv) && dv > 0)
+                ClassAnimDrawSwapMs = dv;
+            if (root.TryGetProperty("sheathe_swap_ms", out var sms) && sms.ValueKind == JsonValueKind.Number
+                && sms.TryGetInt32(out var sv) && sv > 0)
+                ClassAnimSheatheSwapMs = sv;
         }
         catch
         {

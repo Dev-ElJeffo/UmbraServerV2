@@ -126,6 +126,32 @@
         <TextBox Text="{Binding ClassAnimDeathPath}" Margin="0,0,0,6" materialDesign:HintAssist.Hint="Death" materialDesign:HintAssist.IsFloating="True"/>
         <TextBox Text="{Binding ClassAnimDeathMs}" Margin="0,0,0,8" materialDesign:HintAssist.Hint="Death ms" materialDesign:HintAssist.IsFloating="True"/>
 
+        <TextBlock Text="Modo combate (tecla sacar/guardar — opcode 119)" FontWeight="SemiBold" Margin="0,12,0,2"/>
+        <TextBlock Text="Idle acima = relaxada (arma nas costas). Campos de combate vazios usam o conjunto normal."
+                   Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,6"/>
+        <TextBox Text="{Binding ClassAnimCombatIdlePath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Idle de combate (combat_idle)" materialDesign:HintAssist.IsFloating="True"/>
+        <UniformGrid Columns="2" Margin="0,0,0,6">
+          <TextBox Text="{Binding ClassAnimDrawPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,6"
+                   materialDesign:HintAssist.Hint="Sacar a arma (draw)" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassAnimDrawSwapMs, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                   materialDesign:HintAssist.Hint="Sacar: ms em que a arma vai p/ a mão" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassAnimSheathePath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,6"
+                   materialDesign:HintAssist.Hint="Guardar a arma (sheathe)" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassAnimSheatheSwapMs, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                   materialDesign:HintAssist.Hint="Guardar: ms em que a arma vai p/ as costas" materialDesign:HintAssist.IsFloating="True"/>
+        </UniformGrid>
+        <UniformGrid Columns="2" Margin="0,0,0,8">
+          <TextBox Text="{Binding ClassAnimCombatWalkFwdPath}" Margin="0,0,6,4" materialDesign:HintAssist.Hint="Combate: walk fwd" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassAnimCombatRunFwdPath}" Margin="0,0,0,4" materialDesign:HintAssist.Hint="Combate: run fwd" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassAnimCombatWalkBwdPath}" Margin="0,0,6,4" materialDesign:HintAssist.Hint="Combate: walk bwd" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassAnimCombatRunBwdPath}" Margin="0,0,0,4" materialDesign:HintAssist.Hint="Combate: run bwd" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassAnimCombatWalkLeftPath}" Margin="0,0,6,4" materialDesign:HintAssist.Hint="Combate: walk left" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassAnimCombatRunLeftPath}" Margin="0,0,0,4" materialDesign:HintAssist.Hint="Combate: run left" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassAnimCombatWalkRightPath}" Margin="0,0,6,4" materialDesign:HintAssist.Hint="Combate: walk right" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding ClassAnimCombatRunRightPath}" Margin="0,0,0,4" materialDesign:HintAssist.Hint="Combate: run right" materialDesign:HintAssist.IsFloating="True"/>
+        </UniformGrid>
+
         <WrapPanel Margin="0,0,0,12">
           <Button Content="{Binding ClassSaveButtonText}" Command="{Binding SaveGameClassCommand}"
                   Style="{StaticResource ManagerActionButton}" Margin="0,0,8,4"/>

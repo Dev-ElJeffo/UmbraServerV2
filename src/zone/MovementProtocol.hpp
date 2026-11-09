@@ -106,6 +106,7 @@ enum class MovementMsgType : uint8_t {
 	QuestProgressNotify = 116,           // Servidor -> Cliente: progresso/ready de quest (kill)
 	PlayerEquipmentVisualUpdate = 117,   // Cliente <-> Servidor: visual de equipamento (paths por slot)
 	CombatControlState = 118,            // Servidor -> Cliente: flags CC/visibilidade + velocidade autoritativa
+	CombatStanceState = 119,             // Cliente <-> Servidor: modo relaxado/combate (arma nas costas/na mao)
 	WsKeepalive = 250                      // Servidor -> Cliente: heartbeat (1 byte); cliente ignora
 };
 
@@ -659,6 +660,44 @@ inline bool decodePlayerEquipmentVisualUpdate(
       outEntries[i].refinementLevel = data[off++];
     }
   }
+  return true;
+}
+
+// CombatStanceState (119): modo relaxado/combate do player (cliente -> zone -> todos).
+// [msgType:uint8][playerId:uint32 LE][stance:uint8][flags:uint8]
+// stance: 0 = relaxado (arma nas costas), 1 = combate (arma na mao)
+// flags: bit0 = automatico (entrou em combate pelo ataque; sem anim de sacar)
+constexpr uint8_t kCombatStanceFlagAuto = 0x01;
+
+struct CombatStancePayload {
+  uint32_t playerId = 0;
+  uint8_t stance = 0;
+  uint8_t flags = 0;
+};
+
+inline std::vector<uint8_t> encodeCombatStanceState(const CombatStancePayload& p) {
+  std::vector<uint8_t> out;
+  out.reserve(7);
+  out.push_back(static_cast<uint8_t>(MovementMsgType::CombatStanceState));
+  out.push_back(static_cast<uint8_t>(p.playerId & 0xFF));
+  out.push_back(static_cast<uint8_t>((p.playerId >> 8) & 0xFF));
+  out.push_back(static_cast<uint8_t>((p.playerId >> 16) & 0xFF));
+  out.push_back(static_cast<uint8_t>((p.playerId >> 24) & 0xFF));
+  out.push_back(p.stance ? 1 : 0);
+  out.push_back(p.flags);
+  return out;
+}
+
+inline bool decodeCombatStanceState(const std::vector<uint8_t>& data, CombatStancePayload& p) {
+  if (data.size() < 6) return false;
+  if (static_cast<MovementMsgType>(data[0]) != MovementMsgType::CombatStanceState) return false;
+  p.playerId = static_cast<uint32_t>(data[1])
+             | (static_cast<uint32_t>(data[2]) << 8)
+             | (static_cast<uint32_t>(data[3]) << 16)
+             | (static_cast<uint32_t>(data[4]) << 24);
+  p.stance = data[5] ? 1 : 0;
+  // flags trailing (frame curto -> 0)
+  p.flags = data.size() > 6 ? data[6] : 0;
   return true;
 }
 

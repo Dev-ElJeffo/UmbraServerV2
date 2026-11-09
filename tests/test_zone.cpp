@@ -3,6 +3,7 @@
 #include "zone/PlayerManager.hpp"
 #include "zone/EntitySystem.hpp"
 #include "database/Models.hpp"
+#include "zone/MovementProtocol.hpp"
 
 using namespace Umbra::Zone;
 
@@ -119,6 +120,33 @@ TEST_F(EntitySystemTest, DespawnEntity) {
   uint64_t entityId = entitySystem->spawnEntity(entity);
   EXPECT_TRUE(entitySystem->despawnEntity(entityId));
   EXPECT_EQ(entitySystem->getEntityCount(), 0);
+}
+
+// Opcode 119 (CombatStanceState): ida/volta e frame curto sem flags.
+TEST(CombatStanceProtocolTest, RoundTrip) {
+  Umbra::Zone::CombatStancePayload in;
+  in.playerId = 0x01020304;
+  in.stance = 1;
+  in.flags = Umbra::Zone::kCombatStanceFlagAuto;
+  const auto bytes = Umbra::Zone::encodeCombatStanceState(in);
+  ASSERT_EQ(bytes.size(), 7u);
+  EXPECT_EQ(bytes[0], 119);
+  Umbra::Zone::CombatStancePayload out;
+  ASSERT_TRUE(Umbra::Zone::decodeCombatStanceState(bytes, out));
+  EXPECT_EQ(out.playerId, in.playerId);
+  EXPECT_EQ(out.stance, 1);
+  EXPECT_EQ(out.flags, Umbra::Zone::kCombatStanceFlagAuto);
+}
+
+TEST(CombatStanceProtocolTest, ShortFrameDefaultsFlags) {
+  std::vector<uint8_t> bytes = {119, 7, 0, 0, 0, 0};
+  Umbra::Zone::CombatStancePayload out;
+  ASSERT_TRUE(Umbra::Zone::decodeCombatStanceState(bytes, out));
+  EXPECT_EQ(out.playerId, 7u);
+  EXPECT_EQ(out.stance, 0);
+  EXPECT_EQ(out.flags, 0);
+  std::vector<uint8_t> tooShort = {119, 7, 0, 0};
+  EXPECT_FALSE(Umbra::Zone::decodeCombatStanceState(tooShort, out));
 }
 
 int main(int argc, char** argv) {
