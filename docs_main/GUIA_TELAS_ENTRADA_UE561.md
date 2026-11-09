@@ -122,8 +122,84 @@ Logs esperados:
 | Abre o level errado depois do login | `CharacterSelectionLevel` alterado | Class Defaults do `WBP_Login2` |
 | Sem som | Asset de som movido | Preencher os sons em `Umbra|Login|Sound` |
 
+## 4.1c) Seleção de personagem
+
+O fluxo antes:
+- o Level BP de `Lvl_Character_Selection` spawnava o manager, criava a tela, chamava `Initialize` e montava os botões;
+- o `BP_CharacterSelectionManager` e os 3 WBPs se chamavam **por nome**, com `FindFunction`/`ProcessEvent` no C++;
+- havia vários `Print String` de debug na tela.
+
+Agora o `AUmbraCharacterSelectionManager` faz tudo no `BeginPlay`, com chamadas tipadas. O Level BP fica só com: `BeginPlay → Delay 0,2 s → FindAndSetLevelCameraActor → Spawn BP_CharacterSelectionManager`.
+
+| Asset | Path | Parent Class |
+|-------|------|--------------|
+| Tela | `/Game/Widgets/WBP_CharacterSelection` | `UmbraCharacterSelectionWidget` |
+| Botão do personagem | `/Game/Widgets/WBP_CharacterSelectButton` | `UmbraCharacterSelectButtonWidget` |
+| Detalhes | `/Game/Widgets/WBP_CharacterItem` | `UmbraCharacterItemWidget` |
+| Manager | `/Game/Widgets/UI/ClassSelectorItem/BP_CharacterSelectionManager` | `UmbraCharacterSelectionManager` (já era; o graph sai) |
+| Preview 3D | `/Game/Widgets/UI/ClassSelectorItem/BP_CharacterPreview` | **sem mudança** nesta etapa |
+
+**Binds:**
+
+| WBP | Nome do bind | Tipo | Função |
+|---|---|---|---|
+| `WBP_CharacterSelection` | `VBox_CharacterList` | `VerticalBox` | Lista de botões, ou o painel de detalhes |
+| | `TXT_Status` | `TextBlock` | "Nenhum personagem. Crie um!" |
+| | `BTN_CreateNew` / `BTN_Logout` | `Button` | `Lvl_Character_Creation` / Logout + `Lvl_TestAuth` |
+| `WBP_CharacterSelectButton` | `BTN_Select` / `TextBTN_Select` | `Button` / `TextBlock` | Nome do personagem; clique → preview + detalhes |
+| `WBP_CharacterItem` | `TXT_Name`, `TXT_Level`, `TXT_Zone`, `TXT_Class`, `TXT_Faction`, `TXT_Health`, `TXT_Mana` | `TextBlock` | Identificação e vitais |
+| | `TXT_Strength`, `TXT_DEX`, `TXT_INT`, `TXT_VIT`, `TXT_LUCK` | `TextBlock` | Atributos totais |
+| | `TXT_PHYSATK`, `TXT_MAGATK`, `TXT_PHYSDEF`, `TXT_MAGDEF` | `TextBlock` | Stats de combate |
+| | `BTN_Play`, `BTN_Delete`, `BTN_Return` | `Button` | Jogar / pedir exclusão / voltar à lista |
+| | `DeletePanel` (`BTN_Delete_1`, `BTN_Cancel`) e `txt_status` | painel + `Button` + `TextBlock` | Confirmação de exclusão |
+
+**Class Defaults do `BP_CharacterSelectionManager`** (`Umbra|Selection`):
+- `SelectionScreenClass`, `CharacterItemClass` e `PreviewActorClass`;
+- `PreviewSpacing` (400);
+- `SelectedCameraLocation` (700, −400, 280), `SelectedCameraRotation` (0, 90, 0) e `SelectedCameraDuration` (1 s);
+- `ListRefreshSound` (`/Game/Music/Untitled__2_`, volume 0,3).
+
+**O que o C++ faz:**
+
+| Peça | Comportamento |
+|---|---|
+| `AUmbraCharacterSelectionManager::StartSelectionScreen` | Cria a tela; spawna os previews (`Initialize`); monta os botões; liga `OnCharacterListLoaded` e `OnCharacterInfoLoaded` |
+| `PreviewCharacter(ID)` | Despawna os outros previews; move a câmera; chama `SelectCharacter`. Quando o `OnCharacterInfoLoaded` do ID chega, cria o `WBP_CharacterItem` e mostra os detalhes |
+| `ReturnToSelection` / `ResetSelection` | Respawna os previews, volta a câmera e recria os botões |
+| `OnCharacterListLoaded` (ex.: depois de deletar) | `ReturnToSelection` + som |
+| `UUmbraCharacterItemWidget` | Play → `SelectCharacter` → 0,2 s → `Lvl_Tutorial_`. Delete → confirmação → `DeleteCharacter`, e o erro aparece em `txt_status`. Cancel esconde a confirmação. Return volta à lista |
+
+**Correções em relação ao BP:**
+- **STR e DEX estavam trocados:** o texto de força mostrava a destreza e vice-versa.
+- **A zona sempre aparecia vazia.** Agora vem de `CurrentPlayers[ID].CurrentZone`.
+- **A facção aparecia como número** (`String To Integer` do nome). Agora mostra o nome.
+- **Cancel na confirmação** só esconde o painel. Antes resetava a seleção inteira.
+- **Depois de deletar:** antes respawnava os previews com um delay fixo, muitas vezes antes da lista atualizar, e o personagem apagado voltava a aparecer. Agora espera a lista nova.
+- **Espaçamento dos previews:** antes era 400 na entrada e 300 depois de Return/Delete. Agora é sempre `PreviewSpacing`.
+
+**Atenção:**
+- **Não coloque** o `BP_CharacterSelectionManager` no mapa. Quem cria o manager é o Level BP, com o Spawn.
+- Já havia um colocado no mapa, que foi removido. Com dois managers, a tela e os previews eram montados duas vezes: só um personagem abria os detalhes, e os previews do primeiro manager ficavam órfãos na cena.
+- O C++ ignora um segundo manager e escreve no log `Já existe um manager ativo`.
+
+**QA 4.1c:**
+
+| Cenário | Esperado |
+|---------|----------|
+| Entrar na seleção com N personagens | N previews lado a lado e N botões com o nome; nenhum `Print String` |
+| Conta sem personagens | "Nenhum personagem. Crie um!" |
+| Clicar num personagem | Os outros previews somem, a câmera move, e o painel mostra nome, nível, zona, classe, facção, HP/MP, STR/DEX/INT/VIT/LUK e ATK/DEF certos |
+| Return | Volta à lista com todos os previews e a câmera original |
+| Delete → Cancel | A confirmação some e os detalhes continuam |
+| Delete → Confirm | "Deletando..." e depois a lista sem o personagem (previews e botões) |
+| Play | Entra no `Lvl_Tutorial_` com o personagem certo (opcode 109 ok) |
+| Create Character / Return to Main | `Lvl_Character_Creation` / logout + tela de login |
+| Voltar à seleção várias vezes | Sem `Ensure ... InvocationList` no log |
+
 ## 8) Referência de código
 
+- `UmbraEternumUE/Source/UmbraEternumUE/UI/UmbraCharacterSelectionWidget.cpp`, `UmbraCharacterSelectButtonWidget.cpp`, `UmbraCharacterItemWidget.cpp`
+- `UmbraEternumUE/Source/UmbraEternumUE/Actors/UmbraCharacterSelectionManager.cpp` (`StartSelectionScreen`, `PreviewCharacter`, `ResetSelection`)
 - `UmbraEternumUE/Source/UmbraEternumUE/UI/UmbraLoginWidget.cpp`
 - `UmbraEternumUE/Source/UmbraEternumUE/UI/UmbraRegisterWidget.cpp`
 - `UmbraEternumUE/Source/UmbraEternumUE/Core/UmbraGameInstance.cpp`: `LoginUser`, `RegisterUser`, `OnTCPConnectionSuccess`
