@@ -4,7 +4,9 @@
 
 A aba **Appearance Parts** do UmbraManager mantém o **catálogo global** de variações cosméticas de **cabelo** e **cabeça** que o cliente UE aplica em cima do rig da classe. Cada entrada mapeia um `part_id` numérico para um mesh Unreal e um socket de attach.
 
-Este guia **não** cobre os meshes modulares de corpo/classe (torso, arms, legs, feet, armas default) — esses ficam na aba **Classes**. Veja a seção [Appearance Parts vs Classes](#appearance-parts-vs-classes).
+Este guia **não** cobre o corpo da classe nem as armas default — esses ficam na aba **Classes**. Veja a seção [Appearance Parts vs Classes](#appearance-parts-vs-classes).
+
+> **Atualização (head + body):** o corpo não é mais dividido em torso/arms/legs/feet. A classe define só o **body** (campo `body_mesh_path`, gravado em `torso_mesh_path`); `arms/legs/feet_mesh_path` não são mais usados. Equipamentos ficam **por cima** do body e podem esconder regiões dele (`hide_body_slots`). As menções a torso/arms/legs/feet abaixo são históricas. Ver `GUIA_PERSONAGEM_HEAD_BODY_UE561.md`.
 
 ---
 

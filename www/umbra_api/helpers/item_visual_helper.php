@@ -35,8 +35,33 @@ function item_templates_has_visual_meshes_json(PDO $pdo): bool
 }
 
 /**
- * Normaliza lista de entradas [{slot, path, hide_hair?}] ->
- * [['equipment_slot'=>..., 'skeletal_mesh_path'=>..., 'hide_hair'=>bool]]
+ * Sanitiza hide_body_slots: nomes de slot de material do body separados por vírgula.
+ * Só [A-Za-z0-9_], sem duplicatas, até 256 caracteres. Vazio = não esconde nada.
+ *
+ * @param mixed $raw string "Hands,Feet" ou array
+ */
+function item_visual_sanitize_hide_body_slots($raw): string
+{
+    if (is_array($raw)) {
+        $raw = implode(',', array_map('strval', $raw));
+    }
+    if (!is_string($raw) || $raw === '') {
+        return '';
+    }
+    $names = [];
+    foreach (preg_split('/[,;]/', $raw) as $part) {
+        $name = preg_replace('/[^A-Za-z0-9_]/', '', trim($part));
+        if ($name !== '' && !in_array($name, $names, true)) {
+            $names[] = $name;
+        }
+    }
+    $out = implode(',', $names);
+    return strlen($out) > 256 ? substr($out, 0, 256) : $out;
+}
+
+/**
+ * Normaliza lista de entradas [{slot, path, hide_hair?, hide_body_slots?}] ->
+ * [['equipment_slot'=>..., 'skeletal_mesh_path'=>..., 'hide_hair'=>bool, 'hide_body_slots'=>string]]
  *
  * @param array<int, array<string, mixed>> $entries
  * @return array<int, array<string, mixed>>
@@ -71,6 +96,10 @@ function item_visual_normalize_entries(array $entries): array
         ];
         if ($hideHair) {
             $normalized['hide_hair'] = true;
+        }
+        $hideBody = item_visual_sanitize_hide_body_slots($entry['hide_body_slots'] ?? '');
+        if ($hideBody !== '') {
+            $normalized['hide_body_slots'] = $hideBody;
         }
         $out[] = $normalized;
     }
@@ -138,16 +167,23 @@ function validate_item_visual_meshes_for_storage($input): array
         return ['ok' => false, 'json' => null, 'error' => 'visual_meshes_json inválido'];
     }
 
+    // Persiste também hide_hair e hide_body_slots (antes só slot/path eram gravados).
+    $toStorage = static function ($e) {
+        $row = ['slot' => $e['equipment_slot'], 'path' => $e['skeletal_mesh_path']];
+        if (!empty($e['hide_hair'])) {
+            $row['hide_hair'] = true;
+        }
+        if (!empty($e['hide_body_slots'])) {
+            $row['hide_body_slots'] = $e['hide_body_slots'];
+        }
+        return $row;
+    };
     $payload = [
-        'default' => array_map(static function ($e) {
-            return ['slot' => $e['equipment_slot'], 'path' => $e['skeletal_mesh_path']];
-        }, $parsed['default']),
+        'default' => array_map($toStorage, $parsed['default']),
         'by_class' => [],
     ];
     foreach ($parsed['by_class'] as $classId => $entries) {
-        $payload['by_class'][(string)$classId] = array_map(static function ($e) {
-            return ['slot' => $e['equipment_slot'], 'path' => $e['skeletal_mesh_path']];
-        }, $entries);
+        $payload['by_class'][(string)$classId] = array_map($toStorage, $entries);
     }
 
     if (empty($payload['default']) && empty($payload['by_class'])) {
@@ -238,7 +274,7 @@ function aggregate_player_equipped_visual(PDO $pdo, int $playerId, int $classId)
     $slotOrder = item_visual_equipment_slot_order();
     $orderIndex = array_flip($slotOrder);
 
-    /** @var array<string, array<int, array{path: string, hide_hair: bool, priority: int, order: int}>> $candidates */
+    /** @var array<string, array<int, array{path: string, hide_hair: bool, hide_body_slots: string, priority: int, order: int}>> $candidates */
     $candidates = [];
 
     foreach ($rows as $row) {
@@ -254,6 +290,7 @@ function aggregate_player_equipped_visual(PDO $pdo, int $playerId, int $classId)
             $candidates[$visualSlot][] = [
                 'path' => $entry['skeletal_mesh_path'],
                 'hide_hair' => !empty($entry['hide_hair']),
+                'hide_body_slots' => (string)($entry['hide_body_slots'] ?? ''),
                 'priority' => $priority,
                 'order' => $itemOrder,
             ];
@@ -275,6 +312,9 @@ function aggregate_player_equipped_visual(PDO $pdo, int $playerId, int $classId)
         ];
         if (!empty($winner['hide_hair'])) {
             $rowOut['hide_hair'] = true;
+        }
+        if ($winner['hide_body_slots'] !== '') {
+            $rowOut['hide_body_slots'] = $winner['hide_body_slots'];
         }
         $result[] = $rowOut;
     }

@@ -149,6 +149,44 @@ TEST(CombatStanceProtocolTest, ShortFrameDefaultsFlags) {
   EXPECT_FALSE(Umbra::Zone::decodeCombatStanceState(tooShort, out));
 }
 
+// Opcode 117: trailing3 hide_body_slots (ida/volta e frame antigo sem o campo).
+TEST(EquipmentVisualProtocolTest, HideBodySlotsRoundTrip) {
+  std::vector<Umbra::Zone::EquippedVisualWireEntry> in(2);
+  in[0].equipSlot = 2;
+  in[0].meshPath = "/Game/A.A";
+  in[0].flags = 1;
+  in[0].refinementLevel = 7;
+  in[0].hideBodySlots = "Hands,Feet";
+  in[1].equipSlot = 4;
+  in[1].meshPath = "/Game/B.B";
+  const auto bytes = Umbra::Zone::encodePlayerEquipmentVisualUpdate(42, in);
+  uint32_t playerId = 0;
+  std::vector<Umbra::Zone::EquippedVisualWireEntry> out;
+  ASSERT_TRUE(Umbra::Zone::decodePlayerEquipmentVisualUpdate(bytes, playerId, out));
+  EXPECT_EQ(playerId, 42u);
+  ASSERT_EQ(out.size(), 2u);
+  EXPECT_EQ(out[0].meshPath, "/Game/A.A");
+  EXPECT_EQ(out[0].flags, 1);
+  EXPECT_EQ(out[0].refinementLevel, 7);
+  EXPECT_EQ(out[0].hideBodySlots, "Hands,Feet");
+  EXPECT_TRUE(out[1].hideBodySlots.empty());
+}
+
+TEST(EquipmentVisualProtocolTest, LegacyFrameWithoutHideBodySlots) {
+  std::vector<Umbra::Zone::EquippedVisualWireEntry> in(1);
+  in[0].equipSlot = 1;
+  in[0].meshPath = "/Game/C.C";
+  in[0].refinementLevel = 3;
+  auto bytes = Umbra::Zone::encodePlayerEquipmentVisualUpdate(5, in);
+  bytes.resize(bytes.size() - 2);  // remove o trailing3 (len=0) -> frame do cliente antigo
+  uint32_t playerId = 0;
+  std::vector<Umbra::Zone::EquippedVisualWireEntry> out;
+  ASSERT_TRUE(Umbra::Zone::decodePlayerEquipmentVisualUpdate(bytes, playerId, out));
+  ASSERT_EQ(out.size(), 1u);
+  EXPECT_EQ(out[0].refinementLevel, 3);
+  EXPECT_TRUE(out[0].hideBodySlots.empty());
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

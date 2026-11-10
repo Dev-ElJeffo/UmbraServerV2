@@ -1775,31 +1775,19 @@ private:
       aoiGrid_.updatePlayer(cid, f.x, f.y);
     }
 
-    // Preservar nome/título se já existir (PlayerInfoUpdate pode ter chegado antes do MoveUpdate)
-    std::string prevName, prevTitle, prevGuild;
-    bool prevDead = false;
-    auto itPrev = players_.find(f.playerId);
-    if (itPrev != players_.end()) {
-      prevName = itPrev->second.characterName;
-      prevTitle = itPrev->second.characterTitle;
-      prevGuild = itPrev->second.guildName;
-      prevDead = itPrev->second.isDead;
-    }
-    players_[f.playerId] = PlayerStateNet{
-      f.playerId,
-      f.x, f.y, f.z,
-      f.yaw,
-      finalTimestamp,
-      speed,        // Dados de animação
-      velocityZ,
-      isInAir,
-      prevDead
-    };
-    if (!prevName.empty() || !prevTitle.empty() || !prevGuild.empty()) {
-      players_[f.playerId].characterName = std::move(prevName);
-      players_[f.playerId].characterTitle = std::move(prevTitle);
-      players_[f.playerId].guildName = std::move(prevGuild);
-    }
+    // Atualiza só posição/animação no registro existente. Antes o registro era recriado a cada
+    // MoveUpdate e perdia combatStance (119), equippedVisual (117), classId/hair/head: o "guardar"
+    // chegava como "sem mudança" e não era retransmitido, e o snapshot de quem entrava vinha errado.
+    PlayerStateNet& moveState = players_[f.playerId];
+    moveState.playerId = f.playerId;
+    moveState.x = f.x;
+    moveState.y = f.y;
+    moveState.z = f.z;
+    moveState.yaw = f.yaw;
+    moveState.tsMs = finalTimestamp;
+    moveState.speed = speed;
+    moveState.velocityZ = velocityZ;
+    moveState.isInAir = isInAir;
     
     if (isFirstPositionUpdate) {
       MovementFrame firstOut{MovementMsgType::StateUpdate, f.playerId, f.x, f.y, f.z, f.yaw, finalTimestamp};

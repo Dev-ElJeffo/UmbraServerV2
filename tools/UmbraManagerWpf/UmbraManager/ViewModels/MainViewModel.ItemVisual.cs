@@ -64,7 +64,7 @@ public partial class MainViewModel
     }
 
     private static ItemVisualMeshRow CloneVisualRow(ItemVisualMeshRow r) =>
-        new() { Slot = r.Slot, Path = r.Path, HideHair = r.HideHair };
+        new() { Slot = r.Slot, Path = r.Path, HideHair = r.HideHair, HideBodySlots = r.HideBodySlots };
 
     private static Dictionary<string, object> VisualRowToDict(ItemVisualMeshRow r)
     {
@@ -76,6 +76,10 @@ public partial class MainViewModel
         if (r.HideHair)
         {
             d["hide_hair"] = true;
+        }
+        if (!string.IsNullOrWhiteSpace(r.HideBodySlots))
+        {
+            d["hide_body_slots"] = r.HideBodySlots.Trim();
         }
         return d;
     }
@@ -94,7 +98,13 @@ public partial class MainViewModel
                 catch { /* ignore */ }
             }
         }
-        return new ItemVisualMeshRow { Slot = slot, Path = path, HideHair = hideHair };
+        var hideBody = "";
+        if (obj["hide_body_slots"] is JsonValue hb)
+        {
+            try { hideBody = hb.GetValue<string>(); }
+            catch { /* ignore */ }
+        }
+        return new ItemVisualMeshRow { Slot = slot, Path = path, HideHair = hideHair, HideBodySlots = hideBody };
     }
 
     private void ClearItemVisualMeshEditor()

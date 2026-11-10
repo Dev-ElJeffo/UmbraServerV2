@@ -54,7 +54,7 @@ Uma tecla alterna a personagem entre **relaxada** (arma nas costas, idle relaxad
 
 | Item | Estado |
 |---|---|
-| Socket `WeaponBack` no `SK_Mannequin` (`spine_05`) | Criado com valor **calculado**, não visual: Location (6.372, -89.639, -98.455), Rotation P/Y/R (-33.584, -35.354, 42.163), Scale 1.75. É o `HandGrip_R` transportado para o `spine_05` no frame de troca do Draw (f8) e do Sheathe (f13). |
+| Socket `WeaponBack` no `SK_Mannequin` (`spine_05`) | Valor **atual (ajuste visual do usuário)**: Location (-7.42133, -5.14999, -125.569), Rotation P/Y/R (-8.2758, -51.5534, 14.66331), Scale 1.75. Valor calculado original (pegada das anims Draw f8 / Sheathe f13): Location (6.372, -89.639, -98.455), Rotation (-33.584, -35.354, 42.163). Se a arma "pular" na troca, as anims Draw/Sheathe precisam ser refeitas para a pegada nova. |
 | `IA_ToggleCombat` (Boolean) + tecla **Z** no `/Game/Input/IMC_Default` | Criados e salvos |
 | 4 animações em `/Game/Game/Animations/Combat/Barbarian/` | Importadas no `SK_Mannequin`. Idles com **Loop** ligado. |
 | `/Game/Characters/Mannequins/Anims/ABP_PlayerHumanoid` (parent `UmbraNpcAnimInstance`) | AnimGraph montado: `IdleSequence`/`WalkFwdSequence`/`RunFwdSequence` → Blend por `bIsRunning` → Blend por `bIsMoving` → Slot `DefaultSlot` → Output. Compila. |
@@ -191,6 +191,8 @@ Logs (com `Log LogTemp Verbose`): `[UmbraCombatStance] ... stance=combate anim=1
 | Sacar/guardar não tocam | Sem slot `DefaultSlot` no AnimGraph ou path errado | §1 passo 3 (Slot). Conferir o path (`/Game/Game/...` se importou nessa pasta). |
 | Arma "pula" na troca | Socket `WeaponBack` desalinhado | §2: alinhar com o `HandGrip_R` em 0,267 s do Draw. |
 | Arma sempre na mão | Socket `WeaponBack` não existe ou arma é SkeletalMesh | §2. Ver o log `socket WeaponBack ausente`. |
+| Remoto não guarda a arma (sacar funciona) | Zone antiga: o `MoveUpdate` recriava o estado do player e zerava o `combatStance`, então o "guardar" (0) era descartado como "sem mudança" | Corrigido em `MovementServer.hpp` (atualiza só os campos de movimento). Recompilar e reiniciar a `zone_server`. |
+| Remoto volta "relaxado" após sair e voltar do alcance | Ator remoto recriado nascia relaxado | Corrigido: o GameInstance guarda o último 119 por player e reaplica sem anim ao registrar o ator. |
 | Tecla não faz nada | `IA_ToggleCombat` não criado/mapeado | §3. Log `IA_ToggleCombat ausente`. |
 | O outro cliente não vê | Zone antiga (sem 119) | Recompilar e reiniciar a zone. |
 

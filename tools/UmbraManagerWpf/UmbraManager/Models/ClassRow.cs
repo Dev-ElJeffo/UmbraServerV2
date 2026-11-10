@@ -31,10 +31,8 @@ public sealed class ClassRow
     public string AnimSetJsonRaw { get; set; } = "";
     public string SkeletalMeshPath { get; set; } = "";
     public string AnimBlueprintPath { get; set; } = "";
-    public string TorsoMeshPath { get; set; } = "";
-    public string ArmsMeshPath { get; set; } = "";
-    public string LegsMeshPath { get; set; } = "";
-    public string FeetMeshPath { get; set; } = "";
+    /// <summary>Corpo da classe (coluna torso_mesh_path). Arms/legs/feet legados não são mais usados.</summary>
+    public string BodyMeshPath { get; set; } = "";
     public string MainHandMeshPath { get; set; } = "";
     public string OffHandMeshPath { get; set; } = "";
 }

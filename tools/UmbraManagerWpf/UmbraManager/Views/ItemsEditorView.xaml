@@ -139,6 +139,7 @@
                                                 SelectedItemBinding="{Binding Slot, UpdateSourceTrigger=PropertyChanged}"/>
                                             <DataGridTextColumn Header="Path SKM/SM" Binding="{Binding Path, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
                                             <DataGridCheckBoxColumn Header="Esconder cabelo" Binding="{Binding HideHair, UpdateSourceTrigger=PropertyChanged}" Width="110"/>
+                                            <DataGridTextColumn Header="Esconder no corpo (slots)" Binding="{Binding HideBodySlots, UpdateSourceTrigger=PropertyChanged}" Width="160"/>
                                             <DataGridTemplateColumn Header="" Width="70">
                                                 <DataGridTemplateColumn.CellTemplate>
                                                     <DataTemplate>
@@ -173,6 +174,7 @@
                                                 SelectedItemBinding="{Binding Slot, UpdateSourceTrigger=PropertyChanged}"/>
                                             <DataGridTextColumn Header="Path SKM/SM" Binding="{Binding Path, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
                                             <DataGridCheckBoxColumn Header="Esconder cabelo" Binding="{Binding HideHair, UpdateSourceTrigger=PropertyChanged}" Width="110"/>
+                                            <DataGridTextColumn Header="Esconder no corpo (slots)" Binding="{Binding HideBodySlots, UpdateSourceTrigger=PropertyChanged}" Width="160"/>
                                             <DataGridTemplateColumn Header="" Width="70">
                                                 <DataGridTemplateColumn.CellTemplate>
                                                     <DataTemplate>

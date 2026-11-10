@@ -88,17 +88,11 @@
         <TextBox Text="{Binding ClassFormAnimBlueprintPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12"
                  materialDesign:HintAssist.Hint="anim_blueprint_path" materialDesign:HintAssist.IsFloating="True"/>
 
-        <TextBlock Text="Corpo modular" FontWeight="SemiBold" Margin="0,0,0,6"/>
-        <TextBox Text="{Binding ClassFormTorsoMeshPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
-                 materialDesign:HintAssist.Hint="torso_mesh_path (ex. SK_Male_Torso)" materialDesign:HintAssist.IsFloating="True"/>
-        <TextBox Text="{Binding ClassFormArmsMeshPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
-                 materialDesign:HintAssist.Hint="arms_mesh_path (ex. SK_Male_Arms)" materialDesign:HintAssist.IsFloating="True"/>
-        <UniformGrid Columns="2">
-          <TextBox Text="{Binding ClassFormLegsMeshPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,6"
-                   materialDesign:HintAssist.Hint="legs_mesh_path (ex. SK_Male_Legs)" materialDesign:HintAssist.IsFloating="True"/>
-          <TextBox Text="{Binding ClassFormFeetMeshPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
-                   materialDesign:HintAssist.Hint="feet_mesh_path (ex. SK_Male_Feet)" materialDesign:HintAssist.IsFloating="True"/>
-        </UniformGrid>
+        <TextBlock Text="Corpo" FontWeight="SemiBold" Margin="0,0,0,6"/>
+        <TextBox Text="{Binding ClassFormBodyMeshPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,2"
+                 materialDesign:HintAssist.Hint="body_mesh_path (SKM do corpo; grava em torso_mesh_path)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBlock Text="Cabeça e cabelo: aba Appearance Parts. Equipamentos ficam por cima do body (aba Items → meshes visuais)."
+                   TextWrapping="Wrap" Opacity="0.7" FontSize="11" Margin="0,0,0,8"/>
 
         <TextBlock Text="Armas default" FontWeight="SemiBold" Margin="0,4,0,6"/>
         <UniformGrid Columns="2" Margin="0,0,0,12">

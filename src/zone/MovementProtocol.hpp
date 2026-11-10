@@ -564,13 +564,18 @@ struct EquippedVisualWireEntry {
   std::string meshPath;
   uint8_t flags = 0;  // bit0 = hide_hair
   uint8_t refinementLevel = 0;  // 0–12; frames antigos sem byte → 0
+  std::string hideBodySlots;    // slots de material do body a esconder ("Hands,Feet"); antigo → vazio
 };
+
+/** Limite de bytes de hide_body_slots por entrada no opcode 117. */
+constexpr size_t kEquipHideBodySlotsMaxBytes = 256;
 
 // PlayerEquipmentVisualUpdate (117):
 // [msgType:uint8][playerId:uint32][count:uint8]
 // repeat count: [equipSlot:uint8][pathLen:uint16 LE][path:utf8]
 // trailing (opcional, legado ignora se curto): repeat count [flags:uint8]  bit0=hide_hair
 // trailing2 (opcional): repeat count [refinementLevel:uint8]
+// trailing3 (opcional): repeat count [len:uint16 LE][hide_body_slots:utf8 <= 256]
 inline std::vector<uint8_t> encodePlayerEquipmentVisualUpdate(
     uint32_t playerId,
     const std::vector<EquippedVisualWireEntry>& entries) {
@@ -604,6 +609,12 @@ inline std::vector<uint8_t> encodePlayerEquipmentVisualUpdate(
   }
   for (size_t i = 0; i < count; ++i) {
     out.push_back(entries[i].refinementLevel);
+  }
+  for (size_t i = 0; i < count; ++i) {
+    const auto& s = entries[i].hideBodySlots;
+    const uint16_t len = static_cast<uint16_t>(std::min<size_t>(s.size(), kEquipHideBodySlotsMaxBytes));
+    write16(len);
+    out.insert(out.end(), s.begin(), s.begin() + len);
   }
   return out;
 }
@@ -659,6 +670,14 @@ inline bool decodePlayerEquipmentVisualUpdate(
     for (uint8_t i = 0; i < count; ++i) {
       outEntries[i].refinementLevel = data[off++];
     }
+  }
+  // hide_body_slots trailing3 (compat: buffer curto → vazio; string truncada → para sem erro)
+  for (uint8_t i = 0; i < count; ++i) {
+    if (off + 2 > data.size()) break;
+    const uint16_t len = read16();
+    if (len > kEquipHideBodySlotsMaxBytes || off + len > data.size()) break;
+    outEntries[i].hideBodySlots.assign(reinterpret_cast<const char*>(data.data() + off), len);
+    off += len;
   }
   return true;
 }
