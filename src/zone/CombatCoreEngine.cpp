@@ -1433,6 +1433,13 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
     const NpcRuntimeInstance* npc = npcManager_->findInstance(targetId);
     targetNpcDead = (npc == nullptr) || npc->isDead;
   }
+  // Skill hostil (ENEMY/AREA) resolvida no próprio caster (alvo 0 ou colisão de id):
+  // efeitos no alvo são descartados; só os do lado do caster (lifesteal etc.) seguem.
+  // Fonte NPC fica de fora: o id do NPC pode coincidir com o do player atingido.
+  const bool hostileOnCaster =
+      !g_npcSourceEffects && !effectOnSelf && targetIsPlayer &&
+      effectPlayerId == sourcePlayerId &&
+      (skill.target == Combat::TargetType::ENEMY || skill.target == Combat::TargetType::AREA);
   auto isCasterSideEffect = [](Combat::EffectType type) {
     switch (type) {
       case Combat::EffectType::LIFESTEAL:
@@ -1468,6 +1475,12 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
       Core::Logger::getInstance().debug(
           "[CombatCoreEngine] efeito {} da skill {} ignorado: NPC {} já morreu no golpe",
           static_cast<int>(eff.effectType), skill.skillId, targetId);
+      continue;
+    }
+    if (hostileOnCaster && !isCasterSideEffect(eff.effectType)) {
+      Core::Logger::getInstance().warn(
+          "[CombatCoreEngine] efeito {} da skill hostil {} ignorado: alvo resolvido no caster {}",
+          static_cast<int>(eff.effectType), skill.skillId, sourcePlayerId);
       continue;
     }
     const nlohmann::json conditions =
@@ -3016,11 +3029,12 @@ void CombatCoreEngine::disambiguateTargetType(uint32_t sourcePlayerId, uint8_t& 
   const float distPlayer =
       havePlayer ? std::sqrt(distanceSquared2D(sx, sy, px, py)) : 1.0e30f;
 
-  // Defesa: cliente pode mandar Npc por colisão de ID em PvP. Reescreve para
-  // Player se online com pos válida e (NPC ausente OU player claramente mais perto).
-  // Mantém Npc quando o NPC está tão perto ou mais perto (PvE real no homônimo).
+  // Defesa: cliente pode mandar Npc por colisão de ID em PvP. Reescreve para Player
+  // só quando não há NPC vivo com esse id. Nunca reescreve para o próprio caster:
+  // npc_instance_id == player_id do caster fazia skill ENEMY fora do range virar
+  // auto-alvo (range 0m passava e o DOT caía em quem lançou).
   if (asNpc && playerOnlineValid) {
-    if (!aliveNpc || distPlayer + 200.f < distNpc) {
+    if (!aliveNpc && targetId != sourcePlayerId) {
       Core::Logger::getInstance().info(
           "[CombatCoreEngine] disambiguateTarget id={} Npc->Player "
           "(playerOnline=1 haveNpc={} distP={:.1f} distN={:.1f} "
@@ -3087,7 +3101,17 @@ bool CombatCoreEngine::validateSkillRange(uint32_t sourcePlayerId, const Combat:
       return fail(SkillCastRejectReason::NoTarget);
     }
   } else {
-    if (!skill.requiresTarget && payload.targetId == 0) {
+    // Skill ENEMY nunca mira o próprio caster (efeito hostil cairia em quem lançou).
+    if (skill.target == TT::ENEMY &&
+        payload.targetType == static_cast<uint8_t>(CombatTargetType::Player) &&
+        payload.targetId == sourcePlayerId) {
+      Core::Logger::getInstance().debug(
+          "[CombatCoreEngine] RANGE: skill ENEMY {} com alvo no próprio caster {}", skill.skillId,
+          sourcePlayerId);
+      return fail(SkillCastRejectReason::NoTarget);
+    }
+    // ENEMY exige alvo mesmo com requires_target = 0 (sem alvo o efeito ia para o caster).
+    if (!skill.requiresTarget && payload.targetId == 0 && skill.target != TT::ENEMY) {
       return true;
     }
     if (payload.targetId == 0) {
