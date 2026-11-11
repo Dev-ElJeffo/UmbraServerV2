@@ -19,6 +19,8 @@ constexpr float kWanderPauseMinSec = 1.5f;
 constexpr float kWanderPauseMaxSec = 4.0f;
 constexpr float kArriveEpsilon = 40.f;
 constexpr float kHomeArriveEpsilon = 60.f;
+/** Ranged que tomou dano há menos que isso fica parado atacando (não recua para o stop range). */
+constexpr auto kKiteHoldAfterHit = std::chrono::milliseconds(2000);
 
 thread_local std::mt19937 gNpcAiRng{std::random_device{}()};
 
@@ -197,8 +199,13 @@ void NpcAiSystem::tick(float deltaSeconds) {
           inst.aiState = NpcAiState::Combat;
           inst.z = inst.homeZ;
           // Mantém distância de stop: se o player aproximou, o NPC recua até ~stopR.
+          // Só ranged (combat_stop_range configurado); melee (0) não recua — a separação por
+          // corpo fica no bodyMinDist abaixo. Tomando dano recente, o ranged segura e ataca.
           const float holdMin = stopR * 0.92f;
-          if (npcCanMove && toPlayer2d < holdMin && toPlayer2d > 0.001f) {
+          const bool kites = inst.combatStopRange > 0.f;
+          const bool recentlyHit = inst.lastDamagedAt.time_since_epoch().count() != 0 &&
+                                   now - inst.lastDamagedAt < kKiteHoldAfterHit;
+          if (npcCanMove && kites && !recentlyHit && toPlayer2d < holdMin && toPlayer2d > 0.001f) {
             const float awayX = inst.x - tx;
             const float awayY = inst.y - ty;
             const float awayLen = std::sqrt(awayX * awayX + awayY * awayY);

@@ -76,6 +76,8 @@ try {
             ab.expires_at,
             ab.is_permanent,
             ab.snapshot_json,
+            GREATEST(0, TIMESTAMPDIFF(MICROSECOND, NOW(3), ab.expires_at) DIV 1000) AS remaining_ms_sql,
+            GREATEST(0, TIMESTAMPDIFF(MICROSECOND, ab.started_at, ab.expires_at) DIV 1000) AS window_ms_sql,
             s.skill_name,
             s.skill_key,
             s.icon_path
@@ -105,13 +107,13 @@ try {
     ];
     
     foreach ($buffs as $buff) {
-        $expiresAtMs = strtotime($buff['expires_at']) * 1000;
-        $startedAtMs = strtotime($buff['started_at']) * 1000;
-        $remainingMs = $buff['is_permanent'] ? -1 : max(0, $expiresAtMs - $currentTime);
+        // Tempos calculados no MySQL (NOW(3)): strtotime() lia o DATETIME local do banco no fuso do
+        // PHP (UTC) e devolvia remaining_ms = 0 para todo buff (cliente nunca expirava o efeito).
+        $remainingMs = $buff['is_permanent'] ? -1 : (int)$buff['remaining_ms_sql'];
         // skills.duration_ms pode ser 0 quando a duração vem do efeito: usa a janela real do buff.
         $totalDurationMs = (int)($buff['total_duration_ms'] ?? 0);
         if ($totalDurationMs <= 0) {
-            $totalDurationMs = max(0, (int)($expiresAtMs - $startedAtMs));
+            $totalDurationMs = (int)$buff['window_ms_sql'];
         }
         $progress = ($buff['is_permanent'] || $totalDurationMs <= 0)
             ? 0
@@ -166,6 +168,8 @@ try {
             ad.ticks_remaining,
             ad.next_tick_at,
             ad.expires_at,
+            GREATEST(0, TIMESTAMPDIFF(MICROSECOND, NOW(3), ad.expires_at) DIV 1000) AS remaining_ms_sql,
+            GREATEST(0, TIMESTAMPDIFF(MICROSECOND, NOW(3), ad.next_tick_at) DIV 1000) AS next_tick_in_ms_sql,
             s.skill_name,
             s.skill_key,
             s.icon_path,
@@ -184,10 +188,9 @@ try {
     
     $activeDots = [];
     foreach ($dots as $dot) {
-        $expiresAtMs = strtotime($dot['expires_at']) * 1000;
-        $nextTickAtMs = strtotime($dot['next_tick_at']) * 1000;
-        $remainingMs = max(0, $expiresAtMs - $currentTime);
-        $nextTickIn = max(0, $nextTickAtMs - $currentTime);
+        // Mesmo motivo dos buffs: diferenças calculadas no MySQL, sem depender do fuso do PHP.
+        $remainingMs = (int)$dot['remaining_ms_sql'];
+        $nextTickIn = (int)$dot['next_tick_in_ms_sql'];
         
         $activeDots[] = [
             'dot_id' => (int)$dot['dot_id'],

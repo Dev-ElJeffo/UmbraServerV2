@@ -781,6 +781,20 @@ void CombatCoreEngine::scheduleSkillHit(uint32_t sourcePlayerId, const SkillCast
   }
 }
 
+bool CombatCoreEngine::isPlayerCasting(uint32_t playerId) {
+  if (playerId == 0) return false;
+  // Folga para a latência: a barra do cliente pode terminar um pouco antes do hit no servidor.
+  constexpr int64_t kCastGraceMs = 150;
+  const int64_t now = Core::steadyNowMs();
+  std::lock_guard<std::mutex> lock(pendingSkillHitsMu_);
+  for (const PendingSkillHit& hit : pendingSkillHits_) {
+    if (hit.sourcePlayerId == playerId && hit.executeAtMs - now > kCastGraceMs) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void CombatCoreEngine::tickPendingSkillHits() {
   const int64_t now = Core::steadyNowMs();
   std::vector<PendingSkillHit> due;
@@ -3715,6 +3729,16 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   const uint8_t rank = loadSkillRank(sourcePlayerId, payload.skillId);
 
   if (!hitOnly) {
+  // Cast em curso: nenhuma outra skill até o hit pendente vencer (antes de cobrar mana/CD).
+  if (isPlayerCasting(sourcePlayerId)) {
+    Core::Logger::getInstance().debug(
+        "[CombatCoreEngine] skill {} rejeitada: player {} conjurando", payload.skillId,
+        sourcePlayerId);
+    sendSkillCastRejected(sourcePlayerId, payload.skillId, SkillCastRejectReason::CannotCast,
+                          "Conjurando outra habilidade");
+    return;
+  }
+
   SkillCastRejectReason rangeFail = SkillCastRejectReason::Unknown;
   if (!validateSkillRange(sourcePlayerId, *skill, payload, &rangeFail)) {
     std::string rangeMsg;
@@ -4082,6 +4106,14 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
   if (!movementServer_) return;
 
   BasicAttackPayload payload = payloadIn;
+
+  // Cast em curso: ataque básico descartado (sem reject, como no range).
+  if (isPlayerCasting(sourcePlayerId)) {
+    Core::Logger::getInstance().debug(
+        "[CombatCoreEngine] basic attack descartado: player {} conjurando", sourcePlayerId);
+    return;
+  }
+
   disambiguateTargetType(sourcePlayerId, payload.targetType, payload.targetId);
 
   Combat::CharacterState attacker;

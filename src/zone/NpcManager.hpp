@@ -124,6 +124,8 @@ struct NpcRuntimeInstance {
   bool hasWanderDest = false;
   std::chrono::steady_clock::time_point nextWanderAt{};
   std::chrono::steady_clock::time_point lastAttackAt{};
+  /** Último dano recebido (applyDamage com delta < 0). Ranged não recua enquanto toma dano. */
+  std::chrono::steady_clock::time_point lastDamagedAt{};
   /** Round-robin de attacks[] / casts[]. */
   uint32_t nextAttackAnimIndex = 0;
   uint32_t nextCastAnimIndex = 0;

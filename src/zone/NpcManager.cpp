@@ -702,6 +702,9 @@ int32_t NpcManager::applyDamage(uint32_t npcInstanceId, int32_t delta, bool& out
   const int32_t before = inst.currentHealth;
   inst.currentHealth = std::max(0, std::min(inst.maxHealth, inst.currentHealth + delta));
   const int32_t applied = inst.currentHealth - before;
+  if (applied < 0) {
+    inst.lastDamagedAt = std::chrono::steady_clock::now();
+  }
 
   if (inst.currentHealth <= 0) {
     inst.isDead = true;

@@ -166,6 +166,9 @@ public:
    *  Mana/CD já foram cobrados no cast; commitar evita perder dano do cast anterior. */
   void commitPendingSkillHitsNow(uint32_t sourcePlayerId);
   void scheduleSkillHit(uint32_t sourcePlayerId, const SkillCastPayload& payload, uint32_t delayMs);
+  /** True se o player tem cast em curso (hit pendente vencendo em mais de kCastGraceMs).
+   *  Novo cast/ataque básico durante o cast é barrado. */
+  bool isPlayerCasting(uint32_t playerId);
 
   /** Enfileira combate e retorna imediato (não bloqueia a thread de leitura WS). */
   void enqueueSkillCast(uint32_t sourcePlayerId, const SkillCastPayload& payload);
