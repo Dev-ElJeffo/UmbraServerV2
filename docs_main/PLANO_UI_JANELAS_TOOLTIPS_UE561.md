@@ -134,7 +134,8 @@ Por janela: reparent para a classe `Umbra*` (base `UUmbraWindowWidget`), painel 
 | 2 — Tooltip único | Pronto para item, skill e buff (stat, quest e Refinement pendentes) |
 | 3 — Estilo | pendente (lote 1 recebeu banner vermelho e X ornamentado por estilo direto no WBP) |
 | 4 — Mapa de tela | pendente |
-| 5 — Migração WBPs | Lote 1 feito (Inventory, CharacterInfo1, SkillBook, QuestJournal; BP_ThirdPersonCharacter e WBP_SkillSlot limpos). Lote 2 feito no Editor (Storage, NpcVendor, Trade, Refinement, Enchant) + tracker de quests do HUD; falta gravar DefaultPlacement/WindowTitle de Vendor/Trade/Refinement/Enchant após o rebuild |
+| 5 — Migração WBPs | Lote 1 feito (Inventory, CharacterInfo1, SkillBook, QuestJournal; BP_ThirdPersonCharacter e WBP_SkillSlot limpos). Lote 2 feito no Editor (Storage, NpcVendor, Trade, Refinement, Enchant) + tracker de quests do HUD; falta gravar DefaultPlacement/WindowTitle de Vendor/Trade/Refinement/Enchant após o rebuild. Lote 3 feito (social). Lote 4 feito no Editor (Auction, Crafting, Guild, Options, Game Menu); defaults de Options e Game Menu gravados (Center, "Configurações"/"Menu") — aguarda QA |
+| 6 — Guia e QA | em andamento (guia atualizado a cada lote) |
 
 ### Correções incluídas no lote 2
 
@@ -160,4 +161,17 @@ Por janela: reparent para a classe `Umbra*` (base `UUmbraWindowWidget`), painel 
 Posições: Friend/Blocked/Whisper `LeftColumn`; Mail/Report `Center`.
 
 Ajustes de apoio: o ESC ignora janelas invisíveis (Mail/Whisper "fecham" com Collapsed); a raiz de tela cheia do Mail e do Whisper não força mais Visible; o toggle da HUD trata Collapsed como fechado; o handler de fechar da base virou `HandleWindowCloseButtonClicked` (o nome antigo colidia com a Report).
-| 6 — Guia e QA | pendente |
+
+### Lote 4 (Auction, Crafting, Guild, Options, Game Menu)
+
+Auction, Crafting e Guild já tinham sido adiantados no lote 2 (ver tabela acima).
+
+| WBP | Classe | Situação |
+|-----|--------|----------|
+| WBP_GameMenu | `UmbraGameMenuWidget` → `UmbraWindowWidget` | `Border_MenuPanel` → `Border_Window`, `Txt_MenuTitle` → `Text_WindowTitle` ("Menu"), X ornamentado, botões em pt-BR |
+| WBP_Options | `UmbraOptionsWidget` → `UmbraWindowWidget` | `Border_BackDrop` → `Border_Window`, `TextTitle` → `Text_WindowTitle` ("Configurações"), X ornamentado, rótulos em pt-BR, botão novo `BTN_ResetWindows` ("Redefinir janelas") |
+
+C++:
+- `CloseMenu()` e `CloseOptions()` passam por `CloseWindow()`. Os avisos `OnGameMenuClosed` e `OnOptionsClosed` saem do gancho `OnWindowCloseRequested`, uma vez por abertura (`bCloseNotified`), então X, ESC e botão dão o mesmo resultado.
+- `BTN_ResetWindows` chama `UUmbraWindowManagerSubsystem::ResetWindowPositions()` (apaga as posições salvas e reposiciona as janelas abertas) e devolve a própria Options ao padrão.
+- Menu e Options continuam fora da camada do manager (Z 450/500 no viewport), porque o PlayerController controla o input deles. O arraste funciona igual.

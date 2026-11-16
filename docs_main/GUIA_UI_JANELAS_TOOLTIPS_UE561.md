@@ -84,6 +84,8 @@ Valores por janela:
 | WBP_RefinementWindow | `NextToInventory` | Refinamento |
 | WBP_ItemEnchant | `NextToInventory` | Encantamento de Cristal |
 | WBP_QuestHudTracker (HUD) | `Designer` (direita-meio) | Missões |
+| WBP_GameMenu | `Center` | Menu |
+| WBP_Options | `Center` | Configurações |
 
 ### Tracker de quests do HUD
 
@@ -95,6 +97,12 @@ Valores por janela:
 
 - Todo fechamento pedido (X, ESC, toggle) passa por `UUmbraWindowWidget::CloseWindow`, que chama `OnWindowCloseRequested` antes de remover.
 - A Troca usa esse gancho para cancelar a sessão no servidor. Não ligue o X da Troca em outro handler.
+
+### Menu (ESC) e Configurações
+
+- `WBP_GameMenu` e `WBP_Options` herdam `UmbraWindowWidget`: arrastam pela barra `Border_TitleBar` e fecham pelo X `Btn_Close` (fallback da base; na Options ele também é o bind `BTN_Close`, e os dois caminhos acabam em `CloseWindow()`).
+- O X, o ESC e os botões **Continuar**/**Fechar** dão o mesmo resultado: o C++ avisa o PlayerController uma vez e restaura o input.
+- Botão `BTN_ResetWindows` (**Redefinir janelas**, rodapé da Options): apaga as posições salvas e devolve todas as janelas abertas à posição padrão. Não precisa de Graph.
 
 ### Loja pessoal
 
@@ -165,6 +173,10 @@ PIE com **Number of Players = 2**, **New Editor Window (PIE)**, janela fora do c
 | Troca aberta → ESC | Janela fecha e P2 recebe o cancelamento |
 | Hover em item | Nome do item aparece na faixa do tooltip, sem o X |
 | Tracker de quests: arrastar pela barra "Missões" e mudar a resolução | Move, não sai da tela e mantém a posição relativa |
+| Menu (ESC) → X do menu | Menu fecha, cursor e movimento voltam ao normal |
+| Menu → Opções → X da Options | Volta ao Menu com o foco nele |
+| Arrastar Menu e Options pela barra | Movem sem pular e não saem da tela |
+| Arrastar inventário → Options → **Redefinir janelas** | Inventário volta à coluna direita; ao reabrir, continua no padrão |
 
 Logs esperados: `"[UmbraPlayerController] WBP_SkillBook aberto (camada de janelas)."`.
 
