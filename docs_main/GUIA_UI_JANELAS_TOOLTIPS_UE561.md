@@ -86,6 +86,13 @@ Valores por janela:
 | WBP_QuestHudTracker (HUD) | `Designer` (direita-meio) | Missões |
 | WBP_GameMenu | `Center` | Menu |
 | WBP_Options | `Center` | Configurações |
+| Popups de pedido (Party/Trade/Friend/Guild) | `TopCenter` (camada Popup, C++) | Título no WBP |
+| WBP_SetPriceItem | `Center` (camada Modal, C++) | Definir preço do item |
+| WBP_PartyPanel (HUD) | `Designer` (C++, id `PartyPanel`) | Grupo |
+| WBP_LootWindow | `NearCursor` (C++) | (vazio: o C++ escreve em `Text_LootTitle`) |
+| WBP_NpcDialogWidget | `TopCenter` (C++) | (vazio: o C++ escreve em `Text_NpcName`) |
+| WBP_QuestInteraction | `TopCenter` (C++) | (vazio: o C++ escreve em `Text_QuestTitle`) |
+| WBP_Personal_Player_Store / WBP_PersonalShopBuyer | `NextToInventory` (C++) | Loja do jogador |
 
 ### Tracker de quests do HUD
 
@@ -103,6 +110,30 @@ Valores por janela:
 - `WBP_GameMenu` e `WBP_Options` herdam `UmbraWindowWidget`: arrastam pela barra `Border_TitleBar` e fecham pelo X `Btn_Close` (fallback da base; na Options ele também é o bind `BTN_Close`, e os dois caminhos acabam em `CloseWindow()`).
 - O X, o ESC e os botões **Continuar**/**Fechar** dão o mesmo resultado: o C++ avisa o PlayerController uma vez e restaura o input.
 - Botão `BTN_ResetWindows` (**Redefinir janelas**, rodapé da Options): apaga as posições salvas e devolve todas as janelas abertas à posição padrão. Não precisa de Graph.
+
+### HUD (`WBP_PlayerHUD`)
+
+| Região | Peça | Observação |
+|--------|------|------------|
+| Base-direita | Micro-menu (`Border_MainPanel` → `HorizontalBox_108` → `WB_MicroMenu`) | Os 13 botões `BTN_*` mantêm o nome do bind. Sem filho no Designer: o C++ cria o rótulo pt-BR e o tooltip com atalho. Para trocar por ícone depois, basta pôr um `Image` dentro do botão (o C++ não sobrescreve botão com conteúdo) |
+| Base-centro | `Border_58` (HP/MP) + `BTN_AutoAttack` no fim de `HB_StatsBars` | Texto e cor do auto-ataque vêm do C++ |
+| Base-centro, acima do HP/MP | `WBP_SkillCastBar` | O painel interno estica no slot da HUD; mude só o tamanho do slot |
+| Topo-centro | `WBP_Levelup` (abaixo do toast) | Aviso some sozinho (5 s, fade); só o botão **Abrir atributos** recebe clique. Graph vazio |
+
+- Tamanho da fonte dos rótulos: **Class Defaults** do `WBP_PlayerHUD` → `Umbra|HUD|MicroMenu` → `MicroMenuFontSize` (padrão 10).
+- O micro-menu fica colado à direita da skill bar em 16:9. Em tela mais estreita, reduza `WrapWidth` do `WB_MicroMenu` (ex.: 480) para virar 3 linhas.
+
+### Tooltips que crescem com o texto
+
+- Os WBPs de tooltip continuam com o painel de tamanho fixo no Designer: o C++ (`UUmbraTooltipSubsystem::FitTooltipToContent`) usa a **largura** do Designer, deixa a **altura** crescer e liga a quebra de linha em todo texto.
+- Para deixar um tooltip mais largo, aumente a largura do painel (1º filho do canvas raiz) no Designer; a altura não importa mais.
+
+### Painéis de alvo (player e NPC selecionados)
+
+- `WBP_SelectedPlayerInfo` e `WBP_SelectedNpcInfo` herdam `UmbraWindowWidget` como elemento de HUD: o painel é `Border_Window` e a área de arraste é `Border_TitleBar` (transparente, envolve a linha de nível e nome).
+- Ids `SelectedPlayerInfo` e `SelectedNpcInfo`: a posição arrastada é salva e reaplicada a cada nova seleção. ESC não fecha.
+- O C++ abre os painéis em `SelfHitTestInvisible`. Não troque a raiz desses WBPs para Visible nem para HitTestInvisible (a segunda impede o arraste).
+- Menu de contexto do jogador (`WBP_PlayerContextMenu`): a HUD preenche `SelectionComponent` e `CachedPlayerInfo` antes de abrir. Não renomeie essas variáveis no Graph.
 
 ### Loja pessoal
 
@@ -177,6 +208,20 @@ PIE com **Number of Players = 2**, **New Editor Window (PIE)**, janela fora do c
 | Menu → Opções → X da Options | Volta ao Menu com o foco nele |
 | Arrastar Menu e Options pela barra | Movem sem pular e não saem da tela |
 | Arrastar inventário → Options → **Redefinir janelas** | Inventário volta à coluna direita; ao reabrir, continua no padrão |
+| Receber convite de grupo/troca/amizade/guilda | Popup no topo-centro, em pt-BR, arrastável; ESC fecha sem recusar |
+| Dois convites seguidos | Abrem em cascata, sem um cobrir o outro por completo |
+| Entrar em grupo → arrastar a barra "Grupo" | Move e mantém a posição ao reabrir; ESC não fecha o painel; clique no mundo ao lado funciona |
+| Abrir loot | Janela perto do cursor; X e ESC fecham e o movimento volta |
+| Falar com NPC → Missões | Diálogo e missões no topo-centro, arrastáveis, sem cobrir HP/MP |
+| Loja pessoal: Definir preço | Modal no centro; ESC cancela |
+| Selecionar player e NPC → arrastar o painel pela linha do nome → trocar de alvo | Painel reabre na posição arrastada; clique no mundo ao lado funciona |
+| Clique direito em player → **Bloquear** → abrir o menu de novo | Aparece **Desbloquear**; sem erro de `SelectionComponent` no log |
+| HUD: micro-menu na base-direita | 13 botões com texto em pt-BR; hover mostra o tooltip com atalho; cada um abre a janela certa; clique no mundo ao lado funciona |
+| Ligar/desligar auto-ataque (botão ao lado do HP/MP) | Texto "Auto: ligado/desligado" sem estourar o botão; cor muda |
+| Subir de nível | Aviso no topo-centro com fade, some em ~5 s; clique no mundo atrás dele funciona; **Abrir atributos** abre a ficha e fecha o aviso |
+| Castar skill com tempo de conjuração | Barra dourada acima do HP/MP, nome à esquerda e tempo à direita |
+| Hover em skill de descrição longa / item com muitos atributos / stat da ficha | Texto inteiro dentro da borda; o tooltip cresce para baixo e não sai da tela |
+| 1280x720 e 2560x1440 | Micro-menu não sobrepõe a skill bar; nada sai da tela |
 
 Logs esperados: `"[UmbraPlayerController] WBP_SkillBook aberto (camada de janelas)."`.
 
@@ -200,3 +245,8 @@ Logs esperados: `"[UmbraPlayerController] WBP_SkillBook aberto (camada de janela
 - SaveGame: `Core/UmbraClientSettings.h` (`WindowPositions`)
 
 **Fim do guia.**
+
+### Pendências do lote 5 (Editor)
+
+- **WBP_QuestRewardPicker**: o Designer está vazio. Montar no padrão de janela: CanvasPanel raiz → `Border_Window` → VerticalBox com `Border_TitleBar` (`Text_Title`), `VBox_Choices`, `Text_SelectedItem` e `BTN_ConfirmReward`. Não precisa de Graph.
+- **WBP_FriendRemoveConfirm**: continua aberto pelo Graph da FriendList (entra na migração da FriendList para C++).

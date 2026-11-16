@@ -134,7 +134,7 @@ Por janela: reparent para a classe `Umbra*` (base `UUmbraWindowWidget`), painel 
 | 2 — Tooltip único | Pronto para item, skill e buff (stat, quest e Refinement pendentes) |
 | 3 — Estilo | pendente (lote 1 recebeu banner vermelho e X ornamentado por estilo direto no WBP) |
 | 4 — Mapa de tela | pendente |
-| 5 — Migração WBPs | Lote 1 feito (Inventory, CharacterInfo1, SkillBook, QuestJournal; BP_ThirdPersonCharacter e WBP_SkillSlot limpos). Lote 2 feito no Editor (Storage, NpcVendor, Trade, Refinement, Enchant) + tracker de quests do HUD; falta gravar DefaultPlacement/WindowTitle de Vendor/Trade/Refinement/Enchant após o rebuild. Lote 3 feito (social). Lote 4 feito no Editor (Auction, Crafting, Guild, Options, Game Menu); defaults de Options e Game Menu gravados (Center, "Configurações"/"Menu") — aguarda QA |
+| 5 — Migração WBPs | Lote 1 feito (Inventory, CharacterInfo1, SkillBook, QuestJournal; BP_ThirdPersonCharacter e WBP_SkillSlot limpos). Lote 2 feito no Editor (Storage, NpcVendor, Trade, Refinement, Enchant) + tracker de quests do HUD; falta gravar DefaultPlacement/WindowTitle de Vendor/Trade/Refinement/Enchant após o rebuild. Lote 3 feito (social). Lote 4 feito no Editor (Auction, Crafting, Guild, Options, Game Menu); defaults de Options e Game Menu gravados (Center, "Configurações"/"Menu"). Lote 5a feito (popups, Party, Loot, NPC Dialog, Quest Interaction, lojas, preço; QA ok). Lote 5c feito (painéis de alvo de player e NPC arrastáveis; QA ok). Lote 5b feito (HUD e textos que transbordam); aguarda QA |
 | 6 — Guia e QA | em andamento (guia atualizado a cada lote) |
 
 ### Correções incluídas no lote 2
@@ -175,3 +175,63 @@ C++:
 - `CloseMenu()` e `CloseOptions()` passam por `CloseWindow()`. Os avisos `OnGameMenuClosed` e `OnOptionsClosed` saem do gancho `OnWindowCloseRequested`, uma vez por abertura (`bCloseNotified`), então X, ESC e botão dão o mesmo resultado.
 - `BTN_ResetWindows` chama `UUmbraWindowManagerSubsystem::ResetWindowPositions()` (apaga as posições salvas e reposiciona as janelas abertas) e devolve a própria Options ao padrão.
 - Menu e Options continuam fora da camada do manager (Z 450/500 no viewport), porque o PlayerController controla o input deles. O arraste funciona igual.
+
+### Lote 5a (popups e janelas de interação)
+
+Defaults definidos no **construtor C++** (não precisa gravar no WBP):
+
+| WBP | Classe | Camada / posição | Ajustes no WBP |
+|-----|--------|------------------|----------------|
+| WBP_PartyRequested, WBP_TradeRequested, WBP_FriendRequested | `UmbraRequestPopupWidget` | Popup, `TopCenter`, sem posição salva | `Border_Window`, `Text_WindowTitle`, X ornamentado, textos pt-BR |
+| WBP_GuildInvitePopup | `UmbraGuildInvitePopupWidget` | Popup, `TopCenter`, sem posição salva | `Border_Window`, X ornamentado, botões banner, textos pt-BR (título/corpo vêm do C++ via NSLOCTEXT) |
+| WBP_SetPriceItem | `UmbraSetItemPriceWidget` | Modal, `Center`, sem posição salva | `Border_Window`, `Border_TitleBar`, `Text_WindowTitle`, textos pt-BR |
+| WBP_PartyPanel | `UmbraPartyWidget` | HUD (Z0), `Designer`, posição salva (`PartyPanel`), ESC não fecha | `Border_Window`, barra nova `Border_TitleBar` ("Grupo") no topo do `VB_PartyBox`, "Sair do grupo" |
+| WBP_LootWindow | `UmbraLootWindowWidget` | Window, `NearCursor`, sem posição salva | `Border_Window`, X ornamentado, "Saque"/"Pegar item"/"Pegar tudo" |
+| WBP_NpcDialogWidget | `UmbraNpcDialogWidget` | Window, `TopCenter` | `Border_Window`, barra nova `Border_TitleBar` com `Text_NpcName`, "Missões"/"Loja" |
+| WBP_QuestInteraction | `UmbraQuestInteractionWidget` | Window, `TopCenter` (sai de cima do HP/MP) | `Border_Window`, `Border_TitleBar`, botões pt-BR |
+| WBP_Personal_Player_Store, WBP_PersonalShopBuyer | `UmbraPlayerStoreWidget`, `UmbraPersonalShopBuyerWidget` | Window, `NextToInventory` | `Border_Window`, X ornamentado, textos pt-BR |
+| WBP_QuestRewardPicker | `UmbraQuestRewardPickerWidget` | Modal, `Center` | **Designer vazio** — falta montar o layout no padrão de janela |
+
+C++:
+- Popups de pedido: X, ESC, Aceitar e Recusar saem pelo gancho `OnWindowCloseRequested`, que avisa o HUD (`OnPopupClosed`) para limpar o dedupe. X/ESC só fecham; o pedido segue pendente no servidor.
+- Party: a raiz passa a `SelfHitTestInvisible` ao entrar no grupo (antes ficava `Visible` em tela cheia).
+- Loot: a busca do painel por nome aceita `Border_Window` (antes só `Border_LootPanel`).
+
+Ficou de fora: `WBP_FriendRemoveConfirm` (aberto pelo Graph da FriendList; entra junto com a migração da FriendList para C++).
+
+### Lote 5b (HUD + textos que transbordam) — feito, aguarda rebuild e QA
+
+Achados no `WBP_PlayerHUD` (1920x1080): micro-menu e auto-ataque no topo-direita (lugar do minimapa no mapa de tela); Level Up no centro da tela; texto de designer "Bloco de Texto" visível acima do HP/MP; cast bar sem estilo. Tooltips com texto saindo do painel.
+
+| Item | Feito |
+|------|-------|
+| Micro-menu | `WB_MicroMenu` (WrapBox, quebra em 600) dentro de `HorizontalBox_108`; `Border_MainPanel` na base-direita (âncora 1,1, margem 24, AutoSize). Ordem: Skills, Missões, Loja, Leilão, Armazém, Refino, Encantar, Criar, Amigos, Bloqueados, Correio, Guilda, Menu. Ícones trocados por banner (`button.button`); rótulo e tooltip com atalho criados em C++ (`UUmbraPlayerHudWidget::ApplyMicroMenuLabels`, NSLOCTEXT) |
+| Auto-ataque | `BTN_AutoAttack` no fim de `HB_StatsBars` (ao lado do HP/MP; painel `Border_58` 640 de largura); texto "Auto: ligado/desligado" |
+| Level Up | Slot no topo-centro (y 230, 340x160); `Border_Panel` estica no slot; Graph do `WBP_Levelup` apagado; C++: fade in/out, 5 s, raiz `SelfHitTestInvisible`, botão **Abrir atributos** → `ToggleCharacterInfo` |
+| Cast bar | Slot na base-centro acima do HP/MP (y -348, 340x44); `VerticalBox_60` estica; preenchimento dourado, fundo banner, textos 11 com sombra |
+| "Bloco de Texto" | Era o texto de exemplo do `WBP_CombatFeedback` (`Feedback_Text`): vazio no Designer e AutoSize para mensagens longas |
+| Tooltips | `UUmbraTooltipSubsystem::FitTooltipToContent`: painel de tamanho fixo vai para um SizeBox com a largura do Designer, altura cresce com o texto, todo TextBlock quebra linha. Vale para skill, item e buff (subsystem) e para o tooltip de stat da ficha |
+
+### Lote 5c (painéis de alvo arrastáveis) — feito, QA ok (16/11/2026)
+
+| WBP | Classe | Hoje | Alvo |
+|-----|--------|------|------|
+| WBP_SelectedPlayerInfo | `UmbraSelectedPlayerInfoWidget` (`UUserWidget`) | `AddToViewport(100)` pelo `UmbraPlayerSelectionComponent::ShowTargetWidget`, posição fixa | Base `UUmbraWindowWidget` como elemento de HUD: `WindowId = SelectedPlayerInfo`, `Designer`, posição salva, `bCloseOnEscape = false` |
+| WBP_SelectedNpcInfo | `UmbraNpcTargetInfoWidget` (`UUserWidget`) | `AddToViewport(101)` pelo `ShowNpcTargetWidget`, posição fixa | Mesmo padrão: `WindowId = SelectedNpcInfo`, posição salva, ESC não fecha |
+
+Passos:
+- C++: trocar a base das duas classes e definir os defaults no construtor (como o Party e o tracker de quests); conferir se algum código busca o painel por nome.
+- WBP (MCP): painel → `Border_Window`; faixa do nome → `Border_TitleBar`; raiz `SelfHitTestInvisible` para não bloquear clique no mundo.
+- Os painéis são recriados a cada seleção: a posição salva reaplica sozinha ao abrir (mesma regra das janelas).
+- QA: selecionar player/NPC → arrastar → trocar de alvo → o painel volta na posição arrastada; mudar a resolução mantém dentro da tela.
+
+### Correção — menu de contexto do jogador (16/11/2026)
+
+- Erro: `Accessed None ... SelectionComponent` no `ExecuteContextAction` do `WBP_PlayerContextMenu`.
+- Causa: desde `b657c7f` o menu é criado pelo C++ da HUD (`HandlePlayerContextMenuRequested`), e a variável `SelectionComponent` do Graph (antes passada pelo BP que criava o menu) ficava vazia.
+- Correção: a HUD preenche `SelectionComponent` por reflexão antes do `AddToViewport`. Futuro: levar a lógica do Graph do menu para uma classe C++.
+
+Execução do 5c:
+- C++: `UmbraSelectedPlayerInfoWidget` e `UmbraNpcTargetInfoWidget` herdam `UUmbraWindowWidget` (ids `SelectedPlayerInfo`/`SelectedNpcInfo`, `Designer`, posição salva, ESC não fecha). `CenterAtTopOfViewport` não roda quando o WBP tem `Border_Window`. O `UmbraPlayerSelectionComponent` abre os painéis em `SelfHitTestInvisible` (antes `HitTestInvisible`, que impedia o arraste).
+- WBP: `Border_SelectedPlayerInfo` → `Border_Window` (Visible); `Border_TitleBar` transparente envolvendo a linha de nível/nome (área de arraste).
+- Menu de contexto: a HUD também preenche `CachedPlayerInfo` (usado pelo Bloquear/Desbloquear), que ficava vazio.
