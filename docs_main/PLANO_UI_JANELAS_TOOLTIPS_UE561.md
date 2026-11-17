@@ -134,7 +134,7 @@ Por janela: reparent para a classe `Umbra*` (base `UUmbraWindowWidget`), painel 
 | 2 — Tooltip único | Pronto para item, skill e buff (stat, quest e Refinement pendentes) |
 | 3 — Estilo | pendente (lote 1 recebeu banner vermelho e X ornamentado por estilo direto no WBP) |
 | 4 — Mapa de tela | pendente |
-| 5 — Migração WBPs | Lote 1 feito (Inventory, CharacterInfo1, SkillBook, QuestJournal; BP_ThirdPersonCharacter e WBP_SkillSlot limpos). Lote 2 feito no Editor (Storage, NpcVendor, Trade, Refinement, Enchant) + tracker de quests do HUD; falta gravar DefaultPlacement/WindowTitle de Vendor/Trade/Refinement/Enchant após o rebuild. Lote 3 feito (social). Lote 4 feito no Editor (Auction, Crafting, Guild, Options, Game Menu); defaults de Options e Game Menu gravados (Center, "Configurações"/"Menu"). Lote 5a feito (popups, Party, Loot, NPC Dialog, Quest Interaction, lojas, preço; QA ok). Lote 5c feito (painéis de alvo de player e NPC arrastáveis; QA ok). Lote 5b feito (HUD e textos que transbordam); aguarda QA |
+| 5 — Migração WBPs | Lote 1 feito (Inventory, CharacterInfo1, SkillBook, QuestJournal; BP_ThirdPersonCharacter e WBP_SkillSlot limpos). Lote 2 feito no Editor (Storage, NpcVendor, Trade, Refinement, Enchant) + tracker de quests do HUD; falta gravar DefaultPlacement/WindowTitle de Vendor/Trade/Refinement/Enchant após o rebuild. Lote 3 feito (social). Lote 4 feito no Editor (Auction, Crafting, Guild, Options, Game Menu); defaults de Options e Game Menu gravados (Center, "Configurações"/"Menu"). Lote 5a feito (popups, Party, Loot, NPC Dialog, Quest Interaction, lojas, preço; QA ok). Lote 5c feito (painéis de alvo de player e NPC arrastáveis; QA ok). Lote 5b feito (HUD e textos que transbordam; QA ok). Fase 5 concluída |
 | 6 — Guia e QA | em andamento (guia atualizado a cada lote) |
 
 ### Correções incluídas no lote 2
@@ -199,7 +199,7 @@ C++:
 
 Ficou de fora: `WBP_FriendRemoveConfirm` (aberto pelo Graph da FriendList; entra junto com a migração da FriendList para C++).
 
-### Lote 5b (HUD + textos que transbordam) — feito, aguarda rebuild e QA
+### Lote 5b (HUD + textos que transbordam) — feito, QA ok (16/11/2026)
 
 Achados no `WBP_PlayerHUD` (1920x1080): micro-menu e auto-ataque no topo-direita (lugar do minimapa no mapa de tela); Level Up no centro da tela; texto de designer "Bloco de Texto" visível acima do HP/MP; cast bar sem estilo. Tooltips com texto saindo do painel.
 

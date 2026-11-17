@@ -41,6 +41,47 @@ function enchant_display_name(string $stat_key): string
     return $map[$stat_key] ?? $stat_key;
 }
 
+/**
+ * item_id do template de cristal que representa o afixo (para o cliente mostrar o ícone certo).
+ * Cristal com stats_json.enchant_force_stat = stat_key; sem esse, o primeiro cristal sem atributo
+ * forçado (genérico); sem nenhum, 0. Uma consulta por requisição (cache estático).
+ */
+function enchant_crystal_item_id_for_stat(string $stat_key): int
+{
+    static $byStat = null;
+    static $generic = 0;
+    if ($byStat === null) {
+        $byStat = [];
+        try {
+            if (!function_exists('getConnection')) {
+                require_once __DIR__ . '/../config/database.php';
+            }
+            $pdo = getConnection();
+            if (!$pdo) {
+                return 0;
+            }
+            $st = $pdo->prepare('SELECT item_id, stats_json FROM item_templates WHERE item_subtype = ? ORDER BY item_id ASC');
+            $st->execute([ENCHANT_CRYSTAL_SUBTYPE]);
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $id = (int)$row['item_id'];
+                $json = json_decode((string)($row['stats_json'] ?? ''), true);
+                $force = is_array($json) ? (string)($json['enchant_force_stat'] ?? '') : '';
+                if ($force !== '') {
+                    $key = function_exists('map_target_stat_to_canonical') ? map_target_stat_to_canonical($force) : $force;
+                    if (!isset($byStat[$key])) {
+                        $byStat[$key] = $id;
+                    }
+                } elseif ($generic === 0) {
+                    $generic = $id;
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('[enchant_helper] crystal map: ' . $e->getMessage());
+        }
+    }
+    return $byStat[$stat_key] ?? $generic;
+}
+
 function enchant_is_equipment(?array $template): bool
 {
     if (!$template) {
@@ -131,6 +172,7 @@ function enchant_parse_list($raw): array
             'stat_key' => $key,
             'value' => $value,
             'display_name' => enchant_display_name($key),
+            'crystal_item_id' => enchant_crystal_item_id_for_stat($key),
         ];
     }
     usort($out, static fn($a, $b) => $a['slot'] <=> $b['slot']);
