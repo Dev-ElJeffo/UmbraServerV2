@@ -141,6 +141,52 @@ Sem o reparent, o botão **Renascer** não faz nada (o Graph antigo já foi apag
 - `WBP_InventorySlot` → função `OnDragDetected`: saiu o ramo do Shift (o C++ trata o Shift antes; o ramo antigo abria o `WBP_SplitInput` e escrevia "Item não pode ser dividido" na tela).
 - Textos de designer em inglês ou "Bloco de Texto": 199 textos em 36 WBPs passaram para pt-BR (login, cadastro, seleção e criação de personagem, menus de jogador e amigo, chat, level up, chances de CC, livro de skills, troca, sussurro...). Nomes de classe (Barbarian, Templar...) ficaram como estão.
 
+## 2.7) Correções do QA geral (ficha, excluir item, armazém, leilão, guilda e livro)
+
+Saídas do primeiro QA geral (17/11/2026). As mudanças nos WBPs já foram feitas via MCP; a sua parte é o rebuild e um reparent.
+
+### Passo depois do rebuild (obrigatório)
+
+1. **Rebuild** do módulo (classe nova `UmbraDeleteItemWidget`; headers da ficha, do inventário e do armazém mudaram).
+2. Abrir `/Game/Widgets/UI/Inventory/WBP_DeleteItem` → **File → Reparent Blueprint** → `UmbraDeleteItemWidget` → **Compile** → **Save**.
+3. Reiniciar o editor antes do PIE (os WBPs foram editados via MCP; evita o crash de "world leak").
+
+### Ficha (`/Game/Widgets/UI/CharacterInfo/WBP_CharacterInfo1`)
+
+- **Valores sobrepostos:** a função BP **Update Character Info Display** reescrevia os textos no formato antigo ("Strength: 8/8", "Level: 4", "Class: DarkMage") depois de cada recarga (ao aplicar pontos, por exemplo). Ela ficou só com a chamada a `UpdateEquipmentSlots`; os textos são do C++.
+- **Segurar + / −:** clicar soma 1 ponto; **segurando**, repete depois de 0,35 s, a cada 0,06 s, e depois de 20 repetições soma 5 por vez. Para ao soltar, ao sair do botão ou quando os pontos livres acabam. Ajustável em **Class Defaults → Umbra|CharacterInfo** (`Stat Repeat Delay`, `Stat Repeat Interval`).
+- Não existe limite de 10 pontos por envio (nem no C++ nem no PHP); o "+" só desliga quando os pontos livres acabam.
+
+### Excluir item (`WBP_DeleteItem`)
+
+- Toda a lógica saiu do Graph (63 nós, funções `CreateDeleteSlot`, `OnDrop`, `ResetTrashSlot` e variáveis) e foi para o C++ (`UUmbraDeleteItemWidget`).
+- Binds (nomes já existentes no WBP): `Text_Item_Name`, `Text_Info`, `Grid_DeleteSlots`, `BTN_Delete_Item`, `BTN_Cancel_Delete`, `Border_TitleBar`.
+- `Grid_DeleteSlots` é montado pelo C++ (quadro com ícone e quantidade): não ponha nada dentro.
+- `WBP_TrashSlot` ficou sem uso (nenhuma referência). Pode ser apagado quando quiser.
+
+### Armazém (`WBP_Storage`)
+
+- O texto de ouro mostra o **ouro guardado** ("N ouro guardado"), e "Itens: N/100" conta os itens do armazém. Os 3 nós `Set Text` do Graph que escreviam no `Text_Gold_Info` foram removidos.
+
+### Leilão, guilda e livro (layout via MCP)
+
+- `WBP_AuctionHouse`: o preço do slot da aba **Vender** fica escondido (o preço está no campo "Preço de venda"); `SizeBox_0` com 72×72.
+- `WBP_GuildMemberRow`: `Border_40` passou de 850×100 fixo para a largura da lista (âncora esticada, 44 px de altura); nome em Fill e cortado se não couber; Nv, classe e cargo sem quebra.
+- `WBP_SkillBookEntry`: textos à esquerda ocupando a largura; `Rank_HBox`, `Status_HBox_1` e os spacers ficaram **Collapsed**.
+- `WBP_SkillBook`: coluna de detalhe (`Border_13`) em Fill 0,85 (antes estreita); textos dos stats e a escala quebram dentro da célula; nome da skill centralizado com quebra.
+- Arrastar skill do livro não mostra mais as estrelas e os ícones de status antigos (o pass-through do drag só mexe no que está visível).
+
+### Atalhos da barra de skills (`FUmbraSkillbarInputProcessor`)
+
+- **Bug:** depois de Alt+Tab (ou de clicar em outro programa) nenhum atalho funcionava mais. O processador guarda as teclas apertadas e só dispara quando o conjunto bate exatamente com o bind; o KeyUp do Alt nunca chegava, o conjunto ficava `{Alt}` e "1" virava `{Alt, 1}` para sempre.
+- **Correção:** o conjunto é limpo quando o app perde o foco; a cada tecla, Alt/Ctrl/Shift são conferidos com o estado real do teclado; tecla comum sem KeyUp e sem repetição há mais de 1,2 s sai do conjunto.
+- **PIE com 2 clients:** cada client só processa as teclas da própria janela (antes a tecla apertada na janela do P2 também disparava a skill do P1).
+- Segurar a tecla continua repetindo a skill, como antes.
+
+### Contador de itens do inventário (`WBP_Inventory`)
+
+- "Itens: N/50" (`Text_ItemCount`) agora é do C++: atualiza ao abrir, a cada carga do inventário (loot, compra, troca, exclusão, criação...) e ao mover ou empilhar. A função BP `UpdateItemCount` ficou vazia (antes só rodava ao mover). Itens equipados não contam. Capacidade em **Class Defaults → Umbra|Inventory → Inventory Capacity**.
+
 ## 3) O que o C++ já faz
 
 - Títulos de todas as janelas `UmbraWindowWidget`: fonte Cinzel (quando importada) e "..." quando o título não cabe.
@@ -156,6 +202,9 @@ Sem o reparent, o botão **Renascer** não faz nada (o Graph antigo já foi apag
 - Diário (J10): abre já com a primeira missão selecionada; linha selecionada em dourado; "Pronta para entregar" em verde na lista; objetivos "• texto 3/5" e "✓ texto 5/5" em verde; cabeçalhos "Objetivos" e "Recompensas"; recompensa "N ouro", "Item ×N" e a classe só quando o item é restrito; **Entregar** só com a missão pronta (com escolha, pede uma por grupo); **Abandonar** pede confirmação; os dois travam até a resposta e mostram o erro do servidor em vermelho.
 - Escolha de recompensa (J10): linhas no cartão escuro, a escolhida em dourado; item de outra classe em vermelho com "(sua classe não pode)"; "Escolha uma (1 de 2)" só quando há mais de um grupo; **Receber recompensa** só liga com todas as escolhas.
 - Log de combate (J10): "Você recebeu N de dano", "Você causou N de dano em Fulano"; motivos em pt-BR; combate entre outros jogadores não entra.
+- Ficha (2.7): só o C++ escreve os valores; rótulo corta em vez de passar por baixo de um valor grande; segurar + / − repete e acelera.
+- Excluir item (2.7): aceita item do inventário solto em qualquer ponto da janela; recusa item equipado ou do armazém com aviso vermelho; ícone e "Nome +N ×N" na cor da raridade; **Excluir** só liga com item; raro ou refinado pede confirmação vermelha; chama `RemoveItem`, mostra "Excluindo...", depois "X excluído." em verde ou o erro do servidor em vermelho.
+- Armazém (2.7): "N ouro guardado" e "Itens: N/100" atualizados a cada carga do armazém e a cada depósito/saque de ouro.
 
 ## 4) QA geral (PIE, 2 players)
 
@@ -301,6 +350,27 @@ Marque cada linha com ✅ ou ❌. Quando der ❌, anote a janela e um print.
 | 90 | Log de combate | "Você recebeu N de dano" / "Você causou N de dano em Fulano"; sem ids nem "COMBAT" |
 | 91 | Tecla J (depois do rebuild) | Abre o diário; J de novo fecha. Conferir também: digitando "j" no chat, o diário não deve abrir |
 
+### 4.9) Correções do QA geral (seção 2.7)
+
+| # | Teste | Esperado |
+|---|-------|----------|
+| 92 | Ficha: + em Força → **Aplicar** | Depois de salvar, os valores continuam só números à direita ("10", "380 / 380"); nada de "Strength: 8/8" sobre o rótulo |
+| 93 | Ficha: **segurar** o + com 30+ pontos livres | Soma 1, espera um instante e começa a subir sozinho, cada vez mais rápido; para ao soltar e quando os pontos acabam |
+| 94 | Ficha: segurar o − | Desce até 0 pendente e para |
+| 95 | Ficha com atributo alto (ex.: 2.000 (+150)) | O valor aparece inteiro; o rótulo corta se faltar espaço, sem sobrepor |
+| 96 | Excluir item: abrir sem item | "Arraste um item do inventário para cá." em cinza; **Excluir** desligado; aviso vermelho embaixo |
+| 97 | Excluir item: soltar item comum e **Excluir** | Ícone e nome na cor da raridade (×N se pilha); "Excluindo..." → "X excluído." verde; o item some do inventário |
+| 98 | Excluir item: soltar item raro ou +N | **Excluir** abre confirmação vermelha; Cancelar/ESC não exclui; Confirmar/Enter exclui |
+| 99 | Excluir item: soltar item equipado / **Cancelar** | "Desequipe o item antes de excluir." em vermelho / fecha a janela sem excluir |
+| 100 | Armazém: abrir com itens e ouro guardado | "Itens: N/100" com o número certo; "N ouro guardado" (não o ouro da bolsa); depositar/sacar atualiza os dois |
+| 101 | Leilão → **Vender**: soltar item | Ícone limpo no slot, sem preço por cima; o preço só no campo "Preço de venda" |
+| 102 | Guilda → Membros (líder vendo membro comum) | Linha cabe na janela: nome, "Nv 50", classe, cargo e os 3 botões visíveis, sem "Nv" quebrado |
+| 103 | Livro de skills: lista, detalhe e drag | Linhas com textos à esquerda numa linha só; stats do detalhe inteiros ("Conjuração: instantânea"); arrastar skill não mostra estrelas nem ícones "CAN LEARN&MAX" |
+| 104 | Atalho na barra → **Alt+Tab** para fora e volta → apertar o atalho | A skill sai normalmente (repetir 3 vezes, também segurando Alt ao sair) |
+| 105 | Atalho com modificador (ex.: Shift+1) depois de Alt+Tab | Funciona; "1" sozinho não dispara o slot do Shift+1 |
+| 106 | PIE 2 clients com o mesmo atalho: apertar na janela do P2 | Só o P2 usa a skill; o P1 não |
+| 107 | Inventário: abrir, pegar loot, comprar no NPC, excluir item, equipar | "Itens: N/50" muda na hora em cada caso (equipado não conta), sem precisar mover item |
+
 ## 5) Troubleshooting
 
 | Sintoma | Causa | Ação |
@@ -318,3 +388,11 @@ Marque cada linha com ✅ ou ❌. Quando der ❌, anote a janela e um print.
 | Diário sem o botão Entregar | `BTN_TurnIn` renomeado ou apagado | Restaurar o nome exato |
 | Escolha de recompensa abre vazia | `VBox_Choices` renomeado | Restaurar o nome exato |
 | Tecla K abre um livro antigo | `Open Skill Book Action` vazio no `BP_ThirdPersonCharacter` | Apontar para `IA_OpenPlayerSkillBook` |
+| Excluir item não aceita o item / botão nunca liga | `WBP_DeleteItem` ainda com pai `UmbraDraggableWindowWidget` | Reparent para `UmbraDeleteItemWidget` (seção 2.7) |
+| Ficha volta a mostrar "Strength: 8/8" | Nós de texto voltaram na função **Update Character Info Display** | Deixar só entrada → `UpdateEquipmentSlots` |
+| Segurar + soma só 1 | Build antigo | Rebuild |
+| Linha da guilda some (largura 0) | Linha adicionada fora de um ScrollBox/VerticalBox em Fill | Manter `ScrollBox_Members` como pai das linhas |
+| Atalhos param depois de Alt+Tab | Build antigo | Rebuild; o log `[UmbraSkillbarInput] App sem foco` deve aparecer ao sair da janela com tecla presa |
+| Atalho não funciona com a janela do jogo em foco | A janela ativa não é a do viewport (ex.: popup do editor por cima) | Clicar no viewport do jogo |
+| "Itens: N/50" travado | Nó de texto voltou na função BP `UpdateItemCount` ou build antigo | Deixar a função vazia; rebuild |
+| Armazém mostra o ouro da bolsa | Nó `Set Text` do `Text_Gold_Info` voltou no Graph do `WBP_Storage` ou build antigo | Remover o nó; rebuild |
