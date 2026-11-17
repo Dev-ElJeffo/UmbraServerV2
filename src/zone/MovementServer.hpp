@@ -446,7 +446,9 @@ public:
           Umbra::Core::Logger::getInstance().info("Received PartyInvite from client {} (player {}): to={}, party={}", 
                                                   cid, fromId, toId, partyId);
           std::lock_guard<std::mutex> lock(mu_);
-          sendToPlayerUnlocked(toId, encodePartyInviteReceived(fromId, toId, partyId));
+          std::string fromName;
+          const uint32_t senderId = socialSenderUnlocked(cid, fromId, fromName);
+          sendToPlayerUnlocked(toId, encodePartyInviteReceived(senderId, toId, partyId, fromName));
         }
         return;
       }
@@ -458,7 +460,9 @@ public:
           Umbra::Core::Logger::getInstance().info("Received TradeRequest from client {} (player {}): to={}", 
                                                   cid, fromId, toId);
           std::lock_guard<std::mutex> lock(mu_);
-          sendToPlayerUnlocked(toId, encodeTradeRequestReceived(fromId, toId));
+          std::string fromName;
+          const uint32_t senderId = socialSenderUnlocked(cid, fromId, fromName);
+          sendToPlayerUnlocked(toId, encodeTradeRequestReceived(senderId, toId, fromName));
         }
         return;
       }
@@ -922,7 +926,9 @@ public:
           Umbra::Core::Logger::getInstance().info("Received FriendRequest from client {} (player {}): to={}", 
                                                   cid, fromId, toId);
           std::lock_guard<std::mutex> lock(mu_);
-          sendToPlayerUnlocked(toId, encodeFriendRequestReceived(fromId, toId));
+          std::string fromName;
+          const uint32_t senderId = socialSenderUnlocked(cid, fromId, fromName);
+          sendToPlayerUnlocked(toId, encodeFriendRequestReceived(senderId, toId, fromName));
         }
         return;
       }
@@ -2010,6 +2016,23 @@ private:
   uint32_t playerIdForClientUnlocked(uint32_t clientId) const {
     auto it = clientIdToPlayerId_.find(clientId);
     return (it != clientIdToPlayerId_.end()) ? it->second : 0;
+  }
+
+  // Remetente dos pedidos sociais (11/21/31): o player da conexão é autoritativo (o fromId do
+  // payload só vale sem vínculo conexão->player, ex.: auth de sessão desligada). Preenche o nome
+  // do personagem para o campo trailing; vazio se o servidor ainda não conhece o nome.
+  // Chamar com mu_ travado.
+  uint32_t socialSenderUnlocked(uint32_t clientId, uint32_t payloadFromId, std::string& outName) const {
+    const uint32_t bound = playerIdForClientUnlocked(clientId);
+    const uint32_t senderId = bound != 0 ? bound : payloadFromId;
+    if (bound != 0 && payloadFromId != bound) {
+      Umbra::Core::Logger::getInstance().warn(
+          "Pedido social com fromId {} diferente do player da conexao {} (client {}): usando o da conexao",
+          payloadFromId, bound, clientId);
+    }
+    auto it = players_.find(senderId);
+    outName = (it != players_.end()) ? it->second.characterName : std::string();
+    return senderId;
   }
 
   // Aviso de party (opcodes 13/14/27) só para os membros do grupo (+ extraPlayerId).

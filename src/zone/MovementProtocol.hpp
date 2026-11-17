@@ -1207,10 +1207,27 @@ inline bool decodeSocialResponse(const std::vector<uint8_t>& data, uint32_t& req
   return true;
 }
 
+// Limite do nome do remetente nos pedidos sociais (11/21/31), em bytes UTF-8.
+constexpr size_t kSocialSenderNameMaxBytes = 32;
+
+// Campo trailing dos pedidos sociais: [nameLen:u16 LE][name:utf8]. Corta no limite sem partir
+// um caractere UTF-8 no meio. Cliente antigo ignora os bytes a mais (frame continua válido).
+inline void appendSocialSenderName(std::vector<uint8_t>& out, const std::string& name) {
+  size_t len = name.size() < kSocialSenderNameMaxBytes ? name.size() : kSocialSenderNameMaxBytes;
+  while (len > 0 && len < name.size() && (static_cast<uint8_t>(name[len]) & 0xC0) == 0x80) {
+    --len;
+  }
+  out.push_back(static_cast<uint8_t>(len & 0xFF));
+  out.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
+  out.insert(out.end(), name.begin(), name.begin() + static_cast<std::ptrdiff_t>(len));
+}
+
 // Codificar mensagens de recebimento (servidor -> cliente)
-inline std::vector<uint8_t> encodePartyInviteReceived(uint32_t fromPlayerId, uint32_t toPlayerId, uint32_t partyId) {
+// PartyInviteReceived (11): [msgType][fromId:4][toId:4][partyId:4][nameLen:2][name:utf8] (nome trailing)
+inline std::vector<uint8_t> encodePartyInviteReceived(uint32_t fromPlayerId, uint32_t toPlayerId, uint32_t partyId,
+  const std::string& fromPlayerName = std::string()) {
   std::vector<uint8_t> out;
-  out.reserve(13);
+  out.reserve(15 + kSocialSenderNameMaxBytes);
   out.push_back(static_cast<uint8_t>(MovementMsgType::PartyInviteReceived));
   
   auto write32 = [&out](uint32_t v){
@@ -1223,12 +1240,15 @@ inline std::vector<uint8_t> encodePartyInviteReceived(uint32_t fromPlayerId, uin
   write32(fromPlayerId);
   write32(toPlayerId);
   write32(partyId);
+  appendSocialSenderName(out, fromPlayerName);
   return out;
 }
 
-inline std::vector<uint8_t> encodeTradeRequestReceived(uint32_t fromPlayerId, uint32_t toPlayerId) {
+// TradeRequestReceived (21): [msgType][fromId:4][toId:4][nameLen:2][name:utf8] (nome trailing)
+inline std::vector<uint8_t> encodeTradeRequestReceived(uint32_t fromPlayerId, uint32_t toPlayerId,
+  const std::string& fromPlayerName = std::string()) {
   std::vector<uint8_t> out;
-  out.reserve(9);
+  out.reserve(11 + kSocialSenderNameMaxBytes);
   out.push_back(static_cast<uint8_t>(MovementMsgType::TradeRequestReceived));
   
   auto write32 = [&out](uint32_t v){
@@ -1240,6 +1260,7 @@ inline std::vector<uint8_t> encodeTradeRequestReceived(uint32_t fromPlayerId, ui
   
   write32(fromPlayerId);
   write32(toPlayerId);
+  appendSocialSenderName(out, fromPlayerName);
   return out;
 }
 
@@ -1313,9 +1334,11 @@ inline bool decodeTradeStarted(const std::vector<uint8_t>& data, uint32_t& trade
   return true;
 }
 
-inline std::vector<uint8_t> encodeFriendRequestReceived(uint32_t fromPlayerId, uint32_t toPlayerId) {
+// FriendRequestReceived (31): [msgType][fromId:4][toId:4][nameLen:2][name:utf8] (nome trailing)
+inline std::vector<uint8_t> encodeFriendRequestReceived(uint32_t fromPlayerId, uint32_t toPlayerId,
+  const std::string& fromPlayerName = std::string()) {
   std::vector<uint8_t> out;
-  out.reserve(9);
+  out.reserve(11 + kSocialSenderNameMaxBytes);
   out.push_back(static_cast<uint8_t>(MovementMsgType::FriendRequestReceived));
   
   auto write32 = [&out](uint32_t v){
@@ -1327,6 +1350,7 @@ inline std::vector<uint8_t> encodeFriendRequestReceived(uint32_t fromPlayerId, u
   
   write32(fromPlayerId);
   write32(toPlayerId);
+  appendSocialSenderName(out, fromPlayerName);
   return out;
 }
 
