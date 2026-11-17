@@ -86,7 +86,8 @@ Para outro caminho ou nome: crie `DA_UmbraUIStyle` em `/Game/Widgets/Style` (**M
 
 **Livro (`/Game/Widgets/UI/Skills/WBP_SkillBook`)**
 
-- O Event Graph ficou vazio (106 nós apagados). As funções de Blueprint antigas (`PopulateSkillList`, `UpdateDetailPanel`, `UpdateHeader`) ficaram no asset, mas ninguém as chama; podem sair no J10.
+- O Event Graph ficou vazio (106 nós apagados). As funções de Blueprint antigas (`PopulateSkillList`, `UpdateDetailPanel`, `UpdateHeader`) saíram no J10.
+- A tecla K abre este livro pelo C++: `BP_ThirdPersonCharacter` → **Class Defaults → Open Skill Book Action** = `IA_OpenPlayerSkillBook` (J10). Antes, um Graph no personagem abria o `WBP_SkillBook1` antigo.
 - Binds (nomes exatos, já existentes): `Title_Class`, `SkillPoints_Text`, `Skills_VBox`, `Skill_Name_Text_1`, `Skill_Icon_Large_1`, `Skill_Type_Text_1`, `Skill_Element_Text_1`, `SkillBook_Description`, `SkillBook_Effects`, `Power_Text_1`, `BonusPower_Text_1`, `Cost_Text_1`, `Duration_Text_1`, `Range_Text_1`, `Cooldown_Text_1`, `Radius_Text_1`, `Cast_Text_1`, `CanCrit_Text_1`, `Reqtarget_Text_1`, `MovCast_text_1`, `PVPModifier_Text_1`, `Scaling_Text_1`, `CurrentRank_Text_1`, `Action_Info_1`, `RankStars_HBox_1`, `Action_Button_1`, `Text_Action_Button_1`.
 - Cada linha de stat é `Border > HB (ícone + texto)`. O C++ esconde o **Border** inteiro quando o valor não se aplica, então não tire o texto de dentro do HB.
 - `Skills_VBox` é montado pelo C++: não ponha nada dentro.
@@ -95,6 +96,50 @@ Para outro caminho ou nome: crie `DA_UmbraUIStyle` em `/Game/Widgets/Style` (**M
 - O X é o `Btn_Close`, ligado pela base `UmbraWindowWidget`.
 
 **Linha (`WBP_SkillBookEntry`)**: Graph vazio. Usa `BTN_SkillSelect`, `Skill_Icon`, `Skill_Name_Text`, `Skill_Type_Text`, `Level_Required_Text` e `Rank_Text`. As estrelas e os ícones de status são escondidos; a situação vira uma tag de texto.
+
+## 2.6) Morte, desconexão, missões e limpeza final (J10)
+
+### Passo depois do rebuild (obrigatório)
+
+As classes `UmbraDeathScreenWidget` e `UmbraServerDisconnectWidget` só existem depois do rebuild. Em seguida (o MCP faz, se pedir):
+
+1. `/Game/Widgets/UI/DeathScreen/WBP_DeathScreen` → **Class Settings → Parent Class** = `UmbraDeathScreenWidget` → **Compile** → **Save**.
+2. `/Game/Widgets/HUD/WBP_ServerDisconnect` → **Parent Class** = `UmbraServerDisconnectWidget` → **Compile** → **Save**.
+
+Sem o reparent, o botão **Renascer** não faz nada (o Graph antigo já foi apagado) e a desconexão abre o diálogo sem texto.
+
+### Tela de morte (`WBP_DeathScreen`)
+
+- Binds: `Text_DeathTitle`, `Text_KilledBy`, `BTN_Respawn`, `Text_Respawn`. Graph vazio.
+- Fundo `Border_0` em tela cheia, vermelho-escuro com 78% de opacidade.
+- **Class Defaults → Umbra|Death**: `Respawn Zone Id` (1), `Respawn Spawn Key` (`Lvl_Tutorial_`, o mesmo do Graph antigo; sem linha com essa chave em `spawn_points`, o servidor usa o `is_default` da zona), `Respawn Retry Seconds` (5) e `Title Font Size` (44).
+
+### Desconexão (`WBP_ServerDisconnect`)
+
+- Binds: `Text_Title`, `Text_Message`, `BTN_OK`, `Text_OK`. Graph, função `SetupMessage` e variáveis apagados.
+- Quem abre é o C++ (`ShowServerDisconnectDialog` virou `BlueprintNativeEvent`). O evento do `BP_UmbraGameInstance` foi apagado; se voltar a existir lá, ele substitui o C++.
+- Para trocar o WBP: `BP_UmbraGameInstance` → **Class Defaults → Connection|UI → Server Disconnect Widget Class**.
+
+### Diário de missões (`/Game/Widgets/UI/Quest/WBP_QuestJournal`)
+
+- Abas no topo da lista: `BTN_Active`/`Text_TabActive` e `BTN_Completed`/`Text_TabCompleted`. O C++ escreve "Ativas (N)" e "Concluídas (N)".
+- Botões no detalhe: `BTN_TurnIn`/`Text_TurnIn` (novo, **Entregar**) e `BTN_Abandon`/`Text_Abandon` (**Abandonar**, em vermelho, com confirmação).
+- O X fecha pelo C++ (o `Remove from Parent` do Graph foi apagado). A janela tem 900x700.
+- **Tecla J** abre e fecha o diário: `/Game/Input/Actions/IA_OpenQuestJournal` (novo), mapeado em `IMC_Default`, e `BP_ThirdPersonCharacter` → **Class Defaults → Open Quest Journal Action**. O C++ alterna (`ToggleQuestJournal`); antes do rebuild a J só abre.
+- Linha (`WBP_QuestEntry`): `SB_Row` (280 de largura) → `Btn_Select` → `VB_EntryText` → `Text_Title` + `Text_Objective`. A linha inteira é o botão.
+
+### Escolha de recompensa (`/Game/Widgets/UI/Quest/WBP_QuestRewardPicker`)
+
+- Montado do zero (o WBP estava vazio). Binds: `Border_Window`, `Border_TitleBar`, `Text_WindowTitle`, `Btn_WindowClose`, `Text_Title`, `VBox_Choices` (dentro de `SB_Choices` → `Scroll_Choices`, altura máxima 360), `Text_SelectedItem`, `BTN_ConfirmReward` (**Receber recompensa**).
+- `VBox_Choices` é montado pelo C++: não ponha nada dentro.
+
+### Limpeza
+
+- Apagados: `WBP_OptionsPopup`, `WBP_TradeGoldAmount`, `WBP_TradeRemoveGold`, `WBP_GoldDepositManager`, `WBP_GoldWithdrawManager` e `WBP_SplitInput`. O diálogo padrão (`WBP_AmountDialog`) cobre tudo.
+- Apagados também `WBP_SkillBook1` e `WBP_SkillDetails` (livro antigo, sem referência e sem compilar). No `WBP_SkillBookEntry` saiu a função BP `SetSkillData` (120 nós, ninguém chamava; deixava o asset em erro de compilação) e as variáveis `SkillID`/`MyGameInstance`. Todos os 97 WBPs de `/Game/Widgets` compilam sem erro.
+- `BP_ThirdPersonCharacter`: saiu a cadeia do F10, que abria o `WBP_OptionsPopup` junto com o menu C++.
+- `WBP_InventorySlot` → função `OnDragDetected`: saiu o ramo do Shift (o C++ trata o Shift antes; o ramo antigo abria o `WBP_SplitInput` e escrevia "Item não pode ser dividido" na tela).
+- Textos de designer em inglês ou "Bloco de Texto": 199 textos em 36 WBPs passaram para pt-BR (login, cadastro, seleção e criação de personagem, menus de jogador e amigo, chat, level up, chances de CC, livro de skills, troca, sussurro...). Nomes de classe (Barbarian, Templar...) ficaram como estão.
 
 ## 3) O que o C++ já faz
 
@@ -106,14 +151,19 @@ Para outro caminho ou nome: crie `DA_UmbraUIStyle` em `/Game/Widgets/Style` (**M
   - envia `RequestLearnOrUpgradeSkill`, trava o botão até a resposta e mostra o erro do servidor em vermelho;
   - recarrega tudo quando os pontos, o nível ou a lista de skills mudam.
 - Rótulos novos em `NSLOCTEXT` (prontos para tradução).
+- Tela de morte (J10): "Você morreu" em Cinzel vermelho; "Morto por X" com o autor do último dano recebido (opcode 92: jogador pelo cache de nomes, NPC pelo nome do actor; se os dois existirem com o mesmo id, vale o mais perto); sem autor (ambiente, dano em si mesmo) a linha some. **Renascer** envia o opcode 90, mostra "Renascendo..." e libera de novo depois de 5 s sem resposta; a tela fecha no respawn (opcode 91).
+- Desconexão (J10): título pelo motivo ("Conexão perdida", "Sessão aberta em outro lugar", "Sessão expirada", "Desconectado pelo servidor"), mensagem em pt-BR (o erro cru da engine fica só no log), input só na UI com cursor, **Voltar ao login** ou Enter chama `ReturnToLoginLevel`.
+- Diário (J10): abre já com a primeira missão selecionada; linha selecionada em dourado; "Pronta para entregar" em verde na lista; objetivos "• texto 3/5" e "✓ texto 5/5" em verde; cabeçalhos "Objetivos" e "Recompensas"; recompensa "N ouro", "Item ×N" e a classe só quando o item é restrito; **Entregar** só com a missão pronta (com escolha, pede uma por grupo); **Abandonar** pede confirmação; os dois travam até a resposta e mostram o erro do servidor em vermelho.
+- Escolha de recompensa (J10): linhas no cartão escuro, a escolhida em dourado; item de outra classe em vermelho com "(sua classe não pode)"; "Escolha uma (1 de 2)" só quando há mais de um grupo; **Receber recompensa** só liga com todas as escolhas.
+- Log de combate (J10): "Você recebeu N de dano", "Você causou N de dano em Fulano"; motivos em pt-BR; combate entre outros jogadores não entra.
 
 ## 4) QA geral (PIE, 2 players)
 
-Roteiro único para depois do rebuild que junta J5 a J9 (lote A e lote B incluídos). J2 e J4 já passaram no QA; as linhas deles ficam como regressão.
+Roteiro único para depois do rebuild que junta J5 a J10 (lote A e lote B incluídos). J2 e J4 já passaram no QA; as linhas deles ficam como regressão.
 
 **Antes de começar**
 
-1. **Rebuild** do módulo `UmbraEternumUE`. O J9 mexeu em headers (`UmbraSkillBookWidget.h`, `UmbraSkillBookEntryWidget.h`, `UmbraUIStyle.h`), então Live Coding não basta.
+1. **Rebuild** do módulo `UmbraEternumUE`. O J9 e o J10 mexeram em headers (`UmbraSkillBookWidget.h`, `UmbraUIStyle.h`, `UmbraGameInstance.h`, classes novas), então Live Coding não basta. Depois, o reparent da seção 2.6.
 2. PHP do lote A já sincronizado no WAMP (`enchant_helper.php`).
 3. Abrir o PIE com 2 clients, P1 e P2 logados no mesmo mapa.
 4. Deixar o **Output Log** filtrado por `Umbra` e anotar qualquer `Warning` ou `Error` de widget (por exemplo, "EntryClass não carregou").
@@ -220,6 +270,36 @@ Marque cada linha com ✅ ou ❌. Quando der ❌, anote a janela e um print.
 | 64 | Subir de nível com o livro aberto | Pontos e botões atualizam sozinhos |
 | 65 | Arrastar skill aprendida para a barra | O drag continua funcionando; o livro segue clicável depois |
 | 66 | X / reabrir o livro | Fecha; ao reabrir, a lista e o detalhe aparecem sem duplicar linhas |
+| 67 | Tecla K | Abre o livro novo (o mesmo da HUD); K de novo fecha. Nunca abre dois livros |
+
+### 4.8) Morte, desconexão, missões e limpeza (J10)
+
+| # | Teste | Esperado |
+|---|-------|----------|
+| 68 | P2 mata P1 | Tela escura com "Você morreu" e "Morto por P2" |
+| 69 | NPC mata P1 | "Morto por <nome do NPC>" |
+| 70 | Morrer na lava / ambiente | Sem a linha "Morto por" |
+| 71 | **Renascer** | "Renascendo...", P1 volta no ponto de spawn e a tela some; P2 vê P1 de pé |
+| 72 | Renascer sem servidor (zone parada logo após morrer) | Depois de 5 s o botão volta a "Renascer" |
+| 73 | Parar a zone com P1 em jogo | "Conexão perdida" + mensagem em pt-BR; cursor livre; o jogo não recebe teclas |
+| 74 | Logar a mesma conta em outro client | No primeiro: "Sessão aberta em outro lugar" |
+| 75 | Desconexão: **Voltar ao login** / Enter | Volta para a tela de login sem erro no log |
+| 76 | F10 | Abre só o menu do jogo (sem o popup antigo de opções) |
+| 77 | Abrir o diário (botão da HUD ou clique no rastreador) com missões ativas | Abas "Ativas (N)" / "Concluídas (N)" no topo; a primeira missão já aparece no detalhe, com a linha dourada |
+| 78 | Diário: detalhe | Título em Cinzel; "Objetivos" com "• … 3/5" e "✓ …" verde; "Recompensas" com "N ouro", "N EXP", "Item ×N" |
+| 79 | Diário: missão pronta | Na lista "Pronta para entregar" em verde; **Entregar** aparece; clicar entrega e a missão vai para Concluídas |
+| 80 | Diário: missão com escolha | Linhas de escolha em cartão escuro; clicar marca em dourado; **Entregar** sem escolher mostra aviso vermelho |
+| 81 | Diário: **Abandonar** | Confirmação vermelha; Cancelar não faz nada; Confirmar remove a missão da lista |
+| 82 | Diário: aba Concluídas vazia | "Nenhuma missão concluída." |
+| 83 | Entregar no NPC uma missão com escolha | Abre "Recompensa da missão"; **Receber recompensa** desligado até escolher; item de outra classe em vermelho |
+| 84 | Escolha com 2 grupos | "Escolha uma (1 de 2)" e "(2 de 2)"; rodapé "Escolhidas: 1 de 2" até completar |
+| 85 | Troca: **+ Ouro** | Abre o diálogo padrão (não existe mais modal antigo) |
+| 86 | Inventário: arrastar pilha sem Shift / com Shift | Sem Shift arrasta normal; com Shift abre "Dividir pilha"; nenhuma mensagem azul na tela |
+| 87 | Login, cadastro, seleção e criação de personagem | Todos os textos em pt-BR ("Entrar", "Criar conta", "Escolha o personagem", "Jogar"...) |
+| 88 | Menu de contexto de jogador e opções de amigo | "Convidar para o grupo", "Negociar", "Sussurrar", "Seguir", "Inspecionar"... |
+| 89 | Hover em buff | Rótulos curtos em pt-BR (FOR, DES, Atq. físico, Precisão...) |
+| 90 | Log de combate | "Você recebeu N de dano" / "Você causou N de dano em Fulano"; sem ids nem "COMBAT" |
+| 91 | Tecla J (depois do rebuild) | Abre o diário; J de novo fecha. Conferir também: digitando "j" no chat, o diário não deve abrir |
 
 ## 5) Troubleshooting
 
@@ -231,3 +311,10 @@ Marque cada linha com ✅ ou ❌. Quando der ❌, anote a janela e um print.
 | Livro de skills com a lista vazia e o log "EntryClass não carregou" | `WBP_SkillBookEntry` mudou de pasta ou de nome | **Class Defaults → SkillBook → Entry Class** apontando para a linha |
 | Livro com textos em inglês ("Power:", "Learn (1pt)") | Build antigo ou nós do Graph voltaram | Rebuild; conferir que o Event Graph do `WBP_SkillBook` está vazio |
 | Linha de stat some mas o ícone fica | Texto foi tirado do `HB_PhysAtk_*` | Manter `Border > HB > (Image, Text)` |
+| **Renascer** não faz nada | `WBP_DeathScreen` ainda com pai `UserWidget` | Reparent para `UmbraDeathScreenWidget` (seção 2.6) |
+| Tela de morte em inglês ("You Died!") | Build sem o C++ do J10 | Rebuild |
+| Desconexão sem título/mensagem ou sem diálogo | `WBP_ServerDisconnect` sem reparent, ou evento do GameInstance recriado no BP | Reparent para `UmbraServerDisconnectWidget`; apagar o evento `ShowServerDisconnectDialog` do `BP_UmbraGameInstance` |
+| "Morto por" nunca aparece | O último dano veio sem origem (ambiente) ou o atacante saiu do alcance | Esperado; o log `[UmbraGameInstance]` não mostra erro |
+| Diário sem o botão Entregar | `BTN_TurnIn` renomeado ou apagado | Restaurar o nome exato |
+| Escolha de recompensa abre vazia | `VBox_Choices` renomeado | Restaurar o nome exato |
+| Tecla K abre um livro antigo | `Open Skill Book Action` vazio no `BP_ThirdPersonCharacter` | Apontar para `IA_OpenPlayerSkillBook` |
