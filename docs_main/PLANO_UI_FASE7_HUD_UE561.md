@@ -32,9 +32,9 @@ Continua a fase 6 (janelas e tooltips, QA geral aprovado em 17/11/2026). Esta fa
 
 | Lote | Conteúdo | Camadas | Status |
 |------|----------|---------|--------|
-| **K1** | Nome do remetente nos opcodes 11/21/31 (campo trailing) com remetente autoritativo pela conexão; remover amigo com confirmação em C++ | Servidor, UE, guia | Implementado (aguarda QA) |
-| **K4** | Escala da interface: slider 75–150% nas Configurações (`UUserInterfaceSettings::ApplicationScale`), curva de DPI pelo lado menor da tela, salvo nas configurações do cliente, prévia ao vivo | UE, config, guia | Planejado |
-| **K3** | HUD única com áreas fixas (chat à esquerda, HP/MP + skills no centro, menu de ícones à direita, alvo no topo, minimapa e missões à direita), safe zone, regras para tela estreita; modo "Editar HUD" com posições salvas | UE, WBP, guia | Planejado |
+| **K1** | Nome do remetente nos opcodes 11/21/31 (campo trailing) com remetente autoritativo pela conexão; remover amigo com confirmação em C++ | Servidor, UE, guia | **QA ok** (17/11/2026) |
+| **K4** | Escala da interface: slider 75–150% nas Configurações (`UUserInterfaceSettings::ApplicationScale`), curva de DPI pelo lado menor da tela, salvo nas configurações do cliente, prévia ao vivo | UE, config, guia | **QA ok** (17/11/2026); faixa revista para 50–125% no K3 |
+| **K3** | Layout da HUD por jogador local (`UUmbraHudLayoutSubsystem`): posições ancoradas, regras para tela estreita, modo "Editar HUD" com posições salvas, ícones no menu, escala 50–125%, correção do tracker encolhendo e do mapa sumindo. HP/MP compacto movido para o K6 | UE, WBP, guia | **QA ok** (17/11/2026) |
 | **K2** | Quadro de alvo único (jogador/NPC): retrato, nome pela relação, nível pela diferença, HP com % e números compactos, MP só para jogador, debuffs antes de buffs, "Morto"/"Fora de alcance", X/ESC limpa o alvo | UE, WBP, guia | Planejado |
 | **K5** | Chat: aba Geral + filtros, cores por canal, nome clicável, `/l /g /p /w /r`, histórico ↑/↓, sussurros e sistema no chat, 200 linhas por canal, "novas mensagens", fundo que some ocioso, movível/redimensionável, canal de guilda (opcode novo) | Servidor, UE, WBP, guia | Planejado |
 | **K6** | Polimento: barra de EXP, tracker de missões, painel de HP/MP compacto, destaque falso do slot 1, aviso de streaming em dev | UE, WBP, config, guia | Planejado |
