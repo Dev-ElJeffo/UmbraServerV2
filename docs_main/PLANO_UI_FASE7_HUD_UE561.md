@@ -26,7 +26,7 @@ Continua a fase 6 (janelas e tooltips, QA geral aprovado em 17/11/2026). Esta fa
 - **Layout da HUD:** fixo e responsivo **e** um modo "Editar HUD" para arrastar cada elemento e salvar a posição.
 - **Menu da HUD:** fileira de ícones com tooltip (nome + atalho). Os ícones ficam com o usuário no Editor.
 - **Chat:** o canal de guilda real (servidor + UE) entra no K5.
-- **Ordem:** K1 → K4 → K3 → K2 → K5 → K7 → K6 (K7, painel de grupo, entrou no QA do K2).
+- **Ordem:** K1 → K4 → K3 → K2 → K5 → K7 → K6 → K8 (K7, painel de grupo, entrou no QA do K2; K8, feedback de combate e broadcast, no QA do K6).
 
 ## 3) Lotes
 
@@ -37,8 +37,9 @@ Continua a fase 6 (janelas e tooltips, QA geral aprovado em 17/11/2026). Esta fa
 | **K3** | Layout da HUD por jogador local (`UUmbraHudLayoutSubsystem`): posições ancoradas, regras para tela estreita, modo "Editar HUD" com posições salvas, ícones no menu, escala 50–125%, correção do tracker encolhendo e do mapa sumindo. HP/MP compacto movido para o K6 | UE, WBP, guia | **QA ok** (17/11/2026) |
 | **K2** | Quadros de alvo novos (`WBP_TargetFramePlayer`/`WBP_TargetFrameNpc`): retrato, nome pela relação, nível pela diferença, HP com % e números compactos, MP só para jogador, debuffs antes de buffs, "Morto"/"Fora de alcance", X/ESC limpa o alvo | UE, WBP, guia | **QA ok** (17/11/2026) |
 | **K5** | Chat: aba Geral + filtros, cores por canal, nome clicável, `/l /g /p /w /r`, histórico ↑/↓, sussurros e sistema no chat, 200 linhas por canal, "novas mensagens", fundo que some ocioso, movível/redimensionável, canal de guilda (opcodes 120/121), log de combate no padrão novo, canal por combo | Servidor, UE, WBP, guia | **QA ok** (17/11/2026) |
-| **K6** | Polimento: **barra de HP/MP do jogador** compacta e no padrão novo (cartão escuro, texto compacto "7.660 / 7.660 · 100%" por cima das barras, sem o painel grande vazio, alinhada à barra de skills), barra de EXP, tracker de missões, destaque falso do slot 1, aviso de streaming em dev | UE, WBP, config, guia | Planejado |
+| **K6** | Polimento: **barra de HP/MP do jogador** compacta e no padrão novo (cartão escuro, texto compacto "7.660 / 7.660 · 100%" por cima das barras, sem o painel grande vazio, alinhada à barra de skills), barra de EXP, tracker de missões, destaque falso do slot 1, aviso de streaming em dev | UE, WBP, config, guia | **QA ok** (18/11/2026) |
 | **K7** | Painel de grupo redesenhado (pedido no QA do K2, 17/11/2026): mesmo visual do quadro de alvo (`WBP_TargetFrame*`), mais compacto (linha por membro: nome, "Nv", HP com texto por cima, MP fina), sem o widget antigo; mostra **todos** os buffs e debuffs de cada membro com ícones menores (debuffs primeiro); clique seleciona o membro; elemento "Grupo" no layout da HUD (movível no Editar HUD) | UE, WBP, guia | QA ok |
+| **K8** | Redesign (pedido no QA do K6, 18/11/2026): `/Game/Widgets/UI/CombatFeedback/WBP_CombatFeedback` e `WBP_BroadcastToast` no padrão novo da fase 7 (cartão escuro com borda dourada, fontes e cores do `UmbraUIStyle`, texto compacto, posição pelo layout da HUD quando fizer sentido) | UE, WBP, guia | Planejado |
 
 ## 4) K1 — detalhes
 

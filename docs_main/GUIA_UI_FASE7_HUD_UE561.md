@@ -495,3 +495,65 @@ Preenchidos pelo script `Saved/MCP_party_defaults.py`, que eu rodo pelo MCP depo
 | Linhas sem ícones de buff | Classes de buff vazias | Copiar as do `WBP_PartyPanel` |
 | Ícones grandes (48 px) | `Buff Icon Size` = 0 ou rebuild não feito | 18 e rebuild do módulo |
 | Painel não move no Editar HUD | Fora de grupo ou rebuild antigo | Entrar num grupo; conferir o rebuild |
+
+---
+
+## 7) K6 — Polimento da HUD
+
+### Objetivo
+
+- **HP/MP do jogador:** cartão escuro compacto (`Border_Vitals`) com o texto compacto por cima das barras ("7.660 / 7.660 · 100%", "Morto" com HP 0), botão Auto no canto. O painel antigo de 640 px (`Border_58`) fica colapsado.
+- **EXP:** barra fina dourada no rodapé do cartão, com "Nv 12 · 45,3%". Atualiza ao ganhar EXP e ao subir de nível.
+- **Tracker de missões:** botões **−/+** e **Diário** no cabeçalho, ao lado de "Missões"; "Missões: N" quando minimizado; mais de 3 missões viram a linha "+N missões no Diário"; objetivo sem descrição no banco recebe um texto pt-BR pelo tipo.
+- **Barra de skills:** skill ou item sem ícone (ex.: **ataque básico**, ainda sem arte) mostra as iniciais ("AB") no lugar do ícone; fundo neutro único para slot com conteúdo (o azul/verde antigo parecia slot selecionado).
+- **Aviso de texture streaming** em dev: `Config/DefaultEngine.ini` → `[SystemSettings] r.Streaming.PoolSize=2048`.
+
+### Editor (feito via MCP, sem Graph)
+
+**`/Game/Widgets/HUD/WBP_PlayerHUD`**
+
+| Nome | Tipo | Função |
+|------|------|--------|
+| `Border_Vitals` | `UBorder` | Cartão (elemento "HP / MP" do layout da HUD, empilhado sobre a barra de skills) |
+| `PB_HP` + `TXT_HP` | barra 16 px + texto por cima | Movidos do painel antigo (mesmos nomes) |
+| `PB_MP` + `TXT_MP` | barra 11 px + texto por cima | Idem |
+| `PB_EXP` + `TXT_EXP` | barra 9 px + texto | Novos (K6) |
+| `BTN_AutoAttack` | `UButton` | Movido para o canto do cartão |
+| `Border_58` | `UBorder` | Antigo, colapsado (reserva; pode ser apagado no Editor depois do QA) |
+
+**`/Game/Widgets/UI/Quest/WBP_QuestHudTracker`**: `HB_TrackerHeader` (novo) com `Border_TitleBar` + `HorizontalBox_Tabs` (`Btn_ToggleMinimize`, `Btn_OpenJournal`).
+
+### O que o C++ já faz
+
+- `UUmbraPlayerHudWidget::ApplyVitals` usa `UmbraUI::ResourceBarText`; `ApplyExperience` preenche `PB_EXP`/`TXT_EXP` (eventos `OnExpGained`/`OnLevelUp` do GameInstance).
+- Registra `Border_Vitals` no layout da HUD (sem ele, usa o `Border_58`).
+- `UUmbraSkillSlotWidget::SetFallbackLabel` cria em runtime o texto das iniciais no canvas do slot (nenhum bind novo no `WBP_SkillSlot`). Quando a skill ganhar ícone (Manager / `GetSkillIcon`), as iniciais somem sozinhas.
+- `UUmbraQuestHudTrackerWidget::DefaultObjectiveText`: "Fale com o NPC", "Derrote os inimigos", "Colete os itens", "Entregue os itens", "Vá até o local indicado", "Use o item no local indicado".
+
+### Textos de missão em inglês
+
+São dados do banco (`quest_objectives.description` e `quests.title`). Corrigir no **UmbraManager → NPCs → aba "Quests do NPC"** (editar a quest e o objetivo) ou por SQL; o C++ só completa quando a descrição está vazia.
+
+### QA (PIE, 2 players)
+
+| # | Teste | Esperado |
+|---|-------|----------|
+| 65 | Entrar no jogo | Cartão compacto de HP/MP acima da barra de skills, sem o painel grande; texto "atual / máx · %" por cima das barras |
+| 66 | Levar dano / gastar mana | Barras e textos descem; com HP 0, "Morto" |
+| 67 | Matar um NPC | Barra de EXP sobe e "Nv N · x,x%" muda |
+| 68 | Subir de nível | "Nv" novo e a barra recomeça |
+| 69 | Barra de skills com o ataque básico no slot 1 | "AB" (iniciais) no lugar do ícone; o slot não parece selecionado |
+| 70 | Slot vazio × slot com skill/poção | Vazio mais escuro; com conteúdo, fundo neutro igual para skill e item |
+| 71 | Tracker com 1–3 missões | Botões − e Diário no cabeçalho; − minimiza ("Missões: N"), + expande |
+| 72 | 4+ missões ativas | 3 missões e a linha "+N missões no Diário" |
+| 73 | Editar HUD | "HP / MP" com a moldura do cartão novo; mover e salvar funcionam |
+| 74 | PIE em dev, mapa com muitas texturas | Sem o aviso "TEXTURE STREAMING POOL OVER BUDGET" (editor reiniciado) |
+
+### Troubleshooting
+
+| Sintoma | Causa | Ação |
+|---------|-------|------|
+| Painel grande antigo aparece | `Border_58` visível de novo | Deixar `Border_58` **Collapsed** no `WBP_PlayerHUD` |
+| Sem barra de EXP | Rebuild não feito (`PB_EXP` sem bind) | Rebuild do módulo |
+| "AB" não aparece | Skill tem `icon_path` inválido mas não vazio (carrega nada) | Conferir o ícone da skill no Manager |
+| Aviso de streaming continua | Editor não reiniciado depois do `.ini` | Reiniciar o editor; em último caso, console `r.Streaming.PoolSize 3000` |
