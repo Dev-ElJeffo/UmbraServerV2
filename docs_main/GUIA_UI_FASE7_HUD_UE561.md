@@ -405,3 +405,93 @@ Class Defaults (**Chat|Ajustes**): `Max Stored Lines` (300), `Show Timestamps`, 
 | 53 | Combate → bater num NPC / apanhar / curar | Linhas de dano causado, recebido e cura com nomes certos (NPC pelo nome, não "outro jogador") |
 | 54 | Receber um debuff / aplicar um no alvo | "Você recebeu o efeito X" / "Alvo recebeu o efeito X"; ao acabar, "terminou" |
 | 55 | Lutar bastante e voltar à Geral | Conversa continua lá (combate não apaga o chat) |
+
+---
+
+## 6) K7 — Painel de grupo
+
+### Objetivo
+
+- Painel de grupo novo, no padrão do quadro de alvo e mais compacto: uma linha por membro (196 px) com ★ do líder, nome, "Nv N", barra de HP com o texto por cima ("700 / 1.000 · 70%") e MP fina.
+- **Todos** os buffs e debuffs de cada membro, em ícones de 18 px que quebram em várias linhas, com os debuffs primeiro. O tempo restante fica no tooltip (o ícone pequeno mostra só o preenchimento).
+- Membro morto: "Morto" na barra, nome e barra em cinza.
+- A linha do membro que é o seu alvo fica dourada. Clique na linha seleciona o membro (abre o quadro de alvo).
+- Cabeçalho "Grupo (N)" com o botão **Sair**.
+- Elemento **Grupo** no layout da HUD (padrão: canto superior esquerdo), movível no **Editar HUD**.
+
+### Assets
+
+| Asset | Path | Parent Class |
+|-------|------|--------------|
+| Painel | `/Game/Widgets/UI/PlayerInteraction/Party/WBP_PartyFrame` | `UmbraPartyWidget` |
+| Linha do membro | `/Game/Widgets/UI/PlayerInteraction/Party/WBP_PartyMemberRow` | `UmbraPartyMemberSlotWidget` |
+
+- Os dois foram criados via MCP, sem Graph. As linhas são criadas pelo C++ (`MemberRowClass`), sem o ForLoop antigo.
+- `WBP_PartyPanel` (antigo) fica sem uso, como reserva. O PlayerController tenta `WBP_PartyFrame` primeiro e cai no antigo se ele não existir.
+
+### Binds
+
+**`WBP_PartyFrame`**
+
+| Nome | Tipo | Função |
+|------|------|--------|
+| `Border_Window` | `UBorder` | Painel (posição pelo layout da HUD, elemento "Grupo") |
+| `Text_PartyTitle` | `UTextBlock` | "Grupo (N)" |
+| `Btn_LeaveParty` | `UButton` | Sai do grupo |
+| `VB_PartyBox` | `UVerticalBox` | Recebe as linhas criadas pelo C++ (deixar vazio no Designer) |
+
+**`WBP_PartyMemberRow`**
+
+| Nome | Tipo | Função |
+|------|------|--------|
+| `Button_Slot` | `UButton` | Linha clicável; fundo e destaque do alvo aplicados pelo C++ |
+| `Text_Leader` | `UTextBlock` | ★ dourado só no líder |
+| `TextPlayerName` | `UTextBlock` | Nome (cinza quando morto) |
+| `Text_Lvl` | `UTextBlock` | "Nv N" |
+| `ProgressBar_HP` + `Text_HP` | barra + texto por cima | `ResourceBarText` compacto; "Morto" com HP 0 |
+| `ProgressBar_MP` | `UProgressBar` | MP fina, sem texto (`Text_MP` é opcional) |
+| `BuffBar_Wrap` | `UWrapBox` | Buffs e debuffs em várias linhas; sem ele, usa `BuffBar_HBox` (legado) |
+
+### Class Defaults
+
+Preenchidos pelo script `Saved/MCP_party_defaults.py`, que eu rodo pelo MCP depois do rebuild. Para conferir à mão:
+
+| Asset | Campo | Valor |
+|-------|-------|-------|
+| `WBP_PartyFrame` | **Party → Member Row Class** | `WBP_PartyMemberRow` |
+| `WBP_PartyFrame` e `WBP_PartyMemberRow` | **Party \| Buffs → Buff Icon / Buff Tooltip Widget Class** | os mesmos do `WBP_PartyPanel` (`WBP_BuffIcon` + tooltip) |
+| `WBP_PartyMemberRow` | **Party \| Buffs → Buff Icon Size** | 18 (0 = tamanho do `WBP_BuffIcon`, 48) |
+| `WBP_PartyMemberRow` | **Party \| Style → Apply Compact Style** | ligado |
+| `BP_ThirdPersonPlayerController` | **Party Panel Widget Class** | `WBP_PartyFrame` |
+
+### O que o C++ já faz
+
+- Cria até 6 linhas a partir do `MemberRowClass`, preenche, colapsa as que sobram e atualiza o título.
+- Ordena os efeitos com debuffs primeiro e reordena os ícones sem recriá-los (`UUmbraBuffIconWidget::SyncBuffBar`, que agora aceita qualquer painel, HorizontalBox ou WrapBox).
+- Reduz o ícone (`UUmbraBuffIconWidget::ApplyIconSize`: SizeBox do `WBP_BuffIcon` e texto de duração escondido abaixo de 28 px).
+- Destaca a linha do alvo atual (checado a cada 0,25 s) e aplica o estilo de lista da UI (`UmbraUI::ApplyListRowStyle`).
+- Registra o elemento "Grupo" (`UUmbraHudLayoutSubsystem::Party`) e reaplica o layout quando o painel muda de tamanho.
+
+### QA (PIE, 2 players)
+
+| # | Teste | Esperado |
+|---|-------|----------|
+| 56 | P1 convida P2 e P2 aceita | Painel compacto no canto superior esquerdo: "Grupo (2)", duas linhas, ★ no líder |
+| 57 | HP/MP dos dois | Barra de HP com "atual / máx · %" compacto por cima; MP fina abaixo |
+| 58 | P2 recebe 3+ buffs e 1 debuff | Ícones pequenos, debuff primeiro; com muitos efeitos, quebram para a linha de baixo |
+| 59 | Passar o mouse num ícone | Tooltip com nome e tempo restante |
+| 60 | Clicar na linha do P2 | P2 vira o alvo (quadro de alvo abre) e a linha fica dourada |
+| 61 | P2 morre | "Morto" na barra, nome e barra cinza |
+| 62 | Editar HUD com grupo | Moldura "Grupo", pode mover; Salvar mantém após relogar |
+| 63 | Botão **Sair** | Sai do grupo e o painel some (nos dois clients, se o grupo acabar) |
+| 64 | Sem grupo, abrir o Editar HUD | "Grupo" não aparece (só com grupo ativo) |
+
+### Troubleshooting
+
+| Sintoma | Causa | Ação |
+|---------|-------|------|
+| Painel antigo aparece | `Party Panel Widget Class` do `BP_ThirdPersonPlayerController` aponta para `WBP_PartyPanel` | Apontar para `WBP_PartyFrame` |
+| Painel só com o cabeçalho | `Member Row Class` vazio | Preencher com `WBP_PartyMemberRow` (ou me pedir para rodar o script) |
+| Linhas sem ícones de buff | Classes de buff vazias | Copiar as do `WBP_PartyPanel` |
+| Ícones grandes (48 px) | `Buff Icon Size` = 0 ou rebuild não feito | 18 e rebuild do módulo |
+| Painel não move no Editar HUD | Fora de grupo ou rebuild antigo | Entrar num grupo; conferir o rebuild |
