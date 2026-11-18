@@ -280,3 +280,128 @@ Sem o nome, o C++ usa o primeiro filho do canvas raiz.
 | Sem ícones de buff no NPC | Classes de buff vazias no `WBP_TargetFrameNpc` | O C++ aplica as padrão do PlayerController; conferir `DefaultBuffIconWidgetClass` |
 | Retrato não aparece | Sem textura em `Class Icons` / `Npc Icon *` | Esperado; preencher as texturas |
 | Botão X branco grande | Estilo padrão do botão | Ajustar o estilo do `Btn_ClearTarget` no Designer (só visual) |
+
+---
+
+## 5) K5 — Chat
+
+### Objetivo
+
+- Abas com filtro de verdade: **Geral** (tudo), **Local**, **Global**, **Grupo**, **Guilda**, **Combate** (log de combate). A aba ativa fica dourada.
+- Cores por canal, horário `[12:34]`, histórico de 300 linhas (antes crescia sem limite).
+- **Canal de guilda real** (opcodes 120/121).
+- Comandos, histórico de envio (↑/↓), sussurros e mensagens de sistema dentro do chat.
+- "Novas mensagens ↓", fundo que some quando ocioso e alça para mudar o tamanho.
+
+### Protocolo
+
+| Opcode | Nome | Direção | Frame |
+|--------|------|---------|-------|
+| **120** | `ChatGuildMessage` | cliente → zone | `[120][fromId:u32][msgLen:u16][msg:utf8]` (igual aos 66–68) |
+| **121** | `ChatGuildReceived` | zone → membros da guilda conectados | `[121][fromId:u32][nameLen:u16][name:utf8][msgLen:u16][msg:utf8]` (igual aos 69–71) |
+
+- Remetente = player da conexão (o `fromId` do payload é ignorado, como nos outros canais); mesmos limites de tamanho e de mensagens por minuto.
+- Membros vêm de `guild_members` (`ZoneServer.cpp`, `resolveGuildMembers`), com **cache de 30 s** por jogador; a cache é limpa quando a guilda muda (`GuildStateRefresh`).
+- Sem guilda: erro "Voce nao esta em uma guilda" (opcode 72).
+- Cliente: `UUmbraGameInstance::SendGuildChatViaWebSocket` e delegate `OnGuildChatReceived`; o 121 está na lista de forward do `NetMovementClient.cpp`.
+
+### Comandos
+
+| Comando | Efeito |
+|---------|--------|
+| `/l texto` (ou `/s`) | Local |
+| `/g texto` | Global |
+| `/p texto` | Grupo |
+| `/gu texto` | Guilda |
+| `/l`, `/g`, `/p`, `/gu` sem texto | Só troca o canal de envio ("Falando em: ...") |
+| `/w Nome texto` | Sussurro para jogador conhecido (por perto, amigo ou do grupo) |
+| `/r texto` | Responde ao último sussurro recebido |
+| `/?` | Ajuda |
+
+- **Enter** abre o campo; **Esc** fecha; **↑/↓** repete o que você enviou (últimas 20).
+- **Clique numa linha** com autor: abre o campo com `/w Nome `.
+- Na aba **Geral** o envio usa o último canal escolhido (padrão Local); nas abas de canal, o canal da aba.
+
+### Cores
+
+| Canal | Cor |
+|-------|-----|
+| Local | branco |
+| Global | laranja |
+| Grupo | azul |
+| Guilda | verde |
+| Sussurro (`[De X]` / `[Para X]`) | rosa |
+| Sistema (EXP, nível, avisos) | amarelo; erro em vermelho |
+
+### Editor — `/Game/Widgets/UI/Chat/WBP_ChatMain`
+
+Já feito via MCP:
+
+| Nome | Tipo | Onde | Função |
+|------|------|------|--------|
+| `BTN_TabAll` + `Text_TabAll` ("Geral") | Button | 1ª aba de `HorizontalBox_Tabs` | Aba Geral |
+| `BTN_NewMessages` + `Text_NewMessages` | Button | fim do `VB_ChatContent`, centralizado, Collapsed | "Novas mensagens ↓" |
+| `Border_ResizeGrip` + `Text_ResizeGrip` ("↗") | Border | fim de `HorizontalBox_Tabs` | Alça de redimensionar |
+| `Combo_ChatChannel` | ComboBoxString | 1º item de `HorizontalBox_Tabs` | Seletor de canal (Geral, Local, Global, Grupo, Guilda, Combate). Com ele, os `BTN_Tab*` ficam escondidos (cabe em chat estreito) |
+
+Binds usados (não renomear): `Border_ChatPanel`, `Scroll_ChatFeed`, `VB_ChatLines`, `ET_ChatInput`, `Border_ChatInput`, `BTN_SendChat`, `TXT_ChatInfo`, `CombatLogPanel`, `BTN_Tab*`, `BTN_CloseChat`.
+
+Class Defaults (**Chat|Ajustes**): `Max Stored Lines` (300), `Show Timestamps`, `Chat Line Font Size` (11), `Idle Fade Seconds` (8), `Idle Background Opacity` (0,15).
+
+### O que o C++ já faz
+
+- Histórico único; a aba remonta a lista a partir dele; linhas antigas saem acima do limite.
+- Eco do próprio envio ignorado (a linha entra na hora do envio).
+- "Mensagem ... enviada" não aparece mais no chat; erros de envio/sussurro aparecem em vermelho.
+- EXP ganha e nível novo como linhas de sistema.
+- Tamanho escolhido na alça salvo em `UUmbraClientSettings::ChatPanelSize` e respeitado pelo layout da HUD.
+
+### QA (PIE, 2 players)
+
+| # | Teste | Esperado |
+|---|-------|----------|
+| 38 | P1 fala no Local; P2 no Global | Cada linha com a cor do canal e `[hh:mm]`; na aba Local só a do Local |
+| 39 | Trocar de aba várias vezes | Lista remonta sem duplicar; aba ativa dourada; "Falando em: ..." muda |
+| 40 | P1 e P2 na mesma guilda: aba Guilda → mensagem | P2 recebe em verde `[Guilda]`; jogador fora da guilda não recebe |
+| 41 | Sem guilda: `/gu oi` | Erro vermelho "Voce nao esta em uma guilda" (ou "Você não está em uma guilda") |
+| 42 | `/w <nome do P2> oi` / P2 responde `/r tudo bem` | `[Para P2]` / `[De P2]` em rosa nos dois lados |
+| 43 | `/w NomeInexistente oi` / `/x` | Erro "não encontrado" / "Comando desconhecido" |
+| 44 | ↑ / ↓ no campo | Volta as últimas mensagens enviadas |
+| 45 | Clicar na linha de outro jogador | Campo abre com `/w Nome ` |
+| 46 | Rolar para cima e receber mensagem | Não pula para o fim; aparece "Novas mensagens ↓"; clicar desce |
+| 47 | Ficar 8 s sem mexer | Fundo do chat some (texto fica); passar o mouse volta |
+| 48 | Arrastar a alça ↗ | Chat muda de tamanho; reabrir o jogo mantém |
+| 49 | Matar um mob / subir de nível | `+N EXP` e "Você alcançou o nível N!" em amarelo |
+| 50 | 350+ mensagens | Lista não passa de 300 linhas |
+
+### Troubleshooting
+
+| Sintoma | Causa | Ação |
+|---------|-------|------|
+| Chat de guilda não chega | `zone_server` antigo ou jogador fora de `guild_members` | Reiniciar a zone nova; conferir a tabela |
+| Membro novo da guilda não recebe por até 30 s | Cache de membros | Esperado; `GuildStateRefresh` limpa a cache |
+| `/w` não acha o jogador | Jogador longe, fora dos amigos e do grupo | Esperado (sussurro por nome para qualquer jogador fica para um lote futuro) |
+| Alça não redimensiona | `Border_ResizeGrip` fora do chat ou `Border_ChatPanel` renomeado | Restaurar os nomes |
+
+### Ajustes do QA do K5 (17/11/2026)
+
+- **Canal por combo:** `Combo_ChatChannel` no lugar da fileira de abas (que não cabia no chat estreito). As abas continuam no WBP, escondidas.
+- **Caracteres estranhos (chinês) no chat e no sussurro:** a conversão UTF-8 → texto lia além do fim da mensagem (`FString(Conv.Get())` sem o tamanho). Corrigido em 10 pontos do `UmbraGameInstance.cpp` (chat, sussurro, correio, loja) com `FString(Conv.Length(), Conv.Get())`.
+- **Log de combate no padrão novo:** a aba **Combate** usa o mesmo feed do chat (o `CombatLogPanel` antigo fica escondido), com histórico próprio de 200 linhas (a luta não apaga a conversa):
+
+| Tipo | Exemplo | Cor |
+|------|---------|-----|
+| Dano causado | `Você causou 1.234 de dano em Goblin (crítico)` | laranja claro |
+| Dano recebido | `Goblin causou 80 de dano em você` / `Você recebeu 30 de dano do ambiente` | vermelho |
+| Cura | `Você recuperou 50 de vida (contínua)` / `Fulano curou você em 120` / `Você curou Fulano em 90` | verde |
+| Efeitos de status | `Você recebeu o efeito Atordoar` / `O efeito Veneno terminou em Goblin` | lilás / cinza |
+
+- Nomes: jogador ou NPC (`UUmbraGameInstance::ResolveCombatantName`, mesma regra da tela de morte). Efeitos: você e o seu alvo atual (NPC ou jogador); o que já estava ativo quando o alvo apareceu não é anunciado.
+
+| # | Teste | Esperado |
+|---|-------|----------|
+| 51 | Chat estreito (alça) | O combo de canal cabe; trocar no combo filtra como as abas |
+| 52 | Mensagem e sussurro com acento ("ação, você") | Texto certo, sem caracteres estranhos no fim |
+| 53 | Combate → bater num NPC / apanhar / curar | Linhas de dano causado, recebido e cura com nomes certos (NPC pelo nome, não "outro jogador") |
+| 54 | Receber um debuff / aplicar um no alvo | "Você recebeu o efeito X" / "Alvo recebeu o efeito X"; ao acabar, "terminou" |
+| 55 | Lutar bastante e voltar à Geral | Conversa continua lá (combate não apaga o chat) |

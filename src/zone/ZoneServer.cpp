@@ -92,6 +92,28 @@ std::vector<uint32_t> resolvePartyMembers(Umbra::Database::MySQLConnector* db, u
   }
   return members;
 }
+
+// Chat de guilda (fase 7, K5): todos os membros da guilda do jogador (incluindo ele). Vazio = sem guilda.
+std::vector<uint32_t> resolveGuildMembers(Umbra::Database::MySQLConnector* db, uint32_t playerId) {
+  std::vector<uint32_t> members;
+  if (!db || !db->isConnected() || playerId == 0) {
+    return members;
+  }
+  auto rows = db->executePreparedQuery(
+    "SELECT gm2.player_id FROM guild_members gm1 "
+    "JOIN guild_members gm2 ON gm2.guild_id = gm1.guild_id "
+    "WHERE gm1.player_id = ?",
+    {std::to_string(playerId)});
+  for (const auto& row : rows) {
+    if (!row.empty()) {
+      try {
+        members.push_back(static_cast<uint32_t>(std::stoul(row[0])));
+      } catch (...) {
+      }
+    }
+  }
+  return members;
+}
 }  // namespace
 
 ZoneServer::ZoneServer(const Config& config)
@@ -136,6 +158,10 @@ bool ZoneServer::start() {
     movementServer_->setResolvePartyMembersCallback(
       [db = config_.dbConnector.get()](uint32_t playerId) {
         return resolvePartyMembers(db, playerId);
+      });
+    movementServer_->setResolveGuildMembersCallback(
+      [db = config_.dbConnector.get()](uint32_t playerId) {
+        return resolveGuildMembers(db, playerId);
       });
     movementServer_->setRespawnHandler(
       [this](uint32_t playerId, uint32_t zoneId, const std::string& spawnKey, bool memorySaysDead,

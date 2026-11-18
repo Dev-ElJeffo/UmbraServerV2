@@ -107,6 +107,8 @@ enum class MovementMsgType : uint8_t {
 	PlayerEquipmentVisualUpdate = 117,   // Cliente <-> Servidor: visual de equipamento (paths por slot)
 	CombatControlState = 118,            // Servidor -> Cliente: flags CC/visibilidade + velocidade autoritativa
 	CombatStanceState = 119,             // Cliente <-> Servidor: modo relaxado/combate (arma nas costas/na mao)
+	ChatGuildMessage = 120,              // Cliente -> Servidor: [msgType][fromPlayerId:4][msgLen:2][msg:utf8] (fase 7, K5)
+	ChatGuildReceived = 121,             // Servidor -> membros da guilda: [msgType][fromPlayerId:4][nameLen:2][name:utf8][msgLen:2][msg:utf8]
 	WsKeepalive = 250                      // Servidor -> Cliente: heartbeat (1 byte); cliente ignora
 };
 

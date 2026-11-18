@@ -72,6 +72,11 @@ public:
     resolvePartyMembers_ = std::move(cb);
   }
 
+  /** Resolve membros da guilda de um jogador (incluindo o próprio; vazio = sem guilda). Chat de guilda (120/121). */
+  void setResolveGuildMembersCallback(std::function<std::vector<uint32_t>(uint32_t playerId)> cb) {
+    resolveGuildMembers_ = std::move(cb);
+  }
+
   /** (playerId, zoneId, spawnKey, memorySaysDead, outPayload) */
   void setRespawnHandler(
       std::function<bool(uint32_t, uint32_t, const std::string&, bool, PlayerRespawnPayload&)> cb) {
@@ -1000,7 +1005,21 @@ public:
         handleChatMessageUnlocked(cid, msgType, fromId, message);
         return;
       }
-      
+
+      // Chat de guilda (fase 7, K5)
+      if (msgType == MovementMsgType::ChatGuildMessage) {
+        uint32_t fromId = 0;
+        std::string message;
+        if (!decodeChatClientMessage(data, fromId, message)) {
+          std::lock_guard<std::mutex> lock(mu_);
+          sendChatErrorToClientUnlocked(cid, ChatErrorCode::InvalidPayload, "Payload de chat de guilda invalido");
+          return;
+        }
+        std::lock_guard<std::mutex> lock(mu_);
+        handleChatMessageUnlocked(cid, msgType, fromId, message);
+        return;
+      }
+
       // Party/Trade/Friend Response
       if (msgType == MovementMsgType::PartyInviteResponse || 
           msgType == MovementMsgType::TradeRequestResponse ||
@@ -1219,6 +1238,8 @@ public:
         uint32_t guildId = 0;
         if (decodeGuildNotify(data, guildId)) {
           std::lock_guard<std::mutex> lock(mu_);
+          // Entrou/saiu alguém da guilda: o chat de guilda (120) relê os membros na próxima mensagem.
+          guildMembersCache_.clear();
           ws_.broadcastBinary(encodeGuildNotify(MovementMsgType::GuildStateRefresh, guildId));
         }
         return;
@@ -1523,6 +1544,27 @@ private:
         ++sentCount;
       }
       Umbra::Core::Logger::getInstance().info("Group chat from {} ({}) delivered to {} members", senderPlayerId, fromName, sentCount);
+      return;
+    }
+
+    if (msgType == MovementMsgType::ChatGuildMessage) {
+      if (!resolveGuildMembers_) {
+        sendChatErrorToClientUnlocked(cid, ChatErrorCode::Unknown, "Chat de guilda indisponivel");
+        return;
+      }
+      const std::vector<uint32_t> members = getGuildMembersCachedUnlocked(senderPlayerId);
+      if (members.empty()) {
+        sendChatErrorToClientUnlocked(cid, ChatErrorCode::InvalidPayload, "Voce nao esta em uma guilda");
+        return;
+      }
+      auto packet = encodeChatReceived(MovementMsgType::ChatGuildReceived, senderPlayerId, fromName, message);
+      size_t sentCount = 0;
+      for (uint32_t memberId : members) {
+        // Só quem está conectado nesta zone recebe (sendToPlayerUnlocked ignora offline).
+        sendToPlayerUnlocked(memberId, packet);
+        ++sentCount;
+      }
+      Umbra::Core::Logger::getInstance().info("Guild chat from {} ({}) delivered to {} members", senderPlayerId, fromName, sentCount);
       return;
     }
 
@@ -2312,6 +2354,34 @@ private:
   std::unordered_map<uint32_t, std::deque<std::chrono::steady_clock::time_point>> chatMessageHistoryByPlayer_;
   std::function<uint32_t(uint32_t)> onPlayerDisconnect_;
   std::function<std::vector<uint32_t>(uint32_t)> resolvePartyMembers_;
+  std::function<std::vector<uint32_t>(uint32_t)> resolveGuildMembers_;
+
+  /** Cache de membros da guilda por jogador (chat 120): evita uma consulta ao banco por mensagem. Sob mu_. */
+  struct GuildMembersCacheEntry {
+    std::vector<uint32_t> members;
+    std::chrono::steady_clock::time_point fetchedAt;
+  };
+  std::unordered_map<uint32_t, GuildMembersCacheEntry> guildMembersCache_;
+  static constexpr std::chrono::seconds kGuildMembersCacheTtl{30};
+
+  /** Membros da guilda do remetente (com cache de 30 s). Chamar com mu_ travado. */
+  std::vector<uint32_t> getGuildMembersCachedUnlocked(uint32_t playerId) {
+    const auto now = std::chrono::steady_clock::now();
+    auto it = guildMembersCache_.find(playerId);
+    if (it != guildMembersCache_.end() && now - it->second.fetchedAt < kGuildMembersCacheTtl) {
+      return it->second.members;
+    }
+    std::vector<uint32_t> members;
+    if (resolveGuildMembers_) {
+      try {
+        members = resolveGuildMembers_(playerId);
+      } catch (...) {
+        members.clear();
+      }
+    }
+    guildMembersCache_[playerId] = GuildMembersCacheEntry{members, now};
+    return members;
+  }
 
   // Cache de membros de party (mutex próprio, fora do mu_). Evita 2 SELECTs sob
   // mu_ a cada broadcast de vitals/dano/DOT. Reabastecido por refreshPartyCache().
