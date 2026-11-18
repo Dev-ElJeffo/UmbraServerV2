@@ -557,3 +557,83 @@ São dados do banco (`quest_objectives.description` e `quests.title`). Corrigir 
 | Sem barra de EXP | Rebuild não feito (`PB_EXP` sem bind) | Rebuild do módulo |
 | "AB" não aparece | Skill tem `icon_path` inválido mas não vazio (carrega nada) | Conferir o ícone da skill no Manager |
 | Aviso de streaming continua | Editor não reiniciado depois do `.ini` | Reiniciar o editor; em último caso, console `r.Streaming.PoolSize 3000` |
+
+---
+
+## 8) K8 — Avisos de combate, aviso de sistema e números de dano
+
+### Objetivo
+
+- **Avisos de combate** ("Alvo muito distante", "mana insuficiente", "em cooldown", "Nenhum alvo próximo"): pílulas escuras no centro da tela (30% da altura), até 3 empilhadas, com fade. A mesma mensagem repetida vira contador ("Alvo muito distante ×3") em vez de piscar.
+- **Aviso de sistema** (opcode 73): cartão no topo central com faixa colorida e rótulo pela gravidade, fade e **fila** (um aviso não apaga o outro; alerta passa na frente). Os avisos gerados no cliente (correio: "Carta enviada", "Falha ao apagar carta"...) também viram uma linha de sistema no **chat** (alerta em vermelho). O broadcast do GM (opcode 73) não ecoa, porque o servidor já manda a mesma mensagem no chat global (opcode 70).
+- **Números de dano:** pt-BR, números compactos, contorno preto, tamanho por importância e "pop" de entrada.
+
+| Situação | Texto | Cor | Tamanho |
+|----------|-------|-----|---------|
+| Dano causado | `1.234` | âmbar | 16 |
+| Dano recebido | `-80` | vermelho | 16 |
+| Crítico | `Crítico 2.500` | dourado | 22 (pop 1,5×) |
+| Duplo / duplo crítico | `Duplo 900` / `Duplo crítico 3.100` | azul | 19 / 24 |
+| Cura / mana | `+120` | verde / azul | 14 |
+| Errou | `Errou` | cinza | 13 |
+| EXP | `+50 EXP` | lilás | 14 |
+
+| Gravidade (opcode 73) | Rótulo | Cor |
+|-----------------------|--------|-----|
+| 0 | INFORMAÇÃO | azul |
+| 1 | AVISO | dourado |
+| 2+ | ALERTA | vermelho |
+
+### Editor (feito via MCP, sem Graph)
+
+| Asset | Mudança |
+|-------|---------|
+| `/Game/Widgets/UI/CombatFeedback/WBP_CombatFeedback` | `VB_FeedbackLines` (VerticalBox, âncora 0,5 × 0,3) recebe as pílulas criadas pelo C++; `Feedback_Text` colapsado (legado) |
+| `/Game/Widgets/UI/Notifications/WBP_BroadcastToast` | Cartão `Border_BroadcastCard` > `HB_BroadcastCard` > `SB_Accent`/`Border_Accent` (faixa 4 px) + `VB_BroadcastText` (`Text_BroadcastLabel` + `Broadcast_Text`, quebra em 560 px); `Broadcast_Panel` colapsado (legado) |
+| `/Game/Widgets/HUD/WBP_DamageNumber` | Slot do `Text_Amount` com auto size e texto centralizado |
+| `/Game/Widgets/HUD/WBP_PlayerHUD` | `WBP_CombatFeedback` e `WBP_BroadcastToast` ocupam a tela inteira (âncoras 0–1) |
+
+### O que o C++ já faz
+
+- `UUmbraCombatFeedbackWidget`: cria as pílulas (`UBorder` arredondado + `UTextBlock`), contador de repetição, limite `MaxLines` (3), fade (`FadeInSec`/`FadeOutSec`). Sem `VB_FeedbackLines`, cai no modo antigo (`Feedback_Text`).
+- `UUmbraBroadcastToastWidget`: fila (`MaxQueued` 5), cor e rótulo pela gravidade, fade (`FadeSec`).
+- `UUmbraGameInstance::ShowSystemBroadcast(..., bEchoToChat)` dispara `OnSystemBroadcast` (o handler do opcode 73 passa `false`); `UUmbraChatMainWidget::HandleSystemBroadcast` escreve a linha de sistema.
+- `UUmbraDamageNumberWidget`: texto (`UmbraUI::CompactNumber`), fonte negrito com contorno (`OutlineSize` 2), pop (`PopDuration` 0,15 s), subida com desaceleração e alinhamento centro-baixo sobre o alvo. O `UmbraCombatFloatingTextComponent` (fila, empilhamento, opção de desligar) não mudou.
+
+### QA (PIE, 2 players)
+
+| # | Teste | Esperado |
+|---|-------|----------|
+| 75 | Usar skill sem alvo / longe do alvo | Pílula escura no centro com o aviso, some com fade |
+| 76 | Apertar a mesma skill várias vezes em cooldown | Uma pílula só com "×2", "×3"...; não pisca |
+| 77 | Três avisos diferentes em sequência | Até 3 pílulas empilhadas; o 4º tira o mais antigo |
+| 78 | Broadcast pelo Manager (Jogadores → broadcast; o servidor manda gravidade 1) | Cartão "AVISO" dourado no topo; some com fade; a mensagem aparece uma vez só no chat (global, do GM) |
+| 79 | Dois broadcasts seguidos | O segundo aparece depois do primeiro (fila) |
+| 80 | Correio: enviar carta (gravidade 0) e forçar uma falha (ex.: apagar carta inexistente, gravidade 2) | "INFORMAÇÃO" azul e "ALERTA" vermelho; com outro aviso na tela, o alerta passa na frente; no chat, linha de sistema (alerta em vermelho) |
+| 81 | Bater num NPC | Números âmbar com contorno, sem "-", centralizados sobre o alvo |
+| 82 | Crítico / duplo | "Crítico 2.500" maior, dourado, com pop; "Duplo 900" azul |
+| 83 | Errar / curar / ganhar EXP | "Errou" cinza; "+120" verde; "+50 EXP" lilás |
+| 84 | Receber dano | "-80" vermelho sobre você |
+| 85 | Dano alto (dummy de 500 mi) | Número compacto ("1,2 mi") |
+| 86 | Mudar a resolução / escala da UI | Avisos e cartão continuam centralizados |
+
+### Troubleshooting
+
+| Sintoma | Causa | Ação |
+|---------|-------|------|
+| Aviso de combate no canto, texto amarelo solto | Rebuild não feito ou `VB_FeedbackLines` ausente | Rebuild do módulo; conferir o WBP |
+| Cartão de aviso some sem aparecer a fila | Broadcast enviado com duração 0 | Usa o padrão de 5 s; conferir o Manager |
+| Número de dano deslocado para a direita | `Text_Amount` sem auto size | Conferir o slot do `Text_Amount` no `WBP_DamageNumber` |
+| Números em inglês ("CRIT") | Editor com o C++ antigo | Rebuild do módulo |
+
+### Ajustes do QA do K8 (18/11/2026)
+
+- **Número de dano longe do alvo:** a posição vinha em pixels da tela (`ProjectWorldLocationToScreen`) e era aplicada como unidade de UI, sem descontar a escala (DPI + escala da interface). Com escala menor que 100%, o número ia parar bem acima e ao lado da cabeça. Agora `UUmbraDamageNumberWidget::ApplyScreenPosition` divide pela `GetViewportScale`.
+- **Subida menor:** `RiseDistance` = 40 (antes ~120). Offsets do `UmbraCombatFloatingTextComponent`: neutro (0, −30), recebido (−50, −30), causado (50, −30), empilhamento 24 px (antes −80 e 38 px). Os BPs não sobrescrevem esses valores, então o padrão do C++ vale.
+- **Avisos de combate mais baixos:** pilha em `StackAnchor` = (0,5; 0,64), abaixo do personagem e acima do cartão de HP/MP (antes 0,3, no meio da tela). Ajustável no Class Defaults do `WBP_CombatFeedback` (**Combat|Feedback → Stack Anchor**).
+
+| # | Teste | Esperado |
+|---|-------|----------|
+| 87 | Bater no dragão com escala da UI < 100% | Números logo acima e ao lado da cabeça do alvo, subindo pouco |
+| 88 | Receber dano | "-700" ao lado esquerdo da sua cabeça, não no alto da tela |
+| 89 | Skill em cooldown | Pílula abaixo do personagem, sem cobrir o combate |
