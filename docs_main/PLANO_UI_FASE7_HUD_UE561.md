@@ -26,7 +26,7 @@ Continua a fase 6 (janelas e tooltips, QA geral aprovado em 17/11/2026). Esta fa
 - **Layout da HUD:** fixo e responsivo **e** um modo "Editar HUD" para arrastar cada elemento e salvar a posição.
 - **Menu da HUD:** fileira de ícones com tooltip (nome + atalho). Os ícones ficam com o usuário no Editor.
 - **Chat:** o canal de guilda real (servidor + UE) entra no K5.
-- **Ordem:** K1 → K4 → K3 → K2 → K5 → K6.
+- **Ordem:** K1 → K4 → K3 → K2 → K5 → K7 → K6 (K7, painel de grupo, entrou no QA do K2).
 
 ## 3) Lotes
 
@@ -35,9 +35,10 @@ Continua a fase 6 (janelas e tooltips, QA geral aprovado em 17/11/2026). Esta fa
 | **K1** | Nome do remetente nos opcodes 11/21/31 (campo trailing) com remetente autoritativo pela conexão; remover amigo com confirmação em C++ | Servidor, UE, guia | **QA ok** (17/11/2026) |
 | **K4** | Escala da interface: slider 75–150% nas Configurações (`UUserInterfaceSettings::ApplicationScale`), curva de DPI pelo lado menor da tela, salvo nas configurações do cliente, prévia ao vivo | UE, config, guia | **QA ok** (17/11/2026); faixa revista para 50–125% no K3 |
 | **K3** | Layout da HUD por jogador local (`UUmbraHudLayoutSubsystem`): posições ancoradas, regras para tela estreita, modo "Editar HUD" com posições salvas, ícones no menu, escala 50–125%, correção do tracker encolhendo e do mapa sumindo. HP/MP compacto movido para o K6 | UE, WBP, guia | **QA ok** (17/11/2026) |
-| **K2** | Quadro de alvo único (jogador/NPC): retrato, nome pela relação, nível pela diferença, HP com % e números compactos, MP só para jogador, debuffs antes de buffs, "Morto"/"Fora de alcance", X/ESC limpa o alvo | UE, WBP, guia | Planejado |
+| **K2** | Quadros de alvo novos (`WBP_TargetFramePlayer`/`WBP_TargetFrameNpc`): retrato, nome pela relação, nível pela diferença, HP com % e números compactos, MP só para jogador, debuffs antes de buffs, "Morto"/"Fora de alcance", X/ESC limpa o alvo | UE, WBP, guia | **QA ok** (17/11/2026) |
 | **K5** | Chat: aba Geral + filtros, cores por canal, nome clicável, `/l /g /p /w /r`, histórico ↑/↓, sussurros e sistema no chat, 200 linhas por canal, "novas mensagens", fundo que some ocioso, movível/redimensionável, canal de guilda (opcode novo) | Servidor, UE, WBP, guia | Planejado |
 | **K6** | Polimento: barra de EXP, tracker de missões, painel de HP/MP compacto, destaque falso do slot 1, aviso de streaming em dev | UE, WBP, config, guia | Planejado |
+| **K7** | Painel de grupo redesenhado (pedido no QA do K2, 17/11/2026): mesmo visual do quadro de alvo (`WBP_TargetFrame*`), mais compacto (linha por membro: nome, "Nv", HP com texto por cima, MP fina), sem o widget antigo; mostra **todos** os buffs e debuffs de cada membro com ícones menores (debuffs primeiro); clique seleciona o membro; elemento "Grupo" no layout da HUD (movível no Editar HUD) | UE, WBP, guia | Planejado (depois do K5) |
 
 ## 4) K1 — detalhes
 

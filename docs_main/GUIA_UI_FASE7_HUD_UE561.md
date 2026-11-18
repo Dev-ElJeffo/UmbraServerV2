@@ -198,3 +198,85 @@ Sem o nome, o C++ usa o primeiro filho do canvas raiz.
 | Mapa ainda arrasta pela barra dele | Build antigo | Rebuild |
 | Log "[UmbraHudLayout] Elemento X ignorado" | Painel fora de um CanvasPanel | O painel do elemento precisa ser filho direto do canvas raiz do WBP |
 | HP/MP ainda grande | Compactação do HP/MP ficou para o K6 | — |
+
+---
+
+## 4) K2 — Quadros de alvo (jogador e NPC)
+
+### Objetivo
+
+- Quadro do alvo novo para jogador e NPC: cartão escuro com borda dourada, retrato, nome em Cinzel, "Nv N" colorido, X para limpar o alvo, HP com o texto por cima da barra.
+- Números compactos: "499,8 mi / 500 mi · 99%" (antes "499836280/500000000").
+- Sem quadrado branco: sem textura configurada o retrato some.
+- NPC sem linha de MP.
+- **ESC** sem janela aberta limpa o alvo primeiro; o próximo ESC abre o menu.
+
+### Assets
+
+| Asset | Path | Parent Class |
+|-------|------|--------------|
+| Quadro de jogador | `/Game/Widgets/UI/PlayerInteraction/PlayerSelection/WBP_TargetFramePlayer` | `UmbraSelectedPlayerInfoWidget` |
+| Quadro de NPC | `/Game/Widgets/UI/PlayerInteraction/PlayerSelection/WBP_TargetFrameNpc` | `UmbraNpcTargetInfoWidget` |
+
+- Os dois foram criados via MCP (sem Graph). `BP_ThirdPersonPlayerController` → componente **Player Selection** → `Target Widget Class` / `Npc Target Widget Class` já apontam para eles.
+- `WBP_SelectedPlayerInfo` e `WBP_SelectedNpcInfo` ficaram sem uso (reserva). Podem ser apagados depois do QA.
+
+### Binds
+
+| Nome | Tipo | Função |
+|------|------|--------|
+| `Border_Window` | `UBorder` | Painel do quadro (posição pelo layout da HUD, elemento "Alvo") |
+| `Image_ClassIcon` | `UImage` | Retrato (some sem textura) |
+| `Text_PlayerName` / `Text_NpcName` | `UTextBlock` | Nome na cor da relação; "..." se não couber |
+| `Text_TargetTag` | `UTextBlock` | "Morto" (vermelho) / "Fora de alcance" |
+| `Text_Level` | `UTextBlock` | "Nv N" na cor da diferença de nível |
+| `Btn_ClearTarget` | `UButton` | Limpa o alvo (jogador e NPC) |
+| `Text_Subtitle` | `UTextBlock` | Jogador: `<Guilda>` (ou título). NPC: "Vendedor" / "Inimigo" / "NPC" |
+| `Progress_HP` + `Text_HP` | barra + texto por cima | "atual / máx · %" compacto; "Morto" com HP 0 |
+| `Progress_MP` + `Text_MP` | barra + texto (só jogador) | Igual ao HP, mais fina |
+| `BuffBar_HBox` | `UHorizontalBox` | Debuffs primeiro, depois buffs |
+
+### Class Defaults (você preenche)
+
+- `WBP_TargetFramePlayer` → **Target|Portrait → Class Icons**: `ClassID` → textura do ícone da classe.
+- `WBP_TargetFrameNpc` → **Target|Portrait**: `Npc Icon Hostile`, `Npc Icon Vendor`, `Npc Icon Friendly`.
+- Os dois → **Target|Range**: `Out Of Range Distance` (padrão 3000 uu) e `Out Of Range Opacity` (0,55).
+
+### Cores
+
+| Item | Regra |
+|------|-------|
+| Nome do NPC | Atacável vermelho; vendedor/amigável verde; morto cinza |
+| Nome do jogador | Grupo ou mesma guilda verde; demais branco; morto cinza |
+| Nível | Diferença alvo − você: ≤ −10 cinza · −9..−3 verde · −2..+2 amarelo · +3..+4 laranja · ≥ +5 vermelho (NPC amigável: cinza) |
+
+### O que o C++ já faz
+
+- `UmbraUI::CompactNumber` / `ResourceBarText` / `LevelDifferenceColor` (`UI/Style/UmbraUIStyle`).
+- Estado "Morto" e "Fora de alcance" (checado a cada 0,25 s; jogador fora do AOI conta como fora de alcance).
+- X e ESC: `UUmbraPlayerSelectionComponent::ClearAllTargets` (jogador e NPC).
+
+### QA (PIE, 2 players)
+
+| # | Teste | Esperado |
+|---|-------|----------|
+| 27 | Selecionar o `dummy_upado` (500 mi de HP) | "500 mi / 500 mi · 100%" dentro da barra; sem MP; sem quadrado branco; nome vermelho; "Inimigo" |
+| 28 | Bater no dummy | Barra e texto descem ("499,8 mi / 500 mi · 99%") |
+| 29 | Selecionar um vendedor | Nome verde, "Vendedor", nível cinza |
+| 30 | Selecionar o P2 (no grupo ou na mesma guilda) | Nome verde, `<Guilda>` na 2ª linha, barra de MP fina |
+| 31 | NPC 6+ níveis acima / 10+ abaixo | "Nv" vermelho / cinza |
+| 32 | Matar o alvo | "Morto" vermelho no nome e na barra; nome cinza |
+| 33 | Afastar mais de 3000 uu | Quadro esmaecido com "Fora de alcance"; voltar restaura |
+| 34 | **X** do quadro | Alvo limpo, quadro some |
+| 35 | ESC sem janela / com o inventário aberto | Sem janela: limpa o alvo (2º ESC abre o menu). Com janela: fecha só a janela |
+| 36 | Editar HUD com alvo selecionado | Moldura "Alvo" e pode ser movido |
+| 37 | Alvo com debuff e buff | Debuffs primeiro na fila |
+
+### Troubleshooting
+
+| Sintoma | Causa | Ação |
+|---------|-------|------|
+| Quadro antigo aparece | `BP_ThirdPersonPlayerController` voltou a apontar para `WBP_SelectedPlayerInfo`/`WBP_SelectedNpcInfo` | Componente Player Selection → classes `WBP_TargetFrame*` |
+| Sem ícones de buff no NPC | Classes de buff vazias no `WBP_TargetFrameNpc` | O C++ aplica as padrão do PlayerController; conferir `DefaultBuffIconWidgetClass` |
+| Retrato não aparece | Sem textura em `Class Icons` / `Npc Icon *` | Esperado; preencher as texturas |
+| Botão X branco grande | Estilo padrão do botão | Ajustar o estilo do `Btn_ClearTarget` no Designer (só visual) |
