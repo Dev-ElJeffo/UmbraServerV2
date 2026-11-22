@@ -45,6 +45,30 @@ function class_modular_mesh_columns(): array
     ];
 }
 
+/** F5: animação e falas do palco de seleção/criação (scripts/add_class_showcase_paths.sql). */
+function class_showcase_columns(): array
+{
+    return ['showcase_anim_path', 'selection_voice_path', 'creation_voice_path'];
+}
+
+/** Colunas F5 que existem no schema atual (antes da migration: nenhuma). */
+function class_showcase_columns_for_db(PDO $pdo): array
+{
+    $cols = [];
+    foreach (class_showcase_columns() as $col) {
+        if (class_column_exists($pdo, $col)) {
+            $cols[] = $col;
+        }
+    }
+    return $cols;
+}
+
+function class_showcase_select_sql(PDO $pdo): string
+{
+    $cols = class_showcase_columns_for_db($pdo);
+    return empty($cols) ? '' : ', ' . implode(', ', $cols);
+}
+
 function class_legacy_hand_mesh_columns(): array
 {
     return ['left_hand_mesh_path', 'right_hand_mesh_path'];
@@ -214,6 +238,14 @@ function class_payload_fields(array $data, bool $forUpdate, bool $includeAnim, ?
     }
     if ($pdo instanceof PDO) {
         class_apply_modular_mesh_payload($pdo, $data, $fields, $forUpdate);
+        // F5: paths do palco (só se a coluna existir; vazio = NULL).
+        foreach (class_showcase_columns_for_db($pdo) as $showcaseCol) {
+            if (!array_key_exists($showcaseCol, $data)) {
+                continue;
+            }
+            $val = $data[$showcaseCol];
+            $fields[$showcaseCol] = ($val === null || trim((string)$val) === '') ? null : trim((string)$val);
+        }
     } else {
         foreach (class_modular_mesh_columns() as $meshCol) {
             if ($forUpdate && !array_key_exists($meshCol, $data)) {

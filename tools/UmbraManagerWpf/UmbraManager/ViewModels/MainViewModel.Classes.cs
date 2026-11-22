@@ -76,6 +76,10 @@ public partial class MainViewModel
     [ObservableProperty] private int _classAnimSheatheSwapMs;
     [ObservableProperty] private string _classFormSkeletalMeshPath = "";
     [ObservableProperty] private string _classFormAnimBlueprintPath = "";
+    // F5: palco de seleção/criação (animação + falas).
+    [ObservableProperty] private string _classFormShowcaseAnimPath = "";
+    [ObservableProperty] private string _classFormSelectionVoicePath = "";
+    [ObservableProperty] private string _classFormCreationVoicePath = "";
     /// <summary>Body da classe (gravado em torso_mesh_path); equipamentos vêm por cima dele.</summary>
     [ObservableProperty] private string _classFormBodyMeshPath = "";
     [ObservableProperty] private string _classFormMainHandMeshPath = "";
@@ -152,6 +156,9 @@ public partial class MainViewModel
         ClassFormDoubleAttackRate = 0;
         ClassFormSkeletalMeshPath = "";
         ClassFormAnimBlueprintPath = "";
+        ClassFormShowcaseAnimPath = "";
+        ClassFormSelectionVoicePath = "";
+        ClassFormCreationVoicePath = "";
         ClassFormBodyMeshPath = "";
         ClassFormMainHandMeshPath = "";
         ClassFormOffHandMeshPath = "";
@@ -299,6 +306,9 @@ public partial class MainViewModel
         ClassFormDoubleAttackRate = row.BaseDoubleAttackRate;
         ClassFormSkeletalMeshPath = row.SkeletalMeshPath;
         ClassFormAnimBlueprintPath = row.AnimBlueprintPath;
+        ClassFormShowcaseAnimPath = row.ShowcaseAnimPath;
+        ClassFormSelectionVoicePath = row.SelectionVoicePath;
+        ClassFormCreationVoicePath = row.CreationVoicePath;
         ClassFormBodyMeshPath = row.BodyMeshPath;
         ClassFormMainHandMeshPath = row.MainHandMeshPath;
         ClassFormOffHandMeshPath = row.OffHandMeshPath;
@@ -334,6 +344,9 @@ public partial class MainViewModel
             ["anim_set_json"] = BuildClassAnimSetJson(),
             ["skeletal_mesh_path"] = string.IsNullOrWhiteSpace(ClassFormSkeletalMeshPath) ? null : ClassFormSkeletalMeshPath.Trim(),
             ["anim_blueprint_path"] = string.IsNullOrWhiteSpace(ClassFormAnimBlueprintPath) ? null : ClassFormAnimBlueprintPath.Trim(),
+            ["showcase_anim_path"] = string.IsNullOrWhiteSpace(ClassFormShowcaseAnimPath) ? null : ClassFormShowcaseAnimPath.Trim(),
+            ["selection_voice_path"] = string.IsNullOrWhiteSpace(ClassFormSelectionVoicePath) ? null : ClassFormSelectionVoicePath.Trim(),
+            ["creation_voice_path"] = string.IsNullOrWhiteSpace(ClassFormCreationVoicePath) ? null : ClassFormCreationVoicePath.Trim(),
             // Body grava em torso_mesh_path; arms/legs/feet não são enviados (valores no banco preservados).
             ["torso_mesh_path"] = string.IsNullOrWhiteSpace(ClassFormBodyMeshPath) ? null : ClassFormBodyMeshPath.Trim(),
             ["main_hand_mesh_path"] = string.IsNullOrWhiteSpace(ClassFormMainHandMeshPath) ? null : ClassFormMainHandMeshPath.Trim(),
@@ -560,6 +573,9 @@ public partial class MainViewModel
             AnimSetJsonRaw = animRaw,
             SkeletalMeshPath = TryGetStringProp(el, "skeletal_mesh_path"),
             AnimBlueprintPath = TryGetStringProp(el, "anim_blueprint_path"),
+            ShowcaseAnimPath = TryGetStringProp(el, "showcase_anim_path"),
+            SelectionVoicePath = TryGetStringProp(el, "selection_voice_path"),
+            CreationVoicePath = TryGetStringProp(el, "creation_voice_path"),
             BodyMeshPath = TryGetStringProp(el, "torso_mesh_path"),
             MainHandMeshPath = TryGetStringProp(el, "main_hand_mesh_path"),
             OffHandMeshPath = TryGetStringProp(el, "off_hand_mesh_path"),

@@ -88,6 +88,14 @@
         <TextBox Text="{Binding ClassFormAnimBlueprintPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12"
                  materialDesign:HintAssist.Hint="anim_blueprint_path" materialDesign:HintAssist.IsFloating="True"/>
 
+        <TextBlock Text="Palco de seleção/criação (animação e falas)" FontWeight="SemiBold" Margin="0,0,0,6"/>
+        <TextBox Text="{Binding ClassFormShowcaseAnimPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="showcase_anim_path (montage/sequence: /Game/...Anim.Anim)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassFormSelectionVoicePath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="selection_voice_path (fala na seleção: /Game/...Sound.Sound)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding ClassFormCreationVoicePath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12"
+                 materialDesign:HintAssist.Hint="creation_voice_path (fala na criação: /Game/...Sound.Sound)" materialDesign:HintAssist.IsFloating="True"/>
+
         <TextBlock Text="Corpo" FontWeight="SemiBold" Margin="0,0,0,6"/>
         <TextBox Text="{Binding ClassFormBodyMeshPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,2"
                  materialDesign:HintAssist.Hint="body_mesh_path (SKM do corpo; grava em torso_mesh_path)" materialDesign:HintAssist.IsFloating="True"/>

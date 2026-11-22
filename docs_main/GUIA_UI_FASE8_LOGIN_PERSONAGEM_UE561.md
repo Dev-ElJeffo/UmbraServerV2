@@ -370,3 +370,87 @@ Tudo é relativo ao ator do manager — no mapa basta posicionar o manager; os p
 | Personagem de perfil | Mesh do BP girado fora do padrão | O palco já compensa a rotação do mesh (padrão UE -90; o `BP_CharacterPreview` usa -180). Se ainda ficar de perfil, use `CharacterYawOffset` = ±90 |
 | Personagens/nameplates sobrepostos | Espaço menor que o modelo | Aumentar `LineupGap` ou `MaxLineupWidth` |
 | Preview pequeno na criação | `bApplyPreviewScaleOnStage` ligado com `PreviewSpawnScale` < 1 | Desligar |
+
+## 5) F5 — Animação e fala no palco
+
+### Objetivo
+
+- Quando um personagem vai ao **destaque**, ele toca a **animação de apresentação** da classe e diz uma **fala**:
+  - **seleção:** ao clicar no personagem (clicar de novo repete). Fala: `selection_voice_path`;
+  - **criação:** ao escolher a classe (trocar cabelo/rosto **não** repete). Fala: `creation_voice_path`.
+- A animação (`showcase_anim_path`) é a mesma nas duas telas. Ao voltar à fila, trocar de personagem/classe ou cancelar, a fala é cortada e a animação sai com blend.
+- Tudo por classe e configurado no **Manager** (não há tabela local no UE).
+
+### SQL
+
+```
+mysql -u root -p umbra_eternum < www\umbra_api\scripts\add_class_showcase_paths.sql
+```
+
+Cria em `classes`: `showcase_anim_path`, `selection_voice_path`, `creation_voice_path` (`VARCHAR(512) NULL`, idempotente). NULL/vazio = não toca.
+
+Depois: sincronizar o PHP com o WAMP (`scripts_main/sync_umbra_api_to_wamp.bat`).
+
+| Arquivo (repo) | WAMP |
+|----------------|------|
+| `www/umbra_api/api/admin/class_admin_helpers.php` | `C:\wamp64\www\umbra_api\api\admin\class_admin_helpers.php` |
+| `www/umbra_api/api/admin/list_classes.php` | `C:\wamp64\www\umbra_api\api\admin\list_classes.php` |
+| `www/umbra_api/api/character/get_classes.php` | `C:\wamp64\www\umbra_api\api\character\get_classes.php` |
+
+### Manager
+
+**Classes** → selecione a classe → bloco **Palco de seleção/criação (animação e falas)**:
+
+| Campo | Exemplo | Tipo de asset |
+|-------|---------|---------------|
+| `showcase_anim_path` | `/Game/Characters/Anims_/Barbarian/AM_Barbarian_Showcase.AM_Barbarian_Showcase` | AnimMontage **ou** AnimSequence |
+| `selection_voice_path` | `/Game/Audio/Voice/Barbarian/SC_Barb_Selection.SC_Barb_Selection` | SoundWave ou SoundCue |
+| `creation_voice_path` | `/Game/Audio/Voice/Barbarian/SC_Barb_Creation.SC_Barb_Creation` | SoundWave ou SoundCue |
+
+Clique em **Salvar**. Não precisa de `reload_*`: o cliente lê as classes por HTTP (`get_classes.php`) ao abrir a seleção/criação.
+
+### Editor (sua parte)
+
+1. **Slot no AnimBP:** a animação toca no slot **`DefaultSlot`** (`ShowcaseSlotName`). O AnimGraph do AnimBP das classes (o `anim_blueprint_path` de cada classe, aplicado no `BP_CharacterPreview`) precisa ter um nó **Slot 'DefaultSlot'** entre a pose de locomoção e o **Output Pose**. Uma montage usa o slot dela (normalmente o mesmo).
+2. **Animações:** a montage/sequence precisa ser do **mesmo esqueleto** do mesh da classe. Sugestão: 2–4 s, termina numa pose próxima do idle (o blend de 0,25 s faz o resto).
+3. **Falas:** importar `.wav` → SoundWave (ou SoundCue). Coloque no Sound Class de voz/SFX do projeto para respeitar o volume das configurações.
+4. Copiar o path com **botão direito → Copy Reference** e colar no Manager.
+
+| Ajuste (manager do palco, Details → **Umbra\|Stage\|Showcase**) | Padrão | Para quê |
+|-----------------------------------------------------------------|--------|----------|
+| `bPlayShowcasePerformance` | ligado | Desliga animação e fala |
+| `ShowcaseVoiceDelay` | 0,3 s | Atraso da fala depois do início da animação |
+| `ShowcaseVolume` | 1 | Volume da fala |
+| `ShowcaseSlotName` | DefaultSlot | Slot usado por AnimSequence |
+| `ShowcaseBlendTime` | 0,25 s | Blend de entrada/saída |
+
+### O que o C++ já faz
+
+- `get_classes.php` → `FUmbraClassData.ShowcaseAnimPath / SelectionVoicePath / CreationVoicePath` (parse no `UmbraGameInstance`).
+- `AUmbraCharacterStage::PlayShowcasePerformance`: carrega o asset pelo soft path; `AnimMontage` → `Montage_Play`; `AnimSequence` → `PlaySlotAnimationAsDynamicMontage` no `ShowcaseSlotName`; fala no `UAudioComponent` 2D `ShowcaseVoice` com atraso. `StopShowcasePerformance` corta tudo.
+- Seleção: `OnShowcaseStarted` (classe do personagem) com a fala de seleção; carrega as classes ao abrir a tela se ainda não estiverem carregadas.
+- Criação: toca depois de aplicar a aparência e encostar no chão; para ao trocar de classe, voltar ou cancelar.
+- Sem Event Graph.
+
+### QA (PIE)
+
+| # | Teste | Esperado |
+|---|-------|----------|
+| 54 | Seleção: clicar num personagem | Ele vai ao destaque, toca a animação da classe e, ~0,3 s depois, a fala de **seleção** |
+| 55 | Clicar de novo no mesmo | Animação e fala recomeçam (sem sobrepor duas falas) |
+| 56 | Trocar de personagem no meio da fala | A fala anterior para; a do novo começa |
+| 57 | **Ver todos** | Fala cortada, animação sai com blend, fila volta |
+| 58 | Criação: escolher uma classe | Animação + fala de **criação** |
+| 59 | Mudar cabelo/rosto | Não repete a apresentação (só o close no rosto) |
+| 60 | **Voltar** / trocar de classe | Fala cortada; a nova classe toca a dela |
+| 61 | Classe sem paths no Manager | Nada toca, sem erro (só idle) |
+
+### Troubleshooting
+
+| Sintoma | Causa | Ação |
+|---------|-------|------|
+| Fala toca, animação não | AnimBP sem nó Slot `DefaultSlot` (AnimSequence) ou esqueleto diferente | Adicionar o Slot no AnimGraph; conferir o esqueleto da animação |
+| Log `showcase_anim_path inválido` | Path aponta para algo que não é animação | Usar Copy Reference da AnimMontage/AnimSequence |
+| Log `Fala não encontrada` | Path errado ou asset fora do cook | Conferir o path; em build empacotado, pasta em "Directories to Always Cook" |
+| Nada toca na seleção | Classes ainda não carregadas ou SQL/WAMP não aplicados | Rodar o SQL, sincronizar o WAMP, conferir o JSON de `get_classes.php` |
+| Fala muito baixa/alta | Volume do asset/Sound Class | `ShowcaseVolume` no manager ou ajustar o Sound Class |

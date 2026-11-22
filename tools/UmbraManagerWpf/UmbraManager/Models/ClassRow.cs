@@ -31,6 +31,12 @@ public sealed class ClassRow
     public string AnimSetJsonRaw { get; set; } = "";
     public string SkeletalMeshPath { get; set; } = "";
     public string AnimBlueprintPath { get; set; } = "";
+    /// <summary>F5: montage/sequence tocada no palco de seleção e criação (vazio = nenhuma).</summary>
+    public string ShowcaseAnimPath { get; set; } = "";
+    /// <summary>F5: fala (SoundBase) ao mostrar o personagem na seleção.</summary>
+    public string SelectionVoicePath { get; set; } = "";
+    /// <summary>F5: fala (SoundBase) ao escolher a classe na criação.</summary>
+    public string CreationVoicePath { get; set; } = "";
     /// <summary>Corpo da classe (coluna torso_mesh_path). Arms/legs/feet legados não são mais usados.</summary>
     public string BodyMeshPath { get; set; } = "";
     public string MainHandMeshPath { get; set; } = "";

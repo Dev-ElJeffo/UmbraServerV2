@@ -28,6 +28,7 @@ try {
     $anim = class_has_anim_set_column($pdo) ? ', anim_set_json' : '';
     $mesh = class_has_mesh_path_columns($pdo) ? ', skeletal_mesh_path, anim_blueprint_path' : '';
     $modular = class_modular_mesh_select_sql($pdo);
+    $showcase = class_showcase_select_sql($pdo);
     $dmg = class_column_exists($pdo, 'damage_type') ? ', damage_type' : '';
     $stmt = $pdo->query(
         "SELECT class_id, class_name, class_description,
@@ -41,6 +42,7 @@ try {
                 $anim
                 $mesh
                 $modular
+                $showcase
          FROM classes
          ORDER BY class_id ASC"
     );

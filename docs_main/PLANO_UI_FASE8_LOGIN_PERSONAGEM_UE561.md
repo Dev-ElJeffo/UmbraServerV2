@@ -32,6 +32,7 @@ Telas: `/Game/Widgets/WBP_Login2`, `WBP_Register`, `WBP_CharacterSelection`, `WB
 | **F2** | Seleção de personagem: lista em cartões + painel de detalhes compacto (§5) | UE, guia | **QA ok** (18/11/2026) |
 | **F3** | Criação de personagem: classes com ícone e nome pt-BR, painel de classe com barras comparativas, nome e aparência (§6) | UE, guia | **QA ok** (18/11/2026) |
 | **F4** | Palco dos personagens (seleção e criação): fila lado a lado com todos os personagens da conta, ponto de destaque único onde o escolhido aparece (o mesmo na seleção e na criação), câmera do próprio palco (§10) | UE, mapas, guia | QA ok |
+| **F5** | Apresentação no palco: animação por classe + fala diferente na seleção e na criação, configuradas no Manager (`classes.showcase_anim_path`, `selection_voice_path`, `creation_voice_path`) | SQL, PHP, Manager, UE, guia (§5) | Implementado, falta QA |
 
 Ordem: F1 → F2 → F3 (uma por vez, com QA e commit entre elas).
 

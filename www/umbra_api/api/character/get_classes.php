@@ -67,6 +67,11 @@ try {
     $modularCol = !empty($modularCols)
         ? ",\n            " . implode(",\n            ", $modularCols)
         : "";
+    // F5: animação e falas do palco (seleção/criação).
+    $showcaseCols = class_showcase_columns_for_db($pdo);
+    $showcaseCol = !empty($showcaseCols)
+        ? ",\n            " . implode(",\n            ", $showcaseCols)
+        : "";
 
     // Buscar todas as classes
     $stmt = $pdo->query("
@@ -97,6 +102,7 @@ try {
             $animCol
             $meshCol
             $modularCol
+            $showcaseCol
         FROM classes
         ORDER BY class_id ASC
     ");
@@ -138,6 +144,9 @@ try {
             'anim_blueprint_path' => $hasMeshPaths ? ($row['anim_blueprint_path'] ?? null) : null,
         ];
         foreach ($modularCols as $col) {
+            $entry[$col] = $row[$col] ?? null;
+        }
+        foreach (class_showcase_columns() as $col) {
             $entry[$col] = $row[$col] ?? null;
         }
         if (empty($entry['arms_mesh_path'])) {
