@@ -267,3 +267,106 @@ Antigos colapsados: `Border_557` (título), `Border_BTN_Classes` (barra das clas
 | Cartão diz "Barbarian" | Rebuild não feito | Rebuild |
 | Setas não mudam o preview | Sem peças de aparência para a classe | Conferir `appearance_parts` no Manager; "Padrão" é a única opção |
 | Barras todas cheias | Classes ainda carregando | Reabrir a classe depois do `OnClassesLoaded` |
+
+---
+
+## 4) F4 — Palco dos personagens (seleção e criação)
+
+### Objetivo
+
+- **Seleção:** todos os personagens da conta **lado a lado**, centralizados e com os pés no chão; a câmera recua sozinha para a fila inteira caber. Escolher no cartão leva o personagem ao **ponto de destaque** (os outros só ficam escondidos, não são destruídos) e a câmera fecha nele; trocar de personagem não recria nada; "Ver todos" volta à fila.
+- **Criação:** as **6 classes lado a lado** na mesma fila (spawnadas pelo C++, na ordem dos cartões); escolher uma classe põe o preview no **mesmo ponto de destaque e com o mesmo enquadramento** da seleção; trocar de classe mantém o lugar; "Voltar" volta à fila.
+- **Girar o modelo:** segure o **botão direito** e arraste para girar o personagem em destaque (nas duas telas).
+- Câmera própria do palco (não depende mais de um `CameraActor` com nome certo no mapa).
+
+### Como funciona (`AUmbraCharacterStage`, base dos dois managers)
+
+Tudo é relativo ao ator do manager — no mapa basta posicionar o manager; os pontos podem ser ajustados selecionando o componente no viewport (aba **Details** do manager).
+
+| Componente | Padrão (relativo) | Função |
+|------------|-------------------|--------|
+| `ShowcasePoint` (seta dourada) | (0, 0, 0) | Onde o escolhido fica, olhando para a seta |
+| `LineupCenter` (seta azul) | (-120, 0, 0) | Centro da fila; os personagens se espalham pelo eixo Y local |
+| `OverviewCameraPoint` | (520, 0, 160), pitch -10, yaw 180 | Câmera da visão geral. Com `bAutoFrameOverview` só a **rotação** vale |
+| `ShowcaseCameraPoint` | (300, 0, 110), pitch -8, yaw 180 | Câmera de destaque. Com `bAutoFrameShowcase` só a **rotação** vale |
+| `StageCamera` | — | Câmera usada nessas telas (FOV 60) |
+
+**Enquadramento automático:** o C++ mede os meshes visíveis (sem nameplates) e posiciona a câmera sozinho. Ela mira o centro da fila ou do personagem na direção e inclinação do ponto de câmera e recua até tudo caber. Não precisa posicionar a câmera à mão: para mudar o ângulo, gire o ponto; para mudar o tamanho na tela, use as folgas.
+
+| Ajuste (Details → **Umbra\|Stage**) | Padrão | Para quê |
+|------------------------------------|--------|----------|
+| `LineupSpacing` / `LineupGap` / `MaxLineupWidth` | 170 / 40 / 1400 | Espaço mínimo entre centros / folga somada à largura medida do modelo mais largo / largura máxima da fila |
+| `bAutoFrameOverview` / `bAutoFrameShowcase` | ligado / ligado | Câmera calculada pelos bounds (desligado = posição exata dos pontos) |
+| `OverviewFramingPadding` / `OverviewVerticalPadding` | 1,6 / 1,3 | Fila ocupa ~60% da largura e ~75% da altura da tela (maior = câmera mais longe) |
+| `ShowcaseFramingPadding` | 1,2 | Personagem em destaque ocupa ~83% da altura da tela |
+| `FaceFramingFraction` | 0,32 | Close no rosto (criação, ao mexer em cabelo/rosto): fração do corpo enquadrada a partir do topo |
+| `bFaceCamera` | ligado | Personagens olham para a câmera (yaw do ponto de câmera + 180) e a fila se espalha pela lateral da câmera da visão geral; a rotação das setas não importa |
+| `bUseStageNameplates` / `NameplateHeightOffset` / `NameplateScale` | ligado / 20 / 0 (auto) | Nameplate C++ (`UUmbraStageNameplateWidget`) acima da cabeça, em espaço de mundo, de frente para a câmera, com escala igual à altura do personagem / 600. Os widgets dos BPs (`Widget_Name`, `CharacterWidget`) ficam sem widget e sem classe, porque o Graph do BP reativava a visibilidade |
+
+**Chão e medidas:** de um Character o palco usa só a altura do mesh do corpo (`GetMesh`), com a largura em volta do ator; armas e partes com bounds enormes não entram na conta. Os pés vão ao chão pela caixa do modelo (o `BP_CharacterPreview` tem o mesh 240 uu acima da cápsula, em escala 2,75), e o personagem fica parado (`MOVE_NONE`), sem pose de queda nem de andar.
+| `CameraMoveDuration` | 0,8 s | Tempo da câmera entre fila e destaque |
+| `bSnapToGround` / `GroundTraceHeight` | ligado / 300 | Pés no chão (trace + meia-altura da cápsula) |
+| `CharacterYawOffset` | 0 | Se o modelo ficar de costas, use 180 |
+| `bEnableTurntable` / `TurntableDegreesPerPixel` | ligado / 0,4 | Giro com o botão direito |
+| `bUseStageCamera` | ligado | Desligado = comportamento antigo (câmera do mapa) |
+| `StageAnchorTag` | UmbraStage | O palco se move para o ator com esta tag no BeginPlay |
+| Criação: `bSpawnStagePlaceholders` / `LineupClassOrder` | ligado / 1,5,4,3,2,6 | Fila das classes pelo C++ (os placeholders do mapa ficam escondidos) |
+| Criação: `PlaceholderYawOffset` | -90 | Os modelos dos `BP_*_Placeholder` olham para o +Y do ator; -90 os vira para a câmera |
+| Criação: `PlaceholderTargetHeight` | 0 (auto) | Altura dos placeholders na fila. 0 = a mesma do `ClassPreviewClass`, medida no BeginPlay; -1 = mantém a escala do BP. Na escala 1 eles vão de 110 a 190 uu |
+| Criação: `bApplyPreviewScaleOnStage` | desligado | No palco o `PreviewSpawnScale` (0,5 no BP, do layout antigo) é ignorado e o preview fica do tamanho da seleção |
+
+**Close no rosto:** na criação, mexer em cabelo ou rosto aproxima a câmera do rosto, e digitar o nome volta ao corpo inteiro.
+
+**Um manager por mapa:** vence quem começou primeiro (o colocado no mapa ganha de um spawnado depois pelo Level BP). Entre dois colocados no mapa, vence o de **menor nome** (ex.: `_C_1`). O outro fica inerte (não monta fila e não pega a câmera) e o log mostra `[UmbraCharacterStage] ... ignorado`.
+
+### Editor (sua parte)
+
+1. Rebuild do módulo (classe nova `UmbraCharacterStage`).
+2. **Mapas (já ajustados via MCP em 18/11/2026):**
+   - `Lvl_Character_Creation`: `BP_CharacterCreationManager` em (-200, -100, 0), yaw -90 (centro da arena, mesmo lado da câmera antiga).
+   - `Lvl_Character_Selection`: o manager é criado pelo Level BP; o palco se posiciona na **âncora** `UmbraStageAnchor` (TargetPoint com a tag `UmbraStage`) em (1013, -341, 30), yaw 86 — no caminho iluminado, com o pôr do sol ao fundo.
+   - Para mudar o lugar do palco depois: mova o manager (criação) ou o `UmbraStageAnchor` (seleção) no viewport; a seta da âncora aponta para onde os personagens olham (para a câmera).
+3. A câmera antiga do mapa e os placeholders colocados à mão podem ficar onde estão (a câmera do palco assume; os placeholders são escondidos no BeginPlay).
+
+### O que o C++ já faz
+
+- `AUmbraCharacterStage`: `LayoutLineup`, `ShowcaseActor`/`ReturnShowcaseToLineup`, `SetLineupHidden`, `GetShowcaseTransform` (chão + cápsula), câmera no `Tick` (smoothstep), view target forçado para o palco, turntable no botão direito.
+- `AUmbraCharacterSelectionManager`: previews nascem no palco e entram na fila; `SelectCharacterAndMoveCamera` usa `ShowcaseActor` (sem destruir os outros).
+- `AUmbraCharacterCreationManager`: `SpawnStagePlaceholders` (as 6 na ordem dos cartões), `HideMapPlaceholders`, preview da classe no `ShowcasePoint`, `ReturnToClassList` sem respawn.
+- Telas: a seleção e a criação não fazem mais "voltar e escolher de novo" ao trocar (só no modo legado).
+
+### QA (PIE)
+
+| # | Teste | Esperado |
+|---|-------|----------|
+| 40 | Seleção com 1 personagem | Personagem centralizado, pés no chão, câmera enquadrando |
+| 41 | Seleção com 3+ personagens | Todos lado a lado, mesmo espaçamento, a câmera recua para caber todos entre os painéis |
+| 42 | Clicar num personagem | Ele vai ao destaque, os outros somem, a câmera fecha nele |
+| 43 | Clicar em outro | Troca direto, sem piscar nem recriar |
+| 44 | **Ver todos** | Volta à fila e à câmera geral |
+| 45 | Botão direito + arrastar no destaque | O modelo gira |
+| 46 | Criação: abrir | As 6 classes lado a lado na ordem dos cartões; nenhum placeholder antigo fora do lugar |
+| 47 | Escolher Bárbaro e depois Mago Sombrio | O preview aparece **no mesmo lugar** e com o mesmo enquadramento da seleção |
+| 48 | **Voltar** na criação | A fila das classes volta, câmera geral |
+| 49 | Criar e voltar à seleção | O novo personagem entra na fila |
+| 50 | Seleção/criação: visão geral | Lado a lado de frente para a câmera, sem sobreposição; pés no chão; nameplate pequeno (nome + "Nv X · Classe" / papel da classe) |
+| 51 | Clicar 2x no mesmo personagem | A câmera fica centralizada nele (não desliza para o lado) |
+| 52 | Personagens parados | Sem pernas mexendo/pose de queda |
+| 53 | Criação: mudar cabelo/rosto | A câmera aproxima do rosto; digitar o nome volta ao corpo inteiro |
+
+### Troubleshooting
+
+| Sintoma | Causa | Ação |
+|---------|-------|------|
+| Personagens no meio do nada / fora do cenário | Manager spawnado na origem do mapa | Posicionar o manager (ou o spawn do Level BP) no cenário |
+| Personagem de costas | Modelo com frente invertida | `CharacterYawOffset` = 180 |
+| Pés afundados/flutuando | Chão sem colisão no canal Visibility | Colisão no chão ou `bSnapToGround` desligado e ajustar Z do manager |
+| Câmera antiga aparece | `bUseStageCamera` desligado | Ligar no manager |
+| Fila cortada pelos painéis | Fila larga | Aumentar `OverviewFramingPadding` ou reduzir `LineupGap` |
+| Duas filas / fila visível atrás do preview | Dois `BP_CharacterCreationManager` no mapa | Deixar só um (o outro já fica inerte; ver log `ignorado`) |
+| Placeholders de perfil | Frente do modelo em outro eixo | Ajustar `PlaceholderYawOffset` (-90 / 90) |
+| Nameplate gigante/antigo aparece | Widget do BP reativado pelo Graph | Conferir se o BP não chama `SetVisibility` no `Widget_Name`/`CharacterWidget` |
+| Personagens enfileirados em profundidade | `bFaceCamera` desligado e setas giradas | Ligar `bFaceCamera` |
+| Personagem de perfil | Mesh do BP girado fora do padrão | O palco já compensa a rotação do mesh (padrão UE -90; o `BP_CharacterPreview` usa -180). Se ainda ficar de perfil, use `CharacterYawOffset` = ±90 |
+| Personagens/nameplates sobrepostos | Espaço menor que o modelo | Aumentar `LineupGap` ou `MaxLineupWidth` |
+| Preview pequeno na criação | `bApplyPreviewScaleOnStage` ligado com `PreviewSpawnScale` < 1 | Desligar |

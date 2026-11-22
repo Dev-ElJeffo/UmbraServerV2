@@ -31,6 +31,7 @@ Telas: `/Game/Widgets/WBP_Login2`, `WBP_Register`, `WBP_CharacterSelection`, `WB
 | **F1** | Login + cadastro (detalhes na §4) | UE (C++ + WBP), config local, guia | **QA ok** (18/11/2026) |
 | **F2** | Seleção de personagem: lista em cartões + painel de detalhes compacto (§5) | UE, guia | **QA ok** (18/11/2026) |
 | **F3** | Criação de personagem: classes com ícone e nome pt-BR, painel de classe com barras comparativas, nome e aparência (§6) | UE, guia | **QA ok** (18/11/2026) |
+| **F4** | Palco dos personagens (seleção e criação): fila lado a lado com todos os personagens da conta, ponto de destaque único onde o escolhido aparece (o mesmo na seleção e na criação), câmera do próprio palco (§10) | UE, mapas, guia | QA ok |
 
 Ordem: F1 → F2 → F3 (uma por vez, com QA e commit entre elas).
 
@@ -104,3 +105,71 @@ Docs: `docs_main/GUIA_UI_FASE8_LOGIN_PERSONAGEM_UE561.md` (uma seção por lote,
 - **F2:** lista com 0, 1 e vários personagens; seleção destacada; duplo clique entra; detalhes com barras e grade; excluir só com o nome digitado certo; logout.
 - **F3:** cada classe mostra nome pt-BR, papel e barras coerentes; aparência pelas setas muda o preview; nome curto/longo/inválido/em uso; criar volta à seleção com o novo personagem selecionado.
 - Todas: resoluções 1280×720 e 1920×1080, escala da UI 50–125%.
+
+## 10) F4 — Palco dos personagens (seleção e criação)
+
+### Diagnóstico (código lido em 18/11/2026)
+
+| Onde | Hoje | Efeito |
+|------|------|--------|
+| Seleção: `AUmbraCharacterSelectionManager::SpawnAllCharacterPreviews` | Previews em `FVector(i * 400, 0, 0)`: coordenada **absoluta do mundo**, ignora onde o manager está | Personagens nascem "fora de posição" (na origem do mapa, longe do cenário) |
+| Seleção: câmera ao escolher | Vai para `SelectedCameraLocation` fixo `(700, -400, 280)`, igual para qualquer personagem | Com 2+ personagens a câmera enquadra o vazio ou o personagem errado |
+| Seleção: ao escolher | **Destrói** os outros previews; trocar exige `ReturnToSelection` (respawna tudo) | Pisca/recria tudo a cada troca |
+| Criação: classes | Placeholders `BP_*_Placeholder` **posicionados à mão no mapa**, cada um num lugar; o preview nasce em cima do placeholder | Cada classe aparece numa posição diferente |
+| Criação: câmera | `ClassButtonShots` com uma posição/rotação de câmera **absoluta por classe** (valores do BP antigo) | Enquadramento diferente por classe; qualquer mudança no mapa quebra |
+| As duas | Câmera achada por nome (`FindCameraActor`: qualquer ator com "CameraActor"/"Camera" no nome); interpolação por timer de 16 ms; código de câmera duplicado nos dois managers | Frágil (depende do nome no mapa) e repetido |
+
+### Proposta
+
+Um **palco** único, reaproveitado pelas duas telas: `AUmbraCharacterStage` (C++, novo), base dos dois managers. Tudo é **relativo ao ator** — no mapa basta posicionar o manager (um gizmo) e, se quiser, ajustar os pontos do palco pelos componentes no viewport.
+
+| Componente (relativo ao manager) | Função | Padrão |
+|----------------------------------|--------|--------|
+| `ShowcasePoint` (seta) | Onde o personagem **escolhido** fica — o mesmo na seleção e na criação | (0, 0, 0), virado para +X |
+| `LineupCenter` (seta) | Centro da **fila lado a lado** | (-120, 0, 0) |
+| `OverviewCameraPoint` | Câmera da visão geral (fila inteira) | (520, 0, 160), olhando para a fila |
+| `ShowcaseCameraPoint` | Câmera de destaque (corpo inteiro, centralizado entre os painéis da UI) | (300, 0, 110), olhando para o destaque |
+| `StageCamera` (`UCameraComponent`) | A câmera do palco (o PC passa a usar o próprio manager como view target) | — |
+
+**Comportamento**
+
+- **Fila lado a lado** (`LayoutLineup`): N atores centralizados no `LineupCenter`, espaçados pelo vetor "direita" (`LineupSpacing` = 130 uu; encolhe se passar de `MaxLineupWidth`). Todos virados para a câmera. A câmera de visão geral **recua sozinha** conforme a largura da fila (`bAutoFrameOverview`).
+- **Destaque** (`ShowcaseActor`): o escolhido vai para o `ShowcasePoint` (os outros ficam **escondidos, não destruídos**); voltar devolve cada um ao seu lugar na fila. Trocar de personagem = trocar quem está no destaque (sem respawn).
+- **Chão**: trace para baixo a partir do ponto e ajuste pela meia-altura da cápsula (`bSnapToGround`), para os pés ficarem no chão em qualquer mapa.
+- **Câmera**: interpolação no `Tick` (smoothstep, `CameraMoveDuration`), sem timer e sem procurar ator pelo nome.
+- **Girar o modelo** (opcional, F4b): arrastar o mouse em área vazia gira o personagem do destaque.
+
+**Seleção (`AUmbraCharacterSelectionManager`)**
+
+- Spawna **todos os personagens da conta lado a lado** na fila (relativo ao manager).
+- Escolher no cartão → o personagem vai para o destaque e a câmera para `ShowcaseCameraPoint`; "Ver todos" → volta à fila e à câmera de visão geral.
+- `UUmbraCharacterSelectionWidget` deixa de chamar `ReturnToSelection` para trocar (só pede o destaque do novo).
+
+**Criação (`AUmbraCharacterCreationManager`)**
+
+- Os 6 placeholders passam a ser **spawnados pelo C++ na mesma fila** (classes `BP_*_Placeholder` já mapeadas no código), em vez de dependerem da posição à mão no mapa.
+- Escolher classe → o preview da classe nasce no **mesmo `ShowcasePoint`** da seleção, com a mesma câmera de destaque; trocar de classe só troca o preview (sem `ReturnToClassList`).
+- `ClassButtonShots` (câmera por classe) deixa de ser usado; fica só por compatibilidade.
+
+**Mapas** (`Lvl_Character_Selection`, `Lvl_Character_Creation`, via MCP, com o seu OK antes):
+
+- Conferir onde estão o manager, a câmera antiga e os placeholders; posicionar o manager num ponto de chão livre com fundo bonito.
+- Placeholders e câmera antiga do mapa: **escondidos** (não apagados) como reserva.
+- Os dois mapas usam os mesmos pontos relativos, então o personagem aparece igual nas duas telas.
+
+### Arquivos
+
+| Camada | Arquivos |
+|--------|----------|
+| C++ (submódulo) | **novo** `Actors/UmbraCharacterStage.h/.cpp`; `Actors/UmbraCharacterSelectionManager.h/.cpp`; `Actors/UmbraCharacterCreationManager.h/.cpp`; `UI/UmbraCharacterSelectionWidget.cpp`; `UI/UmbraCreateCharacterWidget.cpp` |
+| Mapas (MCP) | `Lvl_Character_Selection`, `Lvl_Character_Creation` (posição do manager; esconder câmera/placeholders antigos) |
+| Docs | guia fase 8 §4 (pontos do palco, como ajustar no viewport, QA) e este plano |
+
+Sem mudança de servidor, PHP ou banco.
+
+### QA (resumo)
+
+- Seleção com 1, 3 e 6 personagens: todos lado a lado, pés no chão, centralizados; câmera enquadra a fila inteira.
+- Escolher → personagem no destaque, câmera fecha nele; trocar → troca sem piscar; "Ver todos" → volta à fila.
+- Criação: as 6 classes lado a lado; escolher qualquer uma → preview no **mesmo lugar e enquadramento** da seleção; trocar de classe mantém o lugar.
+- Mesma posição na tela entre seleção e criação; resoluções 1280×720 e 1920×1080 (personagem entre os painéis).
