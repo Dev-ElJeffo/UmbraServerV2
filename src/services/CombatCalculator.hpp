@@ -313,6 +313,8 @@ private:
     // Constants
     static constexpr int32_t MIN_HIT_CHANCE = 5;
     static constexpr int32_t MAX_HIT_CHANCE = 95;
+    /** R3: a esquiva do alvo tira no máximo 60 pontos do acerto. */
+    static constexpr int32_t MAX_DODGE_PENALTY = 60;
     static constexpr int32_t MAX_CRIT_CHANCE = 80;
     static constexpr int32_t MAX_DEFENSE_REDUCTION = 90;
     static constexpr int32_t MAX_RESISTANCE = 75;
@@ -360,8 +362,12 @@ inline int32_t CombatCalculator::calculateHitChance(
 ) {
     int32_t baseHit = 80; // 80% base hit chance
     int32_t accuracyBonus = attacker.buffedStats.accuracy;
-    int32_t dodgePenalty = defender.buffedStats.dodge;
-    
+    // ignore_dodge (ex.: Predator Eye): ignora % da esquiva do alvo.
+    const int32_t ignorePct = clamp(attacker.buffedStats.ignoreDodge, 0, 100);
+    // R3: teto da esquiva efetiva (acerto mínimo = 80 − 60 + precisão).
+    int32_t dodgePenalty =
+        std::min(MAX_DODGE_PENALTY, defender.buffedStats.dodge * (100 - ignorePct) / 100);
+
     int32_t hitChance = baseHit + accuracyBonus - dodgePenalty;
     return clamp(hitChance, MIN_HIT_CHANCE, MAX_HIT_CHANCE);
 }
@@ -518,7 +524,7 @@ inline DamageBreakdown CombatCalculator::calculatePhysicalDamage(
     
     // 5. Critical
     int32_t critChance = calculateCritChance(attacker, defender);
-    bool isCrit = skill.canCrit && rollCrit(critChance);
+    bool isCrit = skill.canCrit && (skill.forceCrit || rollCrit(critChance));
     breakdown.critMultiplier = isCrit ? attacker.buffedStats.criticalDamage : 100;
     scaledDamage = (scaledDamage * breakdown.critMultiplier) / 100;
     
@@ -579,7 +585,7 @@ inline DamageBreakdown CombatCalculator::calculateMagicDamage(
     breakdown.buffMultiplier = 100;
     
     int32_t critChance = calculateCritChance(attacker, defender);
-    bool isCrit = skill.canCrit && rollCrit(critChance);
+    bool isCrit = skill.canCrit && (skill.forceCrit || rollCrit(critChance));
     breakdown.critMultiplier = isCrit ? attacker.buffedStats.criticalDamage : 100;
     scaledDamage = (scaledDamage * breakdown.critMultiplier) / 100;
     
@@ -648,7 +654,7 @@ inline DamageBreakdown CombatCalculator::calculateTrueDamage(
     breakdown.buffMultiplier = 100;
 
     const int32_t critChance = calculateCritChance(attacker, defender);
-    const bool isCrit = skill.canCrit && rollCrit(critChance);
+    const bool isCrit = skill.canCrit && (skill.forceCrit || rollCrit(critChance));
     breakdown.critMultiplier = isCrit ? attacker.buffedStats.criticalDamage : 100;
     scaledDamage = (scaledDamage * breakdown.critMultiplier) / 100;
 

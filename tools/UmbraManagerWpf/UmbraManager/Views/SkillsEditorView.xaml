@@ -111,15 +111,29 @@
           <TextBox Text="{Binding SkillFormThreatModifier}" materialDesign:HintAssist.Hint="threat %" materialDesign:HintAssist.IsFloating="True" Margin="0,0,4,4"/>
           <TextBox Text="{Binding SkillFormPvpModifier}" materialDesign:HintAssist.Hint="pvp %" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,4"/>
         </UniformGrid>
+        <TextBlock Text="Progressão por rank" FontWeight="SemiBold" Margin="0,4,0,4"/>
+        <UniformGrid Columns="3" Margin="0,0,0,6">
+          <TextBox Text="{Binding SkillFormRankGrowthPercent, UpdateSourceTrigger=PropertyChanged}"
+                   materialDesign:HintAssist.Hint="crescimento %/rank (vazio = padrão)" materialDesign:HintAssist.IsFloating="True" Margin="0,0,4,4"
+                   ToolTip="Vazio = padrão por tipo de efeito (dano/cura/escudo/DOT/HOT 12,5%; buff/debuff/slow 10%; controle +10% de duração e +5 de chance por rank). 0 = não escala. Um efeito com rank_growth próprio tem prioridade."/>
+          <TextBox Text="{Binding SkillFormRankCostStep}"
+                   materialDesign:HintAssist.Hint="pontos extras/rank" materialDesign:HintAssist.IsFloating="True" Margin="0,0,4,4"
+                   ToolTip="Custo do rank N = skill_cost + este valor × (N − 1). Padrão 1."/>
+          <TextBox Text="{Binding SkillFormRankLevelStep}"
+                   materialDesign:HintAssist.Hint="níveis extras/rank" materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,4"
+                   ToolTip="Nível do rank N = req_level + este valor × (N − 1), limitado ao nível máximo. Padrão 4."/>
+        </UniformGrid>
         <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
           <CheckBox Content="Crit" IsChecked="{Binding SkillFormCanCrit}" Margin="0,0,12,0"/>
           <CheckBox Content="IgnoreDef" IsChecked="{Binding SkillFormIgnoresDefense}" Margin="0,0,12,0"/>
           <CheckBox Content="ReqTarget" IsChecked="{Binding SkillFormRequiresTarget}" Margin="0,0,12,0"/>
           <CheckBox Content="Stack" IsChecked="{Binding SkillFormIsStackable}" Margin="0,0,12,0"/>
-          <CheckBox Content="Interrupt" IsChecked="{Binding SkillFormIsInterrupt}" Margin="0,0,12,0"/>
-          <CheckBox Content="Move cast" IsChecked="{Binding SkillFormCanMoveWhileCasting}" Margin="0,0,12,0"/>
+          <CheckBox Content="Interrupt" IsChecked="{Binding SkillFormIsInterrupt}" Margin="0,0,12,0"
+                    ToolTip="Legado: numa skill ENEMY/AREA sem efeito INTERRUPT próprio, vira 50% de chance de interromper o cast do alvo. Para outra chance ou silêncio, adicione um efeito INTERRUPT."/>
+          <CheckBox Content="Move cast" IsChecked="{Binding SkillFormCanMoveWhileCasting}" Margin="0,0,12,0"
+                    ToolTip="Ligado: pode andar durante o cast time. Desligado: andar cancela o cast (mana e cooldown devolvidos)."/>
           <CheckBox Content="Incluir caster" IsChecked="{Binding SkillFormIncludeCaster}" Margin="0,0,12,0"
-                    ToolTip="Padrão geral para efeitos em área; cada efeito pode sobrescrever."/>
+                    ToolTip="Skills ALLY: o caster também recebe os efeitos quando há um aliado selecionado (sem alvo, a skill já vai para o caster). PARTY/AREA_ALLY sempre incluem o caster. Cada efeito pode sobrescrever (Herdar/Sim/Não)."/>
           <CheckBox Content="Enabled" IsChecked="{Binding SkillFormIsEnabled}"/>
         </StackPanel>
         <TextBox Text="{Binding SkillFormServerTags, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
@@ -127,7 +141,8 @@
         <TextBox Text="{Binding SkillFormSfxPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
                  materialDesign:HintAssist.Hint="sfx_path" materialDesign:HintAssist.IsFloating="True"/>
         <TextBox Text="{Binding SkillFormTooltipTemplate, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
-                 materialDesign:HintAssist.Hint="tooltip_template" materialDesign:HintAssist.IsFloating="True"/>
+                 materialDesign:HintAssist.Hint="nota opcional (tooltip_template)" materialDesign:HintAssist.IsFloating="True"
+                 ToolTip="Opcional: só para regra que os efeitos não explicam. Aparece abaixo do resumo. Placeholders: {e1} (frase do efeito 1), {e1.value}, {e1.flat}, {e1.duration} (s), {e1.chance}. Os números dos efeitos já aparecem sozinhos no tooltip."/>
         <TextBox Text="{Binding SkillFormIconPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
                  materialDesign:HintAssist.Hint="icon_path" materialDesign:HintAssist.IsFloating="True"/>
         <TextBox Text="{Binding SkillFormVfxPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
@@ -138,7 +153,8 @@
                  materialDesign:HintAssist.Hint="buff_vfx_path (Niagara loop no corpo)" materialDesign:HintAssist.IsFloating="True"/>
         <TextBox Text="{Binding SkillFormDescription, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
                  AcceptsReturn="True" Height="60" TextWrapping="Wrap"
-                 materialDesign:HintAssist.Hint="description" materialDesign:HintAssist.IsFloating="True"/>
+                 materialDesign:HintAssist.Hint="resumo (description): uma frase, sem números" materialDesign:HintAssist.IsFloating="True"
+                 ToolTip="Padrão: uma frase de até ~90 caracteres dizendo o que a skill faz (ex.: 'Golpe brutal que fere o alvo e acelera seus próximos ataques.'). Sem números: dano, duração e chance aparecem nos efeitos, gerados pelo jogo a partir do effects_json e já com o rank."/>
         <TextBlock Text="Efeitos" FontWeight="SemiBold" Margin="0,4,0,4"/>
         <controls:SkillEffectEditor DataContext="{Binding SkillFormEffects}" Margin="0,0,0,8"/>
 
@@ -174,6 +190,34 @@
         </DataGrid>
         <TextBlock Text="Efeitos extras do rank selecionado" FontWeight="SemiBold" Margin="0,4,0,4"/>
         <controls:SkillEffectEditor DataContext="{Binding SelectedRankEffects}" Margin="0,0,0,8"/>
+
+        <DockPanel Margin="0,4,0,4">
+          <Button DockPanel.Dock="Right" Content="Calcular prévia" Command="{Binding PreviewSkillRanksCommand}"
+                  Style="{StaticResource ManagerActionOutlinedButton}"
+                  ToolTip="Calcula os ranks com o formulário atual (sem salvar), com a mesma fórmula da zone."/>
+          <TextBlock Text="Pré-visualização por rank (★ = marco)" FontWeight="SemiBold" VerticalAlignment="Center"/>
+        </DockPanel>
+        <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding SkillRankPreviews}" IsReadOnly="True"
+                  AutoGenerateColumns="False" MaxHeight="220" Margin="0,0,0,6">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="Rank" Binding="{Binding Rank}" Width="45"/>
+            <DataGridTextColumn Header="" Binding="{Binding MilestoneMark}" Width="22"/>
+            <DataGridTextColumn Header="Pts" Binding="{Binding PointsCost}" Width="40"/>
+            <DataGridTextColumn Header="Total" Binding="{Binding TotalPoints}" Width="45"/>
+            <DataGridTextColumn Header="Nível" Binding="{Binding RequiredLevel}" Width="45"/>
+            <DataGridTextColumn Header="Power" Binding="{Binding PowerCoef}" Width="55"/>
+            <DataGridTextColumn Header="Mana" Binding="{Binding ResourceCost}" Width="50"/>
+            <DataGridTextColumn Header="CD" Binding="{Binding CooldownMs}" Width="60"/>
+            <DataGridTextColumn Header="Efeitos" Binding="{Binding EffectsSummary}" Width="*">
+              <DataGridTextColumn.ElementStyle>
+                <Style TargetType="TextBlock">
+                  <Setter Property="TextWrapping" Value="Wrap"/>
+                </Style>
+              </DataGridTextColumn.ElementStyle>
+            </DataGridTextColumn>
+          </DataGrid.Columns>
+        </DataGrid>
+        <TextBlock Text="{Binding SkillRankWarningsText}" TextWrapping="Wrap" Opacity="0.85" Margin="0,0,0,8"/>
 
         <StackPanel Orientation="Horizontal">
           <Button Content="{Binding SkillSaveButtonText}" Command="{Binding SaveSkillCommand}"

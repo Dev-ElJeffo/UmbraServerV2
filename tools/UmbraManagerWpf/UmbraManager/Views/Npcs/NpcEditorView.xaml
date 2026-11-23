@@ -243,6 +243,31 @@
                                 <TextBox Grid.Column="2" Text="{Binding NewNpcCriticalResistance, UpdateSourceTrigger=PropertyChanged}"
                                          materialDesign:HintAssist.Hint="Resist. crítico" materialDesign:HintAssist.IsFloating="True"/>
                             </Grid>
+                            <TextBlock Text="Controle de combate (CC)" FontWeight="SemiBold" Margin="0,4,0,6"/>
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0" Text="{Binding NewNpcStunResist, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="Resist. stun (0–100)" materialDesign:HintAssist.IsFloating="True"/>
+                                <TextBox Grid.Column="2" Text="{Binding NewNpcSilenceResist, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="Resist. silence/interrupt (0–100)" materialDesign:HintAssist.IsFloating="True"/>
+                            </Grid>
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0" Text="{Binding NewNpcRootResist, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="Resist. root (0–100)" materialDesign:HintAssist.IsFloating="True"/>
+                                <TextBox Grid.Column="2" Text="{Binding NewNpcSlowResist, UpdateSourceTrigger=PropertyChanged}"
+                                         materialDesign:HintAssist.Hint="Resist. slow (0–100)" materialDesign:HintAssist.IsFloating="True"/>
+                            </Grid>
+                            <CheckBox Content="Imune a CC (chefe)" IsChecked="{Binding NewNpcCcImmune}" Margin="0,0,0,10"
+                                      ToolTip="Ligado: STUN, SILENCE, ROOT e SLOW não pegam (texto 'Imune'). Dano, debuff de stat e DOT continuam valendo."/>
                             </StackPanel>
                             </Expander>
 

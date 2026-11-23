@@ -127,7 +127,8 @@ enum class EffectType : uint8_t {
     EXECUTE,
     REFLECT,
     COOLDOWN_RESET,
-    RESOURCE_RESTORE
+    RESOURCE_RESTORE,
+    INTERRUPT  // chance de cancelar o cast em curso do alvo (fase B); sempre no fim do enum
 };
 
 enum class BuffType : uint8_t {
@@ -204,6 +205,9 @@ struct CharacterStats {
     int32_t damageReduction = 0;          // Flat reduction
     int32_t damageReductionPercent = 0;   // Incoming damage % reduction (0-90)
     int32_t healingBonus = 0;        // Percentual
+    int32_t ignoreDodge = 0;         // 0-100: % da esquiva do alvo ignorada no teste de acerto
+    int32_t buffDurationBonus = 0;   // % extra de duração nos buffs que este personagem aplica
+    int32_t lifestealPercent = 0;    // % do dano causado (skill/ataque básico) que volta como HP
     int32_t threatModifier = 100;    // 100 = base
     int32_t pvpDamageModifier = 100; // 100 = base
     
@@ -301,8 +305,114 @@ struct SkillEffect {
     uint8_t targetOverride = 0;
     /** -1 = herda SkillData::includeCaster, 0 = exclui, 1 = inclui. */
     int8_t includeCaster = -1;
+    /** Crescimento por rank em décimos de % (125 = 12,5%/rank). -1 = herda a skill/padrão. */
+    int16_t rankGrowthTenths = -1;
     nlohmann::json conditions;
 };
+
+// ============================================================================
+// PROGRESSÃO POR RANK (R1)
+// valor(r) = base × (1 + crescimento × (r − 1))
+// ============================================================================
+
+/** Como o rank escala um efeito: valores (dano/cura/stat) ou controle (duração + chance). */
+enum class RankGrowthKind : uint8_t { None, Value, Control };
+
+inline RankGrowthKind rankGrowthKindOf(EffectType t) {
+    switch (t) {
+        case EffectType::DAMAGE:
+        case EffectType::HEAL:
+        case EffectType::SHIELD:
+        case EffectType::DOT:
+        case EffectType::HOT:
+        case EffectType::RESOURCE_RESTORE:
+        case EffectType::EXECUTE:
+        case EffectType::LIFESTEAL:
+        case EffectType::MANASTEAL:
+        case EffectType::BUFF_STAT:
+        case EffectType::DEBUFF_STAT:
+        case EffectType::SLOW:
+        case EffectType::REFLECT:
+            return RankGrowthKind::Value;
+        case EffectType::STUN:
+        case EffectType::ROOT:
+        case EffectType::SILENCE:
+        case EffectType::KNOCKBACK:
+        case EffectType::TAUNT:
+        case EffectType::INTERRUPT:
+            return RankGrowthKind::Control;
+        default:
+            return RankGrowthKind::None;
+    }
+}
+
+/** Crescimento padrão por rank, em décimos de %: 125 = +12,5%/rank (+50% no rank 5). */
+inline int32_t defaultRankGrowthTenths(EffectType t) {
+    switch (t) {
+        case EffectType::DAMAGE:
+        case EffectType::HEAL:
+        case EffectType::SHIELD:
+        case EffectType::DOT:
+        case EffectType::HOT:
+        case EffectType::RESOURCE_RESTORE:
+        case EffectType::EXECUTE:
+        case EffectType::LIFESTEAL:
+        case EffectType::MANASTEAL:
+            return 125;
+        case EffectType::BUFF_STAT:
+        case EffectType::DEBUFF_STAT:
+        case EffectType::SLOW:
+        case EffectType::REFLECT:
+            return 100;
+        default:
+            return rankGrowthKindOf(t) == RankGrowthKind::Control ? 100 : 0;
+    }
+}
+
+/** Chance extra por rank nos efeitos de controle com chance < 100. */
+constexpr int32_t kRankControlChancePerRank = 5;
+
+/** Escala v pelo rank (sinal preservado: debuff negativo cresce em módulo). */
+inline int32_t scaleByRankTenths(int32_t v, int32_t growthTenths, uint8_t rank) {
+    if (rank <= 1 || growthTenths <= 0 || v == 0) return v;
+    const double factor = 1.0 + static_cast<double>(growthTenths) * (rank - 1) / 1000.0;
+    return static_cast<int32_t>(std::lround(static_cast<double>(v) * factor));
+}
+
+/** Crescimento efetivo do efeito: efeito > skill > padrão do tipo. */
+inline int32_t resolveRankGrowthTenths(const SkillEffect& e, int32_t skillGrowthTenths) {
+    if (e.rankGrowthTenths >= 0) return e.rankGrowthTenths;
+    if (skillGrowthTenths >= 0) return skillGrowthTenths;
+    return defaultRankGrowthTenths(e.effectType);
+}
+
+/** Aplica o rank em um efeito base (não usar em extras de rank, que já valem para o rank). */
+inline void applyRankToEffect(SkillEffect& e, uint8_t rank, int32_t skillGrowthTenths,
+                              int32_t durationBonusMs) {
+    const uint8_t r = rank < 1 ? 1 : rank;
+    const int32_t g = resolveRankGrowthTenths(e, skillGrowthTenths);
+    switch (rankGrowthKindOf(e.effectType)) {
+        case RankGrowthKind::Value:
+            e.valueFlat = scaleByRankTenths(e.valueFlat, g, r);
+            e.valuePercent = static_cast<int16_t>(std::clamp(
+                scaleByRankTenths(e.valuePercent, g, r), -32768, 32767));
+            break;
+        case RankGrowthKind::Control:
+            e.durationMs = static_cast<uint32_t>(
+                std::max(0, scaleByRankTenths(static_cast<int32_t>(e.durationMs), g, r)));
+            if (g > 0 && e.chancePercent > 0 && e.chancePercent < 100) {
+                e.chancePercent = static_cast<uint8_t>(
+                    std::min(100, e.chancePercent + kRankControlChancePerRank * (r - 1)));
+            }
+            break;
+        default:
+            break;
+    }
+    // duration_bonus_ms da linha do rank: soma em todo efeito que já tem duração.
+    if (durationBonusMs > 0 && e.durationMs > 0) {
+        e.durationMs += static_cast<uint32_t>(durationBonusMs);
+    }
+}
 
 // ============================================================================
 // SKILL RANK SCALING (skill_rank_scaling)
@@ -372,7 +482,11 @@ struct SkillData {
     bool requiresTarget = true;
     bool canMoveWhileCasting = false;
     bool includeCaster = false;
-    
+    /** Runtime (não vem do DB): força crítico neste cálculo (conditions.guaranteed_crit). */
+    bool forceCrit = false;
+    /** skills.rank_growth_percent em décimos de % (-1 = padrão por tipo de efeito; 0 = não escala). */
+    int16_t rankGrowthTenths = -1;
+
     // Modifiers
     int16_t threatModifier = 100;
     uint8_t pvpModifier = 100;
@@ -400,15 +514,38 @@ struct SkillData {
         return nullptr;
     }
 
-    /** power_coef efetivo: +10%/rank + power_coef_bonus da linha (se existir). */
+    /** Crescimento do power_coef (mesmo do DAMAGE): skill > padrão 12,5%/rank. */
+    int32_t powerCoefGrowthTenths() const {
+        return rankGrowthTenths >= 0 ? rankGrowthTenths
+                                     : defaultRankGrowthTenths(EffectType::DAMAGE);
+    }
+
+    /**
+     * power_coef efetivo (R1): base × (1 + crescimento × (rank − 1)) + power_coef_bonus.
+     * Antes eram +10%/rank implícitos SOMADOS ao bônus da tabela (contagem dupla).
+     */
     uint16_t getEffectivePowerCoef(uint8_t rank) const {
         const uint8_t r = rank < 1 ? 1 : rank;
-        const float multiplier = 1.0f + ((r - 1) * 0.1f);
-        int32_t v = static_cast<int32_t>(std::lround(static_cast<double>(powerCoef) * multiplier));
+        int32_t v = scaleByRankTenths(static_cast<int32_t>(powerCoef), powerCoefGrowthTenths(), r);
         if (const SkillRankScaling* row = findRankScaling(r)) {
             v += static_cast<int32_t>(row->powerCoefBonus);
         }
         return static_cast<uint16_t>(std::clamp(v, 0, 65535));
+    }
+
+    /**
+     * Fator extra do power_coef_bonus sobre o DAMAGE já escalado pelo rank
+     * (1.0 sem bônus). Os efeitos de buildEffectsForRank já trazem o crescimento.
+     */
+    float getRankBonusFactor(uint8_t rank) const {
+        const uint8_t r = rank < 1 ? 1 : rank;
+        const SkillRankScaling* row = findRankScaling(r);
+        if (!row || row->powerCoefBonus == 0 || powerCoef == 0) return 1.0f;
+        const int32_t scaled =
+            scaleByRankTenths(static_cast<int32_t>(powerCoef), powerCoefGrowthTenths(), r);
+        if (scaled <= 0) return 1.0f;
+        return std::max(0.0f, static_cast<float>(scaled + row->powerCoefBonus) /
+                                  static_cast<float>(scaled));
     }
 
     uint16_t getEffectiveResourceCost(uint8_t rank) const {
@@ -438,16 +575,43 @@ struct SkillData {
         return static_cast<uint32_t>(std::max<int64_t>(0, dur));
     }
 
-    /** Efeitos base + extra_effects de todos os ranks <= rank (unlock cumulativo). */
+    /**
+     * Efeitos base + extra_effects dos ranks <= rank (unlock cumulativo).
+     * Um extra com o mesmo tipo + target_stat de um extra de rank anterior SUBSTITUI
+     * o anterior (progressão 5% -> 7% -> 10%), em vez de somar todos os ranks.
+     */
     std::vector<SkillEffect> buildEffectsForRank(uint8_t rank) const {
         const uint8_t r = rank < 1 ? 1 : rank;
         std::vector<SkillEffect> out = effects;
+        const size_t baseCount = out.size();
+        // R1: efeitos BASE crescem com o rank; os extras abaixo já são o valor do próprio rank.
+        {
+            const SkillRankScaling* current = findRankScaling(r);
+            const int32_t durationBonus = current ? current->durationBonusMs : 0;
+            for (auto& e : out) applyRankToEffect(e, r, rankGrowthTenths, durationBonus);
+        }
         uint8_t order = static_cast<uint8_t>(out.size() + 1);
+        std::vector<const SkillRankScaling*> rows;
         for (const auto& row : rankScalings) {
-            if (row.rank < 1 || row.rank > r) continue;
-            for (auto eff : row.extraEffects) {
-                eff.effectOrder = order++;
-                out.push_back(std::move(eff));
+            if (row.rank >= 1 && row.rank <= r) rows.push_back(&row);
+        }
+        std::sort(rows.begin(), rows.end(),
+                  [](const SkillRankScaling* a, const SkillRankScaling* b) { return a->rank < b->rank; });
+        for (const SkillRankScaling* row : rows) {
+            for (auto eff : row->extraEffects) {
+                bool replaced = false;
+                for (size_t i = baseCount; i < out.size(); ++i) {
+                    if (out[i].effectType == eff.effectType && out[i].targetStat == eff.targetStat) {
+                        eff.effectOrder = out[i].effectOrder;
+                        out[i] = std::move(eff);
+                        replaced = true;
+                        break;
+                    }
+                }
+                if (!replaced) {
+                    eff.effectOrder = order++;
+                    out.push_back(std::move(eff));
+                }
             }
         }
         return out;
@@ -458,6 +622,43 @@ struct SkillData {
         return std::find(serverTags.begin(), serverTags.end(), tag) != serverTags.end();
     }
 };
+
+// ============================================================================
+// RESOLUÇÃO DE ALVO POR EFEITO
+// ============================================================================
+
+/** Efeito que favorece quem recebe (buff, cura, escudo...). */
+inline bool isBeneficialEffectType(EffectType type) {
+    switch (type) {
+        case EffectType::HEAL:
+        case EffectType::HOT:
+        case EffectType::SHIELD:
+        case EffectType::BUFF_STAT:
+        case EffectType::CLEANSE:
+        case EffectType::STEALTH:
+        case EffectType::INVULNERABLE:
+        case EffectType::REFLECT:
+        case EffectType::COOLDOWN_RESET:
+        case EffectType::RESOURCE_RESTORE:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/**
+ * Alvo efetivo de um efeito: target_override explícito vence; sem override, efeito
+ * benéfico numa skill hostil (ENEMY/AREA) vai para o caster (ex.: golpe que dá
+ * +double attack em quem bate). Demais herdam o alvo da skill.
+ */
+inline TargetType resolveEffectTarget(const SkillData& skill, const SkillEffect& effect) {
+    if (effect.targetOverride > 0) return static_cast<TargetType>(effect.targetOverride);
+    if ((skill.target == TargetType::ENEMY || skill.target == TargetType::AREA) &&
+        isBeneficialEffectType(effect.effectType)) {
+        return TargetType::SELF;
+    }
+    return skill.target;
+}
 
 // ============================================================================
 // ACTIVE BUFF

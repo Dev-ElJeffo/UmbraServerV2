@@ -126,6 +126,9 @@ void NpcAiSystem::tick(float deltaSeconds) {
   const int64_t cpu0 = Core::threadCpuMs();
   const int64_t t0 = Core::steadyNowMs();
   const auto players = movementServer_->getPlayerStates();  // trava MovementServer::mu_
+  // R4: furtivos não puxam aggro e fazem o NPC perder o alvo (snapshot antes do forEachAlive).
+  const auto stealthed =
+      combat_ ? combat_->snapshotStealthedPlayers() : std::unordered_set<uint32_t>{};
   const int64_t tPlayers = Core::steadyNowMs() - t0;
   const auto now = std::chrono::steady_clock::now();
   int64_t npcLockWait = 0;
@@ -150,7 +153,7 @@ void NpcAiSystem::tick(float deltaSeconds) {
       float bestDist = aggroSq;
       for (const auto& kv : players) {
         const PlayerStateNet& p = kv.second;
-        if (p.isDead || p.playerId == 0) continue;
+        if (p.isDead || p.playerId == 0 || stealthed.count(p.playerId)) continue;
         const float d = dist2dSq(inst.x, inst.y, p.x, p.y);
         if (d <= bestDist) {
           bestDist = d;
@@ -168,7 +171,8 @@ void NpcAiSystem::tick(float deltaSeconds) {
     // --- Resolve alvo / leash / deaggro ---
     if (inst.aiState == NpcAiState::Combat || inst.aiState == NpcAiState::Chase) {
       const auto it = players.find(inst.targetPlayerId);
-      bool lost = (inst.targetPlayerId == 0 || it == players.end() || it->second.isDead);
+      bool lost = (inst.targetPlayerId == 0 || it == players.end() || it->second.isDead ||
+                   stealthed.count(inst.targetPlayerId) > 0);
       float tx = 0.f, ty = 0.f;
       if (!lost) {
         tx = it->second.x;

@@ -151,6 +151,11 @@ void CombatEffectRuntime::recompose(Combat::CharacterState& state,
     }
   }
 
+  // R3: buffs temporários somam no máximo +kMaxDodgeFromEffects de esquiva (passivas/equip
+  // já estão em baseStats e não contam no teto).
+  state.buffedStats.dodge = std::min(state.buffedStats.dodge,
+                                     state.baseStats.dodge + CombatEffectRuntime::kMaxDodgeFromEffects);
+
   state.buffedStats.currentHealth = currentHealth;
   state.buffedStats.currentMana = currentMana;
   state.buffedStats.currentStamina = currentStamina;

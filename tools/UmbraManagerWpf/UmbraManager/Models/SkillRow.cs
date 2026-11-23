@@ -196,6 +196,25 @@ public sealed class SkillRankScalingRow
     }
 }
 
+/// <summary>R5: linha da pré-visualização por rank (calculada pelo PHP com a fórmula da zone).</summary>
+public sealed class SkillRankPreviewRow
+{
+    public int Rank { get; set; }
+    /// <summary>Pontos para chegar a este rank.</summary>
+    public int PointsCost { get; set; }
+    /// <summary>Pontos acumulados do rank 1 até este.</summary>
+    public int TotalPoints { get; set; }
+    public int RequiredLevel { get; set; }
+    public int PowerCoef { get; set; }
+    public int ResourceCost { get; set; }
+    public int CooldownMs { get; set; }
+    public int DurationMs { get; set; }
+    /// <summary>True quando o rank tem efeitos extras (marco).</summary>
+    public bool IsMilestone { get; set; }
+    public string EffectsSummary { get; set; } = "";
+    public string MilestoneMark => IsMilestone ? "★" : "";
+}
+
 public sealed class SkillLookupOption
 {
     public int Id { get; set; }

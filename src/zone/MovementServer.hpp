@@ -1353,19 +1353,29 @@ public:
     return true;
   }
 
-  bool teleportPlayer(uint32_t playerId, float x, float y, float z) {
+  /**
+   * sweepFromCurrent = true (blink/knockback): o cliente varre o caminho com a cápsula e
+   * para antes de parede. A trava aceita qualquer ponto do trajeto (raio = distância + folga).
+   */
+  bool teleportPlayer(uint32_t playerId, float x, float y, float z, bool sweepFromCurrent = false) {
     MovementFrame correction{};
     {
       std::lock_guard<std::mutex> lock(mu_);
       auto it = players_.find(playerId);
       if (it == players_.end()) return false;
+      float guardRadius = 0.f;
+      if (sweepFromCurrent) {
+        const float tdx = x - it->second.x;
+        const float tdy = y - it->second.y;
+        guardRadius = std::max(kPositionGuardRadius, std::sqrt(tdx * tdx + tdy * tdy) + 150.f);
+      }
       it->second.x = x;
       it->second.y = y;
       it->second.z = z;
       // Antes: tsMs = relógio do SERVIDOR, mas a validação compara com o relógio do CLIENTE
       // (game time) → caía em "timestamp regrediu", pulava a checagem e um move antigo
       // desfazia o teleporte. Agora: trava de posição até o cliente confirmar o ponto.
-      armPositionGuardUnlocked(playerId, x, y, z);
+      armPositionGuardUnlocked(playerId, x, y, z, guardRadius);
       uint32_t cid = 0;
       for (const auto& [c, p] : clientIdToPlayerId_) {
         if (p == playerId) {
@@ -1378,6 +1388,11 @@ public:
       }
       correction = {MovementMsgType::StateUpdate, playerId, x, y, z, it->second.yaw,
                     it->second.tsMs};
+      // O dono ignora StateUpdate do próprio id: sem este frame (opcode 123) o pawn local
+      // nunca se movia e a trava de posição descartava os moves até expirar.
+      sendToPlayerUnlocked(playerId,
+                           encodePlayerPositionCorrection(playerId, x, y, z, it->second.yaw,
+                                                          sweepFromCurrent ? 1 : 0));
     }
     // Correção autoritativa usando o frame little-endian existente (25B).
     ws_.broadcastBinary(encode(correction));
@@ -1688,7 +1703,8 @@ private:
         const float gdx = f.x - g.x;
         const float gdy = f.y - g.y;
         const float gdz = f.z - g.z;
-        if (gdx * gdx + gdy * gdy + gdz * gdz > kPositionGuardRadius * kPositionGuardRadius) {
+        const float guardRadius = g.radius > 0.f ? g.radius : kPositionGuardRadius;
+        if (gdx * gdx + gdy * gdy + gdz * gdz > guardRadius * guardRadius) {
           Umbra::Core::Logger::getInstance().debug(
               "MoveUpdate obsoleto ignorado: player {} ainda longe da posição autoritativa", f.playerId);
           return;
@@ -2417,6 +2433,8 @@ private:
   struct PositionGuard {
     float x = 0.f, y = 0.f, z = 0.f;
     int64_t untilMs = 0;
+    /** 0 = kPositionGuardRadius. Blink/knockback usam a distância do trajeto. */
+    float radius = 0.f;
   };
   std::unordered_map<uint32_t, PositionGuard> positionGuards_;
   /** Raio (uu) para considerar que o cliente já aplicou a posição autoritativa. */
@@ -2425,8 +2443,9 @@ private:
   static constexpr int64_t kPositionGuardMs = 3000;
 
   /** Arma a trava de posição (chamar sob mu_). Não mexe em tsMs (relógio do cliente). */
-  void armPositionGuardUnlocked(uint32_t playerId, float x, float y, float z) {
-    positionGuards_[playerId] = PositionGuard{x, y, z, Umbra::Core::steadyNowMs() + kPositionGuardMs};
+  void armPositionGuardUnlocked(uint32_t playerId, float x, float y, float z, float radius = 0.f) {
+    positionGuards_[playerId] =
+        PositionGuard{x, y, z, Umbra::Core::steadyNowMs() + kPositionGuardMs, radius};
   }
 
   // ---- Limpeza de disconnect (fase 2) fora do loop/threads de rede ----

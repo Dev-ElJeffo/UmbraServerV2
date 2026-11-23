@@ -227,7 +227,8 @@ CREATE TABLE `skill_effects` (
         'LIFESTEAL', 'MANASTEAL',
         'SUMMON', 'TELEPORT',
         'EXECUTE', 'REFLECT',
-        'COOLDOWN_RESET', 'RESOURCE_RESTORE'
+        'COOLDOWN_RESET', 'RESOURCE_RESTORE',
+        'INTERRUPT'
     ) NOT NULL,
     `target_stat` VARCHAR(50) DEFAULT NULL,
     `value_flat` INT NOT NULL DEFAULT 0,

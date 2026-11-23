@@ -14,13 +14,16 @@ public static class SchemaCatalog
         "DOT", "HOT", "CLEANSE", "DISPEL", "STUN", "SILENCE", "SLOW", "ROOT",
         "KNOCKBACK", "TAUNT", "STEALTH", "INVULNERABLE", "LIFESTEAL",
         "MANASTEAL", "SUMMON", "TELEPORT", "EXECUTE", "REFLECT",
-        "COOLDOWN_RESET", "RESOURCE_RESTORE"
+        "COOLDOWN_RESET", "RESOURCE_RESTORE", "INTERRUPT"
     ];
 
     public static readonly string[] EffectTargetOverrides =
     [
         "INHERIT", "SELF", "ENEMY", "ALLY", "AREA", "PARTY", "AREA_ALLY"
     ];
+
+    /// <summary>Opções do "Incluir caster" por efeito: Herdar = usa o da skill (include_caster ausente).</summary>
+    public static readonly string[] IncludeCasterModes = ["Herdar", "Sim", "Não"];
 
     public static readonly string[] CanonicalItemStats =
     [
@@ -37,7 +40,8 @@ public static class SchemaCatalog
         "critical", "resistance", "double_attack_rate", "health_bonus", "mana_bonus",
         "strength", "dexterity", "intelligence", "vitality", "luck", "accuracy", "dodge",
         "stun_resist", "silence_resist", "root_resist", "slow_resist",
-        "stun_chance", "silence_chance", "root_chance", "slow_chance", "damage_reduction"
+        "stun_chance", "silence_chance", "root_chance", "slow_chance", "damage_reduction",
+        "ignore_dodge", "buff_duration", "lifesteal"
     ];
 }
 
@@ -78,9 +82,9 @@ public sealed partial class SkillEffectEditorRow : ObservableObject, INotifyData
         or "EXECUTE" or "REFLECT" or "RESOURCE_RESTORE";
     public bool UsesDuration => Type is "SHIELD" or "BUFF_STAT" or "DEBUFF_STAT" or "DOT" or "HOT"
         or "STUN" or "SILENCE" or "SLOW" or "ROOT" or "TAUNT" or "STEALTH"
-        or "INVULNERABLE" or "REFLECT";
+        or "INVULNERABLE" or "REFLECT" or "INTERRUPT";
     public bool UsesTickInterval => Type is "DOT" or "HOT";
-    public bool UsesResistPenetration => Type is "STUN" or "SILENCE" or "SLOW" or "ROOT" or "TAUNT";
+    public bool UsesResistPenetration => Type is "STUN" or "SILENCE" or "SLOW" or "ROOT" or "TAUNT" or "INTERRUPT";
     public bool HasErrors => _errors.Count > 0;
     public event EventHandler<DataErrorsChangedEventArgs>? ErrorsChanged;
     public IEnumerable GetErrors(string? propertyName)
@@ -89,6 +93,14 @@ public sealed partial class SkillEffectEditorRow : ObservableObject, INotifyData
         return _errors.TryGetValue(propertyName, out var msg) ? [msg] : Array.Empty<string>();
     }
 
+    /// <summary>Ponte do ComboBox Herdar/Sim/Não para o bool? IncludeCaster (null = herdar).</summary>
+    public string IncludeCasterMode
+    {
+        get => IncludeCaster switch { true => "Sim", false => "Não", _ => "Herdar" };
+        set => IncludeCaster = value switch { "Sim" => true, "Não" => false, _ => null };
+    }
+
+    partial void OnIncludeCasterChanged(bool? value) => OnPropertyChanged(nameof(IncludeCasterMode));
     partial void OnUnsupportedTypeChanged(string value) => OnPropertyChanged(nameof(IsUnsupported));
     partial void OnTypeChanged(string value)
     {

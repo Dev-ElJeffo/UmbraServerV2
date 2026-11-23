@@ -6,6 +6,7 @@ public static class SchemaCatalogService
 {
     public static IReadOnlyList<string> ImplementedEffectTypes => SchemaCatalog.ImplementedEffectTypes;
     public static IReadOnlyList<string> EffectTargetOverrides => SchemaCatalog.EffectTargetOverrides;
+    public static IReadOnlyList<string> IncludeCasterModes => SchemaCatalog.IncludeCasterModes;
     public static IReadOnlyList<string> CanonicalItemStats => SchemaCatalog.CanonicalItemStats;
     public static IReadOnlyList<string> CanonicalTargetStats => SchemaCatalog.CanonicalTargetStats;
     public static IReadOnlyList<string> ConditionTriggers { get; } =

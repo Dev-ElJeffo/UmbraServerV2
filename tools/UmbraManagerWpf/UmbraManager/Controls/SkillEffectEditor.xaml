@@ -74,13 +74,23 @@
                           materialDesign:HintAssist.Hint="trigger" materialDesign:HintAssist.IsFloating="True"/>
                 <TextBox Text="{Binding MaxUses, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,6"
                          materialDesign:HintAssist.Hint="max uses" materialDesign:HintAssist.IsFloating="True"/>
-                <CheckBox Content="Redirecionar para si" IsChecked="{Binding RedirectToSelf}" VerticalAlignment="Center"/>
+                <CheckBox Content="Redirecionar para si (só REACTION)" IsChecked="{Binding RedirectToSelf}"
+                          VerticalAlignment="Center"
+                          ToolTip="Usado só por skills REACTION (ex.: Interposição). Em skills comuns não tem efeito: o alvo vem de 'alvo do efeito'."/>
                 <ComboBox ItemsSource="{x:Static svc:SchemaCatalogService.EffectTargetOverrides}"
                           SelectedItem="{Binding TargetOverride}" Margin="0,0,8,6"
-                          materialDesign:HintAssist.Hint="alvo do efeito" materialDesign:HintAssist.IsFloating="True"/>
-                <CheckBox Content="Incluir caster (marcado=sim, vazio=não, indeterminado=herdar)"
-                          IsThreeState="True" IsChecked="{Binding IncludeCaster}"
-                          VerticalAlignment="Center" ToolTip="Indeterminado herda o padrão geral da skill."/>
+                          materialDesign:HintAssist.Hint="alvo do efeito" materialDesign:HintAssist.IsFloating="True">
+                  <ComboBox.ToolTip>
+                    <TextBlock MaxWidth="360" TextWrapping="Wrap">INHERIT (recomendado): segue o alvo da skill. Exceção automática: numa skill ENEMY/AREA, efeitos benéficos (HEAL, HOT, SHIELD, BUFF_STAT, CLEANSE...) vão para o caster. Só troque para forçar outro alvo (ex.: ENEMY para um buff no inimigo).</TextBlock>
+                  </ComboBox.ToolTip>
+                </ComboBox>
+                <ComboBox ItemsSource="{x:Static svc:SchemaCatalogService.IncludeCasterModes}"
+                          SelectedItem="{Binding IncludeCasterMode}" Margin="0,0,0,6"
+                          materialDesign:HintAssist.Hint="incluir caster" materialDesign:HintAssist.IsFloating="True">
+                  <ComboBox.ToolTip>
+                    <TextBlock MaxWidth="360" TextWrapping="Wrap">Herdar (recomendado): usa o "Incluir caster" da skill. Sim/Não força só neste efeito. Vale para skills ALLY; em PARTY/AREA_ALLY o caster sempre entra. "Não" numa ALLY sem alvo deixa o efeito sem destino.</TextBlock>
+                  </ComboBox.ToolTip>
+                </ComboBox>
               </UniformGrid>
             </StackPanel>
           </Border>

@@ -47,8 +47,11 @@ try {
 
     $pdo = getConnection();
 
+    // R1: rank_growth_percent alimenta compute_effective_skill_stats (mesma fórmula da zone).
+    $rankCols = skill_rank_select_columns($pdo, 's');
     $stmt = $pdo->prepare("
         SELECT
+            {$rankCols},
             s.skill_id,
             s.skill_key,
             s.skill_name,

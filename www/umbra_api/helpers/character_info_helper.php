@@ -448,14 +448,22 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
     $health_pct = ($current_health > 0 && $base_health_for_pct > 0)
         ? (int)floor($current_health * 100 / $base_health_for_pct)
         : 100;
+    // R1: passivas escalam com o rank (mesma fórmula do servidor: SkillTypes.hpp).
+    static $has_rank_growth = null;
+    if ($has_rank_growth === null) {
+        $has_rank_growth = $pdo->query("SHOW COLUMNS FROM skills LIKE 'rank_growth_percent'")->fetch() !== false;
+    }
+    $growth_col = $has_rank_growth ? 'COALESCE(s.rank_growth_percent, -1)' : '-1';
     $passive_stmt = $pdo->prepare("
-        SELECT s.effects_json
+        SELECT s.effects_json, COALESCE(ps.current_rank, 1) AS current_rank, {$growth_col} AS rank_growth
         FROM player_skills ps
         INNER JOIN skills s ON ps.skill_id = s.skill_id
         WHERE ps.player_id = :player_id AND s.type_id = 2
     ");
     $passive_stmt->execute(['player_id' => $player_id]);
     while ($prow = $passive_stmt->fetch(PDO::FETCH_ASSOC)) {
+        $passive_rank = max(1, (int)($prow['current_rank'] ?? 1));
+        $skill_growth = (float)($prow['rank_growth'] ?? -1);
         $effects_raw = (string)($prow['effects_json'] ?? '');
         if ($effects_raw === '' || $effects_raw === 'null') {
             continue;
@@ -470,15 +478,28 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
             }
             $cond = $item['conditions_json'] ?? [];
             if (!is_array($cond)) {
+                $cond = [];
+            }
+            if (isset($cond['trigger'])) {
+                continue; // passiva reativa (ReactionEngine da zone)
+            }
+            // Sem condição a passiva vale sempre; com health_below_percent só abaixo do limiar.
+            $threshold = (int)($cond['health_below_percent'] ?? 0);
+            if ($threshold > 0 && $health_pct >= $threshold) {
                 continue;
             }
-            $threshold = (int)($cond['health_below_percent'] ?? 0);
-            if ($threshold <= 0 || $health_pct >= $threshold) {
+            $effect_type = strtoupper((string)($item['type'] ?? $item['effect_type'] ?? ''));
+            if ($effect_type !== 'BUFF_STAT' && $effect_type !== 'DEBUFF_STAT') {
                 continue;
             }
             $stat_key = map_target_stat_to_canonical((string)($item['target_stat'] ?? ''));
-            $flat = (int)($item['value_flat'] ?? $item['value'] ?? 0);
-            $pct = (int)($item['value_percent'] ?? 0);
+            // Crescimento: efeito (rank_growth) > skill > padrão de stat (10%/rank).
+            $growth = isset($item['rank_growth']) && is_numeric($item['rank_growth'])
+                ? (float)$item['rank_growth']
+                : ($skill_growth >= 0 ? $skill_growth : 10.0);
+            $rank_factor = 1.0 + max(0.0, $growth) * ($passive_rank - 1) / 100.0;
+            $flat = (int)round((int)($item['value_flat'] ?? $item['value'] ?? 0) * $rank_factor);
+            $pct = (int)round((int)($item['value_percent'] ?? 0) * $rank_factor);
             if ($stat_key !== '' && $flat !== 0) {
                 apply_flat_to_totals($stat_key, $flat, $total_stats);
             }

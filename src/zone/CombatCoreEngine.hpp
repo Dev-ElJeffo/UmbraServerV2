@@ -149,6 +149,9 @@ public:
   /** Basic attack autoritativo do mob (NPC → player). */
   void processNpcBasicAttack(uint32_t npcInstanceId, uint32_t targetPlayerId);
   void processNpcSkillCast(uint32_t npcInstanceId, uint32_t targetPlayerId, uint32_t npcSkillId);
+  /** Hit da skill do NPC (imediato ou no fim do cast agendado). */
+  void resolveNpcSkillCast(uint32_t npcInstanceId, uint32_t targetPlayerId, uint32_t npcSkillId,
+                           uint8_t rank, bool fromPendingCast);
   /**
    * Resolve path de montage para cast de skill do NPC:
    * skill.cast_anim_path → anim_states_json.casts[] → skill → attacks[].
@@ -165,7 +168,19 @@ public:
   /** Aplica AGORA todos os hits pendentes do jogador (animation cancel de combo).
    *  Mana/CD já foram cobrados no cast; commitar evita perder dano do cast anterior. */
   void commitPendingSkillHitsNow(uint32_t sourcePlayerId);
-  void scheduleSkillHit(uint32_t sourcePlayerId, const SkillCastPayload& payload, uint32_t delayMs);
+  void scheduleSkillHit(uint32_t sourcePlayerId, const SkillCastPayload& payload, uint32_t delayMs,
+                        int32_t manaCharged = 0, bool canMoveWhileCasting = true);
+  /** True se o player tem qualquer hit de cast pendente (sem a folga de isPlayerCasting). */
+  bool hasPendingPlayerCast(uint32_t playerId);
+  /**
+   * Cancela o cast pendente do player e envia o opcode 122. Moved devolve mana e CD;
+   * Interrupted/CrowdControl/Died não devolvem. Retorna true se havia cast.
+   */
+  bool interruptPlayerCast(uint32_t playerId, SkillCastInterruptReason reason);
+  /** Cancela o cast pendente do NPC (opcode 122 com sourceType = NPC). */
+  bool interruptNpcCast(uint32_t npcInstanceId, SkillCastInterruptReason reason);
+  bool interruptCastOf(bool isNpc, uint32_t id, SkillCastInterruptReason reason);
+  bool isNpcCasting(uint32_t npcInstanceId) const;
   /** True se o player tem cast em curso (hit pendente vencendo em mais de kCastGraceMs).
    *  Novo cast/ataque básico durante o cast é barrado. */
   bool isPlayerCasting(uint32_t playerId);
@@ -209,6 +224,8 @@ public:
   bool canNpcAct(const NpcRuntimeInstance& npc, bool usesSkill);
   float getNpcMovementSpeedPercent(uint32_t npcInstanceId);
   float getNpcMovementSpeedPercent(const NpcRuntimeInstance& npc);
+  /** Players com STEALTH ativo. A IA chama antes do forEachAlive (não aninha locks). */
+  std::unordered_set<uint32_t> snapshotStealthedPlayers();
 
 private:
   bool skillHasEffectType(const Combat::SkillData& skill, Combat::EffectType type,
@@ -258,6 +275,9 @@ private:
   uint64_t applyPlayerBuffInMemory(uint32_t targetPlayerId, uint32_t sourcePlayerId,
                                    uint32_t skillId, const Combat::SkillEffect& effect,
                                    const Combat::SkillData& skill, uint8_t buffTypeCode);
+  /** Duração do buff: efeito > skill > 5s, x (100 + buff_duration do caster)% em BUFF/SHIELD. */
+  uint32_t effectiveBuffDurationMs(uint32_t sourcePlayerId, const Combat::SkillEffect& effect,
+                                   const Combat::SkillData& skill, uint8_t buffTypeCode);
   /** Overlay dos buffs/debuffs/shield em memória sobre CharacterState (cálculo de combate). */
   void overlayRuntimeBuffs(uint32_t playerId, Combat::CharacterState& state);
   void overlayNpcRuntimeBuffs(uint32_t npcInstanceId, Combat::CharacterState& state);
@@ -303,6 +323,30 @@ private:
                              const Combat::CharacterState& defender, bool haveAttacker,
                              int32_t firstHitAbs) const;
 
+  /** Inimigos num raio: NPCs atacáveis vivos + players fora do grupo do caster (caster excluído). */
+  std::vector<std::pair<uint8_t, uint32_t>> collectAreaEnemies(uint32_t sourcePlayerId, float cx,
+                                                               float cy, float cz, float radius,
+                                                               size_t maxTargets);
+  struct SkillDamageOutcome {
+    bool missed = false;         // errou (hit roll) — efeitos no alvo não aplicam
+    bool reactionDodge = false;  // reação do alvo anulou o golpe
+    int32_t damage = 0;          // dano total aplicado (positivo)
+  };
+  /**
+   * Resolve todos os efeitos DAMAGE da skill num alvo (1 hit por efeito DAMAGE).
+   * rankFactor escala o value_percent dos DAMAGE pelo power_coef efetivo do rank.
+   */
+  SkillDamageOutcome resolveSkillDamageOnTarget(uint32_t sourcePlayerId, uint8_t targetType,
+                                                uint32_t targetId, const Combat::SkillData& skill,
+                                                float rankFactor,
+                                                const Combat::CharacterState& source,
+                                                bool reportMiss);
+  /** Cura escalada pelo healer: + MAG_ATK x power_coef e x (100 + healing_bonus)%. */
+  int32_t scaleHealAmount(int32_t baseAmount, const Combat::SkillData& skill,
+                          const Combat::CharacterState& healer, bool haveHealer) const;
+  /** Devolve lifesteal_percent do dano causado como HP ao caster (player). */
+  void applyLifesteal(uint32_t sourcePlayerId, const Combat::CharacterState& source, int32_t damage);
+
   std::function<std::vector<uint32_t>(uint32_t)> resolvePartyMembers_;
 
   uint32_t zoneId_ = 1;
@@ -325,10 +369,60 @@ private:
   struct PendingSkillHit {
     uint32_t sourcePlayerId = 0;
     SkillCastPayload payload{};
+    int64_t startedAtMs = 0;
     int64_t executeAtMs = 0;
+    /** Mana cobrada no início: devolvida só no cancelamento por movimento. */
+    int32_t manaCharged = 0;
+    bool canMoveWhileCasting = false;
+    /** Posição de referência, tirada após kCastMoveGraceMs. */
+    bool hasBaseline = false;
+    float baseX = 0.f;
+    float baseY = 0.f;
   };
   std::mutex pendingSkillHitsMu_;
   std::vector<PendingSkillHit> pendingSkillHits_;
+
+  /** Cast de NPC com cast_time_ms > 0: o NPC fica parado até executeAtMs (ou interrupt). */
+  struct PendingNpcCast {
+    uint32_t npcInstanceId = 0;
+    uint32_t targetPlayerId = 0;
+    uint32_t npcSkillId = 0;
+    uint8_t rank = 1;
+    int64_t executeAtMs = 0;
+  };
+  mutable std::mutex pendingNpcCastsMu_;
+  std::vector<PendingNpcCast> pendingNpcCasts_;
+
+  /** Fase B: andar mais que isto (uu, 2D) após a folga cancela o cast sem move cast. */
+  static constexpr float kCastMoveCancelUu = 60.f;
+  static constexpr int64_t kCastMoveGraceMs = 250;
+  /** Chance do INTERRUPT implícito do checkbox legado is_interrupt. */
+  static constexpr uint8_t kLegacyInterruptChance = 50;
+
+  /** R4: remove o STEALTH do player (atacou ou usou skill hostil). True se havia. */
+  bool breakPlayerStealth(uint32_t playerId);
+
+  /** R3: retorno decrescente de CC por alvo e categoria (stun / silence / root+slow). */
+  struct CcDrState {
+    uint8_t count = 0;
+    int64_t windowEndMs = 0;
+    int64_t immuneUntilMs = 0;
+  };
+  std::mutex ccDrMu_;
+  std::unordered_map<uint64_t, CcDrState> ccDr_;
+  static constexpr int64_t kCcDrWindowMs = 15000;
+  static constexpr int64_t kCcDrImmuneMs = 15000;
+  /** Registra o CC e devolve a % da duração (100 ou 50) ou 0 = imune. */
+  int32_t consumeCcDiminishing(bool targetIsNpc, uint32_t targetId, Combat::EffectType type);
+  bool isNpcCcImmune(uint32_t npcInstanceId) const;
+  /** Texto "Imune" no alvo (opcode 92 / 103 com reason 7). */
+  void broadcastCcImmune(bool targetIsNpc, uint32_t targetId, uint32_t sourceId);
+
+  void checkCastMovementCancels(int64_t nowMs);
+  void tickPendingNpcCasts();
+  void broadcastSkillCastInterrupted(uint8_t sourceType, uint32_t sourceId, uint32_t skillId,
+                                     SkillCastInterruptReason reason);
+  static void appendLegacyInterruptEffect(Combat::SkillData& skill);
 
   struct SkillAnimPaths {
     std::string anim;

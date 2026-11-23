@@ -26,6 +26,9 @@ struct RuntimeStatEffect {
  */
 class CombatEffectRuntime {
 public:
+  /** R3: teto de esquiva somada por buffs temporários (Véu de Fumaça, Passo Invisível...). */
+  static constexpr int32_t kMaxDodgeFromEffects = 50;
+
   static void recompose(Combat::CharacterState& state,
                         const std::vector<RuntimeStatEffect>& effects);
 

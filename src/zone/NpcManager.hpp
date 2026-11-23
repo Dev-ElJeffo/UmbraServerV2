@@ -55,6 +55,8 @@ struct NpcRuntimeInstance {
   int32_t silenceResist = 0;
   int32_t rootResist = 0;
   int32_t slowResist = 0;
+  /** R3: npc_templates.cc_immune — chefe ignora STUN/SILENCE/ROOT/SLOW (texto "Imune"). */
+  bool ccImmune = false;
   std::string npcName;
   std::string skeletalMeshPath;
   std::string animBlueprintPath;

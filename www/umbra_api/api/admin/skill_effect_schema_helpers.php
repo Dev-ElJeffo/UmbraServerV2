@@ -6,6 +6,7 @@ function skill_effect_supported_types(): array
         'CLEANSE', 'DISPEL', 'STUN', 'SILENCE', 'SLOW', 'ROOT', 'KNOCKBACK',
         'TAUNT', 'STEALTH', 'INVULNERABLE', 'LIFESTEAL', 'MANASTEAL', 'SUMMON',
         'TELEPORT', 'EXECUTE', 'REFLECT', 'COOLDOWN_RESET', 'RESOURCE_RESTORE',
+        'INTERRUPT',
     ];
 }
 

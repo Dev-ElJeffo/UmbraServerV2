@@ -25,6 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/skill_rank_helper.php';
 
 try {
     $data = json_decode(file_get_contents('php://input'), true);
@@ -57,10 +58,13 @@ try {
     
     try {
         // Verificar se jogador aprendeu a skill
+        $rankCols = skill_rank_select_columns($pdo, 's');
         $stmt = $pdo->prepare("
-            SELECT ps.id, ps.current_rank, s.skill_name, s.skill_cost, s.max_rank
+            SELECT ps.id, ps.current_rank, s.skill_name, s.skill_cost, s.max_rank, s.required_level,
+                   {$rankCols}, p.level AS player_level
             FROM player_skills ps
             JOIN skills s ON ps.skill_id = s.skill_id
+            JOIN players p ON p.id = ps.player_id
             WHERE ps.player_id = :player_id AND ps.skill_id = :skill_id
             FOR UPDATE
         ");
@@ -81,7 +85,21 @@ try {
             echo json_encode(['success' => false, 'message' => 'Esta skill já está no rank máximo']);
             exit;
         }
-        
+
+        // R2: custo e nível escalonados por rank.
+        $newRank = (int)$playerSkill['current_rank'] + 1;
+        $upgradeCost = skill_rank_cost($playerSkill, $newRank);
+        $requiredLevel = skill_rank_required_level($playerSkill, $newRank, skill_max_player_level($pdo));
+        if ((int)$playerSkill['player_level'] < $requiredLevel) {
+            $pdo->rollBack();
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'message' => "Rank {$newRank} requer nível {$requiredLevel}"
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
         // Obter pontos de skill
         $stmt = $pdo->prepare("
             SELECT total_points_earned, points_spent, points_available
@@ -92,18 +110,17 @@ try {
         $stmt->execute([':player_id' => $playerId]);
         $skillPoints = $stmt->fetch(PDO::FETCH_ASSOC);
         
-        if (!$skillPoints || $skillPoints['points_available'] < $playerSkill['skill_cost']) {
+        if (!$skillPoints || $skillPoints['points_available'] < $upgradeCost) {
             $pdo->rollBack();
             http_response_code(403);
             echo json_encode([
-                'success' => false, 
-                'message' => "Pontos de skill insuficientes. Necessário: {$playerSkill['skill_cost']}"
-            ]);
+                'success' => false,
+                'message' => "Pontos de skill insuficientes. Necessário: {$upgradeCost}"
+            ], JSON_UNESCAPED_UNICODE);
             exit;
         }
-        
+
         // Upgrade da skill
-        $newRank = $playerSkill['current_rank'] + 1;
         $stmt = $pdo->prepare("
             UPDATE player_skills
             SET current_rank = :new_rank
@@ -116,8 +133,8 @@ try {
         ]);
         
         // Atualizar pontos
-        $newSpent = $skillPoints['points_spent'] + $playerSkill['skill_cost'];
-        $newAvailable = $skillPoints['points_available'] - $playerSkill['skill_cost'];
+        $newSpent = $skillPoints['points_spent'] + $upgradeCost;
+        $newAvailable = $skillPoints['points_available'] - $upgradeCost;
         
         $stmt = $pdo->prepare("
             UPDATE player_skill_points
@@ -141,6 +158,7 @@ try {
                 'previous_rank' => (int)$playerSkill['current_rank'],
                 'current_rank' => (int)$newRank,
                 'max_rank' => (int)$playerSkill['max_rank'],
+                'points_cost' => $upgradeCost,
                 'skill_points' => [
                     'total_earned' => (int)$skillPoints['total_points_earned'],
                     'spent' => (int)$newSpent,

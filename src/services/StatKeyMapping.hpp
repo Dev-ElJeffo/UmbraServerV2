@@ -58,6 +58,9 @@ inline std::string mapTargetStatToCanonical(const std::string& raw) {
   if (raw == "silence_chance" || raw == "silenceChance") return "silence_chance";
   if (raw == "root_chance" || raw == "rootChance") return "root_chance";
   if (raw == "slow_chance" || raw == "slowChance") return "slow_chance";
+  if (raw == "ignore_dodge" || raw == "ignoreDodge") return "ignore_dodge";
+  if (raw == "buff_duration" || raw == "buffDuration") return "buff_duration";
+  if (raw == "lifesteal" || raw == "life_steal" || raw == "lifesteal_percent") return "lifesteal";
   return raw;
 }
 
@@ -128,6 +131,15 @@ inline void applyFlatToCharacterStats(const std::string& canonicalKey, int64_t f
   else if (canonicalKey == "silence_chance") add(stats.silenceChance);
   else if (canonicalKey == "root_chance") add(stats.rootChance);
   else if (canonicalKey == "slow_chance") add(stats.slowChance);
+  else if (canonicalKey == "ignore_dodge") add(stats.ignoreDodge);
+  else if (canonicalKey == "buff_duration") add(stats.buffDurationBonus);
+  else if (canonicalKey == "lifesteal") add(stats.lifestealPercent);
+}
+
+/** Stats que já são percentuais: value_percent soma pontos (não % sobre a base 0). */
+inline bool isPointPercentKey(const std::string& canonicalKey) {
+  return canonicalKey == "ignore_dodge" || canonicalKey == "buff_duration" ||
+         canonicalKey == "lifesteal";
 }
 
 /** Percentual sobre stats de combate já derivados (CharacterStats). */
@@ -137,6 +149,10 @@ inline void applyPercentToCharacterStats(const std::string& canonicalKey, int32_
   // damage_reduction % = redução percentual de dano recebido (não % sobre flat 0).
   if (canonicalKey == "damage_reduction") {
     stats.damageReductionPercent += pct;
+    return;
+  }
+  if (isPointPercentKey(canonicalKey)) {
+    applyFlatToCharacterStats(canonicalKey, pct, stats);
     return;
   }
   auto mod = [&](int32_t& v) { v += static_cast<int32_t>(static_cast<int64_t>(v) * pct / 100); };

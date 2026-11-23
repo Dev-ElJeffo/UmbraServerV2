@@ -24,6 +24,13 @@ public sealed class NpcTemplateRow
     public int CriticalResistance { get; set; }
     public int DoubleAttackRate { get; set; }
     public int DoubleAttackResistance { get; set; }
+    /// <summary>R5: resistências de CC (0–100, % de chance de anular).</summary>
+    public int StunResist { get; set; }
+    public int SilenceResist { get; set; }
+    public int RootResist { get; set; }
+    public int SlowResist { get; set; }
+    /// <summary>R5: chefe imune a STUN/SILENCE/ROOT/SLOW (coluna cc_immune, R3).</summary>
+    public bool CcImmune { get; set; }
     public string SkeletalMeshPath { get; set; } = "";
     public string AnimBlueprintPath { get; set; } = "";
     /** JSON string ou paths CSV montados no ViewModel. */

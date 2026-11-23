@@ -52,6 +52,7 @@ bool tryParseImplementedEffectType(const std::string& value, EffectType& out) {
   if (upper == "REFLECT") { out = EffectType::REFLECT; return true; }
   if (upper == "COOLDOWN_RESET") { out = EffectType::COOLDOWN_RESET; return true; }
   if (upper == "RESOURCE_RESTORE") { out = EffectType::RESOURCE_RESTORE; return true; }
+  if (upper == "INTERRUPT") { out = EffectType::INTERRUPT; return true; }
   return false;
 }
 
@@ -129,6 +130,7 @@ std::string effectTypeToString(EffectType t) {
     case EffectType::REFLECT: return "REFLECT";
     case EffectType::COOLDOWN_RESET: return "COOLDOWN_RESET";
     case EffectType::RESOURCE_RESTORE: return "RESOURCE_RESTORE";
+    case EffectType::INTERRUPT: return "INTERRUPT";
     default: return "UNKNOWN";
   }
 }
@@ -153,6 +155,8 @@ bool SkillService::loadSkillsFromDatabase() {
       !db_->executeQuery("SHOW COLUMNS FROM skills LIKE 'vfx_path'").empty();
   const bool hasHitVfxPath =
       !db_->executeQuery("SHOW COLUMNS FROM skills LIKE 'hit_vfx_path'").empty();
+  const bool hasRankGrowth =
+      !db_->executeQuery("SHOW COLUMNS FROM skills LIKE 'rank_growth_percent'").empty();
   const std::string skillSelect =
       "SELECT skill_id, skill_key, skill_name, class_id, skill_order, required_level, skill_cost, max_rank, "
       "type_id, target_id, element_id, scaling_stat_id, "
@@ -170,7 +174,9 @@ bool SkillService::loadSkillsFromDatabase() {
       std::string(hasDamageType ? "COALESCE(damage_type,'PHYSICAL')" : "'PHYSICAL'") + ", " +
       std::string(hasVfxPath ? "COALESCE(vfx_path,'')" : "''") + ", " +
       std::string(hasHitVfxPath ? "COALESCE(hit_vfx_path,'')" : "''") + ", " +
-      std::string(hasBuffVfxPath ? "COALESCE(buff_vfx_path,'')" : "''") +
+      std::string(hasBuffVfxPath ? "COALESCE(buff_vfx_path,'')" : "''") + ", " +
+      // [49] R1: NULL = crescimento padrão por tipo de efeito (-1 aqui).
+      std::string(hasRankGrowth ? "COALESCE(rank_growth_percent,-1)" : "-1") +
       " FROM skills WHERE is_enabled = 1";
   auto rows = db_->executePreparedQuery(skillSelect, {});
 
@@ -239,6 +245,13 @@ bool SkillService::loadSkillsFromDatabase() {
       skill.vfxPath = row[46];
       skill.hitVfxPath = row[47];
       skill.buffVfxPath = row[48];
+      if (row.size() > 49 && !row[49].empty()) {
+        const double growth = std::stod(row[49]);
+        skill.rankGrowthTenths = growth < 0.0
+                                     ? static_cast<int16_t>(-1)
+                                     : static_cast<int16_t>(std::clamp(
+                                           std::lround(growth * 10.0), 0L, 10000L));
+      }
     } catch (...) {
       continue;
     }
@@ -444,6 +457,11 @@ SkillEffect SkillService::parseEffectFromJson(const nlohmann::json& json) {
   }
   if (json.contains("include_caster") && json["include_caster"].is_boolean()) {
     effect.includeCaster = json["include_caster"].get<bool>() ? 1 : 0;
+  }
+  // R1: crescimento por rank do efeito (% por rank, aceita decimal; ausente = herda).
+  if (json.contains("rank_growth") && json["rank_growth"].is_number()) {
+    effect.rankGrowthTenths = static_cast<int16_t>(
+        std::clamp(std::lround(json["rank_growth"].get<double>() * 10.0), 0L, 10000L));
   }
   if (json.contains("conditions_json") && json["conditions_json"].is_object()) {
     effect.conditions = json["conditions_json"];

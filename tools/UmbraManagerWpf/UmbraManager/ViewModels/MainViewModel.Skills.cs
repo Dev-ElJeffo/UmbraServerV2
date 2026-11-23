@@ -31,6 +31,14 @@ public partial class MainViewModel
     [ObservableProperty] private int _skillFormRequiredLevel = 1;
     [ObservableProperty] private int _skillFormCost = 1;
     [ObservableProperty] private int _skillFormMaxRank = 5;
+    /// <summary>R5: % de crescimento por rank; vazio = padrão por tipo de efeito (12,5% dano/cura, 10% stats); 0 = não escala.</summary>
+    [ObservableProperty] private string _skillFormRankGrowthPercent = "";
+    /// <summary>R5: pontos extras por rank (custo(N) = skill_cost + step × (N − 1)).</summary>
+    [ObservableProperty] private int _skillFormRankCostStep = 1;
+    /// <summary>R5: níveis extras por rank (nível(N) = required_level + step × (N − 1)).</summary>
+    [ObservableProperty] private int _skillFormRankLevelStep = 4;
+    public ObservableCollection<SkillRankPreviewRow> SkillRankPreviews { get; } = new();
+    [ObservableProperty] private string _skillRankWarningsText = "";
     [ObservableProperty] private int _skillFormTypeId = 1;
     [ObservableProperty] private int _skillFormTargetId = 2;
     [ObservableProperty] private int _skillFormElementId = 1;
@@ -137,6 +145,11 @@ public partial class MainViewModel
         SkillFormRequiredLevel = 1;
         SkillFormCost = 1;
         SkillFormMaxRank = 5;
+        SkillFormRankGrowthPercent = "";
+        SkillFormRankCostStep = 1;
+        SkillFormRankLevelStep = 4;
+        SkillRankPreviews.Clear();
+        SkillRankWarningsText = "";
         SkillFormTypeId = SkillTypeOptions.FirstOrDefault()?.Id ?? 1;
         SkillFormTargetId = SkillTargetOptions.FirstOrDefault(t => t.Key.Contains("ENEMY", StringComparison.OrdinalIgnoreCase))?.Id
                             ?? SkillTargetOptions.FirstOrDefault()?.Id ?? 2;
@@ -216,6 +229,12 @@ public partial class MainViewModel
         SkillFormRequiredLevel = TryGetIntProp(s, "required_level");
         SkillFormCost = TryGetIntProp(s, "skill_cost");
         SkillFormMaxRank = Math.Max(1, TryGetIntProp(s, "max_rank"));
+        SkillFormRankGrowthPercent =
+            s.TryGetProperty("rank_growth_percent", out var rg) && rg.ValueKind == JsonValueKind.Number
+                ? rg.GetDouble().ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+                : "";
+        SkillFormRankCostStep = s.TryGetProperty("rank_cost_step", out _) ? TryGetIntProp(s, "rank_cost_step") : 1;
+        SkillFormRankLevelStep = s.TryGetProperty("rank_level_step", out _) ? TryGetIntProp(s, "rank_level_step") : 4;
         SkillFormTypeId = TryGetIntProp(s, "type_id");
         SkillFormTargetId = TryGetIntProp(s, "target_id");
         SkillFormElementId = TryGetIntProp(s, "element_id");
@@ -310,7 +329,113 @@ public partial class MainViewModel
             if (SkillRankScalings.Any(x => x.Rank == r)) continue;
             SkillRankScalings.Add(new SkillRankScalingRow { SkillId = EditingSkillId, Rank = r, ExtraEffectsJson = "[]" });
         }
+        await RunSkillRankPreviewAsync(showErrors: false);
         MarkEditorClean();
+    }
+
+    /// <summary>R5: null = padrão por tipo; número (aceita vírgula) com teto 100.</summary>
+    private double? ParseRankGrowthPercent()
+    {
+        var raw = (SkillFormRankGrowthPercent ?? "").Trim().Replace(',', '.');
+        if (raw.Length == 0) return null;
+        if (!double.TryParse(raw, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var v) || v < 0)
+            return null;
+        return Math.Min(100, v);
+    }
+
+    private List<Dictionary<string, object?>> BuildRankScalingsPayload()
+    {
+        FlushSelectedRankEffects();
+        var list = new List<Dictionary<string, object?>>();
+        foreach (var rk in SkillRankScalings.Where(x => x.Rank >= 1))
+        {
+            rk.PushResistIntoExtraJson();
+            list.Add(new Dictionary<string, object?>
+            {
+                ["rank"] = rk.Rank,
+                ["power_coef_bonus"] = rk.PowerCoefBonus,
+                ["resource_cost_bonus"] = rk.ResourceCostBonus,
+                ["cooldown_reduction_ms"] = rk.CooldownReductionMs,
+                ["duration_bonus_ms"] = rk.DurationBonusMs,
+                ["extra_effects_json"] = string.IsNullOrWhiteSpace(rk.ExtraEffectsJson) ? "[]" : rk.ExtraEffectsJson
+            });
+        }
+        return list;
+    }
+
+    [RelayCommand]
+    private async Task PreviewSkillRanksAsync() => await RunSkillRankPreviewAsync(showErrors: true);
+
+    /// <summary>
+    /// R5: chama o PHP (mesma fórmula da zone) com o formulário atual e preenche a grade.
+    /// Retorna os alertas de validação (lista vazia = ok; null = falha na chamada).
+    /// </summary>
+    private async Task<List<string>?> RunSkillRankPreviewAsync(bool showErrors)
+    {
+        var payload = new Dictionary<string, object?>
+        {
+            ["skill"] = new Dictionary<string, object?>
+            {
+                ["type_id"] = SkillFormTypeId,
+                ["max_rank"] = SkillFormMaxRank,
+                ["skill_cost"] = SkillFormCost,
+                ["required_level"] = SkillFormRequiredLevel,
+                ["rank_growth_percent"] = ParseRankGrowthPercent(),
+                ["rank_cost_step"] = SkillFormRankCostStep,
+                ["rank_level_step"] = SkillFormRankLevelStep,
+                ["power_coef"] = SkillFormPowerCoef,
+                ["resource_cost"] = SkillFormResourceCost,
+                ["cooldown_ms"] = SkillFormCooldownMs,
+                ["duration_ms"] = SkillFormDurationMs,
+                ["effects_json"] = FlushSkillEffectsJson(),
+                ["description"] = SkillFormDescription,
+                ["tooltip_template"] = SkillFormTooltipTemplate
+            },
+            ["rank_scalings"] = BuildRankScalingsPayload()
+        };
+        var (ok, err, data) = await Php.PreviewSkillRanksAsync(payload);
+        if (!ok || data == null)
+        {
+            if (showErrors) MessageBox.Show(err, "Erro na pré-visualização");
+            StatusText = $"Pré-visualização falhou: {err}";
+            return null;
+        }
+
+        SkillRankPreviews.Clear();
+        var warnings = new List<string>();
+        if (data.RootElement.TryGetProperty("ranks", out var ranks))
+        {
+            foreach (var r in ranks.EnumerateArray())
+            {
+                SkillRankPreviews.Add(new SkillRankPreviewRow
+                {
+                    Rank = TryGetIntProp(r, "rank"),
+                    PointsCost = TryGetIntProp(r, "points_cost"),
+                    TotalPoints = TryGetIntProp(r, "total_points"),
+                    RequiredLevel = TryGetIntProp(r, "required_level"),
+                    PowerCoef = TryGetIntProp(r, "power_coef"),
+                    ResourceCost = TryGetIntProp(r, "resource_cost"),
+                    CooldownMs = TryGetIntProp(r, "cooldown_ms"),
+                    DurationMs = TryGetIntProp(r, "duration_ms"),
+                    IsMilestone = TryGetBoolProp(r, "is_milestone"),
+                    EffectsSummary = TryGetStringProp(r, "effects_summary")
+                });
+            }
+        }
+        if (data.RootElement.TryGetProperty("warnings", out var warr) && warr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var w in warr.EnumerateArray())
+            {
+                var s = w.GetString();
+                if (!string.IsNullOrWhiteSpace(s)) warnings.Add(s);
+            }
+        }
+        data.Dispose();
+        SkillRankWarningsText = warnings.Count == 0
+            ? "Sem alertas."
+            : string.Join("\n", warnings.Select(w => "• " + w));
+        return warnings;
     }
 
     [RelayCommand]
@@ -332,6 +457,20 @@ public partial class MainViewModel
             return;
         }
 
+        // R5: valida com a mesma fórmula da zone antes de gravar; alerta não bloqueia, só confirma.
+        var warnings = await RunSkillRankPreviewAsync(showErrors: false);
+        if (warnings is { Count: > 0 })
+        {
+            var msg = "A validação encontrou alertas:\n\n" + string.Join("\n", warnings.Select(w => "• " + w))
+                      + "\n\nSalvar mesmo assim?";
+            if (MessageBox.Show(msg, "Validação da skill", MessageBoxButton.YesNo, MessageBoxImage.Warning)
+                != MessageBoxResult.Yes)
+            {
+                StatusText = "Save cancelado: revise os alertas da pré-visualização.";
+                return;
+            }
+        }
+
         var payload = new Dictionary<string, object?>
         {
             ["skill_key"] = SkillFormKey.Trim(),
@@ -341,6 +480,9 @@ public partial class MainViewModel
             ["required_level"] = SkillFormRequiredLevel,
             ["skill_cost"] = SkillFormCost,
             ["max_rank"] = SkillFormMaxRank,
+            ["rank_growth_percent"] = ParseRankGrowthPercent(),
+            ["rank_cost_step"] = SkillFormRankCostStep < 0 ? 1 : SkillFormRankCostStep,
+            ["rank_level_step"] = SkillFormRankLevelStep < 0 ? 4 : SkillFormRankLevelStep,
             ["type_id"] = SkillFormTypeId,
             ["target_id"] = SkillFormTargetId,
             ["element_id"] = SkillFormElementId,

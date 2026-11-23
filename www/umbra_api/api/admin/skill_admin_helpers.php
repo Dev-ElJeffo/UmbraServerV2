@@ -54,6 +54,10 @@ function skill_payload_fields(array $data, bool $forUpdate = false): array
         'required_level' => ['int', 1],
         'skill_cost' => ['int', 1],
         'max_rank' => ['int', 5],
+        // R5: progressão por rank (colunas opcionais; só grava se vier no payload).
+        'rank_growth_percent' => ['growth', null],
+        'rank_cost_step' => ['int', 1],
+        'rank_level_step' => ['int', 4],
         'type_id' => ['int', 1],
         'target_id' => ['int', 2],
         'element_id' => ['int', 1],
@@ -107,7 +111,8 @@ function skill_payload_fields(array $data, bool $forUpdate = false): array
         $kind = $spec[0];
         $default = $spec[1];
         $aliases = $spec[2] ?? [];
-        $optionalSchema = in_array($col, ['sfx_path', 'cast_anim_path', 'hit_window_ms', 'is_basic_attack', 'buff_vfx_path'], true);
+        $optionalSchema = in_array($col, ['sfx_path', 'cast_anim_path', 'hit_window_ms', 'is_basic_attack', 'buff_vfx_path',
+            'rank_growth_percent', 'rank_cost_step', 'rank_level_step'], true);
         if (($forUpdate || $optionalSchema) && !skill_has_input($data, $col, $aliases)) {
             continue;
         }
@@ -121,6 +126,14 @@ function skill_payload_fields(array $data, bool $forUpdate = false): array
                 break;
             case 'bool':
                 $fields[$col] = skill_bool_int($raw ?? 0);
+                break;
+            case 'growth':
+                // Vazio ou negativo = NULL (padrão por tipo de efeito); 0 = não escala; teto 100%.
+                if ($raw === null || $raw === '' || !is_numeric($raw) || (float)$raw < 0) {
+                    $fields[$col] = null;
+                } else {
+                    $fields[$col] = min(100.0, round((float)$raw, 2));
+                }
                 break;
             case 'resource':
                 $rt = strtoupper((string)($raw ?? 'MANA'));
@@ -149,6 +162,11 @@ function skill_payload_fields(array $data, bool $forUpdate = false): array
     if (isset($fields['max_stacks'])) {
         $fields['max_stacks'] = max(1, (int)$fields['max_stacks']);
     }
+    foreach (['rank_cost_step', 'rank_level_step'] as $stepCol) {
+        if (array_key_exists($stepCol, $fields)) {
+            $fields[$stepCol] = max(0, min(20, (int)$fields[$stepCol]));
+        }
+    }
 
     if (!$forUpdate) {
         if (($fields['skill_key'] ?? '') === '' || ($fields['skill_name'] ?? '') === '' || (int)($fields['class_id'] ?? 0) <= 0) {
@@ -173,12 +191,15 @@ function skill_row_normalize(array $row): array
         'cooldown_ms', 'cast_time_ms', 'duration_ms', 'range_min', 'range_max', 'area_radius',
         'max_stacks', 'threat_modifier', 'pvp_modifier', 'is_enabled',
         'is_stackable', 'can_crit', 'ignores_defense', 'is_interrupt', 'requires_target',
-        'can_move_while_casting', 'include_caster',
+        'can_move_while_casting', 'include_caster', 'rank_cost_step', 'rank_level_step',
     ];
     foreach ($ints as $k) {
         if (array_key_exists($k, $row)) {
             $row[$k] = (int)$row[$k];
         }
+    }
+    if (array_key_exists('rank_growth_percent', $row)) {
+        $row['rank_growth_percent'] = $row['rank_growth_percent'] === null ? null : (float)$row['rank_growth_percent'];
     }
     $row['effects'] = json_decode($row['effects_json'] ?? '[]', true) ?: [];
     $row['server_tags_decoded'] = json_decode($row['server_tags'] ?? '[]', true) ?: [];

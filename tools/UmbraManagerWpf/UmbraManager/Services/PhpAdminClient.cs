@@ -333,6 +333,14 @@ public sealed class PhpAdminClient : IDisposable
             skills
         }, ct);
 
+    /// <summary>R5: calcula os ranks 1..max do formulário (sem salvar) e devolve alertas de validação.</summary>
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> PreviewSkillRanksAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/preview_skill_ranks.php", dict, ct);
+    }
+
     public async Task<(bool Ok, string Error, JsonDocument? Data)> UpsertSkillRankScalingAsync(object payload, CancellationToken ct = default)
     {
         var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();

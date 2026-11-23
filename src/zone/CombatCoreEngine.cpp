@@ -32,6 +32,75 @@ struct NpcSourceScope {
   ~NpcSourceScope() { g_npcSourceEffects = false; }
 };
 
+// true dentro de um efeito já despachado por applySkillEffects (evita re-despachar).
+thread_local bool g_effectDispatchChild = false;
+
+struct EffectDispatchChildScope {
+  bool prev;
+  EffectDispatchChildScope() : prev(g_effectDispatchChild) { g_effectDispatchChild = true; }
+  ~EffectDispatchChildScope() { g_effectDispatchChild = prev; }
+};
+
+// Centro da área (ponto no chão do cast AREA) para o despacho dos efeitos de área.
+thread_local bool g_hasAreaCenter = false;
+thread_local float g_areaCenterX = 0.f;
+thread_local float g_areaCenterY = 0.f;
+thread_local float g_areaCenterZ = 0.f;
+
+struct AreaCenterScope {
+  AreaCenterScope(float x, float y, float z) {
+    g_hasAreaCenter = true;
+    g_areaCenterX = x;
+    g_areaCenterY = y;
+    g_areaCenterZ = z;
+  }
+  ~AreaCenterScope() { g_hasAreaCenter = false; }
+};
+
+// R4: o caster estava furtivo quando a skill resolveu (condição crit_if_stealthed).
+thread_local bool g_casterWasStealthed = false;
+
+struct CasterStealthScope {
+  explicit CasterStealthScope(bool wasStealthed) : prev(g_casterWasStealthed) {
+    g_casterWasStealthed = wasStealthed;
+  }
+  ~CasterStealthScope() { g_casterWasStealthed = prev; }
+  bool prev;
+};
+
+// Máximo de alvos atingidos por skill de área (dano e efeitos).
+constexpr size_t kMaxAreaTargets = 10;
+
+int32_t healthPercentOf(const Combat::CharacterState& state) {
+  return state.buffedStats.currentHealth * 100 / std::max(1, state.buffedStats.maxHealth);
+}
+
+/**
+ * Condições de um efeito DAMAGE. Chaves conhecidas: health_below_percent /
+ * target_health_below_percent / health_above_percent (alvo), caster_health_below_percent
+ * e guaranteed_crit (modificador). Qualquer outra (ex.: target_type) = não aplica.
+ */
+bool damageEffectConditionsMet(const Combat::SkillEffect& eff, const Combat::CharacterState& source,
+                               const Combat::CharacterState& defender) {
+  if (!eff.conditions.is_object()) return true;
+  for (auto it = eff.conditions.begin(); it != eff.conditions.end(); ++it) {
+    const std::string& key = it.key();
+    if (key == "guaranteed_crit" || key == "crit_if_stealthed") continue;
+    if (!it.value().is_number()) return false;
+    const int32_t v = it.value().get<int32_t>();
+    if (key == "health_below_percent" || key == "target_health_below_percent") {
+      if (healthPercentOf(defender) >= v) return false;
+    } else if (key == "health_above_percent") {
+      if (healthPercentOf(defender) <= v) return false;
+    } else if (key == "caster_health_below_percent") {
+      if (healthPercentOf(source) >= v) return false;
+    } else {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * source_player_id para active_buffs/active_dots. Fonte NPC → NULL: a coluna tem FK para
  * players(id); gravar o npcInstanceId falhava (fk_buff_source) ou, pior, atribuía o
@@ -97,6 +166,7 @@ const char* effectTypeToWireName(Combat::EffectType type) {
     case Combat::EffectType::REFLECT: return "REFLECT";
     case Combat::EffectType::COOLDOWN_RESET: return "COOLDOWN_RESET";
     case Combat::EffectType::RESOURCE_RESTORE: return "RESOURCE_RESTORE";
+    case Combat::EffectType::INTERRUPT: return "INTERRUPT";
     default: return "UNKNOWN";
   }
 }
@@ -770,15 +840,277 @@ void CombatCoreEngine::commitPendingSkillHitsNow(uint32_t sourcePlayerId) {
 }
 
 void CombatCoreEngine::scheduleSkillHit(uint32_t sourcePlayerId, const SkillCastPayload& payload,
-                                        uint32_t delayMs) {
+                                        uint32_t delayMs, int32_t manaCharged,
+                                        bool canMoveWhileCasting) {
   PendingSkillHit hit;
   hit.sourcePlayerId = sourcePlayerId;
   hit.payload = payload;
-  hit.executeAtMs = Core::steadyNowMs() + static_cast<int64_t>(delayMs);
+  hit.startedAtMs = Core::steadyNowMs();
+  hit.executeAtMs = hit.startedAtMs + static_cast<int64_t>(delayMs);
+  hit.manaCharged = std::max(0, manaCharged);
+  hit.canMoveWhileCasting = canMoveWhileCasting;
   {
     std::lock_guard<std::mutex> lock(pendingSkillHitsMu_);
     pendingSkillHits_.push_back(hit);
   }
+}
+
+bool CombatCoreEngine::hasPendingPlayerCast(uint32_t playerId) {
+  if (playerId == 0) return false;
+  std::lock_guard<std::mutex> lock(pendingSkillHitsMu_);
+  for (const PendingSkillHit& hit : pendingSkillHits_) {
+    if (hit.sourcePlayerId == playerId) return true;
+  }
+  return false;
+}
+
+void CombatCoreEngine::broadcastSkillCastInterrupted(uint8_t sourceType, uint32_t sourceId,
+                                                     uint32_t skillId,
+                                                     SkillCastInterruptReason reason) {
+  if (!movementServer_ || sourceId == 0) return;
+  SkillCastInterruptedPayload p;
+  p.sourceType = sourceType;
+  p.sourceId = sourceId;
+  p.skillId = skillId;
+  p.reason = static_cast<uint8_t>(reason);
+  const auto frame = encodeSkillCastInterrupted(p);
+  if (sourceType == static_cast<uint8_t>(CombatTargetType::Npc)) {
+    float x = 0.f, y = 0.f;
+    bool found = false;
+    if (npcManager_) {
+      if (const NpcRuntimeInstance* inst = npcManager_->findInstance(sourceId)) {
+        x = inst->x;
+        y = inst->y;
+        found = true;
+      }
+    }
+    if (found) {
+      movementServer_->broadcastNearWorldXY(x, y, frame);
+    } else {
+      movementServer_->broadcastToAll(frame);
+    }
+    return;
+  }
+  movementServer_->broadcastNearPlayer(sourceId, frame);
+}
+
+bool CombatCoreEngine::interruptPlayerCast(uint32_t playerId, SkillCastInterruptReason reason) {
+  if (playerId == 0) return false;
+  std::vector<PendingSkillHit> removed;
+  {
+    std::lock_guard<std::mutex> lock(pendingSkillHitsMu_);
+    for (auto it = pendingSkillHits_.begin(); it != pendingSkillHits_.end();) {
+      if (it->sourcePlayerId == playerId) {
+        removed.push_back(*it);
+        it = pendingSkillHits_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  if (removed.empty()) return false;
+  for (const PendingSkillHit& hit : removed) {
+    // Cancelar andando devolve mana e CD; interrupt/CC/morte não devolvem nada.
+    if (reason == SkillCastInterruptReason::Moved) {
+      if (hit.manaCharged > 0) restorePlayerMana(playerId, hit.manaCharged);
+      if (skillService_) skillService_->resetCooldown(playerId, hit.payload.skillId);
+    }
+    broadcastSkillCastInterrupted(static_cast<uint8_t>(CombatTargetType::Player), playerId,
+                                  hit.payload.skillId, reason);
+    Core::Logger::getInstance().info(
+        "[CombatCoreEngine] SkillCastInterrupted player={} skill={} motivo={} refund_mana={}",
+        playerId, hit.payload.skillId, static_cast<int>(reason),
+        reason == SkillCastInterruptReason::Moved ? hit.manaCharged : 0);
+  }
+  return true;
+}
+
+namespace {
+/** R3: categoria do retorno decrescente (0 = sem DR). */
+uint8_t ccDiminishingCategory(Combat::EffectType type) {
+  switch (type) {
+    case Combat::EffectType::STUN: return 1;
+    case Combat::EffectType::SILENCE: return 2;  // inclui o lockout do INTERRUPT
+    case Combat::EffectType::ROOT:
+    case Combat::EffectType::SLOW: return 3;
+    default: return 0;
+  }
+}
+}  // namespace
+
+int32_t CombatCoreEngine::consumeCcDiminishing(bool targetIsNpc, uint32_t targetId,
+                                               Combat::EffectType type) {
+  const uint8_t category = ccDiminishingCategory(type);
+  if (category == 0 || targetId == 0) return 100;
+  const uint64_t key = (static_cast<uint64_t>(targetIsNpc ? 1 : 0) << 40) |
+                       (static_cast<uint64_t>(category) << 32) | targetId;
+  const int64_t now = Core::steadyNowMs();
+  std::lock_guard<std::mutex> lock(ccDrMu_);
+  if (ccDr_.size() > 4096) {
+    for (auto it = ccDr_.begin(); it != ccDr_.end();) {
+      if (it->second.windowEndMs < now && it->second.immuneUntilMs < now) {
+        it = ccDr_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  CcDrState& st = ccDr_[key];
+  if (now < st.immuneUntilMs) return 0;
+  if (now > st.windowEndMs) st.count = 0;
+  st.count = static_cast<uint8_t>(std::min<int>(st.count + 1, 3));
+  st.windowEndMs = now + kCcDrWindowMs;
+  if (st.count == 1) return 100;
+  if (st.count == 2) return 50;
+  // 3º CC da mesma categoria na janela: não aplica e abre a imunidade.
+  st.count = 0;
+  st.immuneUntilMs = now + kCcDrImmuneMs;
+  return 0;
+}
+
+bool CombatCoreEngine::isNpcCcImmune(uint32_t npcInstanceId) const {
+  if (!npcManager_ || npcInstanceId == 0) return false;
+  const NpcRuntimeInstance* inst = npcManager_->findInstance(npcInstanceId);
+  return inst && inst->ccImmune;
+}
+
+void CombatCoreEngine::broadcastCcImmune(bool targetIsNpc, uint32_t targetId, uint32_t sourceId) {
+  if (!movementServer_ || targetId == 0) return;
+  if (targetIsNpc) {
+    NpcCombatEventPayload evt;
+    evt.npcId = targetId;
+    evt.sourcePlayerId = g_npcSourceEffects ? 0 : sourceId;
+    evt.delta = 0;
+    evt.reason = static_cast<uint8_t>(CombatReason::Immune);
+    evt.isCrit = 0;
+    broadcastNpcCombatEvent(evt);
+    return;
+  }
+  CombatEventPayload combat;
+  combat.targetId = targetId;
+  combat.sourceId = sourceId;
+  combat.delta = 0;
+  combat.reason = static_cast<uint8_t>(CombatReason::Immune);
+  combat.isCrit = 0;
+  movementServer_->broadcastNearPlayer(targetId, encodeCombatEventNotify(combat));
+}
+
+bool CombatCoreEngine::interruptCastOf(bool isNpc, uint32_t id, SkillCastInterruptReason reason) {
+  if (id == 0) return false;
+  return isNpc ? interruptNpcCast(id, reason) : interruptPlayerCast(id, reason);
+}
+
+void CombatCoreEngine::checkCastMovementCancels(int64_t nowMs) {
+  if (!movementServer_) return;
+  {
+    std::lock_guard<std::mutex> lock(pendingSkillHitsMu_);
+    if (pendingSkillHits_.empty()) return;
+  }
+  const auto players = movementServer_->getPlayerStates();
+  std::vector<std::pair<uint32_t, SkillCastInterruptReason>> cancels;
+  {
+    std::lock_guard<std::mutex> lock(pendingSkillHitsMu_);
+    for (PendingSkillHit& hit : pendingSkillHits_) {
+      const auto it = players.find(hit.sourcePlayerId);
+      if (it == players.end()) continue;
+      if (it->second.isDead) {
+        cancels.emplace_back(hit.sourcePlayerId, SkillCastInterruptReason::Died);
+        continue;
+      }
+      if (hit.canMoveWhileCasting) continue;
+      // Folga inicial: frames de movimento ainda em trânsito no início do cast.
+      if (nowMs - hit.startedAtMs < kCastMoveGraceMs) continue;
+      if (!hit.hasBaseline) {
+        hit.baseX = it->second.x;
+        hit.baseY = it->second.y;
+        hit.hasBaseline = true;
+        continue;
+      }
+      const float dx = it->second.x - hit.baseX;
+      const float dy = it->second.y - hit.baseY;
+      if (dx * dx + dy * dy > kCastMoveCancelUu * kCastMoveCancelUu) {
+        cancels.emplace_back(hit.sourcePlayerId, SkillCastInterruptReason::Moved);
+      }
+    }
+  }
+  for (const auto& [playerId, reason] : cancels) {
+    interruptPlayerCast(playerId, reason);
+  }
+}
+
+bool CombatCoreEngine::isNpcCasting(uint32_t npcInstanceId) const {
+  if (npcInstanceId == 0) return false;
+  std::lock_guard<std::mutex> lock(pendingNpcCastsMu_);
+  for (const PendingNpcCast& c : pendingNpcCasts_) {
+    if (c.npcInstanceId == npcInstanceId) return true;
+  }
+  return false;
+}
+
+bool CombatCoreEngine::interruptNpcCast(uint32_t npcInstanceId, SkillCastInterruptReason reason) {
+  if (npcInstanceId == 0) return false;
+  std::vector<PendingNpcCast> removed;
+  {
+    std::lock_guard<std::mutex> lock(pendingNpcCastsMu_);
+    for (auto it = pendingNpcCasts_.begin(); it != pendingNpcCasts_.end();) {
+      if (it->npcInstanceId == npcInstanceId) {
+        removed.push_back(*it);
+        it = pendingNpcCasts_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  if (removed.empty()) return false;
+  for (const PendingNpcCast& c : removed) {
+    broadcastSkillCastInterrupted(static_cast<uint8_t>(CombatTargetType::Npc), npcInstanceId,
+                                  c.npcSkillId, reason);
+    Core::Logger::getInstance().info(
+        "[CombatCoreEngine] SkillCastInterrupted npc={} skill={} motivo={}", npcInstanceId,
+        c.npcSkillId, static_cast<int>(reason));
+  }
+  return true;
+}
+
+void CombatCoreEngine::tickPendingNpcCasts() {
+  const int64_t now = Core::steadyNowMs();
+  std::vector<PendingNpcCast> due;
+  {
+    std::lock_guard<std::mutex> lock(pendingNpcCastsMu_);
+    if (pendingNpcCasts_.empty()) return;
+    for (auto it = pendingNpcCasts_.begin(); it != pendingNpcCasts_.end();) {
+      if (it->executeAtMs <= now) {
+        due.push_back(*it);
+        it = pendingNpcCasts_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  for (const PendingNpcCast& c : due) {
+    if (npcManager_) {
+      const NpcRuntimeInstance* inst = npcManager_->findInstance(c.npcInstanceId);
+      if (!inst || inst->isDead) continue;
+    }
+    resolveNpcSkillCast(c.npcInstanceId, c.targetPlayerId, c.npcSkillId, c.rank,
+                        /*fromPendingCast=*/true);
+  }
+}
+
+void CombatCoreEngine::appendLegacyInterruptEffect(Combat::SkillData& skill) {
+  // Checkbox legado "is_interrupt" no Manager: sem efeito INTERRUPT próprio, vira 50%.
+  if (!skill.isInterrupt) return;
+  if (skill.target != Combat::TargetType::ENEMY && skill.target != Combat::TargetType::AREA) return;
+  for (const auto& e : skill.effects) {
+    if (e.effectType == Combat::EffectType::INTERRUPT) return;
+  }
+  Combat::SkillEffect interrupt;
+  interrupt.effectOrder = 250;
+  interrupt.effectType = Combat::EffectType::INTERRUPT;
+  interrupt.chancePercent = kLegacyInterruptChance;
+  interrupt.durationMs = 0;
+  interrupt.conditions = nlohmann::json::object();
+  skill.effects.push_back(interrupt);
 }
 
 bool CombatCoreEngine::isPlayerCasting(uint32_t playerId) {
@@ -797,6 +1129,9 @@ bool CombatCoreEngine::isPlayerCasting(uint32_t playerId) {
 
 void CombatCoreEngine::tickPendingSkillHits() {
   const int64_t now = Core::steadyNowMs();
+  // Fase B: andar sem move cast / morrer cancela o cast antes do hit vencer.
+  checkCastMovementCancels(now);
+  tickPendingNpcCasts();
   std::vector<PendingSkillHit> due;
   {
     std::lock_guard<std::mutex> lock(pendingSkillHitsMu_);
@@ -870,6 +1205,25 @@ void CombatCoreEngine::tickRegen(float deltaSeconds) {
   }
 }
 
+bool CombatCoreEngine::breakPlayerStealth(uint32_t playerId) {
+  if (playerId == 0) return false;
+  bool any = false;
+  {
+    std::lock_guard<std::mutex> lock(playerBuffsMu_);
+    for (PlayerBuffInstance& b : playerBuffs_) {
+      if (b.targetPlayerId == playerId && b.effectTypeStr == "STEALTH") {
+        b.expiresAtMs = 1;  // vence já: tickBuffExpirations remove, apaga do DB e manda 104/118
+        any = true;
+      }
+    }
+  }
+  if (any) {
+    tickBuffExpirations();
+    Core::Logger::getInstance().debug("[CombatCoreEngine] furtividade quebrada player={}", playerId);
+  }
+  return any;
+}
+
 void CombatCoreEngine::tickBuffExpirations() {
   std::vector<PlayerBuffInstance> expired;
   const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -922,6 +1276,27 @@ void CombatCoreEngine::tickBuffExpirations() {
   }
 }
 
+uint32_t CombatCoreEngine::effectiveBuffDurationMs(uint32_t sourcePlayerId,
+                                                   const Combat::SkillEffect& effect,
+                                                   const Combat::SkillData& skill,
+                                                   uint8_t buffTypeCode) {
+  uint32_t durationMs = effect.durationMs > 0 ? effect.durationMs : skill.durationMs;
+  if (durationMs == 0) durationMs = 5000;
+  // buff_duration do caster (ex.: Preparo Avançado) estende só buffs/escudos que ele aplica.
+  const bool positive = buffTypeCode == static_cast<uint8_t>(Combat::BuffType::BUFF) ||
+                        buffTypeCode == static_cast<uint8_t>(Combat::BuffType::SHIELD);
+  if (positive && !g_npcSourceEffects && sourcePlayerId > 0 && stateLoader_) {
+    Combat::CharacterState source;
+    if (stateLoader_->tryGetCachedState(sourcePlayerId, source)) {
+      const int32_t bonus = std::clamp(source.buffedStats.buffDurationBonus, 0, 200);
+      if (bonus > 0) {
+        durationMs = static_cast<uint32_t>(static_cast<uint64_t>(durationMs) * (100 + bonus) / 100);
+      }
+    }
+  }
+  return durationMs;
+}
+
 uint64_t CombatCoreEngine::applyPlayerBuffInMemory(uint32_t targetPlayerId, uint32_t sourcePlayerId,
                                                    uint32_t skillId,
                                                    const Combat::SkillEffect& effect,
@@ -929,8 +1304,8 @@ uint64_t CombatCoreEngine::applyPlayerBuffInMemory(uint32_t targetPlayerId, uint
                                                    uint8_t buffTypeCode) {
   if (targetPlayerId == 0) return 0;
 
-  uint32_t durationMs = effect.durationMs > 0 ? effect.durationMs : skill.durationMs;
-  if (durationMs == 0) durationMs = 5000;
+  const uint32_t durationMs =
+      effectiveBuffDurationMs(sourcePlayerId, effect, skill, buffTypeCode);
   const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::system_clock::now().time_since_epoch())
                             .count();
@@ -1315,80 +1690,83 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
                                          int32_t appliedDamage) {
   if (skill.effects.empty()) return;
 
+  // Alvo efetivo por efeito. Fonte NPC: o próprio processNpcSkillCast já trata os
+  // efeitos no NPC (SELF); aqui só chega o que vai para o player atingido.
+  auto effectTargetOf = [&](const Combat::SkillEffect& effect) {
+    if (g_npcSourceEffects && effect.targetOverride == 0) return skill.target;
+    return Combat::resolveEffectTarget(skill, effect);
+  };
+
   const bool requiresDispatch =
-      skill.effects.size() > 1 || skill.target == Combat::TargetType::PARTY ||
-      skill.target == Combat::TargetType::AREA || skill.target == Combat::TargetType::AREA_ALLY ||
-      (skill.target == Combat::TargetType::ALLY && skill.includeCaster) ||
-      std::any_of(skill.effects.begin(), skill.effects.end(), [](const Combat::SkillEffect& effect) {
-        return effect.targetOverride != 0 || effect.includeCaster != -1;
-      });
+      !g_effectDispatchChild &&
+      (skill.effects.size() > 1 || skill.target == Combat::TargetType::PARTY ||
+       skill.target == Combat::TargetType::AREA || skill.target == Combat::TargetType::AREA_ALLY ||
+       (skill.target == Combat::TargetType::ALLY && skill.includeCaster) ||
+       std::any_of(skill.effects.begin(), skill.effects.end(),
+                   [&](const Combat::SkillEffect& effect) {
+                     return effect.targetOverride != 0 || effect.includeCaster != -1 ||
+                            effectTargetOf(effect) != skill.target;
+                   }));
   if (requiresDispatch) {
     for (const auto& originalEffect : skill.effects) {
-      const Combat::TargetType effectiveTarget =
-          originalEffect.targetOverride > 0
-              ? static_cast<Combat::TargetType>(originalEffect.targetOverride)
-              : skill.target;
+      const Combat::TargetType effectiveTarget = effectTargetOf(originalEffect);
+      // Efeito redirecionado sem override (ex.: buff de golpe hostil indo para o caster).
+      const bool autoRouted =
+          originalEffect.targetOverride == 0 && effectiveTarget != skill.target;
+      // include_caster só decide ALLY (aliado + caster). PARTY/AREA_ALLY sempre incluem
+      // o caster: ele é membro do próprio grupo (solo = só ele).
       const bool includeCaster =
           originalEffect.includeCaster >= 0 ? originalEffect.includeCaster != 0
                                             : skill.includeCaster;
       std::vector<std::pair<uint8_t, uint32_t>> targets;
-      auto addPlayer = [&](uint32_t id) {
-        if (id > 0 && (includeCaster || id != sourcePlayerId ||
-                       effectiveTarget == Combat::TargetType::SELF)) {
-          targets.emplace_back(static_cast<uint8_t>(CombatTargetType::Player), id);
-        }
+      auto pushPlayer = [&](uint32_t id) {
+        if (id > 0) targets.emplace_back(static_cast<uint8_t>(CombatTargetType::Player), id);
       };
 
       if (effectiveTarget == Combat::TargetType::SELF) {
-        targets.emplace_back(static_cast<uint8_t>(CombatTargetType::Player), sourcePlayerId);
+        pushPlayer(sourcePlayerId);
       } else if (effectiveTarget == Combat::TargetType::ALLY) {
-        addPlayer(targetType == static_cast<uint8_t>(CombatTargetType::Player) && targetId > 0
-                      ? targetId
-                      : sourcePlayerId);
-        if (includeCaster) addPlayer(sourcePlayerId);
+        // Sem player como alvo (nada selecionado ou NPC): o caster recebe (self-cast).
+        const uint32_t primary =
+            (targetType == static_cast<uint8_t>(CombatTargetType::Player) && targetId > 0)
+                ? targetId
+                : sourcePlayerId;
+        pushPlayer(primary);
+        if (includeCaster && primary != sourcePlayerId) pushPlayer(sourcePlayerId);
       } else if (effectiveTarget == Combat::TargetType::PARTY ||
                  effectiveTarget == Combat::TargetType::AREA_ALLY) {
         std::vector<uint32_t> members =
             resolvePartyMembers_ ? resolvePartyMembers_(sourcePlayerId) : std::vector<uint32_t>{};
-        if (members.empty() && includeCaster) members.push_back(sourcePlayerId);
+        if (std::find(members.begin(), members.end(), sourcePlayerId) == members.end()) {
+          members.push_back(sourcePlayerId);
+        }
         float centerX = attacker.posX, centerY = attacker.posY, centerZ = attacker.posZ;
         if (effectiveTarget == Combat::TargetType::AREA_ALLY) {
           tryGetPlayerPosition(sourcePlayerId, centerX, centerY, centerZ);
         }
         const float radius = skill.areaRadius > 0 ? static_cast<float>(skill.areaRadius) : 500.f;
         for (const uint32_t memberId : members) {
-          if (memberId == sourcePlayerId && !includeCaster) continue;
-          if (effectiveTarget == Combat::TargetType::AREA_ALLY) {
+          if (effectiveTarget == Combat::TargetType::AREA_ALLY && memberId != sourcePlayerId) {
             float x = 0.f, y = 0.f, z = 0.f;
             if (!tryGetPlayerPosition(memberId, x, y, z) ||
                 distanceSquared3D(centerX, centerY, centerZ, x, y, z) > radius * radius) {
               continue;
             }
           }
-          addPlayer(memberId);
+          pushPlayer(memberId);
         }
       } else if (effectiveTarget == Combat::TargetType::AREA) {
         float centerX = attacker.posX, centerY = attacker.posY, centerZ = attacker.posZ;
-        if (targetId > 0) tryGetTargetPosition(targetType, targetId, centerX, centerY, centerZ);
+        if (g_hasAreaCenter) {
+          centerX = g_areaCenterX;
+          centerY = g_areaCenterY;
+          centerZ = g_areaCenterZ;
+        } else if (targetId > 0) {
+          tryGetTargetPosition(targetType, targetId, centerX, centerY, centerZ);
+        }
         const float radius = skill.areaRadius > 0 ? static_cast<float>(skill.areaRadius) : 500.f;
-        const float radiusSq = radius * radius;
-        if (npcManager_) {
-          for (const auto& npc : npcManager_->getAllInstances()) {
-            if (!npc.isDead && npc.isAttackable &&
-                distanceSquared3D(centerX, centerY, centerZ, npc.x, npc.y, npc.z) <= radiusSq) {
-              targets.emplace_back(static_cast<uint8_t>(CombatTargetType::Npc), npc.npcInstanceId);
-            }
-          }
-        }
-        if (movementServer_) {
-          for (const auto& [playerId, player] : movementServer_->getPlayerStates()) {
-            if (playerId != sourcePlayerId && !player.isDead &&
-                distanceSquared3D(centerX, centerY, centerZ, player.x, player.y, player.z) <=
-                    radiusSq) {
-              targets.emplace_back(static_cast<uint8_t>(CombatTargetType::Player), playerId);
-            }
-          }
-        }
+        targets = collectAreaEnemies(sourcePlayerId, centerX, centerY, centerZ, radius,
+                                     kMaxAreaTargets);
       } else if (targetId > 0) {
         targets.emplace_back(targetType, targetId);
       }
@@ -1399,7 +1777,10 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
         if (!seen.insert(key).second) continue;
         Combat::SkillData single = skill;
         single.effects = {originalEffect};
-        if ((originalEffect.targetOverride != 0 || originalEffect.includeCaster != -1) &&
+        // power_coef de uma skill de dano não escala a cura/buff redirecionado ao caster.
+        if (autoRouted) single.powerCoef = 0;
+        if ((originalEffect.targetOverride != 0 || originalEffect.includeCaster != -1 ||
+             autoRouted) &&
             single.effects[0].effectType == Combat::EffectType::HEAL) {
           if (!single.effects[0].conditions.is_object()) {
             single.effects[0].conditions = nlohmann::json::object();
@@ -1415,6 +1796,7 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
                             : (resolvedType == static_cast<uint8_t>(CombatTargetType::Player)
                                    ? Combat::TargetType::ALLY
                                    : Combat::TargetType::ENEMY);
+        EffectDispatchChildScope childScope;
         applySkillEffects(sourcePlayerId, resolvedType, resolvedId, single, attacker, haveAttacker,
                           appliedDamage);
       }
@@ -1497,13 +1879,18 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
           static_cast<int>(eff.effectType), skill.skillId, sourcePlayerId);
       continue;
     }
-    const nlohmann::json conditions =
+    nlohmann::json conditions =
         eff.conditions.is_object() ? eff.conditions : nlohmann::json::object();
     if (conditions.contains("caster_health_below_percent") && haveAttacker) {
       const int32_t healthPct =
           attacker.buffedStats.currentHealth * 100 /
           std::max(1, attacker.buffedStats.maxHealth);
       if (healthPct >= conditions.value("caster_health_below_percent", 101)) continue;
+    }
+    // Alias: target_health_below_percent == health_below_percent (vida do alvo).
+    if (conditions.contains("target_health_below_percent") &&
+        !conditions.contains("health_below_percent")) {
+      conditions["health_below_percent"] = conditions["target_health_below_percent"];
     }
     if (conditions.contains("health_below_percent") ||
         conditions.contains("health_above_percent")) {
@@ -1553,16 +1940,77 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
           skill.skillId, effectTypeToWireName(eff.effectType), chance, roll, resistance,
           eff.resistPenetration);
       if (roll >= chance) continue;
+      // Knockback que pegou derruba o cast em curso do alvo (opcode 122, motivo CC).
+      if (eff.effectType == Combat::EffectType::KNOCKBACK && !effectOnSelf) {
+        interruptCastOf(targetIsNpc, targetIsNpc ? targetId : effectPlayerId,
+                        SkillCastInterruptReason::CrowdControl);
+      }
+    }
+
+    // INTERRUPT: chance de cancelar o cast em curso do alvo. Chance = chance_percent
+    // (ou value_percent; vazio = 100%), com silence_chance do caster e silence_resist do
+    // alvo. Se interromper e duration_ms > 0, o alvo fica silenciado por esse tempo.
+    if (eff.effectType == Combat::EffectType::INTERRUPT) {
+      if (effectOnSelf) continue;
+      const uint32_t victimId = targetIsNpc ? targetId : effectPlayerId;
+      if (victimId == 0 || (!targetIsNpc && victimId == sourcePlayerId && !g_npcSourceEffects)) {
+        continue;
+      }
+      const bool victimCasting =
+          targetIsNpc ? isNpcCasting(victimId) : hasPendingPlayerCast(victimId);
+      if (!victimCasting) continue;
+      int32_t resist = 0;
+      Combat::CharacterState victim;
+      bool victimIsPlayer = false;
+      if (buildDefenderState(targetIsNpc ? static_cast<uint8_t>(CombatTargetType::Npc)
+                                         : static_cast<uint8_t>(CombatTargetType::Player),
+                             victimId, victim, victimIsPlayer)) {
+        resist = ccResistFromStats(victim.buffedStats, Combat::EffectType::SILENCE);
+      }
+      const int32_t casterChance =
+          haveAttacker ? ccChanceFromStats(attacker.buffedStats, Combat::EffectType::SILENCE) : 0;
+      Combat::SkillEffect rollEffect = eff;
+      if (rollEffect.chancePercent == 0) {
+        rollEffect.chancePercent = static_cast<decltype(rollEffect.chancePercent)>(
+            eff.valuePercent > 0 ? std::min<int32_t>(100, eff.valuePercent) : 100);
+      }
+      const int32_t chance = computeCcApplyChance(rollEffect, resist, casterChance);
+      const int32_t roll = rollPercent();
+      Core::Logger::getInstance().debug(
+          "[CombatCoreEngine] INTERRUPT skill={} alvo={} npc={} chance={} roll={} resist={}",
+          skill.skillId, victimId, targetIsNpc ? 1 : 0, chance, roll, resist);
+      if (roll >= chance) continue;
+      if (!interruptCastOf(targetIsNpc, victimId, SkillCastInterruptReason::Interrupted)) continue;
+      if (eff.durationMs > 0) {
+        // Lockout: SILENCE garantido pelo duration_ms do INTERRUPT (mesmo caminho do CC).
+        Combat::SkillData lockout = skill;
+        lockout.target = Combat::TargetType::ENEMY;
+        lockout.includeCaster = false;
+        Combat::SkillEffect silence = eff;
+        silence.effectType = Combat::EffectType::SILENCE;
+        silence.targetStat.clear();
+        silence.chancePercent = 100;
+        silence.resistPenetration = 100;
+        silence.targetOverride = 0;
+        silence.includeCaster = -1;
+        silence.conditions = nlohmann::json::object();
+        lockout.effects = {silence};
+        EffectDispatchChildScope childScope;
+        applySkillEffects(sourcePlayerId, targetType, targetId, lockout, attacker, haveAttacker, 0);
+      }
+      continue;
     }
 
     if (eff.effectType == Combat::EffectType::HEAL) {
       if (!conditions.value("_runtime_dispatched_heal", false) || effectPlayerId == 0) continue;
       Combat::CharacterState targetState;
       if (!stateLoader_ || !stateLoader_->getCachedOrWarm(effectPlayerId, targetState)) continue;
-      const int32_t amount =
+      if (targetState.buffedStats.currentHealth >= targetState.buffedStats.maxHealth) continue;
+      const int32_t baseAmount =
           eff.valueFlat > 0
               ? eff.valueFlat
               : std::max(1, targetState.buffedStats.maxHealth * eff.valuePercent / 100);
+      const int32_t amount = scaleHealAmount(baseAmount, skill, attacker, haveAttacker);
       applyPlayerDamage(sourcePlayerId, effectPlayerId, amount,
                         static_cast<uint8_t>(CombatReason::Heal));
       continue;
@@ -1672,14 +2120,27 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
     }
 
     if (eff.effectType == Combat::EffectType::EXECUTE) {
-      const int32_t threshold = std::clamp(conditions.value("health_below_percent", 20), 1, 100);
+      // Abaixo do limiar de vida do alvo: dano bônus = value_percent% do dano do golpe
+      // (ou value_flat). Instakill só com conditions.instakill = true.
+      const int32_t threshold = std::clamp(
+          conditions.value("health_below_percent", conditions.value("target_health_below_percent", 20)),
+          1, 100);
+      const bool instakill = conditions.value("instakill", false);
+      auto executeBonus = [&](int32_t currentHealth) {
+        if (instakill) return currentHealth;
+        if (eff.valuePercent > 0) {
+          return std::max(0, appliedDamage) * static_cast<int32_t>(eff.valuePercent) / 100;
+        }
+        return std::max(0, eff.valueFlat);
+      };
       if (targetIsNpc && npcManager_) {
         const NpcRuntimeInstance* npc = npcManager_->findInstance(targetId);
         if (npc && npc->currentHealth > 0 &&
             npc->currentHealth * 100 <= npc->maxHealth * threshold) {
+          const int32_t bonus = executeBonus(npc->currentHealth);
+          if (bonus <= 0) continue;
           bool crit = false, died = false;
-          const int32_t applied =
-              npcManager_->applyDamage(targetId, -npc->currentHealth, crit, &died);
+          const int32_t applied = npcManager_->applyDamage(targetId, -bonus, crit, &died);
           NpcCombatEventPayload event;
           event.npcId = targetId;
           event.sourcePlayerId = sourcePlayerId;
@@ -1688,14 +2149,17 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
           broadcastNpcCombatEvent(event);
           handleNpcDamageResult(targetId, applied, died, sourcePlayerId);
         }
-      } else if (effectPlayerId > 0 && stateLoader_) {
+      } else if (effectPlayerId > 0 && effectPlayerId != sourcePlayerId && stateLoader_) {
         Combat::CharacterState targetState;
         if (stateLoader_->getCachedOrWarm(effectPlayerId, targetState) &&
+            targetState.buffedStats.currentHealth > 0 &&
             targetState.buffedStats.currentHealth * 100 <=
                 targetState.buffedStats.maxHealth * threshold) {
-          applyPlayerDamage(sourcePlayerId, effectPlayerId,
-                            -targetState.buffedStats.currentHealth,
-                            static_cast<uint8_t>(CombatReason::Skill));
+          const int32_t bonus = executeBonus(targetState.buffedStats.currentHealth);
+          if (bonus > 0) {
+            applyPlayerDamage(sourcePlayerId, effectPlayerId, -bonus,
+                              static_cast<uint8_t>(CombatReason::Skill));
+          }
         }
       }
       continue;
@@ -1709,6 +2173,13 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
     if (eff.effectType == Combat::EffectType::KNOCKBACK) {
       const float distance = static_cast<float>(std::max(1, eff.valueFlat != 0 ? std::abs(eff.valueFlat)
                                                                               : 300));
+      // R4: value_flat negativo PUXA o alvo até kPullStopUu do caster (Arremesso de Corrente).
+      const bool pull = eff.valueFlat < 0;
+      constexpr float kPullStopUu = 150.f;
+      auto displacement = [&](float length) -> float {
+        if (!pull) return distance;
+        return -std::min(distance, std::max(0.f, length - kPullStopUu));
+      };
       float sourceX = attacker.posX, sourceY = attacker.posY, sourceZ = attacker.posZ;
       tryGetPlayerPosition(sourcePlayerId, sourceX, sourceY, sourceZ);
       if (targetIsNpc && npcManager_) {
@@ -1716,8 +2187,9 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
           const float dx = npc.x - sourceX;
           const float dy = npc.y - sourceY;
           const float length = std::max(1.f, std::sqrt(dx * dx + dy * dy));
-          npc.x += dx / length * distance;
-          npc.y += dy / length * distance;
+          const float move = displacement(length);
+          npc.x += dx / length * move;
+          npc.y += dy / length * move;
           broadcastNpcState(npcManager_->toStatePayload(npc));
         });
       } else if (effectPlayerId > 0 && movementServer_) {
@@ -1726,8 +2198,12 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
           const float dx = x - sourceX;
           const float dy = y - sourceY;
           const float length = std::max(1.f, std::sqrt(dx * dx + dy * dy));
-          movementServer_->teleportPlayer(effectPlayerId, x + dx / length * distance,
-                                          y + dy / length * distance, z);
+          const float move = displacement(length);
+          // Varre o trajeto no cliente: o knockback para na parede (opcode 123 mode 1).
+          if (std::fabs(move) > 1.f) {
+            movementServer_->teleportPlayer(effectPlayerId, x + dx / length * move,
+                                            y + dy / length * move, z, true);
+          }
         }
       }
       continue;
@@ -1735,10 +2211,26 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
 
     if (eff.effectType == Combat::EffectType::TELEPORT) {
       if (effectPlayerId > 0 && movementServer_) {
-        const float x = conditions.value("x", attacker.posX);
-        const float y = conditions.value("y", attacker.posY);
-        const float z = conditions.value("z", attacker.posZ);
-        movementServer_->teleportPlayer(effectPlayerId, x, y, z);
+        if (conditions.contains("x") || conditions.contains("y")) {
+          // Destino fixo (conditions x/y/z).
+          const float x = conditions.value("x", attacker.posX);
+          const float y = conditions.value("y", attacker.posY);
+          const float z = conditions.value("z", attacker.posZ);
+          movementServer_->teleportPlayer(effectPlayerId, x, y, z);
+        } else if (eff.valueFlat != 0) {
+          // Blink: value_flat uu na direção em que o personagem olha (negativo = para trás).
+          const auto states = movementServer_->getPlayerStates();
+          const auto it = states.find(effectPlayerId);
+          if (it != states.end()) {
+            constexpr float kDegToRad = 3.14159265f / 180.f;
+            const float yawRad = it->second.yaw * kDegToRad;
+            const float distance = static_cast<float>(std::clamp(eff.valueFlat, -3000, 3000));
+            movementServer_->teleportPlayer(effectPlayerId,
+                                            it->second.x + std::cos(yawRad) * distance,
+                                            it->second.y + std::sin(yawRad) * distance,
+                                            it->second.z, /*sweepFromCurrent=*/true);
+          }
+        }
       }
       continue;
     }
@@ -1823,8 +2315,43 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
         if (roll >= applyChance) continue;
       }
 
+      // R3: imunidade de chefe (npc_templates.cc_immune) + retorno decrescente por categoria
+      // (stun / silence+interrupt / root+slow): 2º CC em 15s dura 50%; o 3º vira imunidade.
+      Combat::SkillEffect drEffect;
+      bool useDrEffect = false;
+      if (isCcDebuff && !effectOnSelf) {
+        const uint32_t ccVictim = targetIsNpc ? targetId : effectPlayerId;
+        if (targetIsNpc && isNpcCcImmune(ccVictim)) {
+          broadcastCcImmune(true, ccVictim, sourcePlayerId);
+          continue;
+        }
+        const int32_t drPercent = consumeCcDiminishing(targetIsNpc, ccVictim, eff.effectType);
+        if (drPercent <= 0) {
+          Core::Logger::getInstance().debug(
+              "[CombatCoreEngine] CC {} imune (retorno decrescente) alvo={} npc={}",
+              effectTypeToWireName(eff.effectType), ccVictim, targetIsNpc ? 1 : 0);
+          broadcastCcImmune(targetIsNpc, ccVictim, sourcePlayerId);
+          continue;
+        }
+        if (drPercent < 100) {
+          drEffect = eff;
+          uint32_t baseDuration = eff.durationMs > 0 ? eff.durationMs : skill.durationMs;
+          if (baseDuration == 0) baseDuration = 5000;
+          drEffect.durationMs = std::max<uint32_t>(1, baseDuration * static_cast<uint32_t>(drPercent) / 100);
+          useDrEffect = true;
+        }
+      }
+      const Combat::SkillEffect& appliedEff = useDrEffect ? drEffect : eff;
+
+      // Stun/silence que pegou cancela o cast em curso do alvo (opcode 122, motivo CC).
+      if (!effectOnSelf && (eff.effectType == Combat::EffectType::STUN ||
+                            eff.effectType == Combat::EffectType::SILENCE)) {
+        interruptCastOf(targetIsNpc, targetIsNpc ? targetId : effectPlayerId,
+                        SkillCastInterruptReason::CrowdControl);
+      }
+
       if (!effectOnSelf && targetIsNpc && !casterResistBuff) {
-        uint32_t durationMs = eff.durationMs > 0 ? eff.durationMs : skill.durationMs;
+        uint32_t durationMs = appliedEff.durationMs > 0 ? appliedEff.durationMs : skill.durationMs;
         if (durationMs == 0) durationMs = 5000;
         uint8_t buffTypeCode = static_cast<uint8_t>(Combat::BuffType::BUFF);
         if (isShield) {
@@ -1833,7 +2360,7 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
           buffTypeCode = static_cast<uint8_t>(Combat::BuffType::DEBUFF);
         }
         const uint64_t buffId = applyNpcSkillBuff(targetId, sourcePlayerId, skill.skillId,
-                                                  buffTypeCode, eff, skill);
+                                                  buffTypeCode, appliedEff, skill);
         if (buffId > 0) {
           const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                                     std::chrono::system_clock::now().time_since_epoch())
@@ -1870,11 +2397,11 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
       const uint32_t buffPlayerId = casterResistBuff ? sourcePlayerId : effectPlayerId;
       if (buffPlayerId == 0) continue;
       const uint64_t buffId =
-          applyPlayerBuffInMemory(buffPlayerId, sourcePlayerId, skill.skillId, eff, skill,
+          applyPlayerBuffInMemory(buffPlayerId, sourcePlayerId, skill.skillId, appliedEff, skill,
                                   buffTypeCode);
       if (buffId > 0) {
-        uint32_t durationMs = eff.durationMs > 0 ? eff.durationMs : skill.durationMs;
-        if (durationMs == 0) durationMs = 5000;
+        const uint32_t durationMs =
+            effectiveBuffDurationMs(sourcePlayerId, appliedEff, skill, buffTypeCode);
         const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                                   std::chrono::system_clock::now().time_since_epoch())
                                   .count();
@@ -3089,6 +3616,10 @@ bool CombatCoreEngine::validateSkillRange(uint32_t sourcePlayerId, const Combat:
   if (skill.target == TT::SELF || skill.target == TT::PARTY) {
     return true;
   }
+  // R4: AREA com range_max = 0 é centrada no caster (processSkillCast força o centro).
+  if (skill.target == TT::AREA && skill.rangeMax == 0) {
+    return true;
+  }
 
   float sx = 0.f, sy = 0.f, sz = 0.f;
   if (!tryGetPlayerPosition(sourcePlayerId, sx, sy, sz)) {
@@ -3509,7 +4040,7 @@ int32_t CombatCoreEngine::computeInstantHealDelta(const Combat::SkillData& skill
       totalHeal += std::max(1, maxHp * eff.valuePercent / 100);
     }
   }
-  if (totalHeal > 0) return totalHeal;
+  if (totalHeal > 0) return scaleHealAmount(totalHeal, skill, sourceState, haveSource);
   if (hasRoutedHeal || !hasHealEffect) return 0;
   if (!haveSource) {
     return 0;  // sem estado do caster: nao inventar cura via powerCoef/2
@@ -3716,6 +4247,17 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
     return;
   }
 
+  // Skill de aliado sem player como alvo (nada selecionado, NPC ou alvo offline):
+  // vira self-cast. Antes o buff caía no NPC inimigo ou era descartado.
+  if (skill->target == Combat::TargetType::ALLY &&
+      (payload.targetType != static_cast<uint8_t>(CombatTargetType::Player) ||
+       payload.targetId == 0 ||
+       (payload.targetId != sourcePlayerId && movementServer_ &&
+        !movementServer_->isPlayerConnected(payload.targetId)))) {
+    payload.targetType = static_cast<uint8_t>(CombatTargetType::Player);
+    payload.targetId = sourcePlayerId;
+  }
+
   Combat::CharacterState sourceState;
   bool haveSource = stateLoader_ && stateLoader_->getCachedOrWarm(sourcePlayerId, sourceState);
   if (!haveSource) {
@@ -3785,12 +4327,17 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   rankedSkill.powerCoef = skill->getEffectivePowerCoef(rank);
   rankedSkill.resourceCost = skill->getEffectiveResourceCost(rank);
   rankedSkill.cooldownMs = skill->getEffectiveCooldownMs(rank);
+  appendLegacyInterruptEffect(rankedSkill);
 
   if (!hitOnly) {
-  const bool isHealPrecheck = (skill->type == Combat::SkillType::HOT) ||
-                              skillHasEffectType(*skill, Combat::EffectType::HEAL, rank) ||
-                              skillHasEffectType(*skill, Combat::EffectType::HOT, rank);
-  if (isHealPrecheck && skill->target == Combat::TargetType::SELF && haveSource &&
+  const bool isHealPrecheck =
+      !skillHasEffectType(*skill, Combat::EffectType::DAMAGE, rank) &&
+      ((skill->type == Combat::SkillType::HOT) ||
+       skillHasEffectType(*skill, Combat::EffectType::HEAL, rank));
+  const bool healOnCasterOnly =
+      skill->target == Combat::TargetType::SELF ||
+      (skill->target == Combat::TargetType::ALLY && payload.targetId == sourcePlayerId);
+  if (isHealPrecheck && rankedSkill.effects.size() == 1 && healOnCasterOnly && haveSource &&
       sourceState.buffedStats.currentHealth >= sourceState.buffedStats.maxHealth) {
     // Possível cache stale pós-equip: recarrega stats e reavalia uma vez.
     if (stateLoader_ && stateLoader_->reloadStatsPreservingVitals(sourcePlayerId) &&
@@ -3811,6 +4358,8 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
   skillService_->startCooldown(sourcePlayerId, payload.skillId, skill->getEffectiveCooldownMs(rank));
 
   const uint16_t effectiveManaCost = skill->getEffectiveResourceCost(rank);
+  const int32_t manaCharged =
+      skill->resourceType == Combat::ResourceType::MANA ? static_cast<int32_t>(effectiveManaCost) : 0;
   if (skill->resourceType == Combat::ResourceType::MANA && effectiveManaCost > 0) {
     const int32_t cost = static_cast<int32_t>(effectiveManaCost);
     const int32_t knownMana = haveSource ? sourceState.buffedStats.currentMana : -1;
@@ -3847,193 +4396,88 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
     return;
   }
 
-  // Sem commit-early e sem cancel: cada hit pendente dispara no seu executeAtMs
-  // (castTimeMs). Commitar cedo comprimia vários 103 no mesmo instante (rajada/cascata);
-  // cancelar perdia dano. Deixar a fila resolver mantém os hits espaçados pelo cast time.
+  // Sem commit-early: cada hit pendente dispara no seu executeAtMs (castTimeMs).
+  // Commitar cedo comprimia vários 103 no mesmo instante (rajada/cascata).
+  // Fase B: o cast pendente pode ser cancelado por movimento (sem move cast),
+  // CC ou INTERRUPT — ver interruptPlayerCast / checkCastMovementCancels.
   if (skill->castTimeMs > 0) {
-    scheduleSkillHit(sourcePlayerId, payload, skill->castTimeMs);
+    scheduleSkillHit(sourcePlayerId, payload, skill->castTimeMs, manaCharged,
+                     skill->canMoveWhileCasting);
     return;
   }
   }  // !hitOnly
 
-  const bool isHeal = (skill->type == Combat::SkillType::HOT) ||
-                      skillHasEffectType(*skill, Combat::EffectType::HEAL, rank) ||
-                      skillHasEffectType(*skill, Combat::EffectType::HOT, rank);
-  const bool isBuffOnly =
-      !isHeal && !rankedSkill.effects.empty() &&
-      !skillHasEffectType(*skill, Combat::EffectType::DAMAGE, rank);
-
-  const bool effectOnSelf = (skill->target == Combat::TargetType::SELF ||
-                             skill->target == Combat::TargetType::PARTY);
-
-  Combat::CharacterState defender;
-  bool defenderIsPlayer = false;
-  bool haveDefender =
-      buildDefenderState(payload.targetType, payload.targetId, defender, defenderIsPlayer);
-  if (effectOnSelf || (isHeal && payload.targetId == 0)) {
-    defender = sourceState;
-    defenderIsPlayer = true;
-    haveDefender = haveSource;
+  // R4: AREA com range_max = 0 é centrada no próprio caster (Pisotear, Desafio, Onda do
+  // Vazio...), mesmo com um alvo selecionado.
+  std::unique_ptr<AreaCenterScope> selfAreaCenter;
+  if (skill->target == Combat::TargetType::AREA && skill->rangeMax == 0) {
+    float cx = 0.f, cy = 0.f, cz = 0.f;
+    if (tryGetPlayerPosition(sourcePlayerId, cx, cy, cz)) {
+      payload.targetX = cx;
+      payload.targetY = cy;
+      payload.targetZ = cz;
+      payload.targetId = 0;
+      selfAreaCenter = std::make_unique<AreaCenterScope>(cx, cy, cz);
+    }
   }
 
-  int32_t delta = 0;
-  bool isCrit = false;
-  int32_t overkill = 0;
-  int32_t shieldAbsorbed = 0;
+  // R4: skill hostil quebra a furtividade do caster; o golpe ainda conta como "saindo dela"
+  // (condição crit_if_stealthed).
+  const bool casterWasStealthed = haveSource && sourceState.isStealthed;
+  if (casterWasStealthed && (skill->target == Combat::TargetType::ENEMY ||
+                             skill->target == Combat::TargetType::AREA)) {
+    breakPlayerStealth(sourcePlayerId);
+  }
+  CasterStealthScope casterStealthScope(casterWasStealthed);
+
+  // Skill com DAMAGE nunca vira "cura": HEAL/HOT dela são efeitos roteados (ex.: no caster).
+  const bool hasDamageEffect = skillHasEffectType(*skill, Combat::EffectType::DAMAGE, rank);
+  const bool isHeal = !hasDamageEffect &&
+                      ((skill->type == Combat::SkillType::HOT) ||
+                       skillHasEffectType(*skill, Combat::EffectType::HEAL, rank) ||
+                       skillHasEffectType(*skill, Combat::EffectType::HOT, rank));
+  const bool isBuffOnly = !isHeal && !rankedSkill.effects.empty() && !hasDamageEffect;
+
+  // R1: rankedSkill.effects já vem escalado pelo rank (buildEffectsForRank). Aqui só entra o
+  // ajuste fino do power_coef_bonus da tabela skill_rank_scaling (1.0 sem bônus).
+  const float rankFactor = skill->getRankBonusFactor(rank);
+
+  int32_t totalDamage = 0;
 
   if (isHeal) {
-    const Combat::CharacterState& healTarget = haveDefender ? defender : sourceState;
-    delta = computeInstantHealDelta(rankedSkill, rank, sourceState, healTarget, haveSource);
-    delta = std::max(0, delta);
-  } else if (!isBuffOnly) {
-    if (!haveDefender) {
-      Core::Logger::getInstance().warn(
-          "[CombatCoreEngine] skill {} sem alvo válido (target={})", payload.skillId, payload.targetId);
-      return;
-    }
-    if (haveSource) {
-      const bool isPvP = defenderIsPlayer;
-      {
-        const int32_t hitChance =
-            Combat::CombatCalculator::getInstance().calculateHitChance(sourceState, defender);
-        if (!Combat::CombatCalculator::getInstance().rollHit(hitChance)) {
-          broadcastMiss(payload.targetType, payload.targetId, sourcePlayerId);
-          Core::Logger::getInstance().debug("[CombatCoreEngine] SkillCast MISS player={} skill={} target={}",
-                                            sourcePlayerId, payload.skillId, payload.targetId);
-          return;
-        }
-      }
-      if (defenderIsPlayer && payload.targetId > 0 && reactionEngine_ &&
-          reactionEngine_->onPlayerHitReceived(payload.targetId, sourcePlayerId)) {
-        broadcastMiss(payload.targetType, payload.targetId, sourcePlayerId,
-                      /*triggerDodgeReaction=*/false);
-        Core::Logger::getInstance().debug(
-            "[CombatCoreEngine] SkillCast REACTION miss player={} skill={} target={}", sourcePlayerId,
-            payload.skillId, payload.targetId);
-        applySkillEffects(sourcePlayerId, payload.targetType, payload.targetId, rankedSkill, sourceState,
-                          haveSource);
-        return;
-      }
-      Combat::SkillData damageSkill = rankedSkill;
-      damageSkill.rankScalings.clear();
-      for (const auto& effect : rankedSkill.effects) {
-        if (effect.effectType == Combat::EffectType::DAMAGE && effect.valuePercent > 0) {
-          damageSkill.powerCoef = static_cast<uint16_t>(
-              std::clamp<int32_t>(effect.valuePercent, 1, UINT16_MAX));
-          break;
-        }
-      }
-      const Combat::DamageBreakdown bd =
-          Combat::CombatCalculator::getInstance().calculateDamageByType(
-              sourceState, defender, damageSkill, 1, isPvP);
-      int32_t effectFlatDamage = 0;
-      for (const auto& effect : rankedSkill.effects) {
-        if (effect.effectType == Combat::EffectType::DAMAGE) {
-          effectFlatDamage += std::max(0, effect.valueFlat);
-        }
-      }
-      delta = -(bd.finalDamage + effectFlatDamage);
-      isCrit = (bd.critMultiplier != 100);
-      overkill = bd.overkill;
-      shieldAbsorbed = bd.shieldAbsorbed;
-      Core::Logger::getInstance().debug(
-          "[CombatCoreEngine] SkillCast dmg player={} skill={} haveSource=1 physAtk={} magAtk={} str={} "
-          "powerCoef={} finalDamage={} crit={}",
-          sourcePlayerId, payload.skillId, sourceState.buffedStats.physicalAttack,
-          sourceState.buffedStats.magicAttack, sourceState.buffedStats.strength,
-          skill->getEffectivePowerCoef(rank), bd.finalDamage, isCrit ? 1 : 0);
-    } else {
-      Core::Logger::getInstance().warn(
-          "[CombatCoreEngine] SkillCast ABORTADO: loadPlayerState falhou player={} skill={} "
-          "(fallback powerCoef/2 desativado)",
-          sourcePlayerId, payload.skillId);
-      return;
-    }
-  }
-
-  const uint32_t healTargetId =
-      (isHeal && (effectOnSelf || payload.targetId == 0)) ? sourcePlayerId : payload.targetId;
-
-  if (payload.targetType == static_cast<uint8_t>(CombatTargetType::Npc) && !isHeal && !isBuffOnly) {
-    int32_t doubleBonus = 0;
-    bool isDouble = false;
-    if (haveSource && haveDefender && delta < 0) {
-      doubleBonus =
-          computeDoubleBonus(sourceState, defender, true, std::abs(delta));
-      isDouble = doubleBonus > 0;
-    }
-    const int32_t totalDelta = delta - doubleBonus;
-
-    bool dummyCrit = false;
-    bool npcDied = false;
-    const int32_t applied = npcManager_->applyDamage(payload.targetId, totalDelta, dummyCrit, &npcDied);
-    if (applied != 0 || npcDied) {
-      NpcCombatEventPayload evt;
-      evt.npcId = payload.targetId;
-      evt.sourcePlayerId = sourcePlayerId;
-      evt.delta = applied;
-      evt.reason = static_cast<uint8_t>(CombatReason::Skill);
-      evt.isCrit = isCrit ? 1 : 0;
-      evt.isDouble = isDouble ? 1 : 0;
-      broadcastNpcCombatEvent(evt);
-      handleNpcDamageResult(payload.targetId, applied, npcDied, sourcePlayerId);
-      if (isDouble) {
-        Core::Logger::getInstance().debug(
-            "[CombatCoreEngine] DOUBLE player={} targetType={} target={} totalDamage={} skill={}",
-            sourcePlayerId, payload.targetType, payload.targetId, std::abs(applied), payload.skillId);
-      }
-    }
-  } else if (isHeal) {
-    std::vector<uint32_t> healTargets;
     using TT = Combat::TargetType;
-    if (skill->target == TT::PARTY) {
-      if (resolvePartyMembers_) {
-        healTargets = resolvePartyMembers_(sourcePlayerId);
-      }
-      if (healTargets.empty()) {
-        if (skill->includeCaster) healTargets.push_back(sourcePlayerId);
-      } else if (!skill->includeCaster) {
-        healTargets.erase(std::remove(healTargets.begin(), healTargets.end(), sourcePlayerId),
-                          healTargets.end());
-      }
-    } else if (skill->target == TT::AREA_ALLY) {
-      std::vector<uint32_t> candidates;
-      if (resolvePartyMembers_) {
-        candidates = resolvePartyMembers_(sourcePlayerId);
-      }
-      if (candidates.empty()) {
-        if (skill->includeCaster) candidates.push_back(sourcePlayerId);
+    const bool effectOnSelf = (skill->target == TT::SELF || skill->target == TT::PARTY);
+    // Alvo da cura: player alvo válido; senão o próprio caster (nunca um id de NPC).
+    const uint32_t healTargetId =
+        (!effectOnSelf && payload.targetType == static_cast<uint8_t>(CombatTargetType::Player) &&
+         payload.targetId > 0)
+            ? payload.targetId
+            : sourcePlayerId;
+
+    std::vector<uint32_t> healTargets;
+    if (skill->target == TT::PARTY || skill->target == TT::AREA_ALLY) {
+      // Grupo sempre inclui o caster (solo = só ele).
+      std::vector<uint32_t> members;
+      if (resolvePartyMembers_) members = resolvePartyMembers_(sourcePlayerId);
+      if (std::find(members.begin(), members.end(), sourcePlayerId) == members.end()) {
+        members.push_back(sourcePlayerId);
       }
       float cx = 0.f, cy = 0.f, cz = 0.f;
-      if (!tryGetPlayerPosition(sourcePlayerId, cx, cy, cz)) {
-        cx = payload.targetX;
-        cy = payload.targetY;
-        cz = payload.targetZ;
-      }
-      const float radius = skill->areaRadius > 0.f ? skill->areaRadius : 500.f;
-      const float radiusSq = radius * radius;
-      for (uint32_t memberId : candidates) {
-        float px = 0.f, py = 0.f, pz = 0.f;
-        if (tryGetPlayerPosition(memberId, px, py, pz)) {
-          const float dx = px - cx;
-          const float dy = py - cy;
-          const float dz = pz - cz;
-          if (dx * dx + dy * dy + dz * dz <= radiusSq) {
-            healTargets.push_back(memberId);
+      const bool haveCenter = tryGetPlayerPosition(sourcePlayerId, cx, cy, cz);
+      const float radius = skill->areaRadius > 0 ? static_cast<float>(skill->areaRadius) : 500.f;
+      for (uint32_t memberId : members) {
+        if (skill->target == TT::AREA_ALLY && memberId != sourcePlayerId && haveCenter) {
+          float px = 0.f, py = 0.f, pz = 0.f;
+          if (!tryGetPlayerPosition(memberId, px, py, pz) ||
+              distanceSquared3D(cx, cy, cz, px, py, pz) > radius * radius) {
+            continue;
           }
         }
-      }
-      if (healTargets.empty()) {
-        if (skill->includeCaster) healTargets.push_back(sourcePlayerId);
-      }
-    } else if (healTargetId > 0) {
-      healTargets.push_back(healTargetId);
-      if (skill->target == TT::ALLY && skill->includeCaster &&
-          healTargetId != sourcePlayerId) {
-        healTargets.push_back(sourcePlayerId);
+        healTargets.push_back(memberId);
       }
     } else {
-      if (skill->target == TT::SELF || skill->includeCaster) {
+      healTargets.push_back(healTargetId);
+      if (skill->target == TT::ALLY && skill->includeCaster && healTargetId != sourcePlayerId) {
         healTargets.push_back(sourcePlayerId);
       }
     }
@@ -4047,7 +4491,7 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
       if (tgtState.buffedStats.currentHealth >= tgtState.buffedStats.maxHealth) {
         continue;
       }
-      int32_t healDelta =
+      const int32_t healDelta =
           computeInstantHealDelta(rankedSkill, rank, sourceState, tgtState, haveSource);
       if (healDelta <= 0) continue;
       if (applyPlayerDamage(sourcePlayerId, tgtId, healDelta, static_cast<uint8_t>(CombatReason::Heal),
@@ -4064,42 +4508,240 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
           "[CombatCoreEngine] HEAL sem efeito player={} skill={} (alvos com HP cheio ou invalidos)",
           sourcePlayerId, payload.skillId);
     }
-  } else if (payload.targetType == static_cast<uint8_t>(CombatTargetType::Player) &&
-             payload.targetId > 0 && !isHeal && !isBuffOnly) {
-    int32_t doubleBonus = 0;
-    bool isDouble = false;
-    if (haveSource && haveDefender && delta < 0) {
-      doubleBonus =
-          computeDoubleBonus(sourceState, defender, true, std::abs(delta));
-      isDouble = doubleBonus > 0;
+  } else if (!isBuffOnly) {
+    if (!haveSource) {
+      Core::Logger::getInstance().warn(
+          "[CombatCoreEngine] SkillCast ABORTADO: loadPlayerState falhou player={} skill={} "
+          "(fallback powerCoef/2 desativado)",
+          sourcePlayerId, payload.skillId);
+      return;
     }
-    const int32_t totalDelta = delta - doubleBonus;
 
-    if (shieldAbsorbed > 0) {
-      consumePlayerShield(payload.targetId, shieldAbsorbed);
-    }
-    if (totalDelta != 0 &&
-        applyPlayerDamage(sourcePlayerId, payload.targetId, totalDelta,
-                          static_cast<uint8_t>(CombatReason::Skill), isCrit, isDouble)) {
-      writeCombatLog(sourcePlayerId, payload.targetId, payload.skillId,
-                     isDouble ? "DOUBLE" : "DAMAGE", std::abs(totalDelta), isCrit, overkill);
-      if (isDouble) {
-        Core::Logger::getInstance().debug(
-            "[CombatCoreEngine] DOUBLE player={} targetType={} target={} totalDamage={} skill={}",
-            sourcePlayerId, payload.targetType, payload.targetId, std::abs(totalDelta),
-            payload.skillId);
+    if (skill->target == Combat::TargetType::AREA) {
+      // Área: dano em todos os inimigos no raio do ponto alvo (máx. kMaxAreaTargets).
+      float cx = payload.targetX, cy = payload.targetY, cz = payload.targetZ;
+      if (cx == 0.f && cy == 0.f && cz == 0.f) {
+        if (payload.targetId == 0 ||
+            !tryGetTargetPosition(payload.targetType, payload.targetId, cx, cy, cz)) {
+          tryGetPlayerPosition(sourcePlayerId, cx, cy, cz);
+        }
       }
+      const float radius = skill->areaRadius > 0 ? static_cast<float>(skill->areaRadius) : 300.f;
+      const auto areaTargets =
+          collectAreaEnemies(sourcePlayerId, cx, cy, cz, radius, kMaxAreaTargets);
+      for (const auto& [tType, tId] : areaTargets) {
+        const SkillDamageOutcome hit = resolveSkillDamageOnTarget(
+            sourcePlayerId, tType, tId, rankedSkill, rankFactor, sourceState, true);
+        totalDamage += hit.damage;
+      }
+      applyLifesteal(sourcePlayerId, sourceState, totalDamage);
+      AreaCenterScope areaCenter(cx, cy, cz);
+      applySkillEffects(sourcePlayerId, payload.targetType, payload.targetId, rankedSkill,
+                        sourceState, haveSource, totalDamage);
+      Core::Logger::getInstance().debug(
+          "[CombatCoreEngine] SkillCast AREA player={} skill={} rank={} alvos={} dano={}",
+          sourcePlayerId, payload.skillId, static_cast<int>(rank), areaTargets.size(),
+          totalDamage);
+      return;
     }
+
+    Combat::CharacterState probe;
+    bool probeIsPlayer = false;
+    if (!buildDefenderState(payload.targetType, payload.targetId, probe, probeIsPlayer)) {
+      Core::Logger::getInstance().warn(
+          "[CombatCoreEngine] skill {} sem alvo válido (target={})", payload.skillId, payload.targetId);
+      return;
+    }
+    const SkillDamageOutcome hit = resolveSkillDamageOnTarget(
+        sourcePlayerId, payload.targetType, payload.targetId, rankedSkill, rankFactor, sourceState,
+        true);
+    if (hit.reactionDodge) {
+      // Reação do alvo anulou o dano; efeitos seguem (comportamento anterior).
+      applySkillEffects(sourcePlayerId, payload.targetType, payload.targetId, rankedSkill,
+                        sourceState, haveSource);
+      return;
+    }
+    if (hit.missed) {
+      Core::Logger::getInstance().debug("[CombatCoreEngine] SkillCast MISS player={} skill={} target={}",
+                                        sourcePlayerId, payload.skillId, payload.targetId);
+      return;
+    }
+    totalDamage = hit.damage;
+    applyLifesteal(sourcePlayerId, sourceState, totalDamage);
   }
 
   // DOT/HOT e demais efeitos persistentes da skill (effects_json).
   applySkillEffects(sourcePlayerId, payload.targetType, payload.targetId, rankedSkill, sourceState,
-                    haveSource, std::abs(delta));
+                    haveSource, totalDamage);
 
   Core::Logger::getInstance().debug(
-      "[CombatCoreEngine] SkillCast player={} skill={} rank={} targetType={} target={} delta={} crit={}",
+      "[CombatCoreEngine] SkillCast player={} skill={} rank={} targetType={} target={} dano={}",
       sourcePlayerId, payload.skillId, static_cast<int>(rank), payload.targetType, payload.targetId,
-      delta, isCrit ? 1 : 0);
+      totalDamage);
+}
+
+CombatCoreEngine::SkillDamageOutcome CombatCoreEngine::resolveSkillDamageOnTarget(
+    uint32_t sourcePlayerId, uint8_t targetType, uint32_t targetId, const Combat::SkillData& skill,
+    float rankFactor, const Combat::CharacterState& source, bool reportMiss) {
+  SkillDamageOutcome out;
+  Combat::CharacterState defender;
+  bool defenderIsPlayer = false;
+  if (!buildDefenderState(targetType, targetId, defender, defenderIsPlayer)) {
+    out.missed = true;
+    return out;
+  }
+  const bool targetIsNpc = (targetType == static_cast<uint8_t>(CombatTargetType::Npc));
+
+  auto& calc = Combat::CombatCalculator::getInstance();
+  if (!calc.rollHit(calc.calculateHitChance(source, defender))) {
+    if (reportMiss) broadcastMiss(targetType, targetId, sourcePlayerId);
+    out.missed = true;
+    return out;
+  }
+  if (defenderIsPlayer && targetId > 0 && reactionEngine_ &&
+      reactionEngine_->onPlayerHitReceived(targetId, sourcePlayerId)) {
+    broadcastMiss(targetType, targetId, sourcePlayerId, /*triggerDodgeReaction=*/false);
+    out.missed = true;
+    out.reactionDodge = true;
+    return out;
+  }
+
+  // Um hit por efeito DAMAGE (ex.: Ataque Duplo = 2 x 110%). Condição desconhecida = não aplica.
+  int hitIndex = 0;
+  for (const auto& eff : skill.effects) {
+    if (eff.effectType != Combat::EffectType::DAMAGE) continue;
+    if (!damageEffectConditionsMet(eff, source, defender)) {
+      Core::Logger::getInstance().debug(
+          "[CombatCoreEngine] DAMAGE da skill {} ignorado: condição não atendida", skill.skillId);
+      continue;
+    }
+    if (hitIndex > 0) {
+      // Vida/escudo atualizados para o próximo hit; alvo morto encerra a sequência.
+      if (!buildDefenderState(targetType, targetId, defender, defenderIsPlayer)) break;
+    }
+
+    Combat::SkillData hitSkill = skill;
+    hitSkill.rankScalings.clear();
+    if (eff.valuePercent > 0) {
+      hitSkill.powerCoef = static_cast<uint16_t>(std::clamp<long>(
+          std::lround(static_cast<double>(eff.valuePercent) * rankFactor), 1L, 65535L));
+    }
+    hitSkill.forceCrit =
+        eff.conditions.is_object() &&
+        (eff.conditions.value("guaranteed_crit", false) ||
+         // R4: crítico garantido saindo da furtividade (Golpe nas Sombras).
+         (g_casterWasStealthed && eff.conditions.value("crit_if_stealthed", false)));
+    const Combat::DamageBreakdown bd =
+        calc.calculateDamageByType(source, defender, hitSkill, 1, defenderIsPlayer);
+    const int32_t damage = bd.finalDamage + std::max(0, eff.valueFlat);
+    const bool isCrit = (bd.critMultiplier != 100);
+    const int32_t doubleBonus =
+        hitIndex == 0 ? computeDoubleBonus(source, defender, true, damage) : 0;
+    const int32_t total = damage + doubleBonus;
+    const bool isDouble = doubleBonus > 0;
+    ++hitIndex;
+
+    if (targetIsNpc) {
+      if (!npcManager_ || total <= 0) continue;
+      bool dummyCrit = false;
+      bool npcDied = false;
+      const int32_t applied = npcManager_->applyDamage(targetId, -total, dummyCrit, &npcDied);
+      if (applied != 0 || npcDied) {
+        NpcCombatEventPayload evt;
+        evt.npcId = targetId;
+        evt.sourcePlayerId = sourcePlayerId;
+        evt.delta = applied;
+        evt.reason = static_cast<uint8_t>(CombatReason::Skill);
+        evt.isCrit = isCrit ? 1 : 0;
+        evt.isDouble = isDouble ? 1 : 0;
+        broadcastNpcCombatEvent(evt);
+        handleNpcDamageResult(targetId, applied, npcDied, sourcePlayerId);
+        out.damage += std::abs(applied);
+      }
+      if (npcDied) break;
+    } else {
+      if (bd.shieldAbsorbed > 0) consumePlayerShield(targetId, bd.shieldAbsorbed);
+      if (total != 0 &&
+          applyPlayerDamage(sourcePlayerId, targetId, -total,
+                            static_cast<uint8_t>(CombatReason::Skill), isCrit, isDouble)) {
+        writeCombatLog(sourcePlayerId, targetId, skill.skillId, isDouble ? "DOUBLE" : "DAMAGE",
+                       total, isCrit, bd.overkill);
+        out.damage += total;
+      }
+    }
+    Core::Logger::getInstance().debug(
+        "[CombatCoreEngine] SkillCast dmg player={} skill={} hit={} target={} powerCoef={} "
+        "dano={} crit={} double={}",
+        sourcePlayerId, skill.skillId, hitIndex, targetId, hitSkill.powerCoef, total,
+        isCrit ? 1 : 0, isDouble ? 1 : 0);
+  }
+  return out;
+}
+
+std::vector<std::pair<uint8_t, uint32_t>> CombatCoreEngine::collectAreaEnemies(
+    uint32_t sourcePlayerId, float cx, float cy, float cz, float radius, size_t maxTargets) {
+  struct Candidate {
+    uint8_t type;
+    uint32_t id;
+    float distSq;
+  };
+  std::vector<Candidate> candidates;
+  const float radiusSq = radius * radius;
+  if (npcManager_) {
+    for (const auto& npc : npcManager_->getAllInstances()) {
+      if (npc.isDead || !npc.isAttackable) continue;
+      const float d = distanceSquared3D(cx, cy, cz, npc.x, npc.y, npc.z);
+      if (d <= radiusSq) {
+        candidates.push_back({static_cast<uint8_t>(CombatTargetType::Npc), npc.npcInstanceId, d});
+      }
+    }
+  }
+  if (movementServer_ && !g_npcSourceEffects) {
+    std::unordered_set<uint32_t> party;
+    if (resolvePartyMembers_) {
+      for (uint32_t id : resolvePartyMembers_(sourcePlayerId)) party.insert(id);
+    }
+    for (const auto& [playerId, player] : movementServer_->getPlayerStates()) {
+      if (playerId == sourcePlayerId || player.isDead || party.count(playerId) > 0) continue;
+      const float d = distanceSquared3D(cx, cy, cz, player.x, player.y, player.z);
+      if (d <= radiusSq) {
+        candidates.push_back({static_cast<uint8_t>(CombatTargetType::Player), playerId, d});
+      }
+    }
+  }
+  std::sort(candidates.begin(), candidates.end(),
+            [](const Candidate& a, const Candidate& b) { return a.distSq < b.distSq; });
+  if (candidates.size() > maxTargets) candidates.resize(maxTargets);
+  std::vector<std::pair<uint8_t, uint32_t>> out;
+  out.reserve(candidates.size());
+  for (const auto& c : candidates) out.emplace_back(c.type, c.id);
+  return out;
+}
+
+int32_t CombatCoreEngine::scaleHealAmount(int32_t baseAmount, const Combat::SkillData& skill,
+                                          const Combat::CharacterState& healer,
+                                          bool haveHealer) const {
+  int64_t amount = std::max(0, baseAmount);
+  if (haveHealer) {
+    // power_coef da skill de cura soma MAG_ATK do healer (0 = só a % do HP).
+    if (skill.powerCoef > 0) {
+      amount += static_cast<int64_t>(std::max(0, healer.buffedStats.magicAttack)) * skill.powerCoef / 100;
+    }
+    const int32_t bonus = std::clamp(healer.buffedStats.healingBonus, -90, 500);
+    amount = amount * (100 + bonus) / 100;
+  }
+  return static_cast<int32_t>(std::clamp<int64_t>(amount, 0, INT32_MAX));
+}
+
+void CombatCoreEngine::applyLifesteal(uint32_t sourcePlayerId, const Combat::CharacterState& source,
+                                      int32_t damage) {
+  if (g_npcSourceEffects || sourcePlayerId == 0 || damage <= 0) return;
+  const int32_t pct = std::clamp(source.buffedStats.lifestealPercent, 0, 100);
+  if (pct <= 0) return;
+  const int32_t heal = damage * pct / 100;
+  if (heal > 0) {
+    applyPlayerDamage(sourcePlayerId, sourcePlayerId, heal, static_cast<uint8_t>(CombatReason::Heal));
+  }
 }
 
 void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAttackPayload& payloadIn) {
@@ -4152,6 +4794,8 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
     Core::Logger::getInstance().debug("[CombatCoreEngine] basic attack em cooldown (player {})", sourcePlayerId);
     return;
   }
+  // R4: atacar quebra a furtividade.
+  breakPlayerStealth(sourcePlayerId);
 
   BasicAttackBroadcastPayload atkBroadcast;
   atkBroadcast.sourcePlayerId = sourcePlayerId;
@@ -4270,6 +4914,7 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
       evt.isDouble = isDouble ? 1 : 0;
       broadcastNpcCombatEvent(evt);
       handleNpcDamageResult(payload.targetId, applied, npcDied, sourcePlayerId);
+      if (haveAttacker) applyLifesteal(sourcePlayerId, attacker, std::abs(applied));
       if (isDouble) {
         Core::Logger::getInstance().debug(
             "[CombatCoreEngine] DOUBLE player={} targetType={} target={} totalDamage={} skill=0",
@@ -4293,6 +4938,7 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
                           static_cast<uint8_t>(CombatReason::Damage), isCrit, isDouble)) {
       writeCombatLog(sourcePlayerId, payload.targetId, 0, isDouble ? "DOUBLE" : "DAMAGE",
                      std::abs(totalDelta), isCrit, overkill);
+      if (haveAttacker) applyLifesteal(sourcePlayerId, attacker, std::abs(totalDelta));
       if (isDouble) {
         Core::Logger::getInstance().debug(
             "[CombatCoreEngine] DOUBLE player={} targetType={} target={} totalDamage={} skill=0",
@@ -4375,6 +5021,20 @@ bool CombatCoreEngine::canPlayerMove(uint32_t playerId) {
   return state.canMove();
 }
 
+std::unordered_set<uint32_t> CombatCoreEngine::snapshotStealthedPlayers() {
+  std::unordered_set<uint32_t> out;
+  const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+  std::lock_guard<std::mutex> lock(playerBuffsMu_);
+  for (const PlayerBuffInstance& b : playerBuffs_) {
+    if (b.effectTypeStr == "STEALTH" && b.expiresAtMs > nowMs && b.targetPlayerId != 0) {
+      out.insert(b.targetPlayerId);
+    }
+  }
+  return out;
+}
+
 bool CombatCoreEngine::canNpcMove(uint32_t npcInstanceId) {
   if (!npcManager_) return true;
   const NpcRuntimeInstance* npc = npcManager_->findInstance(npcInstanceId);
@@ -4383,6 +5043,8 @@ bool CombatCoreEngine::canNpcMove(uint32_t npcInstanceId) {
 }
 
 bool CombatCoreEngine::canNpcMove(const NpcRuntimeInstance& npc) {
+  // Conjurando (fase B): fica parado até o hit ou o interrupt.
+  if (isNpcCasting(npc.npcInstanceId)) return false;
   return !hasNpcCrowdControl(npc, Combat::EffectType::STUN) &&
          !hasNpcCrowdControl(npc, Combat::EffectType::ROOT);
 }
@@ -4395,6 +5057,7 @@ bool CombatCoreEngine::canNpcAct(uint32_t npcInstanceId, bool usesSkill) {
 }
 
 bool CombatCoreEngine::canNpcAct(const NpcRuntimeInstance& npc, bool usesSkill) {
+  if (isNpcCasting(npc.npcInstanceId)) return false;
   if (hasNpcCrowdControl(npc, Combat::EffectType::STUN)) return false;
   return !usesSkill || !hasNpcCrowdControl(npc, Combat::EffectType::SILENCE);
 }
@@ -4651,6 +5314,57 @@ void CombatCoreEngine::processNpcSkillCast(uint32_t npcInstanceId, uint32_t targ
   });
   broadcastSkillCast(castBc);
 
+  // Fase B: cast com tempo vira cast real (NPC parado, pode ser interrompido).
+  if (skill->castTimeMs > 0) {
+    PendingNpcCast pending;
+    pending.npcInstanceId = npcInstanceId;
+    pending.targetPlayerId = targetPlayerId;
+    pending.npcSkillId = npcSkillId;
+    pending.rank = rank;
+    pending.executeAtMs = Core::steadyNowMs() + static_cast<int64_t>(skill->castTimeMs);
+    std::lock_guard<std::mutex> lock(pendingNpcCastsMu_);
+    pendingNpcCasts_.push_back(pending);
+    return;
+  }
+  resolveNpcSkillCast(npcInstanceId, targetPlayerId, npcSkillId, rank, /*fromPendingCast=*/false);
+}
+
+void CombatCoreEngine::resolveNpcSkillCast(uint32_t npcInstanceId, uint32_t targetPlayerId,
+                                           uint32_t npcSkillId, uint8_t rank,
+                                           bool fromPendingCast) {
+  if (!movementServer_ || !npcManager_ || !skillService_) return;
+  const NpcRuntimeInstance* inst = npcManager_->findInstance(npcInstanceId);
+  if (!inst || inst->isDead) return;
+  const Combat::SkillData* skill = skillService_->getNpcSkillData(npcSkillId);
+  if (!skill) return;
+  float px = 0.f, py = 0.f, pz = 0.f;
+  if (!tryGetPlayerPosition(targetPlayerId, px, py, pz)) return;
+  if (fromPendingCast) {
+    // Fim do cast: o alvo pode ter se afastado um pouco (folga maior que no início).
+    const float dist =
+        std::sqrt((inst->x - px) * (inst->x - px) + (inst->y - py) * (inst->y - py));
+    const float rangeMax = std::max(50.f, static_cast<float>(skill->rangeMax));
+    if (dist > rangeMax * 1.5f) {
+      Core::Logger::getInstance().debug(
+          "[CombatCoreEngine] NpcSkillCast npc={} skill={} fim do cast: alvo fora do alcance",
+          npcInstanceId, npcSkillId);
+      return;
+    }
+  }
+  Combat::CharacterState attacker = CharacterStateLoader::makeNpcAttackerState(*inst);
+  overlayNpcRuntimeBuffs(npcInstanceId, attacker);
+  Combat::CharacterState defender;
+  if (!stateLoader_ ||
+      (!stateLoader_->getCachedOrWarm(targetPlayerId, defender) &&
+       !stateLoader_->loadPlayerState(targetPlayerId, defender))) {
+    return;
+  }
+  overlayRuntimeBuffs(targetPlayerId, defender);
+  if (!defender.isAlive || defender.isInvulnerable || defender.isStealthed ||
+      defender.buffedStats.currentHealth <= 0) {
+    return;
+  }
+
   Combat::SkillData synthetic = *skill;
   synthetic.canCrit = skill->canCrit;
   synthetic.ignoresDefense = skill->ignoresDefense;
@@ -4721,10 +5435,10 @@ void CombatCoreEngine::processNpcSkillCast(uint32_t npcInstanceId, uint32_t targ
   Combat::SkillData rankedSkill = *skill;
   rankedSkill.effects = synthetic.effects;
   rankedSkill.durationMs = skill->getEffectiveDurationMs(rank);
+  appendLegacyInterruptEffect(rankedSkill);
   for (const auto& effect : rankedSkill.effects) {
-    const Combat::TargetType effectTarget =
-        effect.targetOverride > 0 ? static_cast<Combat::TargetType>(effect.targetOverride)
-                                  : rankedSkill.target;
+    // Mesma regra dos players: buff/cura sem override numa skill hostil fica no NPC que lançou.
+    const Combat::TargetType effectTarget = Combat::resolveEffectTarget(rankedSkill, effect);
     if (effectTarget == Combat::TargetType::SELF) {
       if (effect.effectType == Combat::EffectType::HEAL) {
         const int32_t heal = effect.valueFlat > 0

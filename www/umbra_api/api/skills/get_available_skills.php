@@ -93,8 +93,11 @@ try {
     }
     
     // Obter todas as skills da classe do jogador
+    $rankCols = skill_rank_select_columns($pdo, 's');
+    $maxPlayerLevel = skill_max_player_level($pdo);
     $stmt = $pdo->prepare("
-        SELECT 
+        SELECT
+            {$rankCols},
             s.skill_id,
             s.skill_key,
             s.skill_name,
@@ -119,6 +122,8 @@ try {
             s.lck_scaling,
             s.power_coef,
             s.secondary_coef,
+            s.damage_type,
+            s.include_caster,
             s.resource_type,
             s.resource_cost,
             s.resource_cost_percent,
@@ -172,10 +177,15 @@ try {
         if ($isBasicAttack && $currentRank < 1) {
             $currentRank = 1;
         }
-        $canLearn = $isUnlocked && !$isLearned && $skillPoints['points_available'] >= $skill['skill_cost'];
-        $canUpgrade = $isLearned &&
-                      $currentRank < $skill['max_rank'] &&
-                      $skillPoints['points_available'] >= $skill['skill_cost'];
+        // R2: custo e nível do próximo rank (rank 1 = aprender).
+        $nextRank = min((int)$skill['max_rank'], $currentRank + 1);
+        $isMaxRank = $isLearned && $currentRank >= (int)$skill['max_rank'];
+        $nextRankCost = $isMaxRank ? 0 : skill_rank_cost($skill, $nextRank);
+        $nextRankLevel = $isMaxRank ? 0 : skill_rank_required_level($skill, $nextRank, $maxPlayerLevel);
+        $canLearn = $isUnlocked && !$isLearned && $skillPoints['points_available'] >= $nextRankCost;
+        $canUpgrade = $isLearned && !$isMaxRank &&
+                      (int)$player['level'] >= $nextRankLevel &&
+                      $skillPoints['points_available'] >= $nextRankCost;
         if ($isBasicAttack) {
             $canLearn = false;
         }
@@ -183,7 +193,24 @@ try {
         $rankForStats = max(1, $currentRank > 0 ? $currentRank : 1);
         $sid = (int)$skill['skill_id'];
         $eff = compute_effective_skill_stats($skill, $rankForStats, $scalingMap[$sid] ?? null);
-        
+
+        // R6: valores do próximo rank (mesma fórmula da zone) para o tooltip "atual → próximo".
+        $nextPreview = null;
+        if ($isLearned && !$isMaxRank && !$isBasicAttack && $nextRank > $currentRank) {
+            $effNext = compute_effective_skill_stats($skill, $nextRank, $scalingMap[$sid] ?? null);
+            $nextRow = $scalingMap[$sid][$nextRank] ?? null;
+            $nextPreview = [
+                'rank' => $nextRank,
+                'power_coef' => $effNext['power_coef'],
+                'resource_cost' => $effNext['resource_cost'],
+                'cooldown_ms' => $effNext['cooldown_ms'],
+                'duration_ms' => $effNext['duration_ms'],
+                'effects_json' => json_encode($effNext['effects'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'is_milestone' => $nextRow !== null
+                    && count(decode_json_array($nextRow['extra_effects_json'] ?? null)) > 0,
+            ];
+        }
+
         $processedSkills[] = [
             'skill_id' => $sid,
             'skill_key' => $skill['skill_key'],
@@ -205,6 +232,9 @@ try {
             'element_name' => $skill['element_name'],
             'element_color' => $skill['element_color'],
             'scaling_stat' => $skill['scaling_stat'],
+            // Frases de efeito do tooltip (físico/mágico; "em você e no aliado").
+            'damage_type' => (string)($skill['damage_type'] ?? 'PHYSICAL'),
+            'include_caster' => !empty($skill['include_caster']),
             
             'attribute_scaling' => [
                 'str' => (int)$skill['str_scaling'],
@@ -258,12 +288,17 @@ try {
             'effects' => $eff['effects'],
             'effects_json' => json_encode($eff['effects'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             'has_rank_scaling' => $eff['has_scaling_row'],
-            
+            'next_rank_preview' => $nextPreview,
+
             'status' => [
                 'is_unlocked' => $isUnlocked,
                 'is_learned' => $isLearned,
                 'can_learn' => $canLearn,
-                'can_upgrade' => $canUpgrade
+                'can_upgrade' => $canUpgrade,
+                // R2: o que custa o próximo passo (0 no rank máximo).
+                'next_rank' => $isMaxRank ? 0 : $nextRank,
+                'next_rank_cost' => $nextRankCost,
+                'next_rank_required_level' => $nextRankLevel
             ]
         ];
     }

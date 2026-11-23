@@ -29,6 +29,7 @@ try {
                 t.physical_attack, t.magic_attack, t.damage_type, t.basic_power_coef, t.physical_defense, t.magic_defense,
                 t.accuracy, t.dodge, t.critical, t.critical_resistance,
                 t.double_attack_rate, t.double_attack_resistance,
+                t.stun_resist, t.silence_resist, t.root_resist, t.slow_resist, t.cc_immune,
                 t.skeletal_mesh_path, t.anim_blueprint_path, t.anim_states_json, t.mesh_scale, t.is_editable,
                 t.is_attackable, t.interaction_radius, t.collision_radius, t.nameplate_radius, t.has_vendor, t.has_quest_dialog,
                 t.dialog_title, t.dialog_text, t.respawn_seconds, t.kill_exp,

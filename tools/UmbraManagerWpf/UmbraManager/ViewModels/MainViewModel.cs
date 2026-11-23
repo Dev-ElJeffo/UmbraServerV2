@@ -116,6 +116,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private int _newNpcCriticalResistance = 5;
     [ObservableProperty] private int _newNpcDoubleAttackRate = 5;
     [ObservableProperty] private int _newNpcDoubleAttackResistance = 5;
+    /// <summary>R5: resistências de CC do template (0–100) e imunidade de chefe.</summary>
+    [ObservableProperty] private int _newNpcStunResist;
+    [ObservableProperty] private int _newNpcSilenceResist;
+    [ObservableProperty] private int _newNpcRootResist;
+    [ObservableProperty] private int _newNpcSlowResist;
+    [ObservableProperty] private bool _newNpcCcImmune;
     [ObservableProperty] private string _newNpcSkeletalMeshPath = "";
     [ObservableProperty] private string _newNpcAnimBlueprintPath = "";
     [ObservableProperty] private string _newNpcAnimAttacksCsv = "";
@@ -1560,6 +1566,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     CriticalResistance = TryGetIntProp(t, "critical_resistance"),
                     DoubleAttackRate = TryGetIntProp(t, "double_attack_rate"),
                     DoubleAttackResistance = TryGetIntProp(t, "double_attack_resistance"),
+                    StunResist = TryGetIntProp(t, "stun_resist"),
+                    SilenceResist = TryGetIntProp(t, "silence_resist"),
+                    RootResist = TryGetIntProp(t, "root_resist"),
+                    SlowResist = TryGetIntProp(t, "slow_resist"),
+                    CcImmune = TryGetBoolProp(t, "cc_immune"),
                     SkeletalMeshPath = TryGetStringProp(t, "skeletal_mesh_path"),
                     AnimBlueprintPath = TryGetStringProp(t, "anim_blueprint_path"),
                     AnimStatesJson = TryGetAnimStatesJsonRaw(t),
@@ -1881,6 +1892,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ["critical_resistance"] = NewNpcCriticalResistance,
             ["double_attack_rate"] = NewNpcDoubleAttackRate,
             ["double_attack_resistance"] = NewNpcDoubleAttackResistance,
+            ["stun_resist"] = Math.Clamp(NewNpcStunResist, 0, 100),
+            ["silence_resist"] = Math.Clamp(NewNpcSilenceResist, 0, 100),
+            ["root_resist"] = Math.Clamp(NewNpcRootResist, 0, 100),
+            ["slow_resist"] = Math.Clamp(NewNpcSlowResist, 0, 100),
+            ["cc_immune"] = NewNpcCcImmune ? 1 : 0,
             ["skeletal_mesh_path"] = NewNpcSkeletalMeshPath,
             ["anim_blueprint_path"] = NewNpcAnimBlueprintPath,
             ["anim_states_json"] = BuildAnimStatesJsonObject(),
@@ -2055,6 +2071,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcCriticalResistance = row.CriticalResistance;
         NewNpcDoubleAttackRate = row.DoubleAttackRate;
         NewNpcDoubleAttackResistance = row.DoubleAttackResistance;
+        NewNpcStunResist = row.StunResist;
+        NewNpcSilenceResist = row.SilenceResist;
+        NewNpcRootResist = row.RootResist;
+        NewNpcSlowResist = row.SlowResist;
+        NewNpcCcImmune = row.CcImmune;
         NewNpcSkeletalMeshPath = row.SkeletalMeshPath ?? "";
         NewNpcAnimBlueprintPath = row.AnimBlueprintPath ?? "";
         ApplyAnimStatesJsonToForm(row.AnimStatesJson);
@@ -2124,6 +2145,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewNpcCriticalResistance = 5;
         NewNpcDoubleAttackRate = 5;
         NewNpcDoubleAttackResistance = 5;
+        NewNpcStunResist = 0;
+        NewNpcSilenceResist = 0;
+        NewNpcRootResist = 0;
+        NewNpcSlowResist = 0;
+        NewNpcCcImmune = false;
         NewNpcSkeletalMeshPath = "";
         NewNpcAnimBlueprintPath = "";
         NewNpcAnimAttacksCsv = "";

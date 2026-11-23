@@ -31,6 +31,7 @@ $allowed = [
     'physical_attack', 'magic_attack', 'damage_type', 'basic_power_coef', 'physical_defense', 'magic_defense',
     'accuracy', 'dodge', 'critical', 'critical_resistance',
     'double_attack_rate', 'double_attack_resistance',
+    'stun_resist', 'silence_resist', 'root_resist', 'slow_resist', 'cc_immune',
     'skeletal_mesh_path', 'anim_blueprint_path', 'anim_states_json', 'mesh_scale', 'is_editable',
     'kill_exp', 'is_attackable', 'interaction_radius', 'collision_radius', 'nameplate_radius', 'has_vendor', 'has_quest_dialog',
     'dialog_title', 'dialog_text', 'respawn_seconds',
@@ -80,6 +81,12 @@ foreach ($allowed as $field) {
         if ($field === 'damage_type') {
             $dt = strtoupper(trim((string)$value));
             $value = in_array($dt, ['MAGIC', 'TRUE'], true) ? $dt : 'PHYSICAL';
+        }
+        if (in_array($field, ['stun_resist', 'silence_resist', 'root_resist', 'slow_resist'], true)) {
+            $value = max(0, min(100, (int)$value));
+        }
+        if ($field === 'cc_immune') {
+            $value = !empty($value) ? 1 : 0;
         }
         if ($field === 'basic_power_coef') {
             $value = max(1, min(1000, (int)$value));

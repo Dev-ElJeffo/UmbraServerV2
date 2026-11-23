@@ -109,6 +109,8 @@ enum class MovementMsgType : uint8_t {
 	CombatStanceState = 119,             // Cliente <-> Servidor: modo relaxado/combate (arma nas costas/na mao)
 	ChatGuildMessage = 120,              // Cliente -> Servidor: [msgType][fromPlayerId:4][msgLen:2][msg:utf8] (fase 7, K5)
 	ChatGuildReceived = 121,             // Servidor -> membros da guilda: [msgType][fromPlayerId:4][nameLen:2][name:utf8][msgLen:2][msg:utf8]
+	SkillCastInterrupted = 122,          // Servidor -> Clientes: [msgType][sourceType:1][sourceId:4][skillId:4][reason:1] (cast cancelado)
+	PlayerPositionCorrection = 123,      // Servidor -> dono: [msgType][playerId:4][x:f][y:f][z:f][yaw:f] (blink/teleporte autoritativo)
 	WsKeepalive = 250                      // Servidor -> Cliente: heartbeat (1 byte); cliente ignora
 };
 
@@ -194,6 +196,21 @@ struct SkillCastRejectedPayload {
   std::string message;
 };
 
+/** Motivo do opcode 122 (cast com castTimeMs cancelado antes do hit). */
+enum class SkillCastInterruptReason : uint8_t {
+  Moved = 1,         // o caster andou numa skill sem move cast (mana e CD devolvidos)
+  Interrupted = 2,   // efeito INTERRUPT de um inimigo (perde mana e CD)
+  CrowdControl = 3,  // stun/silence/knockback no caster (perde mana e CD)
+  Died = 4
+};
+
+struct SkillCastInterruptedPayload {
+  uint8_t sourceType = 1;  // CombatTargetType: 1 = player, 2 = NPC
+  uint32_t sourceId = 0;
+  uint32_t skillId = 0;
+  uint8_t reason = 0;      // SkillCastInterruptReason
+};
+
 struct ExpGainNotifyPayload {
   uint32_t playerId = 0;
   int32_t expGained = 0;
@@ -219,7 +236,8 @@ enum class CombatReason : uint8_t {
   Skill = 3,
   Env = 4,
   Dot = 5,
-  Miss = 6
+  Miss = 6,
+  Immune = 7  // R3: CC bloqueado (retorno decrescente ou NPC cc_immune); delta 0, texto "Imune"
 };
 
 enum class CombatTargetType : uint8_t {
@@ -2906,6 +2924,62 @@ inline bool decodeSkillCastRejected(const std::vector<uint8_t>& data, SkillCastR
   if (off >= data.size()) return false;
   p.reason = data[off++];
   if (!readStringField(data, off, p.message, 128)) return false;
+  return true;
+}
+
+// Opcode 123: 21 bytes fixos. Só para o dono: o cliente ignora StateUpdate (2) do próprio
+// player, então teleporte/blink do servidor precisa deste frame para mover o pawn local.
+// Campo trailing [21] mode: 0 = teleporte direto; 1 = varrer o trajeto (blink/knockback),
+// o cliente para antes de parede. Cliente antigo lê só os 21 primeiros bytes.
+inline std::vector<uint8_t> encodePlayerPositionCorrection(uint32_t playerId, float x, float y,
+                                                           float z, float yaw, uint8_t mode = 0) {
+  std::vector<uint8_t> data;
+  data.reserve(22);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::PlayerPositionCorrection));
+  auto writeU32 = [&data](uint32_t v) {
+    for (int i = 0; i < 4; ++i) data.push_back(static_cast<uint8_t>((v >> (8 * i)) & 0xFF));
+  };
+  auto writeF32 = [&writeU32](float v) {
+    uint32_t bits = 0;
+    std::memcpy(&bits, &v, sizeof(float));
+    writeU32(bits);
+  };
+  writeU32(playerId);
+  writeF32(x);
+  writeF32(y);
+  writeF32(z);
+  writeF32(yaw);
+  data.push_back(mode);
+  return data;
+}
+
+// Opcode 122: 11 bytes fixos.
+inline std::vector<uint8_t> encodeSkillCastInterrupted(const SkillCastInterruptedPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(11);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::SkillCastInterrupted));
+  data.push_back(p.sourceType);
+  for (int i = 0; i < 4; ++i) data.push_back(static_cast<uint8_t>((p.sourceId >> (8 * i)) & 0xFF));
+  for (int i = 0; i < 4; ++i) data.push_back(static_cast<uint8_t>((p.skillId >> (8 * i)) & 0xFF));
+  data.push_back(p.reason);
+  return data;
+}
+
+inline bool decodeSkillCastInterrupted(const std::vector<uint8_t>& data,
+                                       SkillCastInterruptedPayload& p) {
+  if (data.size() < 11 ||
+      static_cast<MovementMsgType>(data[0]) != MovementMsgType::SkillCastInterrupted) {
+    return false;
+  }
+  auto readU32 = [&data](size_t off) -> uint32_t {
+    return static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) |
+           (static_cast<uint32_t>(data[off + 2]) << 16) |
+           (static_cast<uint32_t>(data[off + 3]) << 24);
+  };
+  p.sourceType = data[1];
+  p.sourceId = readU32(2);
+  p.skillId = readU32(6);
+  p.reason = data[10];
   return true;
 }
 

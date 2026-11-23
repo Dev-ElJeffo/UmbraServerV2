@@ -469,6 +469,22 @@ void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
         inst.slowResist = std::clamp(std::stoi(resistanceRows[0][3]), 0, 100);
       }
     }
+    // R3: imunidade a CC (consulta separada: não mexe no SELECT posicional acima).
+    static int hasCcImmuneColumn = -1;
+    if (hasCcImmuneColumn < 0) {
+      hasCcImmuneColumn =
+          db_ && !db_->executeQuery("SHOW COLUMNS FROM npc_templates LIKE 'cc_immune'").empty()
+              ? 1
+              : 0;
+    }
+    if (hasCcImmuneColumn == 1 && db_) {
+      auto immuneRows = db_->executeQuery(
+          "SELECT COALESCE(cc_immune,0) FROM npc_templates WHERE npc_template_id = " +
+          std::to_string(inst.templateId) + " LIMIT 1");
+      if (!immuneRows.empty() && !immuneRows[0].empty()) {
+        inst.ccImmune = immuneRows[0][0] != "0" && !immuneRows[0][0].empty();
+      }
+    }
 
     inst.rightHandMeshPath = row.size() > 48 ? row[48] : "";
     inst.leftHandMeshPath = row.size() > 49 ? row[49] : "";

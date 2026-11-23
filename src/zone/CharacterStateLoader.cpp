@@ -443,7 +443,8 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
     }
     if (!statKey.empty() && pct != 0) {
       const bool ccResistStat = (statKey == "stun_resist" || statKey == "silence_resist" ||
-                                 statKey == "root_resist" || statKey == "slow_resist");
+                                 statKey == "root_resist" || statKey == "slow_resist" ||
+                                 Combat::StatKeyMapping::isPointPercentKey(statKey));
       if (ccResistStat) {
         Combat::StatKeyMapping::applyFlatToTotals(statKey, pct, t);
       } else {
@@ -455,30 +456,67 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
 
   int skillBuffsApplied = 0;
 
-  // Passivas aprendidas com condição health_below_percent (sem linha em active_buffs).
+  // Passivas aprendidas (sem linha em active_buffs): sem condição valem sempre;
+  // com health_below_percent só abaixo do limiar. LIFESTEAL vira o stat "lifesteal".
   const int64_t healthPct = (health > 0 && baseHealth + levelHp > 0)
                                 ? (health * 100 / std::max<int64_t>(1, baseHealth + levelHp))
                                 : 100;
+  // R1: passivas escalam com o rank (mesma fórmula de SkillData::buildEffectsForRank).
+  static const bool hasRankGrowthColumn =
+      !db_->executeQuery("SHOW COLUMNS FROM skills LIKE 'rank_growth_percent'").empty();
   auto passiveRows = db_->executeQuery(
-      "SELECT s.effects_json FROM player_skills ps "
+      std::string("SELECT s.effects_json, COALESCE(ps.current_rank,1), ") +
+      (hasRankGrowthColumn ? "COALESCE(s.rank_growth_percent,-1)" : "-1") +
+      " FROM player_skills ps "
       "INNER JOIN skills s ON ps.skill_id = s.skill_id "
       "WHERE ps.player_id = " + pid + " AND s.type_id = 2");
   for (const auto& pr : passiveRows) {
     if (pr.empty() || pr[0].empty() || pr[0] == "null") continue;
     nlohmann::json effects = nlohmann::json::parse(pr[0], nullptr, false);
     if (!effects.is_array()) continue;
+    uint8_t passiveRank = 1;
+    int32_t skillGrowthTenths = -1;
+    try {
+      if (pr.size() > 1) passiveRank = static_cast<uint8_t>(std::clamp(std::stoi(pr[1]), 1, 20));
+      if (pr.size() > 2) {
+        const double g = std::stod(pr[2]);
+        skillGrowthTenths = g < 0.0 ? -1 : static_cast<int32_t>(std::lround(g * 10.0));
+      }
+    } catch (...) {
+    }
     for (const auto& item : effects) {
       if (!item.is_object()) continue;
       nlohmann::json cond = item.value("conditions_json", nlohmann::json::object());
-      if (!cond.is_object()) continue;
+      if (!cond.is_object()) cond = nlohmann::json::object();
+      if (cond.contains("trigger")) continue;  // passiva reativa: ReactionEngine
       const int64_t threshold = jsonInt(cond, "health_below_percent");
-      if (threshold <= 0 || healthPct >= threshold) continue;
+      if (threshold > 0 && healthPct >= threshold) continue;
+
+      std::string effectType = item.value("type", item.value("effect_type", std::string{}));
+      std::string targetStat = item.value("target_stat", std::string{});
+      // Crescimento: efeito (rank_growth) > skill > padrão (LIFESTEAL 12,5%, stat 10%).
+      Combat::SkillEffect growthProbe;
+      growthProbe.effectType = effectType == "LIFESTEAL" ? Combat::EffectType::LIFESTEAL
+                                                         : Combat::EffectType::BUFF_STAT;
+      if (item.contains("rank_growth") && item["rank_growth"].is_number()) {
+        growthProbe.rankGrowthTenths = static_cast<int16_t>(
+            std::clamp(std::lround(item["rank_growth"].get<double>() * 10.0), 0L, 10000L));
+      }
+      const int32_t growth = Combat::resolveRankGrowthTenths(growthProbe, skillGrowthTenths);
+      if (effectType == "LIFESTEAL") {
+        effectType = "BUFF_STAT";
+        targetStat = "lifesteal";
+      }
+      if (effectType != "BUFF_STAT" && effectType != "DEBUFF_STAT") continue;
 
       nlohmann::json virtualSnap;
-      virtualSnap["target_stat"] = item.value("target_stat", std::string{});
-      virtualSnap["value_flat"] = item.contains("value_flat") ? item["value_flat"].get<int>() : item.value("value", 0);
-      virtualSnap["value_percent"] = item.value("value_percent", 0);
-      virtualSnap["effect_type"] = item.value("type", item.value("effect_type", std::string{}));
+      virtualSnap["target_stat"] = targetStat;
+      virtualSnap["value_flat"] = Combat::scaleByRankTenths(
+          static_cast<int32_t>(jsonInt(item, item.contains("value_flat") ? "value_flat" : "value")),
+          growth, passiveRank);
+      virtualSnap["value_percent"] = Combat::scaleByRankTenths(
+          static_cast<int32_t>(jsonInt(item, "value_percent")), growth, passiveRank);
+      virtualSnap["effect_type"] = effectType;
       applyBuffSnapshot(virtualSnap, 1);
     }
   }
@@ -539,6 +577,9 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
   stats.rootChance = static_cast<int32_t>(std::clamp<int64_t>(t["root_chance"], 0, 100));
   stats.slowChance = static_cast<int32_t>(std::clamp<int64_t>(t["slow_chance"], 0, 100));
   stats.damageReduction = static_cast<int32_t>(t["damage_reduction"]);
+  stats.ignoreDodge = static_cast<int32_t>(std::clamp<int64_t>(t["ignore_dodge"], 0, 100));
+  stats.buffDurationBonus = static_cast<int32_t>(std::clamp<int64_t>(t["buff_duration"], 0, 200));
+  stats.lifestealPercent = static_cast<int32_t>(std::clamp<int64_t>(t["lifesteal"], 0, 100));
 
   for (const auto& pm : skillPercentMods) {
     if (pm.key == "damage_reduction") {
