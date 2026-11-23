@@ -20,6 +20,7 @@ namespace Umbra {
 namespace Zone {
 
 class MovementServer;
+class QuestProgressService;
 
 struct NpcLootEntryDef {
   uint8_t entryKind = 0;  // 0 item, 1 gold
@@ -68,6 +69,9 @@ public:
 
   /** Pet de coleta: com o serviço ligado, kills de quem tem pet ativo passam pela coleta automática. */
   void setCompanionService(CompanionService* companions);
+
+  /** Quests v2: ouro saqueado (janela ou pet) conta para earn_gold. */
+  void setQuestProgressService(QuestProgressService* quests) { questService_ = quests; }
 
   void setResolvePartyMembers(std::function<std::vector<uint32_t>(uint32_t)> cb) {
     resolvePartyMembers_ = std::move(cb);
@@ -131,6 +135,7 @@ private:
   float expireAccum_ = 0.f;
 
   CompanionService* companionService_ = nullptr;
+  QuestProgressService* questService_ = nullptr;
   // Coletas do pet rodam numa thread própria: concedem itens no DB sem travar o tick da zone.
   std::mutex petMu_;
   std::condition_variable petCv_;

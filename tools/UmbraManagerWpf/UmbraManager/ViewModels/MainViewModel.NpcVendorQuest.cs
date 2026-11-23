@@ -19,10 +19,42 @@ public partial class MainViewModel
     public ObservableCollection<QuestStartRequirementRow> QuestStartRequirements { get; } = new();
 
     public IReadOnlyList<string> QuestObjectiveTypes { get; } =
-        new List<string> { "talk", "kill", "collect", "deliver", "reach_area", "use_item_at" };
+        new List<string>
+        {
+            "talk", "kill", "collect", "deliver", "reach_area", "use_item_at",
+            // Quests v2
+            "kill_any", "use_skill", "use_consumable", "earn_gold", "reach_level", "craft_item", "refine_item",
+        };
 
+    /// <summary>companion: Amount = companion_id; guild_xp: vai para a guilda do jogador.</summary>
     public IReadOnlyList<string> QuestRewardTypes { get; } =
-        new List<string> { "gold", "experience", "item" };
+        new List<string> { "gold", "experience", "item", "skill_points", "stat_points", "companion", "guild_xp" };
+
+    public IReadOnlyList<string> QuestRepeatTypes { get; } = new List<string> { "none", "always", "daily", "weekly" };
+
+    public IReadOnlyList<string> QuestCategories { get; } = new List<string> { "main", "side", "daily", "event" };
+
+    /// <summary>class_ids (JSON array ou string) → "1,3" para o TextBox.</summary>
+    private static string ParseQuestClassIdsCsv(JsonElement q)
+    {
+        if (!q.TryGetProperty("class_ids", out var el)) return "";
+        try
+        {
+            if (el.ValueKind == JsonValueKind.String)
+            {
+                var s = el.GetString() ?? "";
+                if (string.IsNullOrWhiteSpace(s)) return "";
+                using var doc = JsonDocument.Parse(s);
+                el = doc.RootElement.Clone();
+            }
+            if (el.ValueKind != JsonValueKind.Array) return "";
+            return string.Join(",", el.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.Number).Select(e => e.GetInt32()));
+        }
+        catch (JsonException)
+        {
+            return "";
+        }
+    }
 
     [ObservableProperty] private int _npcSubTabIndex;
 
@@ -53,6 +85,12 @@ public partial class MainViewModel
     [ObservableProperty] private int _questMinLevel = 1;
     [ObservableProperty] private int _questPrerequisiteQuestId;
     [ObservableProperty] private bool _questRepeatable;
+    // Quests v2: repetição (none/always/daily/weekly), restrições, categoria e tempo limite.
+    [ObservableProperty] private string _questRepeatType = "none";
+    [ObservableProperty] private int _questMaxLevel;
+    [ObservableProperty] private string _questClassIdsCsv = "";
+    [ObservableProperty] private string _questCategory = "side";
+    [ObservableProperty] private int _questTimeLimitMinutes;
     [ObservableProperty] private bool _questIsActive = true;
     [ObservableProperty] private int _questTurnInNpcTemplateId;
     [ObservableProperty] private int _questOfferSortOrder;
@@ -539,6 +577,11 @@ public partial class MainViewModel
             QuestMinLevel = Math.Max(1, TryGetIntProp(q, "min_level"));
             QuestPrerequisiteQuestId = TryGetIntProp(q, "prerequisite_quest_id");
             QuestRepeatable = TryGetBoolProp(q, "repeatable");
+            QuestRepeatType = TryGetStringProp(q, "repeat_type") is { Length: > 0 } rt ? rt : (QuestRepeatable ? "always" : "none");
+            QuestMaxLevel = TryGetIntProp(q, "max_level");
+            QuestClassIdsCsv = ParseQuestClassIdsCsv(q);
+            QuestCategory = TryGetStringProp(q, "quest_category") is { Length: > 0 } qc ? qc : "side";
+            QuestTimeLimitMinutes = TryGetIntProp(q, "time_limit_minutes");
             QuestIsActive = TryGetBoolProp(q, "is_active");
             QuestTurnInNpcTemplateId = TryGetIntProp(q, "turn_in_npc_template_id");
         }
@@ -600,7 +643,7 @@ public partial class MainViewModel
                     catch { /* keep defaults */ }
                 }
 
-                QuestObjectives.Add(new QuestObjectiveRow
+                var objRow = new QuestObjectiveRow
                 {
                     ObjectiveId = TryGetIntProp(o, "objective_id"),
                     SortOrder = TryGetIntProp(o, "sort_order"),
@@ -615,7 +658,9 @@ public partial class MainViewModel
                     PosZ = posZ,
                     Radius = radius,
                     ItemTemplateId = itemTid,
-                });
+                };
+                objRow.ApplyV2Params();  // Quests v2: skill_id, amount, level, faixa de nível...
+                QuestObjectives.Add(objRow);
             }
         }
 
@@ -724,6 +769,11 @@ public partial class MainViewModel
         QuestMinLevel = 1;
         QuestPrerequisiteQuestId = 0;
         QuestRepeatable = false;
+        QuestRepeatType = "none";
+        QuestMaxLevel = 0;
+        QuestClassIdsCsv = "";
+        QuestCategory = "side";
+        QuestTimeLimitMinutes = 0;
         QuestIsActive = true;
         QuestTurnInNpcTemplateId = ResolveVendorQuestTemplateId();
         QuestOfferSortOrder = NpcQuestOffers.Count;
@@ -851,11 +901,20 @@ public partial class MainViewModel
 
         if (type == "kill")
         {
-            return new Dictionary<string, object?>
+            var kill = new Dictionary<string, object?>
             {
                 ["npc_template_id"] = o.TargetId,
                 ["required_count"] = o.RequiredCount < 1 ? 1 : o.RequiredCount,
             };
+            // Quests v2: vários alvos contam para o mesmo objetivo.
+            var extra = (o.TargetIdsCsv ?? "")
+                .Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => int.TryParse(s, out var v) ? v : 0)
+                .Where(v => v > 0)
+                .ToList();
+            if (o.TargetId > 0 && !extra.Contains(o.TargetId) && extra.Count > 0) extra.Insert(0, o.TargetId);
+            if (extra.Count > 0) kill["npc_template_ids"] = extra;
+            return kill;
         }
 
         if (type is "collect" or "deliver")
@@ -890,7 +949,43 @@ public partial class MainViewModel
                 ["pos_z"] = o.PosZ,
                 ["radius"] = o.Radius <= 0 ? 200 : o.Radius,
                 ["required_count"] = o.RequiredCount < 1 ? 1 : o.RequiredCount,
+                ["consume"] = o.Consume,
             };
+        }
+
+        // --- Quests v2 ---
+        var count = o.RequiredCount < 1 ? 1 : o.RequiredCount;
+        switch (type)
+        {
+            case "kill_any":
+                return new Dictionary<string, object?>
+                {
+                    ["min_level"] = Math.Max(0, o.MinLevel),
+                    ["max_level"] = Math.Max(0, o.MaxLevel),
+                    ["zone_id"] = Math.Max(0, o.ZoneId),
+                    ["required_count"] = count,
+                };
+            case "use_skill":
+                return new Dictionary<string, object?> { ["skill_id"] = Math.Max(0, o.TargetId), ["required_count"] = count };
+            case "use_consumable":
+                return new Dictionary<string, object?>
+                {
+                    ["item_template_id"] = Math.Max(0, o.TargetId),
+                    ["item_subtype"] = (o.ItemSubtype ?? "").Trim(),
+                    ["required_count"] = count,
+                };
+            case "craft_item":
+                return new Dictionary<string, object?> { ["item_template_id"] = Math.Max(0, o.TargetId), ["required_count"] = count };
+            case "refine_item":
+                return new Dictionary<string, object?>
+                {
+                    ["min_refine_level"] = o.MinRefineLevel < 1 ? 1 : o.MinRefineLevel,
+                    ["required_count"] = count,
+                };
+            case "earn_gold":
+                return new Dictionary<string, object?> { ["amount"] = count };
+            case "reach_level":
+                return new Dictionary<string, object?> { ["level"] = Math.Max(2, count) };
         }
 
         return new Dictionary<string, object?>();
@@ -923,7 +1018,7 @@ public partial class MainViewModel
         foreach (var o in QuestObjectives)
         {
             var type = (o.ObjectiveType ?? "").Trim().ToLowerInvariant();
-            if (type is "kill" && o.TargetId <= 0)
+            if (type is "kill" && o.TargetId <= 0 && string.IsNullOrWhiteSpace(o.TargetIdsCsv))
             {
                 MessageBox.Show("Objetivo kill exige um NPC template com ID positivo.", "Quests");
                 return;
@@ -1023,7 +1118,12 @@ public partial class MainViewModel
                 ["turn_in_text"] = QuestTurnInText,
                 ["min_level"] = QuestMinLevel < 1 ? 1 : QuestMinLevel,
                 ["prerequisite_quest_id"] = prereqPayload,
-                ["repeatable"] = QuestRepeatable ? 1 : 0,
+                ["repeatable"] = QuestRepeatType == "none" ? 0 : 1,
+                ["repeat_type"] = string.IsNullOrWhiteSpace(QuestRepeatType) ? "none" : QuestRepeatType,
+                ["max_level"] = Math.Max(0, QuestMaxLevel),
+                ["class_ids"] = QuestClassIdsCsv ?? "",
+                ["quest_category"] = string.IsNullOrWhiteSpace(QuestCategory) ? "side" : QuestCategory,
+                ["time_limit_minutes"] = Math.Max(0, QuestTimeLimitMinutes),
                 ["is_active"] = QuestIsActive ? 1 : 0,
                 ["turn_in_npc_template_id"] = turnIn,
                 ["objectives"] = objectives,
@@ -1045,7 +1145,12 @@ public partial class MainViewModel
                 ["turn_in_text"] = QuestTurnInText,
                 ["min_level"] = QuestMinLevel < 1 ? 1 : QuestMinLevel,
                 ["prerequisite_quest_id"] = prereqPayload,
-                ["repeatable"] = QuestRepeatable ? 1 : 0,
+                ["repeatable"] = QuestRepeatType == "none" ? 0 : 1,
+                ["repeat_type"] = string.IsNullOrWhiteSpace(QuestRepeatType) ? "none" : QuestRepeatType,
+                ["max_level"] = Math.Max(0, QuestMaxLevel),
+                ["class_ids"] = QuestClassIdsCsv ?? "",
+                ["quest_category"] = string.IsNullOrWhiteSpace(QuestCategory) ? "side" : QuestCategory,
+                ["time_limit_minutes"] = Math.Max(0, QuestTimeLimitMinutes),
                 ["is_active"] = QuestIsActive ? 1 : 0,
                 ["turn_in_npc_template_id"] = turnIn,
                 ["npc_template_id"] = templateId,

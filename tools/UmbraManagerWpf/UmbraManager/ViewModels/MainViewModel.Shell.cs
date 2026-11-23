@@ -80,6 +80,7 @@ public partial class MainViewModel
         Add("gm", "GM Console", "Operação", 19, "ops", "Console");
         Add("scheduler", "Scheduler", "Sistema", 20, "super", "ClockOutline");
         Add("companions", "Companheiros", "Conteúdo", 21, "content", "Paw");
+        Add("guildmissions", "Missões de guilda", "Conteúdo", 22, "content", "ShieldStar");
         ApplyNavVisibility();
     }
 

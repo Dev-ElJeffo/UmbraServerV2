@@ -78,6 +78,14 @@ public:
     elementalRulesHandler_ = std::move(cb);
   }
 
+  /** Opcodes 131/132 (Quests v2): roda no inbound worker; o serviço só enfileira. */
+  void setQuestStateChangedHandler(std::function<void(uint32_t playerId, uint32_t questId)> cb) {
+    questStateChangedHandler_ = std::move(cb);
+  }
+  void setQuestInteractHandler(std::function<void(uint32_t playerId, uint32_t questId, uint32_t itemTemplateId)> cb) {
+    questInteractHandler_ = std::move(cb);
+  }
+
   /** Player saiu de vez da zone (sem reconexão): limpa caches de serviços (companheiros). */
   void setPlayerGoneHook(std::function<void(uint32_t playerId)> cb) { playerGoneHook_ = std::move(cb); }
 
@@ -832,6 +840,27 @@ public:
             if (cidIt != clientIdToPlayerId_.end()) playerId = cidIt->second;
           }
           if (playerId > 0) lootService_->handleLootTakeItem(playerId, payload);
+        }
+        return;
+      }
+
+      // Quests v2 (131/132). O dono vem do cid.
+      if (msgType == MovementMsgType::QuestStateChanged || msgType == MovementMsgType::QuestInteract) {
+        uint32_t playerId = 0;
+        {
+          std::lock_guard<std::mutex> lock(mu_);
+          auto cidIt = clientIdToPlayerId_.find(cid);
+          if (cidIt != clientIdToPlayerId_.end()) playerId = cidIt->second;
+        }
+        if (playerId == 0) return;
+        uint32_t questId = 0;
+        uint32_t itemTemplateId = 0;
+        if (msgType == MovementMsgType::QuestStateChanged) {
+          if (decodeQuestStateChanged(data, questId) && questStateChangedHandler_) {
+            questStateChangedHandler_(playerId, questId);
+          }
+        } else if (decodeQuestInteract(data, questId, itemTemplateId) && questInteractHandler_) {
+          questInteractHandler_(playerId, questId, itemTemplateId);
         }
         return;
       }
@@ -2662,6 +2691,8 @@ private:
   std::function<void(uint32_t)> playerGoneHook_;
   std::function<void(uint32_t, const ConsumableUseRequestPayload&)> consumableUseHandler_;
   std::function<void(uint32_t, const ElementalRulesSetPayload&)> elementalRulesHandler_;
+  std::function<void(uint32_t, uint32_t)> questStateChangedHandler_;
+  std::function<void(uint32_t, uint32_t, uint32_t)> questInteractHandler_;
   int64_t lastVitalsIgnoreLogMs_ = 0;
   MovementSessionAuth sessionAuth_;
   bool sessionAuthEnabled_ = false;

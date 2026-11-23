@@ -16,6 +16,7 @@ add_library(umbra_zone STATIC
   LootService.cpp
   CompanionService.cpp
   ConsumableService.cpp
+  GuildMissionService.cpp
   MovementServer.hpp
   MovementProtocol.hpp
   SpatialGrid.hpp
@@ -31,6 +32,7 @@ add_library(umbra_zone STATIC
   LootService.hpp
   CompanionService.hpp
   ConsumableService.hpp
+  GuildMissionService.hpp
   ExperienceService.hpp
   ExpZoneManager.hpp
 )

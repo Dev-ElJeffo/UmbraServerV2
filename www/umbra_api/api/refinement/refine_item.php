@@ -37,6 +37,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
+require_once __DIR__ . '/../../helpers/quest_helper.php';
+require_once __DIR__ . '/../../helpers/guild_mission_helper.php';
 
 // Obter dados do POST
 $json = file_get_contents('php://input');
@@ -317,8 +319,11 @@ try {
             'refinement_bonus_stats' => json_encode($bonus_stats, JSON_UNESCAPED_UNICODE),
             'inventory_id' => $inventory_id
         ]);
+        // Quests v2: refine_item (conta quando o item chega ao nível pedido pelo objetivo).
+        questCreditEvent($pdo, (int)$player_id, 'refine_item', (int)$new_level, 1);
+        gmCreditEvent($pdo, (int)$player_id, 'refine_item', (int)$new_level, 1);  // missões de guilda (3b)
     }
-    
+
     // ============================================
     // ETAPA 7: COMMIT E RETORNAR RESULTADO
     // ============================================

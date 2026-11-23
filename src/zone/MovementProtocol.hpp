@@ -119,6 +119,9 @@ enum class MovementMsgType : uint8_t {
 	ConsumableUseResult = 128,           // Servidor -> dono: resultado do uso (ver encodeConsumableUseResult)
 	ElementalRulesSet = 129,             // Cliente -> Servidor: regras do elemental (ver decodeElementalRulesSet)
 	ElementalRulesState = 130,           // Servidor -> dono: regras gravadas/confirmadas (ver encodeElementalRulesState)
+	QuestStateChanged = 131,             // Cliente -> Servidor: [msgType][questId:4] aceitou/abandonou/entregou (HTTP) → recarrega cache
+	QuestInteract = 132,                 // Cliente -> Servidor: [msgType][questId:4][itemTemplateId:4] usar item no local (zone valida)
+	GuildMissionProgress = 133,          // Servidor -> membros da guilda: [msgType][guildMissionId:4][progress:4][required:4][status:1]
 	WsKeepalive = 250                      // Servidor -> Cliente: heartbeat (1 byte); cliente ignora
 };
 
@@ -3674,6 +3677,71 @@ inline bool decodeElementalRulesState(const std::vector<uint8_t>& data, Elementa
   p.companionId = readLootU32(data, off);
   p.maxRules = data[off++];
   return readElementalRules(data, off, p.rules);
+}
+
+// --- Quests v2 (131-132) ------------------------------------------------------------
+// 131: [type][questId:4]                    (questId 0 = recarregar tudo)
+// 132: [type][questId:4][itemTemplateId:4]  (itemTemplateId 0 = o item do objetivo)
+inline std::vector<uint8_t> encodeQuestStateChanged(uint32_t questId) {
+  std::vector<uint8_t> data;
+  data.reserve(5);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::QuestStateChanged));
+  appendLootU32(data, questId);
+  return data;
+}
+
+inline bool decodeQuestStateChanged(const std::vector<uint8_t>& data, uint32_t& questId) {
+  if (data.size() < 5 || data[0] != static_cast<uint8_t>(MovementMsgType::QuestStateChanged)) return false;
+  size_t off = 1;
+  questId = readLootU32(data, off);
+  return true;
+}
+
+inline std::vector<uint8_t> encodeQuestInteract(uint32_t questId, uint32_t itemTemplateId) {
+  std::vector<uint8_t> data;
+  data.reserve(9);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::QuestInteract));
+  appendLootU32(data, questId);
+  appendLootU32(data, itemTemplateId);
+  return data;
+}
+
+inline bool decodeQuestInteract(const std::vector<uint8_t>& data, uint32_t& questId, uint32_t& itemTemplateId) {
+  if (data.size() < 9 || data[0] != static_cast<uint8_t>(MovementMsgType::QuestInteract)) return false;
+  size_t off = 1;
+  questId = readLootU32(data, off);
+  itemTemplateId = readLootU32(data, off);
+  return questId != 0;
+}
+
+// --- Missões de guilda (133) ----------------------------------------------------------
+// 133: [type][guildMissionId:4][progress:4][required:4][status:1]  status 0 = ativa, 1 = concluída
+struct GuildMissionProgressPayload {
+  uint32_t guildMissionId = 0;
+  uint32_t progress = 0;
+  uint32_t required = 0;
+  uint8_t status = 0;
+};
+
+inline std::vector<uint8_t> encodeGuildMissionProgress(const GuildMissionProgressPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(14);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::GuildMissionProgress));
+  appendLootU32(data, p.guildMissionId);
+  appendLootU32(data, p.progress);
+  appendLootU32(data, p.required);
+  data.push_back(p.status);
+  return data;
+}
+
+inline bool decodeGuildMissionProgress(const std::vector<uint8_t>& data, GuildMissionProgressPayload& p) {
+  if (data.size() < 14 || data[0] != static_cast<uint8_t>(MovementMsgType::GuildMissionProgress)) return false;
+  size_t off = 1;
+  p.guildMissionId = readLootU32(data, off);
+  p.progress = readLootU32(data, off);
+  p.required = readLootU32(data, off);
+  p.status = data[off];
+  return true;
 }
 
 inline bool decodeQuestProgressNotify(const std::vector<uint8_t>& data, QuestProgressNotifyPayload& p) {

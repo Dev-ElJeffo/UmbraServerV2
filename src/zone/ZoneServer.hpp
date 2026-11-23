@@ -12,6 +12,7 @@
 #include "zone/LootService.hpp"
 #include "zone/CompanionService.hpp"
 #include "zone/ConsumableService.hpp"
+#include "zone/GuildMissionService.hpp"
 
 namespace Umbra {
 namespace Auth { class JWTManager; }
@@ -49,6 +50,7 @@ class ZoneServer {
   LootService* getLootService() { return lootService_.get(); }
   CompanionService* getCompanionService() { return companionService_.get(); }
   ConsumableService* getConsumableService() { return consumableService_.get(); }
+  GuildMissionService* getGuildMissionService() { return guildMissionService_.get(); }
   const Config& getConfig() const;
   void forceSavePositions();
   void reloadGameRates();
@@ -58,6 +60,8 @@ class ZoneServer {
   std::unique_ptr<PlayerManager> playerManager_;
   std::unique_ptr<EntitySystem> entitySystem_;
   std::unique_ptr<MovementServer> movementServer_;
+  // Antes do combate: o worker de quests (dentro do combate) usa este serviço e morre primeiro.
+  std::unique_ptr<GuildMissionService> guildMissionService_;
   std::unique_ptr<ZoneCombatService> combatService_;
   std::unique_ptr<CombatCoreEngine> combatCoreEngine_;
   std::unique_ptr<ExperienceService> experienceService_;

@@ -479,6 +479,15 @@ ConsumableUseStatus ConsumableService::useItem(uint32_t playerId, uint32_t inven
   job.cooldownTotalMs = def.cooldownMs;
   combat_->enqueueConsumableEffect(job);
 
+  // Quests v2: use_consumable (jogador ou elemental, os dois contam).
+  if (auto* quests = combat_->getQuestProgressService()) {
+    QuestEvent ev;
+    ev.kind = QuestObjectiveKind::UseConsumable;
+    ev.key = tplId;
+    ev.subtype = def.subtype;
+    quests->onEvent(playerId, ev);
+  }
+
   Core::Logger::getInstance().info("[ConsumableService] player {} usou {} ({}) fonte={} restam={}", playerId,
                                    tplId, def.name, static_cast<int>(source), job.quantityRemaining);
   return ConsumableUseStatus::Ok;

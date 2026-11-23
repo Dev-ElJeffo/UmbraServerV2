@@ -226,6 +226,24 @@ bool ZoneServer::start() {
         questProgress->setMovementServer(movementServer_.get());
         questProgress->setResolvePartyMembers(partyCb);
         questProgress->setShareRadiusUu(partyShareRadius);
+        // Missões de guilda (3b): mesmos eventos, na thread do QuestProgressService.
+        guildMissionService_ = std::make_unique<GuildMissionService>(config_.dbConnector, movementServer_.get());
+        questProgress->setGuildMissionService(guildMissionService_.get());
+        // Quests v2: ouro, nível e opcodes 131/132.
+        lootService_->setQuestProgressService(questProgress);
+        experienceService_->setLevelUpCallback([questProgress](uint32_t playerId, uint32_t newLevel) {
+          QuestEvent ev;
+          ev.kind = QuestObjectiveKind::ReachLevel;
+          ev.level = newLevel;
+          questProgress->onEvent(playerId, ev);
+        });
+        movementServer_->setQuestStateChangedHandler([questProgress](uint32_t playerId, uint32_t) {
+          questProgress->onQuestStateChanged(playerId);
+        });
+        movementServer_->setQuestInteractHandler(
+            [questProgress](uint32_t playerId, uint32_t questId, uint32_t itemTemplateId) {
+              questProgress->onQuestInteract(playerId, questId, itemTemplateId);
+            });
       }
       movementServer_->setLootService(lootService_.get());
 
@@ -260,9 +278,11 @@ bool ZoneServer::start() {
       consumableService_->start();
 
       movementServer_->setPlayerGoneHook(
-          [svc = companionService_.get(), cs = consumableService_.get()](uint32_t playerId) {
+          [svc = companionService_.get(), cs = consumableService_.get(),
+           qs = combatCoreEngine_->getQuestProgressService()](uint32_t playerId) {
             svc->onPlayerGone(playerId);
             cs->onPlayerGone(playerId);
+            if (qs) qs->onPlayerGone(playerId);
           });
       Core::Logger::getInstance().info(
           "ExperienceService, ExpZoneManager and LootService initialized for zone {} "

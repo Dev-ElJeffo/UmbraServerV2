@@ -917,8 +917,27 @@
                         </StackPanel>
                         <TextBlock FontSize="11" Opacity="0.65" TextWrapping="Wrap" Margin="0,0,0,8"
                                    Text="Pré-req quest ID: 0 = sem pré-requisito. O jogador precisa ter completado essa quest para aceitar esta."/>
+                        <!-- Quests v2: repetição, restrições, categoria e tempo limite -->
+                        <WrapPanel Margin="0,0,0,4">
+                            <ComboBox Width="110" Margin="0,0,8,6" ItemsSource="{Binding QuestRepeatTypes}"
+                                      SelectedItem="{Binding QuestRepeatType}"
+                                      materialDesign:HintAssist.Hint="Repetição" materialDesign:HintAssist.IsFloating="True"/>
+                            <ComboBox Width="100" Margin="0,0,8,6" ItemsSource="{Binding QuestCategories}"
+                                      SelectedItem="{Binding QuestCategory}"
+                                      materialDesign:HintAssist.Hint="Categoria" materialDesign:HintAssist.IsFloating="True"/>
+                            <TextBox Width="80" Margin="0,0,8,6"
+                                     Text="{Binding QuestMaxLevel, UpdateSourceTrigger=PropertyChanged}"
+                                     materialDesign:HintAssist.Hint="Max Lv (0=livre)" materialDesign:HintAssist.IsFloating="True"/>
+                            <TextBox Width="110" Margin="0,0,8,6"
+                                     Text="{Binding QuestClassIdsCsv, UpdateSourceTrigger=PropertyChanged}"
+                                     materialDesign:HintAssist.Hint="Classes (ex.: 1,3)" materialDesign:HintAssist.IsFloating="True"/>
+                            <TextBox Width="100" Margin="0,0,8,6"
+                                     Text="{Binding QuestTimeLimitMinutes, UpdateSourceTrigger=PropertyChanged}"
+                                     materialDesign:HintAssist.Hint="Tempo (min, 0=livre)" materialDesign:HintAssist.IsFloating="True"/>
+                        </WrapPanel>
+                        <TextBlock FontSize="11" Opacity="0.65" TextWrapping="Wrap" Margin="0,0,0,8"
+                                   Text="Repetição: none = uma vez; always = repete na hora; daily = 1x por dia (00h do servidor); weekly = 1x por semana (segunda). Classes vazio = todas."/>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                            <CheckBox Content="Repeatable" IsChecked="{Binding QuestRepeatable}" Margin="0,0,16,0"/>
                             <CheckBox Content="Ativa" IsChecked="{Binding QuestIsActive}"/>
                         </StackPanel>
 
@@ -996,6 +1015,23 @@
                             <TextBox Text="{Binding SelectedQuestObjective.ItemTemplateId, UpdateSourceTrigger=PropertyChanged}"
                                      materialDesign:HintAssist.Hint="item_template_id (use_item_at)" materialDesign:HintAssist.IsFloating="True"/>
                         </UniformGrid>
+                        <!-- Quests v2: campos extras do objetivo selecionado -->
+                        <UniformGrid Columns="3" Margin="0,0,0,4">
+                            <TextBox Text="{Binding SelectedQuestObjective.TargetIdsCsv, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                                     materialDesign:HintAssist.Hint="kill: alvos extras (6,9)" materialDesign:HintAssist.IsFloating="True"/>
+                            <TextBox Text="{Binding SelectedQuestObjective.MinLevel, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                                     materialDesign:HintAssist.Hint="kill_any: nível mín." materialDesign:HintAssist.IsFloating="True"/>
+                            <TextBox Text="{Binding SelectedQuestObjective.MaxLevel, UpdateSourceTrigger=PropertyChanged}"
+                                     materialDesign:HintAssist.Hint="kill_any: nível máx." materialDesign:HintAssist.IsFloating="True"/>
+                            <TextBox Text="{Binding SelectedQuestObjective.ItemSubtype, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                                     materialDesign:HintAssist.Hint="use_consumable: subtipo" materialDesign:HintAssist.IsFloating="True"/>
+                            <TextBox Text="{Binding SelectedQuestObjective.MinRefineLevel, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                                     materialDesign:HintAssist.Hint="refine_item: refino mín. (+N)" materialDesign:HintAssist.IsFloating="True"/>
+                            <CheckBox Content="use_item_at: consome o item" IsChecked="{Binding SelectedQuestObjective.Consume}"
+                                      VerticalAlignment="Bottom" Margin="0,0,0,4"/>
+                        </UniformGrid>
+                        <TextBlock FontSize="11" Opacity="0.65" TextWrapping="Wrap" Margin="0,0,0,12"
+                                   Text="Alvo ID: NPC (kill), item (collect/deliver/use_consumable/craft_item), skill (use_skill; 0 = qualquer). Qtd: quantidade; em earn_gold = ouro; em reach_level = nível. kill_any usa zone_id (0 = qualquer)."/>
 
                         <DockPanel Margin="0,0,0,6">
                             <TextBlock Text="Recompensas" FontWeight="SemiBold" VerticalAlignment="Center"/>

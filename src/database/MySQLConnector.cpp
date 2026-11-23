@@ -501,6 +501,13 @@ bool MySQLConnector::executeOnConnection(void* conn, const std::string& query) {
   }
   MYSQL_RES* res = mysql_store_result(mysql);
   if (res) mysql_free_result(res);
+  // CALL de procedure devolve um status extra: drena tudo, senão a conexão do pool fica
+  // "Commands out of sync" na próxima query.
+  while (mysql_more_results(mysql)) {
+    if (mysql_next_result(mysql) != 0) break;
+    MYSQL_RES* extra = mysql_store_result(mysql);
+    if (extra) mysql_free_result(extra);
+  }
   return true;
 }
 

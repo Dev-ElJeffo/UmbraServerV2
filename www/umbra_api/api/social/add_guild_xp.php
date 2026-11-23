@@ -9,21 +9,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-require_once __DIR__ . '/../../config/database.php';
-require_once __DIR__ . '/../../helpers/jwt_helper.php';
+/**
+ * POST /api/social/add_guild_xp.php — SÓ ADMIN (etapa 3b).
+ * Antes qualquer membro somava EXP de guilda à vontade. Agora a EXP vem de missões de guilda
+ * e recompensas de quest; este endpoint fica para GM/Manager (admin_username + token admin).
+ * Body: { "admin_username", "token", "player_id", "xp_amount" }
+ */
+require_once __DIR__ . '/../admin/require_admin_auth.php';
 require_once __DIR__ . '/../../helpers/guild_helper.php';
 
-$json = file_get_contents('php://input');
-$data = json_decode($json, true) ?: [];
+$data = admin_decode_json_body();
+requireAdminAuth($data);
 
-$validation = validateJWTRequest($data, $_SERVER);
-if (!$validation['valid']) {
-    http_response_code(401);
-    echo json_encode(['success' => false, 'message' => $validation['error'] ?? 'Token inválido ou expirado']);
-    exit;
-}
-
-$playerId = (int)($validation['payload']['player_id'] ?? 0);
+$playerId = (int)($data['player_id'] ?? 0);
 $xpAmount = max(0, (int)($data['xp_amount'] ?? 0));
 if ($playerId <= 0 || $xpAmount <= 0) {
     http_response_code(400);
@@ -83,6 +81,7 @@ try {
     ]);
 
     $pdo->commit();
+    auditAdminWrite('add_guild_xp', "guild_id={$guildId};xp={$xpAmount};player_id={$playerId}", 'guild', $guildId);
     echo json_encode([
         'success' => true,
         'message' => 'XP da guild atualizado',
@@ -96,6 +95,6 @@ try {
     }
     error_log('Erro em add_guild_xp.php: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Erro ao adicionar XP', 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'message' => 'Erro interno'], JSON_UNESCAPED_UNICODE);
 }
 

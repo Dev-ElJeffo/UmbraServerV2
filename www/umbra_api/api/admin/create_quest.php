@@ -76,6 +76,21 @@ try {
     ]);
     $questId = (int)$pdo->lastInsertId();
 
+    // Quests v2: repetição, restrições, categoria e tempo limite.
+    $v2 = adminQuestV2Fields($data);
+    if (!array_key_exists('repeat_type', $v2) && $repeatable) {
+        $v2['repeat_type'] = 'always';
+    }
+    if ($v2) {
+        $v2Sets = [];
+        $v2Params = [':id' => $questId];
+        foreach ($v2 as $col => $val) {
+            $v2Sets[] = "{$col} = :v2_{$col}";
+            $v2Params[":v2_{$col}"] = $val;
+        }
+        $pdo->prepare('UPDATE quests SET ' . implode(', ', $v2Sets) . ' WHERE quest_id = :id')->execute($v2Params);
+    }
+
     adminQuestReplaceObjectives($pdo, $questId, $objectives);
     adminQuestReplaceRewards($pdo, $questId, $rewards);
     adminQuestReplaceRewardChoices($pdo, $questId, is_array($data['reward_choices'] ?? null) ? $data['reward_choices'] : []);

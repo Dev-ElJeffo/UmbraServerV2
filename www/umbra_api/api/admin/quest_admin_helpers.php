@@ -7,12 +7,53 @@ require_once __DIR__ . '/../../helpers/quest_helper.php';
 
 function adminQuestAllowedObjectiveTypes(): array
 {
-    return ['talk', 'kill', 'collect', 'deliver', 'reach_area', 'use_item_at'];
+    return [
+        'talk', 'kill', 'collect', 'deliver', 'reach_area', 'use_item_at',
+        // Quests v2 (add_quests_v2.sql)
+        'kill_any', 'use_skill', 'use_consumable', 'earn_gold', 'reach_level', 'craft_item', 'refine_item',
+    ];
 }
 
 function adminQuestAllowedRewardTypes(): array
 {
-    return ['gold', 'experience', 'item'];
+    // companion: amount = companion_id; guild_xp: vai para a guilda do jogador.
+    return ['gold', 'experience', 'item', 'skill_points', 'stat_points', 'companion', 'guild_xp'];
+}
+
+/** Campos v2 do quest (create/update): normaliza e devolve [coluna => valor]. */
+function adminQuestV2Fields(array $data): array
+{
+    $out = [];
+    if (array_key_exists('repeat_type', $data)) {
+        $rt = strtolower(trim((string)$data['repeat_type']));
+        if (!in_array($rt, ['none', 'always', 'daily', 'weekly'], true)) {
+            throw new InvalidArgumentException('repeat_type: none, always, daily ou weekly');
+        }
+        $out['repeat_type'] = $rt;
+        $out['repeatable'] = $rt === 'none' ? 0 : 1;  // compat com quem ainda lê repeatable
+    }
+    if (array_key_exists('max_level', $data)) {
+        $out['max_level'] = max(0, (int)$data['max_level']);
+    }
+    if (array_key_exists('class_ids', $data)) {
+        $raw = $data['class_ids'];
+        if (is_string($raw)) {
+            $raw = preg_split('/[\s,;]+/', $raw, -1, PREG_SPLIT_NO_EMPTY);
+        }
+        $ids = array_values(array_unique(array_filter(array_map('intval', (array)$raw), static fn($v) => $v > 0)));
+        $out['class_ids'] = $ids ? json_encode($ids) : null;
+    }
+    if (array_key_exists('quest_category', $data)) {
+        $cat = strtolower(trim((string)$data['quest_category']));
+        if (!in_array($cat, ['main', 'side', 'daily', 'event'], true)) {
+            throw new InvalidArgumentException('quest_category: main, side, daily ou event');
+        }
+        $out['quest_category'] = $cat;
+    }
+    if (array_key_exists('time_limit_minutes', $data)) {
+        $out['time_limit_minutes'] = max(0, min(10080, (int)$data['time_limit_minutes']));
+    }
+    return $out;
 }
 
 function adminQuestEncodeParams($params, string $type = ''): string

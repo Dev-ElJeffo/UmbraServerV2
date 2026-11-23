@@ -101,6 +101,16 @@ try {
         $sets[] = 'is_active = :is_active';
         $params[':is_active'] = ((int)$data['is_active'] ? 1 : 0);
     }
+    // Quests v2: repeat_type manda (e reescreve repeatable para compat).
+    foreach (adminQuestV2Fields($data) as $col => $val) {
+        if ($col === 'repeatable') {
+            // Remove o set de repeatable vindo do campo antigo: o repeat_type decide.
+            $sets = array_values(array_filter($sets, static fn($s) => strpos($s, 'repeatable =') !== 0));
+            unset($params[':repeatable']);
+        }
+        $sets[] = "{$col} = :v2_{$col}";
+        $params[":v2_{$col}"] = $val;
+    }
 
     $pdo->beginTransaction();
 

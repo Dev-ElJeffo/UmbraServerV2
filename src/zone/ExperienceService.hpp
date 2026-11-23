@@ -2,6 +2,7 @@
 
 #include "database/MySQLConnector.hpp"
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -37,6 +38,11 @@ public:
 
   ExperienceGrantResult grantExperience(uint32_t playerId, int64_t amount, const std::string& source);
 
+  /** Subiu de nível (Quests v2: reach_level). Chamado fora de qualquer lock. */
+  void setLevelUpCallback(std::function<void(uint32_t playerId, uint32_t newLevel)> cb) {
+    onLevelUp_ = std::move(cb);
+  }
+
 private:
   void ensurePointsRows(uint32_t playerId, uint32_t level);
   void computeExpProgress(uint32_t level, int64_t totalExperience, int32_t& outExpForNext,
@@ -45,6 +51,7 @@ private:
   std::shared_ptr<Database::MySQLConnector> db_;
   CharacterStateLoader* stateLoader_ = nullptr;
   double expMultiplier_ = 1.0;
+  std::function<void(uint32_t, uint32_t)> onLevelUp_;
 };
 
 }  // namespace Zone

@@ -9,7 +9,7 @@ require_once __DIR__ . '/stat_key_mapping.php';
 require_once __DIR__ . '/enchant_helper.php';
 require_once __DIR__ . '/item_weapon_class_helper.php';
 
-const QUEST_AREA_MARGIN = 50.0;
+// reach_area/use_item_at: a zone valida a posição real (QuestProgressService, margem 50 uu).
 
 function questDecodeParams(?string $json): array
 {
@@ -38,7 +38,19 @@ function questGetPlayerQuestRow(PDO $pdo, int $player_id, int $quest_id): ?array
     ');
     $stmt->execute([$player_id, $quest_id]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    return $row ?: null;
+    if (!$row) {
+        return null;
+    }
+    // Quests v2: tempo limite estourado → failed (todo caminho passa por aqui).
+    if ((string)$row['status'] === 'active') {
+        $q = $pdo->prepare('SELECT time_limit_minutes FROM quests WHERE quest_id = ?');
+        $q->execute([$quest_id]);
+        $limit = (int)($q->fetchColumn() ?: 0);
+        if ($limit > 0 && questExpireIfNeeded($pdo, $row, ['time_limit_minutes' => $limit])) {
+            $row['status'] = 'failed';
+        }
+    }
+    return $row;
 }
 
 function questPlayerCompletedQuest(PDO $pdo, int $player_id, int $quest_id): bool
@@ -52,24 +64,98 @@ function questPlayerCompletedQuest(PDO $pdo, int $player_id, int $quest_id): boo
     return (bool)$stmt->fetchColumn();
 }
 
+/** none | always | daily | weekly (Quests v2; sem a coluna, cai no repeatable antigo). */
+function questRepeatType(array $questRow): string
+{
+    $rt = (string)($questRow['repeat_type'] ?? '');
+    if (in_array($rt, ['none', 'always', 'daily', 'weekly'], true)) {
+        return $rt;
+    }
+    return empty($questRow['repeatable']) ? 'none' : 'always';
+}
+
+/**
+ * Já concluiu dentro do período de repetição? none = alguma vez; daily = hoje (00h do servidor);
+ * weekly = desde segunda-feira; always = nunca bloqueia.
+ */
+function questCompletedInRepeatWindow(PDO $pdo, int $player_id, array $questRow): bool
+{
+    $rt = questRepeatType($questRow);
+    if ($rt === 'always') {
+        return false;
+    }
+    $quest_id = (int)$questRow['quest_id'];
+    if ($rt === 'none') {
+        return questPlayerCompletedQuest($pdo, $player_id, $quest_id);
+    }
+    $since = $rt === 'daily'
+        ? 'CURDATE()'
+        : 'DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)';
+    $stmt = $pdo->prepare("
+        SELECT 1 FROM player_quests
+        WHERE player_id = ? AND quest_id = ? AND status = 'completed' AND completed_at >= {$since}
+        LIMIT 1
+    ");
+    $stmt->execute([$player_id, $quest_id]);
+    return (bool)$stmt->fetchColumn();
+}
+
+/** class_ids do quest (vazio = todas as classes). */
+function questAllowedClassIds(array $questRow): array
+{
+    $raw = $questRow['class_ids'] ?? null;
+    if ($raw === null || $raw === '') {
+        return [];
+    }
+    $ids = is_array($raw) ? $raw : json_decode((string)$raw, true);
+    return is_array($ids) ? array_values(array_filter(array_map('intval', $ids), static fn($v) => $v > 0)) : [];
+}
+
+/**
+ * Tempo limite: quest ativa que passou do prazo vira 'failed' (devolve true se expirou agora).
+ */
+function questExpireIfNeeded(PDO $pdo, ?array $playerQuestRow, array $questRow): bool
+{
+    $limit = (int)($questRow['time_limit_minutes'] ?? 0);
+    if ($limit <= 0 || !$playerQuestRow || (string)$playerQuestRow['status'] !== 'active') {
+        return false;
+    }
+    $acceptedTs = strtotime((string)($playerQuestRow['accepted_at'] ?? ''));
+    if ($acceptedTs === false || time() <= $acceptedTs + $limit * 60) {
+        return false;
+    }
+    $pdo->prepare("UPDATE player_quests SET status = 'failed' WHERE player_quest_id = ? AND status = 'active'")
+        ->execute([(int)$playerQuestRow['player_quest_id']]);
+    return true;
+}
+
 function questResolveAvailability(PDO $pdo, int $player_id, array $questRow, ?array $playerQuestRow): string
 {
     if ($playerQuestRow && in_array((string)$playerQuestRow['status'], ['active', 'ready'], true)) {
         return (string)$playerQuestRow['status'];
     }
-    // completed/failed/null: não bloquear se repeatable — permite nova run.
+    // completed/failed/null: a repetição decide se há nova run.
     if (!empty($questRow['prerequisite_quest_id'])) {
         if (!questPlayerCompletedQuest($pdo, $player_id, (int)$questRow['prerequisite_quest_id'])) {
             return 'locked';
         }
     }
-    if (empty($questRow['repeatable']) && questPlayerCompletedQuest($pdo, $player_id, (int)$questRow['quest_id'])) {
+    if (questCompletedInRepeatWindow($pdo, $player_id, $questRow)) {
         return 'completed';
     }
-    $lvlStmt = $pdo->prepare('SELECT level FROM players WHERE id = ? LIMIT 1');
+    $lvlStmt = $pdo->prepare('SELECT level, class_id FROM players WHERE id = ? LIMIT 1');
     $lvlStmt->execute([$player_id]);
-    $playerLevel = (int)($lvlStmt->fetchColumn() ?: 1);
+    $playerRow = $lvlStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $playerLevel = (int)($playerRow['level'] ?? 1);
     if ($playerLevel < (int)$questRow['min_level']) {
+        return 'locked';
+    }
+    $maxLevel = (int)($questRow['max_level'] ?? 0);
+    if ($maxLevel > 0 && $playerLevel > $maxLevel) {
+        return 'locked';
+    }
+    $classIds = questAllowedClassIds($questRow);
+    if ($classIds && !in_array((int)($playerRow['class_id'] ?? 0), $classIds, true)) {
         return 'locked';
     }
     foreach (questLoadStartRequirements($pdo, (int)$questRow['quest_id']) as $req) {
@@ -105,9 +191,10 @@ function questLoadRewards(PDO $pdo, int $quest_id): array
                qr.choice_group_id, qr.sort_order,
                it.item_name, it.icon_path, it.item_description, it.item_type, it.item_subtype,
                it.equipment_slot, it.rarity, it.required_level, it.max_stack_size, it.value, it.weight,
-               it.can_be_refined, it.tradeable, it.stats_json{$allowedSelect}
+               it.can_be_refined, it.tradeable, it.stats_json{$allowedSelect}, ct.name AS companion_name
         FROM quest_rewards qr
         LEFT JOIN item_templates it ON it.item_id = qr.item_template_id
+        LEFT JOIN companion_templates ct ON qr.reward_type = 'companion' AND ct.companion_id = qr.amount
         WHERE qr.quest_id = ?
         ORDER BY qr.sort_order ASC, qr.reward_id ASC
     ");
@@ -123,9 +210,10 @@ function questLoadRewardChoices(PDO $pdo, int $quest_id): array
                qrc.item_template_id, qrc.quantity, qrc.sort_order,
                it.item_name, it.icon_path, it.item_description, it.item_type, it.item_subtype,
                it.equipment_slot, it.rarity, it.required_level, it.max_stack_size, it.value, it.weight,
-               it.can_be_refined, it.tradeable, it.stats_json{$allowedSelect}
+               it.can_be_refined, it.tradeable, it.stats_json{$allowedSelect}, ct.name AS companion_name
         FROM quest_reward_choices qrc
         LEFT JOIN item_templates it ON it.item_id = qrc.item_template_id
+        LEFT JOIN companion_templates ct ON qrc.reward_type = 'companion' AND ct.companion_id = qrc.amount
         WHERE qrc.quest_id = ?
         ORDER BY qrc.choice_group_id ASC, qrc.sort_order ASC, qrc.choice_id ASC
     ");
@@ -241,7 +329,7 @@ function questFormatRewardRow(array $row): array
         'icon_path' => $row['icon_path'] ?? '',
         'quantity' => (int)($row['quantity'] ?? 1),
         'choice_group_id' => isset($row['choice_group_id']) ? (int)$row['choice_group_id'] : 0,
-        'label' => $row['label'] ?? '',
+        'label' => (string)($row['label'] ?? '') !== '' ? $row['label'] : (string)($row['companion_name'] ?? ''),
         'choice_id' => isset($row['choice_id']) ? (int)$row['choice_id'] : 0,
     ];
 
@@ -292,13 +380,70 @@ function questFormatRewardRow(array $row): array
     return $out;
 }
 
+/** Meta do objetivo: earn_gold usa amount, reach_level usa level; o resto required_count. */
+function questObjectiveRequired(string $type, array $params): int
+{
+    if ($type === 'earn_gold') {
+        return max(1, (int)($params['amount'] ?? 1));
+    }
+    if ($type === 'reach_level') {
+        return max(1, (int)($params['level'] ?? 1));
+    }
+    return max(1, (int)($params['required_count'] ?? 1));
+}
+
+/**
+ * Quests v2: evento creditado pelo PHP (craft_item, refine_item).
+ * craft_item: $key = item criado; refine_item: $key = nível de refino atingido.
+ * Devolve os quest_id que avançaram.
+ */
+function questCreditEvent(PDO $pdo, int $player_id, string $type, int $key, int $amount = 1): array
+{
+    if (!in_array($type, ['craft_item', 'refine_item'], true) || $player_id <= 0) {
+        return [];
+    }
+    $stmt = $pdo->prepare("
+        SELECT pqo.player_objective_id, pqo.current_count, pq.player_quest_id, pq.quest_id, qo.params_json,
+               pq.accepted_at, q.time_limit_minutes
+        FROM player_quest_objectives pqo
+        INNER JOIN player_quests pq ON pq.player_quest_id = pqo.player_quest_id
+        INNER JOIN quest_objectives qo ON qo.objective_id = pqo.objective_id
+        INNER JOIN quests q ON q.quest_id = pq.quest_id
+        WHERE pq.player_id = ? AND pq.status = 'active' AND pqo.is_completed = 0 AND qo.objective_type = ?
+    ");
+    $stmt->execute([$player_id, $type]);
+    $advanced = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $limit = (int)($row['time_limit_minutes'] ?? 0);
+        $acceptedTs = strtotime((string)($row['accepted_at'] ?? ''));
+        if ($limit > 0 && $acceptedTs !== false && time() > $acceptedTs + $limit * 60) {
+            continue;
+        }
+        $params = questDecodeParams($row['params_json'] ?? null);
+        if ($type === 'craft_item') {
+            $need = (int)($params['item_template_id'] ?? 0);
+            if ($need > 0 && $need !== $key) {
+                continue;
+            }
+        } elseif ((int)($params['min_refine_level'] ?? 1) > $key) {
+            continue;
+        }
+        $required = questObjectiveRequired($type, $params);
+        $next = min($required, (int)$row['current_count'] + max(1, $amount));
+        $pdo->prepare('
+            UPDATE player_quest_objectives SET current_count = ?, is_completed = ?
+            WHERE player_objective_id = ? AND is_completed = 0
+        ')->execute([$next, $next >= $required ? 1 : 0, (int)$row['player_objective_id']]);
+        questPromoteToReadyIfComplete($pdo, (int)$row['player_quest_id']);
+        $advanced[] = (int)$row['quest_id'];
+    }
+    return array_values(array_unique($advanced));
+}
+
 function questFormatObjectiveForApi(array $objRow, ?array $progressRow = null): array
 {
     $params = questDecodeParams($objRow['params_json'] ?? null);
-    $required = (int)($params['required_count'] ?? 1);
-    if ($required < 1) {
-        $required = 1;
-    }
+    $required = questObjectiveRequired((string)$objRow['objective_type'], $params);
     $current = (int)($progressRow['current_count'] ?? 0);
     $completed = !empty($progressRow['is_completed']);
     return [
@@ -512,26 +657,6 @@ function questPromoteToReadyIfComplete(PDO $pdo, int $player_quest_id): void
     ")->execute([$player_quest_id]);
 }
 
-function questDistance3d(float $x1, float $y1, float $z1, float $x2, float $y2, float $z2): float
-{
-    $dx = $x1 - $x2;
-    $dy = $y1 - $y2;
-    $dz = $z1 - $z2;
-    return sqrt($dx * $dx + $dy * $dy + $dz * $dz);
-}
-
-function questValidateAreaObjective(array $params, int $zone_id, float $pos_x, float $pos_y, float $pos_z): bool
-{
-    $targetZone = (int)($params['zone_id'] ?? 0);
-    if ($targetZone > 0 && $zone_id > 0 && $targetZone !== $zone_id) {
-        return false;
-    }
-    $tx = (float)($params['pos_x'] ?? 0);
-    $ty = (float)($params['pos_y'] ?? 0);
-    $tz = (float)($params['pos_z'] ?? 0);
-    $radius = (float)($params['radius'] ?? 300) + QUEST_AREA_MARGIN;
-    return questDistance3d($pos_x, $pos_y, $pos_z, $tx, $ty, $tz) <= $radius;
-}
 
 function questGrantItemToPlayer(PDO $pdo, int $player_id, int $item_template_id, int $quantity): bool
 {
@@ -563,6 +688,35 @@ function questGrantItemToPlayer(PDO $pdo, int $player_id, int $item_template_id,
     return true;
 }
 
+/**
+ * EXP de guilda (recompensa guild_xp): soma na guilda do jogador e na contribuição dele.
+ * Sem guilda = false (a quest completa mesmo assim).
+ */
+function questApplyGuildXp(PDO $pdo, int $player_id, int $amount): bool
+{
+    $m = $pdo->prepare('SELECT guild_id FROM guild_members WHERE player_id = ? LIMIT 1');
+    $m->execute([$player_id]);
+    $guildId = (int)($m->fetchColumn() ?: 0);
+    if ($guildId <= 0) {
+        return false;
+    }
+    $g = $pdo->prepare('SELECT guild_xp FROM guilds WHERE guild_id = ? FOR UPDATE');
+    $g->execute([$guildId]);
+    $xp = $g->fetchColumn();
+    if ($xp === false) {
+        return false;
+    }
+    $newXp = (int)$xp + $amount;
+    $newLevel = function_exists('guild_calculate_level_from_xp')
+        ? guild_calculate_level_from_xp($newXp)
+        : max(1, (int)floor(sqrt($newXp / 1000.0)) + 1);
+    $pdo->prepare('UPDATE guilds SET guild_xp = ?, guild_level = ?, ranking_score = ? WHERE guild_id = ?')
+        ->execute([$newXp, $newLevel, $newXp, $guildId]);
+    $pdo->prepare('UPDATE guild_members SET contribution_xp = contribution_xp + ? WHERE guild_id = ? AND player_id = ?')
+        ->execute([$amount, $guildId, $player_id]);
+    return true;
+}
+
 function questApplyReward(PDO $pdo, int $player_id, string $reward_type, int $amount, ?int $item_template_id, int $quantity): array
 {
     $result = ['reward_type' => $reward_type, 'amount' => $amount, 'item_template_id' => $item_template_id, 'quantity' => $quantity];
@@ -581,6 +735,31 @@ function questApplyReward(PDO $pdo, int $player_id, string $reward_type, int $am
         if (!questGrantItemToPlayer($pdo, $player_id, $item_template_id, max(1, $quantity))) {
             throw new RuntimeException('Inventário cheio ao conceder item de recompensa.');
         }
+    } elseif ($reward_type === 'skill_points' && $amount > 0) {
+        // bonus_points: o level up recalcula nível × 3 + bônus (não apaga o ganho da quest).
+        $pdo->prepare('INSERT IGNORE INTO player_skill_points (player_id, total_points_earned, points_spent, points_available) VALUES (?, 0, 0, 0)')
+            ->execute([$player_id]);
+        $pdo->prepare('
+            UPDATE player_skill_points
+            SET bonus_points = bonus_points + ?, total_points_earned = total_points_earned + ?,
+                points_available = points_available + ?
+            WHERE player_id = ?
+        ')->execute([$amount, $amount, $amount, $player_id]);
+    } elseif ($reward_type === 'stat_points' && $amount > 0) {
+        $has = $pdo->prepare('SELECT id FROM player_stat_points WHERE player_id = ? LIMIT 1');
+        $has->execute([$player_id]);
+        if (!$has->fetchColumn()) {
+            $pdo->prepare('INSERT INTO player_stat_points (player_id, unspent_points) VALUES (?, 0)')->execute([$player_id]);
+        }
+        $pdo->prepare('UPDATE player_stat_points SET unspent_points = unspent_points + ? WHERE player_id = ?')
+            ->execute([$amount, $player_id]);
+    } elseif ($reward_type === 'companion' && $amount > 0) {
+        // amount = companion_id. Já possui: não duplica (a recompensa vira só aviso).
+        $ins = $pdo->prepare('INSERT IGNORE INTO player_companions (player_id, companion_id) VALUES (?, ?)');
+        $ins->execute([$player_id, $amount]);
+        $result['companion_granted'] = $ins->rowCount() > 0;
+    } elseif ($reward_type === 'guild_xp' && $amount > 0) {
+        $result['guild_xp_applied'] = questApplyGuildXp($pdo, $player_id, $amount);
     }
     return $result;
 }
@@ -672,6 +851,17 @@ function questResolveTurnInNpcLabel(PDO $pdo, int $npc_template_id): string
     return (string)($stmt->fetchColumn() ?: '');
 }
 
+/** Unix (s) em que a run ativa expira; 0 = sem limite ou não ativa. */
+function questExpiresAt(array $questRow, ?array $progressRow): int
+{
+    $limit = (int)($questRow['time_limit_minutes'] ?? 0);
+    if ($limit <= 0 || !$progressRow || !in_array((string)$progressRow['status'], ['active'], true)) {
+        return 0;
+    }
+    $acceptedTs = strtotime((string)($progressRow['accepted_at'] ?? ''));
+    return $acceptedTs === false ? 0 : $acceptedTs + $limit * 60;
+}
+
 function questBuildDetailPayload(PDO $pdo, int $player_id, array $questRow, ?array $playerQuestRow): array
 {
     $quest_id = (int)$questRow['quest_id'];
@@ -716,7 +906,13 @@ function questBuildDetailPayload(PDO $pdo, int $player_id, array $questRow, ?arr
         'turn_in_npc_template_id' => $turnInTemplateId,
         'turn_in_npc_name' => $turnInNpcName,
         'min_level' => (int)$questRow['min_level'],
-        'repeatable' => !empty($questRow['repeatable']),
+        'repeatable' => questRepeatType($questRow) !== 'none',
+        // Quests v2
+        'repeat_type' => questRepeatType($questRow),
+        'max_level' => (int)($questRow['max_level'] ?? 0),
+        'quest_category' => (string)($questRow['quest_category'] ?? 'side'),
+        'time_limit_minutes' => (int)($questRow['time_limit_minutes'] ?? 0),
+        'expires_at' => questExpiresAt($questRow, $progressRow),
         'status' => $status,
         'player_quest_id' => $progressRow ? (int)$progressRow['player_quest_id'] : 0,
         'objectives' => $objOut,
@@ -806,6 +1002,14 @@ function questAccept(PDO $pdo, int $player_id, int $quest_id, int $npc_template_
                 $have = $itemId > 0 ? questCountPlayerItem($pdo, $player_id, $itemId) : 0;
                 $initial = min($have, $required);
                 $done = $have >= $required ? 1 : 0;
+            } elseif ($obj['objective_type'] === 'reach_level') {
+                // Já tem o nível: conta na hora (a zone credita os próximos level ups).
+                $required = max(1, (int)($params['level'] ?? 1));
+                $lvl = $pdo->prepare('SELECT level FROM players WHERE id = ?');
+                $lvl->execute([$player_id]);
+                $level = (int)($lvl->fetchColumn() ?: 1);
+                $initial = min($level, $required);
+                $done = $level >= $required ? 1 : 0;
             }
             $pdo->prepare('
                 INSERT INTO player_quest_objectives (player_quest_id, objective_id, current_count, is_completed)
@@ -865,56 +1069,6 @@ function questAbandon(PDO $pdo, int $player_id, int $quest_id): array
     }
 }
 
-function questReportProgress(PDO $pdo, int $player_id, int $quest_id, string $objective_type, ?array $client_pos, int $zone_id = 0, int $item_template_id = 0): array
-{
-    $pq = questGetPlayerQuestRow($pdo, $player_id, $quest_id);
-    if (!$pq || $pq['status'] !== 'active') {
-        return ['ok' => false, 'message' => 'Quest não está ativa.'];
-    }
-    if (!in_array($objective_type, ['reach_area', 'use_item_at'], true)) {
-        return ['ok' => false, 'message' => 'Tipo de progresso inválido.'];
-    }
-    if ($client_pos === null) {
-        return ['ok' => false, 'message' => 'Informe pos_x, pos_y e pos_z.'];
-    }
-    $player_quest_id = (int)$pq['player_quest_id'];
-    $stmt = $pdo->prepare('
-        SELECT pqo.player_objective_id, qo.objective_id, qo.params_json
-        FROM player_quest_objectives pqo
-        INNER JOIN quest_objectives qo ON qo.objective_id = pqo.objective_id
-        WHERE pqo.player_quest_id = ? AND pqo.is_completed = 0 AND qo.objective_type = ?
-    ');
-    $stmt->execute([$player_quest_id, $objective_type]);
-    $updated = false;
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $params = questDecodeParams($row['params_json'] ?? null);
-        if ($objective_type === 'use_item_at') {
-            $needItem = (int)($params['item_template_id'] ?? 0);
-            if ($item_template_id > 0 && $needItem !== $item_template_id) {
-                continue;
-            }
-            if ($needItem > 0 && questCountPlayerItem($pdo, $player_id, $needItem) < 1) {
-                continue;
-            }
-        }
-        if (!questValidateAreaObjective($params, $zone_id, $client_pos['pos_x'], $client_pos['pos_y'], $client_pos['pos_z'])) {
-            continue;
-        }
-        $required = max(1, (int)($params['required_count'] ?? 1));
-        $pdo->prepare('
-            UPDATE player_quest_objectives
-            SET current_count = ?, is_completed = 1
-            WHERE player_objective_id = ?
-        ')->execute([$required, (int)$row['player_objective_id']]);
-        $updated = true;
-    }
-    if ($updated) {
-        questPromoteToReadyIfComplete($pdo, $player_quest_id);
-    }
-    $quest = questLoadQuestRow($pdo, $quest_id);
-    $pq = questGetPlayerQuestRow($pdo, $player_id, $quest_id);
-    return ['ok' => true, 'updated' => $updated, 'detail' => questBuildDetailPayload($pdo, $player_id, $quest, $pq)];
-}
 
 function questHasPendingChoiceRewards(PDO $pdo, int $quest_id): bool
 {
@@ -1170,6 +1324,9 @@ function questGetJournal(PDO $pdo, int $player_id): array
             if ($fresh) {
                 $row = array_merge($row, $fresh);
             }
+            if ((string)$row['status'] === 'failed') {
+                continue;  // tempo esgotado: sai do diário; pode aceitar de novo no NPC
+            }
         }
         $quest = questLoadQuestRow($pdo, (int)$row['quest_id']);
         if (!$quest) {
@@ -1189,6 +1346,8 @@ function questGetJournal(PDO $pdo, int $player_id): array
             'quest_id' => (int)$row['quest_id'],
             'title' => $row['title'],
             'status' => $row['status'],
+            'quest_category' => $detail['quest_category'],
+            'expires_at' => $detail['expires_at'],
             'current_objective' => $currentObjective,
             'detail' => $detail,
         ];

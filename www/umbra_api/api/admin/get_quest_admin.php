@@ -33,7 +33,8 @@ try {
     $pdo = getConnection();
     $q = $pdo->prepare(
         'SELECT quest_id, quest_key, title, description, offer_text, turn_in_text,
-                min_level, prerequisite_quest_id, repeatable, turn_in_npc_template_id, is_active
+                min_level, prerequisite_quest_id, repeatable, turn_in_npc_template_id, is_active,
+                repeat_type, max_level, class_ids, quest_category, time_limit_minutes
          FROM quests WHERE quest_id = :id LIMIT 1'
     );
     $q->execute([':id' => $questId]);

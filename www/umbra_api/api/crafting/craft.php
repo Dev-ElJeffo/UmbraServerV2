@@ -17,6 +17,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
 require_once __DIR__ . '/../../helpers/craft_helper.php';
+require_once __DIR__ . '/../../helpers/quest_helper.php';
+require_once __DIR__ . '/../../helpers/guild_mission_helper.php';
 
 $data = json_decode(file_get_contents('php://input'), true) ?: [];
 $validation = validateJWTRequest($data, $_SERVER);
@@ -65,6 +67,16 @@ try {
 
     $pdo->beginTransaction();
     $result = craftExecute($pdo, $player_id, $recipe_id, $craft_count, $bindings);
+    // Quests v2: craft_item (cada craft do lote conta).
+    $result['quests_advanced'] = questCreditEvent(
+        $pdo,
+        $player_id,
+        'craft_item',
+        (int)($result['result_item_template_id'] ?? 0),
+        (int)($result['craft_count'] ?? 1)
+    );
+    // Missões de guilda (3b): craft_item soma para a guilda.
+    gmCreditEvent($pdo, $player_id, 'craft_item', (int)($result['result_item_template_id'] ?? 0), (int)($result['craft_count'] ?? 1));
     $pdo->commit();
     echo json_encode([
         'success' => true,

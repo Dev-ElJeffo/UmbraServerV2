@@ -1,4 +1,12 @@
 <?php
+/**
+ * POST /api/quest/report_quest_progress.php — DESATIVADO (Quests v2, etapa 3a).
+ *
+ * reach_area e use_item_at confiavam na posição enviada pelo cliente. Agora a zone decide:
+ * - reach_area: QuestProgressService confere a posição real a cada 1 s;
+ * - use_item_at: opcode 132 (QuestInteract), com posição real e item na bolsa.
+ * Cliente antigo recebe 409 com use_via_zone = true.
+ */
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST');
@@ -9,62 +17,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-require_once __DIR__ . '/quest_bootstrap.php';
-
-$data = json_decode(file_get_contents('php://input'), true) ?: [];
-$validation = validateJWTRequest($data, $_SERVER);
-if (!$validation['valid']) {
-    http_response_code(401);
-    echo json_encode(['success' => false, 'message' => $validation['error'] ?? 'Token inválido.']);
-    exit;
-}
-
-$account_id = (int)($validation['payload']['account_id'] ?? 0);
-$player_id = (int)($validation['payload']['player_id'] ?? 0);
-$quest_id = (int)($data['quest_id'] ?? 0);
-$objective_type = (string)($data['objective_type'] ?? '');
-$zone_id = (int)($data['zone_id'] ?? 0);
-$item_template_id = (int)($data['item_template_id'] ?? 0);
-
-if ($player_id <= 0 || $account_id <= 0 || $quest_id <= 0) {
-    http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Informe token e quest_id.']);
-    exit;
-}
-
-try {
-    $pdo = getConnection();
-    if (!assertPlayerBelongsToAccount($pdo, $player_id, $account_id)) {
-        http_response_code(403);
-        echo json_encode(['success' => false, 'message' => 'Personagem inválido.']);
-        exit;
-    }
-    if ($zone_id <= 0) {
-        $zstmt = $pdo->prepare('SELECT current_zone FROM players WHERE id = ? LIMIT 1');
-        $zstmt->execute([$player_id]);
-        $zone_id = (int)($zstmt->fetchColumn() ?: 1);
-    }
-    $result = questReportProgress(
-        $pdo,
-        $player_id,
-        $quest_id,
-        $objective_type,
-        npcVendorExtractClientPos($data),
-        $zone_id,
-        $item_template_id
-    );
-    if (!$result['ok']) {
-        http_response_code(400);
-        echo json_encode(['success' => false, 'message' => $result['message'] ?? 'Falha no progresso.']);
-        exit;
-    }
-    echo json_encode([
-        'success' => true,
-        'updated' => !empty($result['updated']),
-        'detail' => $result['detail'],
-    ], JSON_UNESCAPED_UNICODE);
-} catch (PDOException $e) {
-    error_log('report_quest_progress: ' . $e->getMessage());
-    http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Erro ao reportar progresso.']);
-}
+http_response_code(409);
+echo json_encode([
+    'success' => false,
+    'message' => 'Progresso de área e de uso de item agora é feito pelo servidor do jogo. Atualize o cliente.',
+    'use_via_zone' => true,
+], JSON_UNESCAPED_UNICODE);

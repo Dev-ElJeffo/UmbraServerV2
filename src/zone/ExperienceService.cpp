@@ -146,7 +146,8 @@ ExperienceGrantResult ExperienceService::grantExperience(uint32_t playerId, int6
   if (newLevel > oldLevel) {
     const std::string totalSkill = std::to_string(newLevel * 3);
     db_->executePreparedInsert(
-        "UPDATE player_skill_points SET total_points_earned = ?, points_available = ? - points_spent "
+        "UPDATE player_skill_points SET total_points_earned = ? + bonus_points, "
+        "points_available = ? + bonus_points - points_spent "
         "WHERE player_id = ?",
         {totalSkill, totalSkill, pid});
   }
@@ -169,6 +170,9 @@ ExperienceGrantResult ExperienceService::grantExperience(uint32_t playerId, int6
 
   if (stateLoader_) {
     stateLoader_->invalidate(playerId);
+  }
+  if (result.levelsGained > 0 && onLevelUp_) {
+    onLevelUp_(playerId, newLevel);
   }
 
   Core::Logger::getInstance().info(

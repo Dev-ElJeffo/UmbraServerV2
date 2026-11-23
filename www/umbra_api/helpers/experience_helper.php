@@ -113,8 +113,9 @@ function umbra_grant_experience(PDO $pdo, int $player_id, int $amount, string $s
             $total_skill = $new_level * 3;
             // Placeholders distintos: ATTR_EMULATE_PREPARES=false não aceita :earned reutilizado.
             $pdo->prepare(
-                'UPDATE player_skill_points SET total_points_earned = :earned, '
-                . 'points_available = :earned_for_available - points_spent WHERE player_id = :id'
+                // bonus_points = pontos de skill ganhos em quest (add_quests_v2.sql): não somem no level up.
+                'UPDATE player_skill_points SET total_points_earned = :earned + bonus_points, '
+                . 'points_available = :earned_for_available + bonus_points - points_spent WHERE player_id = :id'
             )->execute([
                 ':earned' => $total_skill,
                 ':earned_for_available' => $total_skill,

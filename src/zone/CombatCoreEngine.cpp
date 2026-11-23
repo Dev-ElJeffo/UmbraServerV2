@@ -269,6 +269,7 @@ bool CombatCoreEngine::initialize(uint32_t zoneId,
   reactionEngine_->setDatabase(db_);
   reactionEngine_->setCombatEngine(this);
   questProgressService_ = std::make_unique<QuestProgressService>(db_, zoneId_);
+  questProgressService_->start();  // thread própria: eventos de quest só enfileiram
 
   if (!loadBasicAttacks()) {
     Core::Logger::getInstance().warn("[CombatCoreEngine] basic_attacks não carregadas (tabela ausente?)");
@@ -306,6 +307,7 @@ CombatCoreEngine::~CombatCoreEngine() {
 }
 
 void CombatCoreEngine::shutdown() {
+  if (questProgressService_) questProgressService_->stop();
   if (!workerRunning_.exchange(false)) {
     return;
   }
@@ -2996,7 +2998,7 @@ void CombatCoreEngine::handleNpcDamageResult(uint32_t npcInstanceId, int32_t app
       const NpcRuntimeInstance* victim = npcManager_->findInstance(npcInstanceId);
       if (victim) {
         questProgressService_->onNpcKilled(killerPlayerId, victim->npcInstanceId, victim->templateId,
-                                           victim->zoneId);
+                                           victim->zoneId, victim->level);
       }
     }
     if (lootService_ && killerPlayerId > 0) {
@@ -4391,6 +4393,14 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
                                  ? static_cast<uint8_t>(CombatTargetType::Player)
                                  : payload.targetType;
   broadcastSkillCast(castBroadcast);
+
+  // Quests v2: cast aceito (mana/CD pagos) conta para use_skill.
+  if (questProgressService_) {
+    QuestEvent ev;
+    ev.kind = QuestObjectiveKind::UseSkill;
+    ev.key = payload.skillId;
+    questProgressService_->onEvent(sourcePlayerId, ev);
+  }
 
   if (skill->type == Combat::SkillType::REACTION) {
     armReactionSkill(sourcePlayerId, rankedSkill);

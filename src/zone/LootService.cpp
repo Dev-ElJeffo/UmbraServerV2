@@ -2,6 +2,7 @@
 #include "zone/EnchantRoll.hpp"
 #include "zone/MovementServer.hpp"
 #include "zone/PartyShare.hpp"
+#include "zone/QuestProgressService.hpp"
 #include "core/Logger.hpp"
 #include <algorithm>
 #include <chrono>
@@ -463,6 +464,12 @@ bool LootService::takeSlot(LootCorpseRuntime& corpse, uint8_t slotIndex, uint32_
       const int64_t newGold = grantGoldToPlayer(playerId, s.quantity);
       if (newGold < 0) return false;
       outPlayerGold = newGold;
+      if (questService_) {
+        QuestEvent ev;
+        ev.kind = QuestObjectiveKind::EarnGold;
+        ev.amount = static_cast<int32_t>(std::min<uint32_t>(s.quantity, 0x7fffffff));
+        questService_->onEvent(playerId, ev);
+      }
     } else {
       if (!grantItemToPlayer(playerId, s.itemTemplateId, s.quantity)) return false;
       outInventoryChanged = true;
