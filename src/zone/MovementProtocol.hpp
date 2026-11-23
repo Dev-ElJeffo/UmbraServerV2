@@ -115,6 +115,10 @@ enum class MovementMsgType : uint8_t {
 	CompanionRequest = 124,              // Cliente -> Servidor: [msgType][action:1][companionId:4][minRarity:1][flags:1] (invocar/recolher/filtro)
 	CompanionState = 125,                // Servidor -> Clientes: estado visual do companheiro de um player (ver encodeCompanionState)
 	CompanionLootCollected = 126,        // Servidor -> dono + AOI: o pet coletou um corpo (ver encodeCompanionLootCollected)
+	ConsumableUseRequest = 127,          // Cliente -> Servidor: [msgType][inventoryId:4][itemTemplateId:4] (poção pela zone)
+	ConsumableUseResult = 128,           // Servidor -> dono: resultado do uso (ver encodeConsumableUseResult)
+	ElementalRulesSet = 129,             // Cliente -> Servidor: regras do elemental (ver decodeElementalRulesSet)
+	ElementalRulesState = 130,           // Servidor -> dono: regras gravadas/confirmadas (ver encodeElementalRulesState)
 	WsKeepalive = 250                      // Servidor -> Cliente: heartbeat (1 byte); cliente ignora
 };
 
@@ -3495,6 +3499,181 @@ inline bool decodeCompanionLootCollected(const std::vector<uint8_t>& data, Compa
     p.items.push_back(it);
   }
   return true;
+}
+
+// --- Consumíveis pela zone + elemental (127-130) -------------------------------------
+// 127: [type][inventoryId:4][itemTemplateId:4]   (inventoryId 0 = primeira pilha do template)
+// 128: [type][status:1][source:1][itemTemplateId:4][inventoryId:4][qtyRemaining:4][cdExpiresAt:8]
+//      [cdTotalMs:4][hpRestored:4][mpRestored:4][buffValue:4][buffDurationMs:4][buffExpiresAt:8]
+//      [subtype][buffKey][message]   (strings u16 + UTF-8; subtype/buffKey até 64, message até 128)
+// 129: [type][companionId:4][count:1] + count × [trigger:1][threshold:1][itemTemplateId:4]
+// 130: [type][status:1][companionId:4][maxRules:1][count:1] + count × [trigger:1][threshold:1][itemTemplateId:4]
+
+enum class ConsumableUseStatus : uint8_t {
+  Ok = 0, Cooldown = 1, NotFound = 2, Dead = 3, Invalid = 4, Error = 5
+};
+enum class ConsumableSource : uint8_t { Player = 0, Elemental = 1 };
+/** Gatilho da regra do elemental. threshold = % (1..99) para Hp/MpBelow; ignorado em BuffMissing. */
+enum class ElementalTrigger : uint8_t { HpBelow = 1, MpBelow = 2, BuffMissing = 3 };
+enum class ElementalRulesStatus : uint8_t { Ok = 0, Invalid = 1, NotOwned = 2, Error = 3 };
+constexpr uint8_t kElementalMaxRulesCap = 4;
+
+struct ConsumableUseRequestPayload {
+  uint32_t inventoryId = 0;
+  uint32_t itemTemplateId = 0;
+};
+
+struct ConsumableUseResultPayload {
+  uint8_t status = 0;
+  uint8_t source = 0;
+  uint32_t itemTemplateId = 0;
+  uint32_t inventoryId = 0;
+  uint32_t quantityRemaining = 0;
+  int64_t cooldownExpiresAtMs = 0;
+  uint32_t cooldownTotalMs = 0;
+  int32_t healthRestored = 0;
+  int32_t manaRestored = 0;
+  int32_t buffValue = 0;
+  uint32_t buffDurationMs = 0;
+  int64_t buffExpiresAtMs = 0;
+  std::string subtype;
+  std::string buffKey;
+  std::string message;
+};
+
+struct ElementalRuleWire {
+  uint8_t trigger = 0;
+  uint8_t threshold = 0;
+  uint32_t itemTemplateId = 0;
+};
+
+struct ElementalRulesSetPayload {
+  uint32_t companionId = 0;
+  std::vector<ElementalRuleWire> rules;
+};
+
+struct ElementalRulesStatePayload {
+  uint8_t status = 0;
+  uint32_t companionId = 0;
+  uint8_t maxRules = 0;
+  std::vector<ElementalRuleWire> rules;
+};
+
+inline std::vector<uint8_t> encodeConsumableUseRequest(const ConsumableUseRequestPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(9);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::ConsumableUseRequest));
+  appendLootU32(data, p.inventoryId);
+  appendLootU32(data, p.itemTemplateId);
+  return data;
+}
+
+inline bool decodeConsumableUseRequest(const std::vector<uint8_t>& data, ConsumableUseRequestPayload& p) {
+  if (data.size() < 9 || data[0] != static_cast<uint8_t>(MovementMsgType::ConsumableUseRequest)) return false;
+  size_t off = 1;
+  p.inventoryId = readLootU32(data, off);
+  p.itemTemplateId = readLootU32(data, off);
+  return p.inventoryId != 0 || p.itemTemplateId != 0;
+}
+
+inline std::vector<uint8_t> encodeConsumableUseResult(const ConsumableUseResultPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(64 + p.subtype.size() + p.buffKey.size() + p.message.size());
+  data.push_back(static_cast<uint8_t>(MovementMsgType::ConsumableUseResult));
+  data.push_back(p.status);
+  data.push_back(p.source);
+  appendLootU32(data, p.itemTemplateId);
+  appendLootU32(data, p.inventoryId);
+  appendLootU32(data, p.quantityRemaining);
+  appendLootI64(data, p.cooldownExpiresAtMs);
+  appendLootU32(data, p.cooldownTotalMs);
+  appendLootU32(data, static_cast<uint32_t>(p.healthRestored));
+  appendLootU32(data, static_cast<uint32_t>(p.manaRestored));
+  appendLootU32(data, static_cast<uint32_t>(p.buffValue));
+  appendLootU32(data, p.buffDurationMs);
+  appendLootI64(data, p.buffExpiresAtMs);
+  appendStringField(data, p.subtype, 64);
+  appendStringField(data, p.buffKey, 64);
+  appendStringField(data, p.message, 128);
+  return data;
+}
+
+inline bool decodeConsumableUseResult(const std::vector<uint8_t>& data, ConsumableUseResultPayload& p) {
+  if (data.size() < 53 || data[0] != static_cast<uint8_t>(MovementMsgType::ConsumableUseResult)) return false;
+  size_t off = 1;
+  p.status = data[off++];
+  p.source = data[off++];
+  p.itemTemplateId = readLootU32(data, off);
+  p.inventoryId = readLootU32(data, off);
+  p.quantityRemaining = readLootU32(data, off);
+  p.cooldownExpiresAtMs = static_cast<int64_t>(readLootU64(data, off));
+  p.cooldownTotalMs = readLootU32(data, off);
+  p.healthRestored = static_cast<int32_t>(readLootU32(data, off));
+  p.manaRestored = static_cast<int32_t>(readLootU32(data, off));
+  p.buffValue = static_cast<int32_t>(readLootU32(data, off));
+  p.buffDurationMs = readLootU32(data, off);
+  p.buffExpiresAtMs = static_cast<int64_t>(readLootU64(data, off));
+  return readStringField(data, off, p.subtype, 64) && readStringField(data, off, p.buffKey, 64) &&
+         readStringField(data, off, p.message, 128);
+}
+
+inline void appendElementalRules(std::vector<uint8_t>& data, const std::vector<ElementalRuleWire>& rules) {
+  const size_t count = std::min<size_t>(rules.size(), kElementalMaxRulesCap);
+  data.push_back(static_cast<uint8_t>(count));
+  for (size_t i = 0; i < count; ++i) {
+    data.push_back(rules[i].trigger);
+    data.push_back(rules[i].threshold);
+    appendLootU32(data, rules[i].itemTemplateId);
+  }
+}
+
+inline bool readElementalRules(const std::vector<uint8_t>& data, size_t& off, std::vector<ElementalRuleWire>& rules) {
+  if (off >= data.size()) return false;
+  const uint8_t count = data[off++];
+  if (count > kElementalMaxRulesCap || off + static_cast<size_t>(count) * 6 > data.size()) return false;
+  rules.clear();
+  for (uint8_t i = 0; i < count; ++i) {
+    ElementalRuleWire r;
+    r.trigger = data[off++];
+    r.threshold = data[off++];
+    r.itemTemplateId = readLootU32(data, off);
+    rules.push_back(r);
+  }
+  return true;
+}
+
+inline std::vector<uint8_t> encodeElementalRulesSet(const ElementalRulesSetPayload& p) {
+  std::vector<uint8_t> data;
+  data.push_back(static_cast<uint8_t>(MovementMsgType::ElementalRulesSet));
+  appendLootU32(data, p.companionId);
+  appendElementalRules(data, p.rules);
+  return data;
+}
+
+inline bool decodeElementalRulesSet(const std::vector<uint8_t>& data, ElementalRulesSetPayload& p) {
+  if (data.size() < 6 || data[0] != static_cast<uint8_t>(MovementMsgType::ElementalRulesSet)) return false;
+  size_t off = 1;
+  p.companionId = readLootU32(data, off);
+  return readElementalRules(data, off, p.rules);
+}
+
+inline std::vector<uint8_t> encodeElementalRulesState(const ElementalRulesStatePayload& p) {
+  std::vector<uint8_t> data;
+  data.push_back(static_cast<uint8_t>(MovementMsgType::ElementalRulesState));
+  data.push_back(p.status);
+  appendLootU32(data, p.companionId);
+  data.push_back(p.maxRules);
+  appendElementalRules(data, p.rules);
+  return data;
+}
+
+inline bool decodeElementalRulesState(const std::vector<uint8_t>& data, ElementalRulesStatePayload& p) {
+  if (data.size() < 8 || data[0] != static_cast<uint8_t>(MovementMsgType::ElementalRulesState)) return false;
+  size_t off = 1;
+  p.status = data[off++];
+  p.companionId = readLootU32(data, off);
+  p.maxRules = data[off++];
+  return readElementalRules(data, off, p.rules);
 }
 
 inline bool decodeQuestProgressNotify(const std::vector<uint8_t>& data, QuestProgressNotifyPayload& p) {

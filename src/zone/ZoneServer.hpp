@@ -11,6 +11,7 @@
 #include "zone/ExpZoneManager.hpp"
 #include "zone/LootService.hpp"
 #include "zone/CompanionService.hpp"
+#include "zone/ConsumableService.hpp"
 
 namespace Umbra {
 namespace Auth { class JWTManager; }
@@ -47,6 +48,7 @@ class ZoneServer {
   ExperienceService* getExperienceService() { return experienceService_.get(); }
   LootService* getLootService() { return lootService_.get(); }
   CompanionService* getCompanionService() { return companionService_.get(); }
+  ConsumableService* getConsumableService() { return consumableService_.get(); }
   const Config& getConfig() const;
   void forceSavePositions();
   void reloadGameRates();
@@ -63,6 +65,8 @@ class ZoneServer {
   // Antes do lootService_: a thread do pet (no LootService) morre antes do CompanionService.
   std::unique_ptr<CompanionService> companionService_;
   std::unique_ptr<LootService> lootService_;
+  // Último: o worker dele usa combate, movimento e companheiros (morre primeiro).
+  std::unique_ptr<ConsumableService> consumableService_;
   std::unique_ptr<Umbra::Auth::JWTManager> jwtManager_;
   float expZoneTickAccumulator_ = 0.0f;
   float snapshotAccumulator_ = 0.0f;

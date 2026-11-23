@@ -9,7 +9,7 @@ function companion_template_columns(): array
     return [
         'companion_key', 'name', 'description', 'companion_type', 'icon_path', 'mesh_path',
         'idle_anim_path', 'move_anim_path', 'pickup_vfx_path', 'scale', 'follow_distance',
-        'hover_height', 'loot_radius_uu', 'loot_delay_ms', 'required_level', 'is_active',
+        'hover_height', 'loot_radius_uu', 'loot_delay_ms', 'max_rules', 'auto_check_ms', 'required_level', 'is_active',
     ];
 }
 
@@ -54,6 +54,10 @@ function companion_normalize_field(string $field, $value)
             return max(0.0, min(5000.0, (float)$value));
         case 'loot_delay_ms':
             return max(0, min(5000, (int)$value));
+        case 'max_rules':
+            return max(1, min(4, (int)$value ?: 2));
+        case 'auto_check_ms':
+            return max(250, min(5000, (int)$value ?: 500));
         case 'required_level':
             return max(1, (int)$value);
         case 'is_active':

@@ -34,14 +34,21 @@ void CompanionService::loadTemplates() {
   if (!db_ || !db_->isConnected()) return;
   std::unordered_map<uint32_t, CompanionTemplateDef> next;
   try {
-    // Ordem posicional: conferir os índices abaixo ao mudar o SELECT.
+    // Colunas do elemental (add_companion_elemental_rules.sql): sem elas, usa os padrões.
+    const auto hasElemental = db_->executePreparedScalar(
+        "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
+        "AND TABLE_NAME = 'companion_templates' AND COLUMN_NAME = 'max_rules'",
+        {});
+    const bool elementalCols = hasElemental && parseIntOr(*hasElemental, 0) > 0;
+    // Ordem posicional: conferir os índices abaixo ao mudar o SELECT (15 = max_rules, 16 = auto_check_ms).
     auto rows = db_->executePreparedQuery(
-        "SELECT companion_id, companion_key, name, companion_type, mesh_path, idle_anim_path, "
-        "move_anim_path, pickup_vfx_path, scale, follow_distance, hover_height, loot_radius_uu, "
-        "loot_delay_ms, required_level, is_active FROM companion_templates",
+        std::string("SELECT companion_id, companion_key, name, companion_type, mesh_path, idle_anim_path, "
+                    "move_anim_path, pickup_vfx_path, scale, follow_distance, hover_height, loot_radius_uu, "
+                    "loot_delay_ms, required_level, is_active, ") +
+            (elementalCols ? "max_rules, auto_check_ms" : "2, 500") + " FROM companion_templates",
         {});
     for (const auto& r : rows) {
-      if (r.size() < 15) continue;
+      if (r.size() < 17) continue;
       CompanionTemplateDef t;
       t.companionId = static_cast<uint32_t>(parseIntOr(r[0], 0));
       if (t.companionId == 0) continue;
@@ -59,6 +66,8 @@ void CompanionService::loadTemplates() {
       t.lootDelayMs = static_cast<uint32_t>(std::clamp<long long>(parseIntOr(r[12], 800), 0, 5000));
       t.requiredLevel = static_cast<int>(std::max<long long>(1, parseIntOr(r[13], 1)));
       t.enabled = parseIntOr(r[14], 1) != 0;
+      t.maxRules = static_cast<uint8_t>(std::clamp<long long>(parseIntOr(r[15], 2), 1, kElementalMaxRulesCap));
+      t.autoCheckMs = static_cast<uint32_t>(std::clamp<long long>(parseIntOr(r[16], 500), 250, 5000));
       next[t.companionId] = std::move(t);
     }
   } catch (const std::exception& e) {
@@ -86,6 +95,10 @@ bool CompanionService::findTemplate(uint32_t companionId, CompanionTemplateDef& 
   if (it == templates_.end()) return false;
   out = it->second;
   return true;
+}
+
+bool CompanionService::getTemplate(uint32_t companionId, CompanionTemplateDef& out) const {
+  return findTemplate(companionId, out);
 }
 
 CompanionStatePayload CompanionService::buildState(uint32_t ownerId, const CompanionTemplateDef& tpl,
@@ -174,6 +187,15 @@ void CompanionService::summon(uint32_t playerId, const CompanionTemplateDef& tpl
     active_[activeKey(playerId, tpl.slot)] = entry;
   }
   movementServer_->setPlayerCompanionState(buildState(playerId, tpl, true));
+
+  // Elemental: regras gravadas vão para o ConsumableService (que também manda o 130 ao dono).
+  if (tpl.slot == CompanionSlot::Elemental && onElementalActivated_) {
+    auto rulesRow = db_->executePreparedQuery(
+        "SELECT COALESCE(auto_rules_json,'') FROM player_companions WHERE player_id = ? AND companion_id = ? LIMIT 1",
+        {std::to_string(playerId), std::to_string(tpl.companionId)});
+    const std::string rulesJson = (!rulesRow.empty() && !rulesRow[0].empty()) ? rulesRow[0][0] : std::string();
+    onElementalActivated_(playerId, tpl, rulesJson);
+  }
   Core::Logger::getInstance().info("[CompanionService] player {} invocou {} ({}) filtro={} ouro={}",
                                    playerId, tpl.companionId, tpl.companionKey, entry.minRarity,
                                    entry.lootGold);
@@ -195,6 +217,9 @@ void CompanionService::dismiss(uint32_t playerId, const CompanionTemplateDef& tp
       {std::to_string(playerId), std::to_string(tpl.companionId)});
   if (wasActive) {
     movementServer_->setPlayerCompanionState(buildState(playerId, tpl, false));
+  }
+  if (tpl.slot == CompanionSlot::Elemental && onElementalDeactivated_) {
+    onElementalDeactivated_(playerId, tpl.companionId);
   }
   Core::Logger::getInstance().info("[CompanionService] player {} recolheu {}", playerId, tpl.companionId);
 }

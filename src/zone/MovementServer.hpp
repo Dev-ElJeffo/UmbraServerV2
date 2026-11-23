@@ -70,6 +70,14 @@ public:
     companionRequestHandler_ = std::move(cb);
   }
 
+  /** Opcodes 127/129: roda no inbound worker; o serviço só enfileira na thread dele. */
+  void setConsumableUseHandler(std::function<void(uint32_t playerId, const ConsumableUseRequestPayload&)> cb) {
+    consumableUseHandler_ = std::move(cb);
+  }
+  void setElementalRulesHandler(std::function<void(uint32_t playerId, const ElementalRulesSetPayload&)> cb) {
+    elementalRulesHandler_ = std::move(cb);
+  }
+
   /** Player saiu de vez da zone (sem reconexão): limpa caches de serviços (companheiros). */
   void setPlayerGoneHook(std::function<void(uint32_t playerId)> cb) { playerGoneHook_ = std::move(cb); }
 
@@ -683,11 +691,32 @@ public:
               if (payload.maxHealth > 0 || payload.maxMana > 0) {
                 loader->patchCachedMaxVitals(senderPlayerId, payload.maxHealth, payload.maxMana);
               }
-              if (payload.currentHealth >= 0) {
-                loader->patchCachedHealth(senderPlayerId, payload.currentHealth);
+              // Companheiros etapa 2: vida/mana ATUAIS não vêm mais do cliente. Dano, cura, poção,
+              // regen e respawn são da zone; o 86 do cliente costuma trazer o valor do DB (write-behind
+              // atrasado, ex.: ao abrir a ficha) e baixaria/subiria a vida errado. Diferente do cache →
+              // ignora, repassa o valor da zone e reenvia o 87 real ao dono.
+              Combat::CharacterState cached;
+              bool resync = false;
+              if (loader->tryGetCachedState(senderPlayerId, cached)) {
+                const int32_t zoneHp = cached.buffedStats.currentHealth;
+                const int32_t zoneMp = cached.buffedStats.currentMana;
+                if (payload.currentHealth >= 0 && payload.currentHealth != zoneHp) resync = true;
+                if (payload.currentMana >= 0 && payload.currentMana != zoneMp) resync = true;
+                payload.currentHealth = zoneHp;
+                payload.currentMana = zoneMp;
+              } else {
+                resync = true;  // sem cache: a zone carrega do DB e manda o 87
               }
-              if (payload.currentMana >= 0) {
-                loader->patchCachedMana(senderPlayerId, payload.currentMana);
+              if (resync) {
+                const int64_t nowLog = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                           std::chrono::steady_clock::now().time_since_epoch())
+                                           .count();
+                if (nowLog - lastVitalsIgnoreLogMs_ > 5000) {
+                  lastVitalsIgnoreLogMs_ = nowLog;
+                  Umbra::Core::Logger::getInstance().info(
+                      "vitals 86 ignorado: HP/MP atuais do cliente diferem da zone (player {})", senderPlayerId);
+                }
+                combatCoreEngine_->resyncPlayerVitals(senderPlayerId);
               }
             }
           }
@@ -803,6 +832,29 @@ public:
             if (cidIt != clientIdToPlayerId_.end()) playerId = cidIt->second;
           }
           if (playerId > 0) lootService_->handleLootTakeItem(playerId, payload);
+        }
+        return;
+      }
+
+      // Consumível pela zone (127) e regras do elemental (129). O dono vem do cid.
+      if (msgType == MovementMsgType::ConsumableUseRequest || msgType == MovementMsgType::ElementalRulesSet) {
+        uint32_t playerId = 0;
+        {
+          std::lock_guard<std::mutex> lock(mu_);
+          auto cidIt = clientIdToPlayerId_.find(cid);
+          if (cidIt != clientIdToPlayerId_.end()) playerId = cidIt->second;
+        }
+        if (playerId == 0) return;
+        if (msgType == MovementMsgType::ConsumableUseRequest) {
+          ConsumableUseRequestPayload payload;
+          if (decodeConsumableUseRequest(data, payload) && consumableUseHandler_) {
+            consumableUseHandler_(playerId, payload);
+          }
+        } else {
+          ElementalRulesSetPayload payload;
+          if (decodeElementalRulesSet(data, payload) && elementalRulesHandler_) {
+            elementalRulesHandler_(playerId, payload);
+          }
         }
         return;
       }
@@ -1352,6 +1404,29 @@ public:
   size_t getOnlinePlayerCount() const {
     std::lock_guard<std::mutex> lock(mu_);
     return players_.size();
+  }
+
+  /**
+   * Envia para o grupo (cache) + jogadores na AOI do player; includeSelf inclui o próprio.
+   * Mesmo alcance do 94/86 (efeitos de poção, buffs de item). Seguro fora de mu_.
+   */
+  void broadcastToPartyAndNearby(uint32_t playerId, const std::vector<uint8_t>& msg, bool includeSelf) {
+    if (playerId == 0) return;
+    const std::vector<uint32_t> party = getPartyMembersCached(playerId);
+    std::lock_guard<std::mutex> lock(mu_);
+    std::unordered_set<uint32_t> targets;
+    for (uint32_t m : party) {
+      if (m != playerId) targets.insert(m);
+    }
+    const uint32_t cid = findClientIdForPlayerUnlocked(playerId);
+    if (cid != 0) {
+      for (uint32_t nearbyCid : aoiGrid_.getNearbyPlayers(cid)) {
+        auto pidIt = clientIdToPlayerId_.find(nearbyCid);
+        if (pidIt != clientIdToPlayerId_.end() && pidIt->second != playerId) targets.insert(pidIt->second);
+      }
+    }
+    if (includeSelf) targets.insert(playerId);
+    for (uint32_t t : targets) sendToPlayerUnlocked(t, msg);
   }
 
   /** Posição atual do player (false se offline/sem estado). Sem cópia do mapa inteiro. */
@@ -2585,6 +2660,9 @@ private:
   LootService* lootService_ = nullptr;
   std::function<void(uint32_t, const CompanionRequestPayload&)> companionRequestHandler_;
   std::function<void(uint32_t)> playerGoneHook_;
+  std::function<void(uint32_t, const ConsumableUseRequestPayload&)> consumableUseHandler_;
+  std::function<void(uint32_t, const ElementalRulesSetPayload&)> elementalRulesHandler_;
+  int64_t lastVitalsIgnoreLogMs_ = 0;
   MovementSessionAuth sessionAuth_;
   bool sessionAuthEnabled_ = false;
 

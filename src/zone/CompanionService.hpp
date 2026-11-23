@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <functional>
 #include <unordered_map>
 
 namespace Umbra {
@@ -33,6 +34,8 @@ struct CompanionTemplateDef {
   float hoverHeight = 0.f;
   float lootRadiusUu = 1500.f;
   uint32_t lootDelayMs = 800;
+  uint8_t maxRules = 2;        // elemental: regras aceitas (1-4)
+  uint32_t autoCheckMs = 500;  // elemental: intervalo de checagem (ms)
   int requiredLevel = 1;
   bool enabled = true;
 };
@@ -89,6 +92,18 @@ public:
   /** Regra do pet ativo; false se o player não tem pet invocado. */
   bool getActivePetRule(uint32_t playerId, PetLootRule& out) const;
 
+  /** Modelo carregado (cópia). */
+  bool getTemplate(uint32_t companionId, CompanionTemplateDef& out) const;
+
+  /** Elemental invocado (com o auto_rules_json do DB) / recolhido. Ligado ao ConsumableService. */
+  using ElementalActivatedFn =
+      std::function<void(uint32_t playerId, const CompanionTemplateDef& tpl, const std::string& rulesJson)>;
+  using ElementalDeactivatedFn = std::function<void(uint32_t playerId, uint32_t companionId)>;
+  void setElementalHooks(ElementalActivatedFn onActivated, ElementalDeactivatedFn onDeactivated) {
+    onElementalActivated_ = std::move(onActivated);
+    onElementalDeactivated_ = std::move(onDeactivated);
+  }
+
 private:
   struct ActiveEntry {
     uint32_t companionId = 0;
@@ -112,6 +127,8 @@ private:
   mutable std::mutex mu_;
   std::unordered_map<uint32_t, CompanionTemplateDef> templates_;
   std::unordered_map<uint64_t, ActiveEntry> active_;
+  ElementalActivatedFn onElementalActivated_;
+  ElementalDeactivatedFn onElementalDeactivated_;
 };
 
 }  // namespace Zone

@@ -5,7 +5,8 @@
  *
  * Body (JSON): { "token": "jwt...", "player_id": 1 }
  * Resposta: { success, companions: [ {companion_id, companion_key, name, description, companion_type,
- *             icon_path, required_level, is_active, loot_min_rarity, loot_gold, expires_at} ] }
+ *             icon_path, required_level, max_rules, is_active, loot_min_rarity, loot_gold, expires_at,
+ *             auto_rules: [{trigger, threshold, item_template_id}]} ] }
  * Invocar/recolher/filtro vão pela zone (opcode 124), não por aqui.
  */
 header('Content-Type: application/json; charset=utf-8');
@@ -65,7 +66,7 @@ try {
 
     $stmt = $pdo->prepare(
         'SELECT ct.companion_id, ct.companion_key, ct.name, ct.description, ct.companion_type, ct.icon_path,
-                ct.required_level, pc.is_active, pc.loot_min_rarity, pc.loot_gold, pc.expires_at
+                ct.required_level, ct.max_rules, pc.is_active, pc.loot_min_rarity, pc.loot_gold, pc.auto_rules_json, pc.expires_at
            FROM player_companions pc
            JOIN companion_templates ct ON ct.companion_id = pc.companion_id
           WHERE pc.player_id = :pid
@@ -81,6 +82,10 @@ try {
         $r['is_active'] = (int)$r['is_active'];
         $r['loot_min_rarity'] = (int)$r['loot_min_rarity'];
         $r['loot_gold'] = (int)$r['loot_gold'];
+        $r['max_rules'] = (int)$r['max_rules'];
+        $rules = json_decode((string)($r['auto_rules_json'] ?? ''), true);
+        $r['auto_rules'] = is_array($rules) ? $rules : [];
+        unset($r['auto_rules_json']);
     }
     unset($r);
 

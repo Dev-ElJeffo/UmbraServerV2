@@ -397,6 +397,8 @@ void CombatCoreEngine::enqueueJob(CombatJob job) {
       finalizeSkillCastHit(job.sourcePlayerId, job.skill);
     } else if (job.kind == CombatJobKind::ForeignVitals) {
       processForeignVitals(job.sourcePlayerId, job.vitals);
+    } else if (job.kind == CombatJobKind::ConsumableEffect) {
+      processConsumableEffect(job.consumable);
     } else {
       processBasicAttack(job.sourcePlayerId, job.basic);
     }
@@ -651,6 +653,8 @@ void CombatCoreEngine::combatWorkerLoop() {
         finalizeSkillCastHit(job.sourcePlayerId, job.skill);
       } else if (job.kind == CombatJobKind::ForeignVitals) {
         processForeignVitals(job.sourcePlayerId, job.vitals);
+      } else if (job.kind == CombatJobKind::ConsumableEffect) {
+        processConsumableEffect(job.consumable);
       } else {
         processBasicAttack(job.sourcePlayerId, job.basic);
       }
@@ -4972,6 +4976,94 @@ void CombatCoreEngine::onPlayerEquipmentOrStatsChanged(uint32_t playerId) {
     stateLoader_->invalidate(playerId);
     stateLoader_->requestWarm(playerId);
   }
+}
+
+void CombatCoreEngine::enqueueConsumableEffect(const ConsumableEffectJob& effect) {
+  if (effect.playerId == 0) return;
+  CombatJob job;
+  job.kind = CombatJobKind::ConsumableEffect;
+  job.sourcePlayerId = effect.playerId;
+  job.consumable = effect;
+  enqueueJob(std::move(job));
+}
+
+void CombatCoreEngine::processConsumableEffect(const ConsumableEffectJob& job) {
+  if (!movementServer_ || !stateLoader_ || job.playerId == 0) return;
+  const uint32_t pid = job.playerId;
+
+  // Buff de poção: o loader soma player_item_buffs (já gravado pelo ConsumableService) nos stats.
+  if (!job.buffKey.empty()) {
+    onPlayerEquipmentOrStatsChanged(pid);
+  }
+
+  Combat::CharacterState st;
+  int32_t hpGain = 0;
+  int32_t mpGain = 0;
+  if (stateLoader_->getCachedOrWarm(pid, st)) {
+    const int32_t curHp = st.buffedStats.currentHealth;
+    const int32_t curMp = st.buffedStats.currentMana;
+    const int32_t maxHp = std::max(1, st.buffedStats.maxHealth);
+    const int32_t maxMp = std::max(1, st.buffedStats.maxMana);
+    if (curHp > 0) {
+      const int32_t newHp = std::min(maxHp, curHp + std::max(0, job.healthRestore));
+      const int32_t newMp = std::min(maxMp, curMp + std::max(0, job.manaRestore));
+      hpGain = newHp - curHp;
+      mpGain = newMp - curMp;
+      if (hpGain != 0 || mpGain != 0) {
+        stateLoader_->patchCachedHealth(pid, newHp);
+        stateLoader_->patchCachedMana(pid, newMp);
+        enqueueDbWrite("UPDATE players SET health = " + std::to_string(newHp) + ", mana = " +
+                       std::to_string(newMp) + " WHERE id = " + std::to_string(pid));
+      }
+      broadcastPlayerVitals(pid, newHp, newMp);
+    }
+  }
+
+  // Número flutuante para grupo + AOI (o dono mostra pelo 128).
+  if (hpGain > 0 || mpGain > 0 || !job.buffKey.empty()) {
+    ConsumableEffectPayload fx;
+    fx.targetPlayerId = pid;
+    fx.sourcePlayerId = pid;
+    fx.healthRestore = hpGain;
+    fx.manaRestore = mpGain;
+    fx.buffKey = job.buffKey;
+    fx.buffValue = job.buffValue;
+    movementServer_->broadcastToPartyAndNearby(
+        pid, encodeConsumableEffectUpdate(MovementMsgType::ConsumableEffectUpdate, fx), false);
+  }
+  if (!job.buffKey.empty()) {
+    RemoteBuffPayload rb;
+    rb.playerId = pid;
+    rb.action = 0;
+    rb.buffKey = job.buffKey;
+    rb.bonusValue = job.buffValue;
+    rb.expiresAtMs = job.buffExpiresAtMs;
+    rb.durationMs = job.buffDurationMs;
+    rb.itemTemplateId = job.itemTemplateId;
+    rb.itemName = job.itemName;
+    rb.iconPath = job.iconPath;
+    movementServer_->broadcastToPartyAndNearby(
+        pid, encodeRemoteBuffUpdate(MovementMsgType::RemoteBuffUpdate, rb), false);
+  }
+
+  ConsumableUseResultPayload res;
+  res.status = static_cast<uint8_t>(ConsumableUseStatus::Ok);
+  res.source = job.source;
+  res.itemTemplateId = job.itemTemplateId;
+  res.inventoryId = job.inventoryId;
+  res.quantityRemaining = job.quantityRemaining;
+  res.cooldownExpiresAtMs = job.cooldownExpiresAtMs;
+  res.cooldownTotalMs = job.cooldownTotalMs;
+  res.healthRestored = hpGain;
+  res.manaRestored = mpGain;
+  res.buffValue = job.buffValue;
+  res.buffDurationMs = job.buffDurationMs;
+  res.buffExpiresAtMs = job.buffExpiresAtMs;
+  res.subtype = job.subtype;
+  res.buffKey = job.buffKey;
+  res.message = job.itemName;
+  const uint32_t cid = movementServer_->getClientIdForPlayer(pid);
+  if (cid > 0) movementServer_->sendBinaryToClient(cid, encodeConsumableUseResult(res));
 }
 
 void CombatCoreEngine::syncJoinDeathState(uint32_t playerId) {

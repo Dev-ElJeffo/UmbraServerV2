@@ -22,7 +22,7 @@ try {
     $stmt = $pdo->query(
         'SELECT companion_id, companion_key, name, description, companion_type, icon_path, mesh_path,
                 idle_anim_path, move_anim_path, pickup_vfx_path, scale, follow_distance, hover_height,
-                loot_radius_uu, loot_delay_ms, required_level, is_active
+                loot_radius_uu, loot_delay_ms, max_rules, auto_check_ms, required_level, is_active
            FROM companion_templates
           ORDER BY companion_id ASC'
     );
@@ -34,6 +34,8 @@ try {
         $r['hover_height'] = (float)$r['hover_height'];
         $r['loot_radius_uu'] = (float)$r['loot_radius_uu'];
         $r['loot_delay_ms'] = (int)$r['loot_delay_ms'];
+        $r['max_rules'] = (int)$r['max_rules'];
+        $r['auto_check_ms'] = (int)$r['auto_check_ms'];
         $r['required_level'] = (int)$r['required_level'];
         $r['is_active'] = (int)$r['is_active'];
     }

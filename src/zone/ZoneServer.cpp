@@ -237,8 +237,33 @@ bool ZoneServer::start() {
           [svc = companionService_.get()](uint32_t playerId, const CompanionRequestPayload& p) {
             svc->handleRequest(playerId, p);
           });
+      // Consumíveis pela zone (127/128) + elemental (129/130).
+      consumableService_ = std::make_unique<ConsumableService>(
+          config_.dbConnector, movementServer_.get(), combatCoreEngine_.get(), companionService_.get());
+      consumableService_->loadTemplates();
+      companionService_->setElementalHooks(
+          [cs = consumableService_.get()](uint32_t playerId, const CompanionTemplateDef& tpl,
+                                          const std::string& rulesJson) {
+            cs->onElementalActivated(playerId, tpl, rulesJson);
+          },
+          [cs = consumableService_.get()](uint32_t playerId, uint32_t companionId) {
+            cs->onElementalDeactivated(playerId, companionId);
+          });
+      movementServer_->setConsumableUseHandler(
+          [cs = consumableService_.get()](uint32_t playerId, const ConsumableUseRequestPayload& p) {
+            cs->enqueueUse(playerId, p.inventoryId, p.itemTemplateId);
+          });
+      movementServer_->setElementalRulesHandler(
+          [cs = consumableService_.get()](uint32_t playerId, const ElementalRulesSetPayload& p) {
+            cs->enqueueSetRules(playerId, p);
+          });
+      consumableService_->start();
+
       movementServer_->setPlayerGoneHook(
-          [svc = companionService_.get()](uint32_t playerId) { svc->onPlayerGone(playerId); });
+          [svc = companionService_.get(), cs = consumableService_.get()](uint32_t playerId) {
+            svc->onPlayerGone(playerId);
+            cs->onPlayerGone(playerId);
+          });
       Core::Logger::getInstance().info(
           "ExperienceService, ExpZoneManager and LootService initialized for zone {} "
           "(party.share_radius_uu={})",
@@ -259,6 +284,8 @@ bool ZoneServer::start() {
 
 void ZoneServer::stop() {
   running_ = false;
+  // Antes do combate: o worker de consumíveis enfileira efeitos no combat worker.
+  if (consumableService_) consumableService_->stop();
   if (combatCoreEngine_) {
     combatCoreEngine_->shutdown();
   }

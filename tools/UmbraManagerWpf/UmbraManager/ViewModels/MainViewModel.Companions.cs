@@ -28,6 +28,8 @@ public partial class MainViewModel
     [ObservableProperty] private double _companionFormHoverHeight;
     [ObservableProperty] private double _companionFormLootRadiusUu = 1500;
     [ObservableProperty] private int _companionFormLootDelayMs = 800;
+    [ObservableProperty] private int _companionFormMaxRules = 2;
+    [ObservableProperty] private int _companionFormAutoCheckMs = 500;
     [ObservableProperty] private int _companionFormRequiredLevel = 1;
     [ObservableProperty] private bool _companionFormIsActive = true;
 
@@ -81,6 +83,8 @@ public partial class MainViewModel
         CompanionFormHoverHeight = 0;
         CompanionFormLootRadiusUu = 1500;
         CompanionFormLootDelayMs = 800;
+        CompanionFormMaxRules = 2;
+        CompanionFormAutoCheckMs = 500;
         CompanionFormRequiredLevel = 1;
         CompanionFormIsActive = true;
     }
@@ -104,6 +108,8 @@ public partial class MainViewModel
         CompanionFormHoverHeight = row.HoverHeight;
         CompanionFormLootRadiusUu = row.LootRadiusUu;
         CompanionFormLootDelayMs = row.LootDelayMs;
+        CompanionFormMaxRules = row.MaxRules;
+        CompanionFormAutoCheckMs = row.AutoCheckMs;
         CompanionFormRequiredLevel = row.RequiredLevel;
         CompanionFormIsActive = row.IsActive;
     }
@@ -141,6 +147,8 @@ public partial class MainViewModel
             ["hover_height"] = Math.Max(0, CompanionFormHoverHeight),
             ["loot_radius_uu"] = Math.Max(0, CompanionFormLootRadiusUu),
             ["loot_delay_ms"] = Math.Max(0, CompanionFormLootDelayMs),
+            ["max_rules"] = CompanionFormMaxRules <= 0 ? 2 : Math.Min(4, CompanionFormMaxRules),
+            ["auto_check_ms"] = CompanionFormAutoCheckMs <= 0 ? 500 : Math.Clamp(CompanionFormAutoCheckMs, 250, 5000),
             ["required_level"] = CompanionFormRequiredLevel <= 0 ? 1 : CompanionFormRequiredLevel,
             ["is_active"] = CompanionFormIsActive ? 1 : 0,
         };
@@ -174,6 +182,28 @@ public partial class MainViewModel
 
     [RelayCommand]
     private async Task ReloadCompanionsOnZonesAsync() => await ReloadCompanionsOnZonesCoreAsync(showDialog: true);
+
+    /// <summary>Itens consumíveis (stats_json/cooldown) que a zone usa no opcode 127 e no elemental.</summary>
+    [RelayCommand]
+    private async Task ReloadConsumablesOnZonesAsync()
+    {
+        var zones = Definitions.Where(d => d.IsZone && AdminHub.GetClient(d.Id)?.IsAuthenticated == true).ToList();
+        if (zones.Count == 0)
+        {
+            MessageBox.Show("Nenhuma zone autenticada no AdminHub.", "Reload consumíveis");
+            return;
+        }
+        var okCount = 0;
+        foreach (var z in zones)
+        {
+            var (ok, resp) = await AdminHub.SendCommandAndWaitAsync(z.Id, "reload_consumables", null, 5000);
+            if (ok) okCount++;
+            else AppendGm($"[{z.Id}] reload_consumables falhou: {resp}");
+        }
+        Audit.Log(AppConfig.Instance.AdminUsername, "reload_consumables", $"zones_ok={okCount}/{zones.Count}");
+        StatusText = $"Consumíveis recarregados em {okCount}/{zones.Count} zone(s).";
+        MessageBox.Show(StatusText, "Reload consumíveis");
+    }
 
     private async Task ReloadCompanionsOnZonesCoreAsync(bool showDialog)
     {
@@ -213,6 +243,8 @@ public partial class MainViewModel
         HoverHeight = TryGetDoubleProp(el, "hover_height"),
         LootRadiusUu = TryGetDoubleProp(el, "loot_radius_uu"),
         LootDelayMs = TryGetIntProp(el, "loot_delay_ms"),
+        MaxRules = TryGetIntProp(el, "max_rules"),
+        AutoCheckMs = TryGetIntProp(el, "auto_check_ms"),
         RequiredLevel = TryGetIntProp(el, "required_level"),
         IsActive = TryGetBoolProp(el, "is_active"),
     };

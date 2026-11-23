@@ -227,7 +227,33 @@ public:
   /** Players com STEALTH ativo. A IA chama antes do forEachAlive (não aninha locks). */
   std::unordered_set<uint32_t> snapshotStealthedPlayers();
 
+  /** Efeito de um consumível já validado e descontado pelo ConsumableService (opcode 127/elemental). */
+  struct ConsumableEffectJob {
+    uint32_t playerId = 0;
+    uint8_t source = 0;  // ConsumableSource
+    uint32_t itemTemplateId = 0;
+    uint32_t inventoryId = 0;
+    uint32_t quantityRemaining = 0;
+    std::string subtype;
+    std::string itemName;
+    std::string iconPath;
+    int32_t healthRestore = 0;
+    int32_t manaRestore = 0;
+    std::string buffKey;
+    int32_t buffValue = 0;
+    uint32_t buffDurationMs = 0;
+    int64_t buffExpiresAtMs = 0;
+    int64_t cooldownExpiresAtMs = 0;
+    uint32_t cooldownTotalMs = 0;
+  };
+  /** Aplica no combat worker: vida/mana (87), número para grupo/AOI (95), buff (85) e o 128 ao dono. */
+  void enqueueConsumableEffect(const ConsumableEffectJob& job);
+
+  /** Reenvia o 87 com os vitals do cache (corrige a UI do dono quando o 86 é recusado). */
+  void resyncPlayerVitals(uint32_t playerId) { broadcastPlayerVitals(playerId); }
+
 private:
+  void processConsumableEffect(const ConsumableEffectJob& job);
   bool skillHasEffectType(const Combat::SkillData& skill, Combat::EffectType type,
                           uint8_t skillRank = 1) const;
   void armReactionSkill(uint32_t sourcePlayerId, const Combat::SkillData& skill);
@@ -466,7 +492,9 @@ private:
     /** Hit adiado (castTimeMs): só aplica dano/efeitos, sem re-cobrar mana/CD/anim. */
     SkillCastHitOnly = 2,
     /** Opcode 88: rebroadcast de vitals do alvo lidos do DB (nunca do payload do cliente). */
-    ForeignVitals = 3
+    ForeignVitals = 3,
+    /** Consumível validado pelo ConsumableService (127 / elemental). */
+    ConsumableEffect = 4
   };
   struct CombatJob {
     CombatJobKind kind = CombatJobKind::SkillCast;
@@ -474,6 +502,7 @@ private:
     SkillCastPayload skill{};
     BasicAttackPayload basic{};
     PlayerVitalsPayload vitals{};
+    ConsumableEffectJob consumable{};
   };
   /** Roda no combat worker: valida o sender, lê HP/MP do alvo no DB e faz o broadcast. */
   void processForeignVitals(uint32_t senderPlayerId, const PlayerVitalsPayload& payload);

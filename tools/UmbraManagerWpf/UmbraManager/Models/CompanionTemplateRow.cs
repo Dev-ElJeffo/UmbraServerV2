@@ -24,6 +24,10 @@ public sealed class CompanionTemplateRow
     public double LootRadiusUu { get; set; } = 1500;
     /// <summary>Espera entre o kill e a coleta (ms).</summary>
     public int LootDelayMs { get; set; } = 800;
+    /// <summary>Elemental: quantas regras o jogador pode configurar (1-4).</summary>
+    public int MaxRules { get; set; } = 2;
+    /// <summary>Elemental: intervalo de checagem das regras na zone (ms, 250-5000).</summary>
+    public int AutoCheckMs { get; set; } = 500;
     public int RequiredLevel { get; set; } = 1;
     public bool IsActive { get; set; } = true;
 }

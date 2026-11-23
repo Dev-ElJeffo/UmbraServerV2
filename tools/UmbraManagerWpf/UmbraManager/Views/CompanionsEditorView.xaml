@@ -16,6 +16,9 @@
                 Style="{StaticResource ManagerActionOutlinedButton}"/>
         <Button Content="Recarregar no Zone" Command="{Binding ReloadCompanionsOnZonesCommand}" Margin="0,0,8,4"
                 Style="{StaticResource ManagerActionOutlinedButton}"/>
+        <Button Content="Recarregar consumíveis" Command="{Binding ReloadConsumablesOnZonesCommand}" Margin="0,0,8,4"
+                Style="{StaticResource ManagerActionOutlinedButton}"
+                ToolTip="Depois de mudar poções na aba Itens: a zone relê stats_json e cooldown"/>
         <TextBlock Text="{Binding CompanionTemplates.Count, StringFormat={}{0} companheiros}"
                    VerticalAlignment="Center" Opacity="0.7"/>
       </WrapPanel>
@@ -85,8 +88,14 @@
         <TextBlock Text="Coleta (só pet)" FontWeight="SemiBold" Margin="0,4,0,4"/>
         <TextBox Text="{Binding CompanionFormLootRadiusUu}" Margin="0,0,0,6"
                  materialDesign:HintAssist.Hint="Raio dono-corpo (uu, 0 a 5000; 1500 = 15 m)" materialDesign:HintAssist.IsFloating="True"/>
-        <TextBox Text="{Binding CompanionFormLootDelayMs, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12"
+        <TextBox Text="{Binding CompanionFormLootDelayMs, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,10"
                  materialDesign:HintAssist.Hint="Espera após o kill (ms, 0 a 5000)" materialDesign:HintAssist.IsFloating="True"/>
+
+        <TextBlock Text="Uso automático (só elemental)" FontWeight="SemiBold" Margin="0,4,0,4"/>
+        <TextBox Text="{Binding CompanionFormMaxRules, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Regras que o jogador pode configurar (1 a 4)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding CompanionFormAutoCheckMs, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12"
+                 materialDesign:HintAssist.Hint="Intervalo de checagem das regras (ms, 250 a 5000)" materialDesign:HintAssist.IsFloating="True"/>
 
         <WrapPanel>
           <Button Content="{Binding CompanionSaveButtonText}" Command="{Binding SaveCompanionTemplateCommand}"

@@ -347,6 +347,24 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
     return d;
   });
 
+  // Itens consumíveis (stats_json/cooldown) usados pela zone no opcode 127 e pelo elemental.
+  registry.registerCommand("reload_consumables", [&server](const nlohmann::json&) {
+    nlohmann::json d;
+    auto* consumables = server.getConsumableService();
+    if (consumables) {
+      consumables->loadTemplates();
+      d["ok"] = true;
+      d["reloaded"] = true;
+      d["templates"] = consumables->templateCount();
+    } else {
+      d["ok"] = false;
+      d["reloaded"] = false;
+      d["message"] = "ConsumableService indisponível";
+    }
+    d["zone_id"] = server.getConfig().zoneId;
+    return d;
+  });
+
   // Manager > Companheiros > Recarregar no Zone. Quem já invocou mantém o visual até reinvocar;
   // a regra de coleta (raio/delay) passa a valer na hora.
   registry.registerCommand("reload_companions", [&server](const nlohmann::json&) {

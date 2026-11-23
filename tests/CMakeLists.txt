@@ -52,6 +52,16 @@ target_link_libraries(test_network
 )
 
 # Teste das implementações da Fase 1
+add_executable(test_consumable_rules
+  test_consumable_rules.cpp
+)
+target_link_libraries(test_consumable_rules
+  umbra_zone
+  gtest
+  gtest_main
+  Threads::Threads
+)
+
 add_executable(test_companion_loot
   test_companion_loot.cpp
 )
@@ -132,5 +142,6 @@ add_test(NAME AuthPlayerDAOIntegrationTests COMMAND test_auth_playerdao)
 add_test(NAME StatMappingTests COMMAND test_stat_mapping)
 add_test(NAME CombatEffectTests COMMAND test_combat_effects)
 add_test(NAME CompanionLootTests COMMAND test_companion_loot)
+add_test(NAME ConsumableRulesTests COMMAND test_consumable_rules)
 add_test(NAME AdminCryptoTests COMMAND test_admin_crypto)
 

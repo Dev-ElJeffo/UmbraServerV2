@@ -1,7 +1,8 @@
 <?php
 /**
  * POST /api/inventory/use_item.php
- * Usa um item consumível (decrementa pilha, aplica efeito, cooldown por subtype).
+ * Usa um selo de companheiro (item_subtype = companion). Poções e outros consumíveis
+ * são usados pela zone (opcode 127) e aqui respondem 409 com use_via_zone = true.
  *
  * Body (JSON):
  * {
@@ -31,7 +32,6 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../helpers/jwt_helper.php';
 require_once __DIR__ . '/../../helpers/auction_helper.php';
-require_once __DIR__ . '/../../helpers/character_info_helper.php';
 
 $json = file_get_contents('php://input');
 $data = json_decode($json, true) ?: [];
@@ -147,6 +147,18 @@ try {
 
     $item_subtype = $inv['item_subtype'] ?? 'consumable';
 
+    // Companheiros etapa 2: poções e outros consumíveis são usados pela zone (opcode 127),
+    // que aplica vida/mana/buff no estado autoritativo. Aqui só o selo de companheiro.
+    if ($item_subtype !== 'companion') {
+        http_response_code(409);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Este item é usado pelo servidor do jogo. Atualize o cliente.',
+            'use_via_zone' => true,
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     // Selo de companheiro: concede o pet/elemental (permanente) e consome o item. Sem cooldown.
     if ($item_subtype === 'companion') {
         $c_stats = json_decode($inv['stats_json'] ?? '{}', true);
@@ -208,183 +220,11 @@ try {
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
-
-    $use_cooldown_ms = (int)($inv['use_cooldown_ms'] ?? 5000);
-    if ($use_cooldown_ms < 0) {
-        $use_cooldown_ms = 5000;
-    }
-
-    $now_ms = (int)round(microtime(true) * 1000);
-
-    $cd_stmt = $pdo->prepare('
-        SELECT expires_at_ms FROM player_consumable_cooldowns
-        WHERE player_id = :player_id AND item_subtype = :item_subtype
-    ');
-    $cd_stmt->execute(['player_id' => $player_id, 'item_subtype' => $item_subtype]);
-    $cd_row = $cd_stmt->fetch(PDO::FETCH_ASSOC);
-
-    if ($cd_row && (int)$cd_row['expires_at_ms'] > $now_ms) {
-        $remaining = (int)$cd_row['expires_at_ms'] - $now_ms;
-        http_response_code(400);
-        echo json_encode([
-            'success' => false,
-            'message' => "Cooldown ativo. Aguarde " . ceil($remaining / 1000) . "s",
-            'cooldown_remaining_ms' => $remaining,
-            'item_subtype' => $item_subtype
-        ]);
-        exit;
-    }
-
-    $stats = json_decode($inv['stats_json'] ?? '{}', true);
-    if (!is_array($stats)) {
-        $stats = [];
-    }
-
-    $health_restore = (int)($stats['health_restore'] ?? 0);
-    $mana_restore = (int)($stats['mana_restore'] ?? 0);
-
-    $buff_key = null;
-    $buff_bonus_value = 0;
-    $buff_duration_sec = 0;
-    $buff_duration_ms = 0;
-    $buff_expires_at_ms = 0;
-    $resolved_item_template_id = (int)$inv['item_template_id'];
-
-    if ($item_subtype === 'buff_potion') {
-        $buff_duration_sec = (int)($stats['duration'] ?? 0);
-        foreach ($stats as $stat_key => $stat_val) {
-            if (is_string($stat_key) && substr($stat_key, -5) === '_buff' && is_numeric($stat_val)) {
-                $buff_key = $stat_key;
-                $buff_bonus_value = (int)$stat_val;
-                break;
-            }
-        }
-        if (!$buff_key || $buff_duration_sec <= 0) {
-            http_response_code(400);
-            echo json_encode([
-                'success' => false,
-                'message' => 'stats_json inválido para buff_potion (requer duration e chave *_buff)'
-            ], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-        $buff_duration_ms = $buff_duration_sec * 1000;
-        $buff_expires_at_ms = $now_ms + $buff_duration_ms;
-    }
-
-    $char_preview = get_character_info_data($pdo, $player_id, ['create_stat_points_if_missing' => true]);
-    $max_health = (int)($char_preview['stats']['health']['max_total'] ?? 999999);
-    $max_mana = (int)($char_preview['stats']['mana']['max_total'] ?? 999999);
-
-    $pdo->beginTransaction();
-
-    $pl_stmt = $pdo->prepare('SELECT health, mana FROM players WHERE id = :player_id FOR UPDATE');
-    $pl_stmt->execute(['player_id' => $player_id]);
-    $pl = $pl_stmt->fetch(PDO::FETCH_ASSOC);
-
-    $stats_applied = [];
-
-    if ($health_restore > 0) {
-        $pdo->prepare('UPDATE players SET health = LEAST(health + :amt, :max_h) WHERE id = :player_id')
-            ->execute(['amt' => $health_restore, 'max_h' => $max_health, 'player_id' => $player_id]);
-        $stats_applied['health_restore'] = $health_restore;
-    }
-
-    if ($mana_restore > 0) {
-        $pdo->prepare('UPDATE players SET mana = LEAST(mana + :amt, :max_m) WHERE id = :player_id')
-            ->execute(['amt' => $mana_restore, 'max_m' => $max_mana, 'player_id' => $player_id]);
-        $stats_applied['mana_restore'] = $mana_restore;
-    }
-
-    if ($item_subtype === 'buff_potion' && $buff_key) {
-        $pdo->prepare("
-            INSERT INTO player_item_buffs
-                (player_id, buff_key, item_template_id, item_subtype, bonus_value, duration_ms, started_at_ms, expires_at_ms)
-            VALUES
-                (:player_id, :buff_key, :item_template_id, :item_subtype, :bonus_value, :duration_ms, :started_at_ms, :expires_at_ms)
-            ON DUPLICATE KEY UPDATE
-                bonus_value = VALUES(bonus_value),
-                duration_ms = VALUES(duration_ms),
-                started_at_ms = VALUES(started_at_ms),
-                expires_at_ms = VALUES(expires_at_ms),
-                item_template_id = VALUES(item_template_id),
-                item_subtype = VALUES(item_subtype)
-        ")->execute([
-            'player_id' => $player_id,
-            'buff_key' => $buff_key,
-            'item_template_id' => $resolved_item_template_id,
-            'item_subtype' => $item_subtype,
-            'bonus_value' => $buff_bonus_value,
-            'duration_ms' => $buff_duration_ms,
-            'started_at_ms' => $now_ms,
-            'expires_at_ms' => $buff_expires_at_ms
-        ]);
-        $stats_applied['buff'] = [
-            'key' => $buff_key,
-            'value' => $buff_bonus_value,
-            'expires_at_ms' => $buff_expires_at_ms,
-            'duration_ms' => $buff_duration_ms,
-            'item_template_id' => $resolved_item_template_id
-        ];
-    }
-
-    $resolved_inventory_id = (int)$inv['inventory_id'];
-    $new_qty = (int)$inv['quantity'] - 1;
-
-    if ($new_qty <= 0) {
-        $pdo->prepare('DELETE FROM player_inventory WHERE inventory_id = :inventory_id')
-            ->execute(['inventory_id' => $resolved_inventory_id]);
-        $quantity_remaining = 0;
-    } else {
-        $pdo->prepare('UPDATE player_inventory SET quantity = :qty WHERE inventory_id = :inventory_id')
-            ->execute(['qty' => $new_qty, 'inventory_id' => $resolved_inventory_id]);
-        $quantity_remaining = $new_qty;
-    }
-
-    $expires_at_ms = $now_ms + $use_cooldown_ms;
-    $pdo->prepare("
-        INSERT INTO player_consumable_cooldowns (player_id, item_subtype, expires_at_ms)
-        VALUES (:player_id, :item_subtype, :expires_at_ms)
-        ON DUPLICATE KEY UPDATE expires_at_ms = VALUES(expires_at_ms), updated_at = NOW()
-    ")->execute([
-        'player_id' => $player_id,
-        'item_subtype' => $item_subtype,
-        'expires_at_ms' => $expires_at_ms
-    ]);
-
-    $pdo->commit();
-
-    $char_info = get_character_info_data($pdo, $player_id, ['create_stat_points_if_missing' => true]);
-    $health_current = (int)($char_info['stats']['health']['current'] ?? $pl['health']);
-    $health_max = (int)($char_info['stats']['health']['max_total'] ?? $health_current);
-    $mana_current = (int)($char_info['stats']['mana']['current'] ?? $pl['mana']);
-    $mana_max = (int)($char_info['stats']['mana']['max_total'] ?? $mana_current);
-
-    $response_payload = [
-        'success' => true,
-        'message' => 'Item usado com sucesso',
-        'inventory_id' => $resolved_inventory_id,
-        'quantity_remaining' => $quantity_remaining,
-        'item_subtype' => $item_subtype,
-        'cooldown_expires_at_ms' => $expires_at_ms,
-        'cooldown_total_ms' => $use_cooldown_ms,
-        'stats_applied' => $stats_applied,
-        'health' => $health_current,
-        'max_health' => $health_max,
-        'mana' => $mana_current,
-        'max_mana' => $mana_max
-    ];
-
-    if (!empty($stats_applied['buff'])) {
-        $response_payload['buff'] = $stats_applied['buff'];
-    }
-
-    http_response_code(200);
-    echo json_encode($response_payload, JSON_UNESCAPED_UNICODE);
-
 } catch (PDOException $e) {
     if (isset($pdo) && $pdo->inTransaction()) {
         $pdo->rollBack();
     }
     http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Erro ao usar item: ' . $e->getMessage()]);
+    error_log('[inventory/use_item] ' . $e->getMessage());
+    echo json_encode(['success' => false, 'message' => 'Erro interno'], JSON_UNESCAPED_UNICODE);
 }
