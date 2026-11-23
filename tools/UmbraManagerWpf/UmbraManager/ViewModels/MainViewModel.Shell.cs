@@ -79,6 +79,7 @@ public partial class MainViewModel
         Add("audit", "Audit", "Operação", 18, "ops", "ClipboardText");
         Add("gm", "GM Console", "Operação", 19, "ops", "Console");
         Add("scheduler", "Scheduler", "Sistema", 20, "super", "ClockOutline");
+        Add("companions", "Companheiros", "Conteúdo", 21, "content", "Paw");
         ApplyNavVisibility();
     }
 

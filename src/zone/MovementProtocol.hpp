@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 #include <cstring>
@@ -111,6 +112,9 @@ enum class MovementMsgType : uint8_t {
 	ChatGuildReceived = 121,             // Servidor -> membros da guilda: [msgType][fromPlayerId:4][nameLen:2][name:utf8][msgLen:2][msg:utf8]
 	SkillCastInterrupted = 122,          // Servidor -> Clientes: [msgType][sourceType:1][sourceId:4][skillId:4][reason:1] (cast cancelado)
 	PlayerPositionCorrection = 123,      // Servidor -> dono: [msgType][playerId:4][x:f][y:f][z:f][yaw:f] (blink/teleporte autoritativo)
+	CompanionRequest = 124,              // Cliente -> Servidor: [msgType][action:1][companionId:4][minRarity:1][flags:1] (invocar/recolher/filtro)
+	CompanionState = 125,                // Servidor -> Clientes: estado visual do companheiro de um player (ver encodeCompanionState)
+	CompanionLootCollected = 126,        // Servidor -> dono + AOI: o pet coletou um corpo (ver encodeCompanionLootCollected)
 	WsKeepalive = 250                      // Servidor -> Cliente: heartbeat (1 byte); cliente ignora
 };
 
@@ -3323,6 +3327,174 @@ inline std::vector<uint8_t> encodeQuestProgressNotify(const QuestProgressNotifyP
   data.push_back(p.status);
   data.push_back(p.flags);
   return data;
+}
+
+// --- Companheiros (124-126) -------------------------------------------------------
+// 124: [type][action:1][companionId:4][minRarity:1][flags:1]
+//      action 0 = recolher, 1 = invocar, 2 = só atualizar o filtro; flags bit0 = coletar ouro.
+// 125: [type][ownerId:4][slot:1][companionId:4][active:1][scale:f][followDist:f][hover:f]
+//      [name][mesh][idleAnim][moveAnim][pickupVfx]  (strings u16 + UTF-8; nome até 64, paths até 255)
+//      slot 0 = pet, 1 = elemental. active 0 = recolhido (cliente destrói o ator).
+// 126: [type][ownerId:4][corpseId:8][x:f][y:f][z:f][playerGold:i64 (-1 = sem mudança)]
+//      [goldCollected:4][invChanged:1][count:1] + count × [itemTemplateId:4][qty:4]
+
+enum class CompanionAction : uint8_t { Dismiss = 0, Summon = 1, Settings = 2 };
+constexpr uint8_t kCompanionFlagLootGold = 0x01;
+constexpr size_t kCompanionLootMaxItems = 10;
+
+struct CompanionRequestPayload {
+  uint8_t action = 0;
+  uint32_t companionId = 0;
+  uint8_t minRarity = 0;
+  uint8_t flags = kCompanionFlagLootGold;
+};
+
+struct CompanionStatePayload {
+  uint32_t ownerId = 0;
+  uint8_t slot = 0;
+  uint32_t companionId = 0;
+  uint8_t active = 0;
+  float scale = 1.f;
+  float followDistance = 150.f;
+  float hoverHeight = 0.f;
+  std::string name;
+  std::string meshPath;
+  std::string idleAnimPath;
+  std::string moveAnimPath;
+  std::string pickupVfxPath;
+};
+
+struct CompanionLootItem {
+  uint32_t itemTemplateId = 0;
+  uint32_t quantity = 0;
+};
+
+struct CompanionLootCollectedPayload {
+  uint32_t ownerId = 0;
+  uint64_t corpseId = 0;
+  float x = 0.f;
+  float y = 0.f;
+  float z = 0.f;
+  int64_t playerGold = -1;
+  uint32_t goldCollected = 0;
+  uint8_t inventoryChanged = 0;
+  std::vector<CompanionLootItem> items;
+};
+
+inline void appendCompanionF32(std::vector<uint8_t>& data, float v) {
+  uint32_t bits = 0;
+  std::memcpy(&bits, &v, sizeof(float));
+  appendLootU32(data, bits);
+}
+
+inline float readCompanionF32(const std::vector<uint8_t>& data, size_t& off) {
+  const uint32_t bits = readLootU32(data, off);
+  float v = 0.f;
+  std::memcpy(&v, &bits, sizeof(float));
+  return v;
+}
+
+inline std::vector<uint8_t> encodeCompanionRequest(const CompanionRequestPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(8);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::CompanionRequest));
+  data.push_back(p.action);
+  appendLootU32(data, p.companionId);
+  data.push_back(p.minRarity);
+  data.push_back(p.flags);
+  return data;
+}
+
+inline bool decodeCompanionRequest(const std::vector<uint8_t>& data, CompanionRequestPayload& p) {
+  if (data.size() < 8 || data[0] != static_cast<uint8_t>(MovementMsgType::CompanionRequest)) return false;
+  size_t off = 1;
+  p.action = data[off++];
+  p.companionId = readLootU32(data, off);
+  p.minRarity = data[off++];
+  p.flags = data[off++];
+  return p.action <= static_cast<uint8_t>(CompanionAction::Settings);
+}
+
+inline std::vector<uint8_t> encodeCompanionState(const CompanionStatePayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(64 + p.meshPath.size() + p.idleAnimPath.size() + p.moveAnimPath.size() +
+               p.pickupVfxPath.size() + p.name.size());
+  data.push_back(static_cast<uint8_t>(MovementMsgType::CompanionState));
+  appendLootU32(data, p.ownerId);
+  data.push_back(p.slot);
+  appendLootU32(data, p.companionId);
+  data.push_back(p.active);
+  appendCompanionF32(data, p.scale);
+  appendCompanionF32(data, p.followDistance);
+  appendCompanionF32(data, p.hoverHeight);
+  appendStringField(data, p.name, 64);
+  appendStringField(data, p.meshPath, 255);
+  appendStringField(data, p.idleAnimPath, 255);
+  appendStringField(data, p.moveAnimPath, 255);
+  appendStringField(data, p.pickupVfxPath, 255);
+  return data;
+}
+
+inline bool decodeCompanionState(const std::vector<uint8_t>& data, CompanionStatePayload& p) {
+  if (data.size() < 23 || data[0] != static_cast<uint8_t>(MovementMsgType::CompanionState)) return false;
+  size_t off = 1;
+  p.ownerId = readLootU32(data, off);
+  p.slot = data[off++];
+  p.companionId = readLootU32(data, off);
+  p.active = data[off++];
+  p.scale = readCompanionF32(data, off);
+  p.followDistance = readCompanionF32(data, off);
+  p.hoverHeight = readCompanionF32(data, off);
+  return readStringField(data, off, p.name, 64) && readStringField(data, off, p.meshPath, 255) &&
+         readStringField(data, off, p.idleAnimPath, 255) &&
+         readStringField(data, off, p.moveAnimPath, 255) &&
+         readStringField(data, off, p.pickupVfxPath, 255);
+}
+
+inline std::vector<uint8_t> encodeCompanionLootCollected(const CompanionLootCollectedPayload& p) {
+  std::vector<uint8_t> data;
+  const size_t count = std::min(p.items.size(), kCompanionLootMaxItems);
+  data.reserve(44 + count * 8);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::CompanionLootCollected));
+  appendLootU32(data, p.ownerId);
+  appendLootU64(data, p.corpseId);
+  appendCompanionF32(data, p.x);
+  appendCompanionF32(data, p.y);
+  appendCompanionF32(data, p.z);
+  appendLootI64(data, p.playerGold);
+  appendLootU32(data, p.goldCollected);
+  data.push_back(p.inventoryChanged);
+  data.push_back(static_cast<uint8_t>(count));
+  for (size_t i = 0; i < count; ++i) {
+    appendLootU32(data, p.items[i].itemTemplateId);
+    appendLootU32(data, p.items[i].quantity);
+  }
+  return data;
+}
+
+inline bool decodeCompanionLootCollected(const std::vector<uint8_t>& data, CompanionLootCollectedPayload& p) {
+  if (data.size() < 39 || data[0] != static_cast<uint8_t>(MovementMsgType::CompanionLootCollected)) {
+    return false;
+  }
+  size_t off = 1;
+  p.ownerId = readLootU32(data, off);
+  p.corpseId = readLootU64(data, off);
+  p.x = readCompanionF32(data, off);
+  p.y = readCompanionF32(data, off);
+  p.z = readCompanionF32(data, off);
+  p.playerGold = static_cast<int64_t>(readLootU64(data, off));
+  p.goldCollected = readLootU32(data, off);
+  p.inventoryChanged = data[off++];
+  const uint8_t count = data[off++];
+  if (count > kCompanionLootMaxItems || off + static_cast<size_t>(count) * 8 > data.size()) return false;
+  p.items.clear();
+  for (uint8_t i = 0; i < count; ++i) {
+    CompanionLootItem it;
+    it.itemTemplateId = readLootU32(data, off);
+    it.quantity = readLootU32(data, off);
+    p.items.push_back(it);
+  }
+  return true;
 }
 
 inline bool decodeQuestProgressNotify(const std::vector<uint8_t>& data, QuestProgressNotifyPayload& p) {

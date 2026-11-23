@@ -401,6 +401,24 @@ public sealed class PhpAdminClient : IDisposable
     public async Task<(bool Ok, string Error, JsonDocument? Data)> DeleteAppearancePartAsync(int appearancePartId, CancellationToken ct = default) =>
         await PostAsync("/admin/delete_appearance_part.php", new { admin_username = _adminUsername, appearance_part_id = appearancePartId }, ct);
 
+    // --- Companheiros (companion_templates) ---
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListCompanionTemplatesAsync(CancellationToken ct = default) =>
+        await PostAsync("/admin/list_companion_templates.php", new { admin_username = _adminUsername }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> CreateCompanionTemplateAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/create_companion_template.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpdateCompanionTemplateAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/update_companion_template.php", dict, ct);
+    }
+
     public async Task<(bool Ok, string Error, JsonDocument? Data)> ListCraftRecipesAsync(string? search = null, string? craftCategory = null, CancellationToken ct = default) =>
         await PostAsync("/admin/list_craft_recipes.php", new { admin_username = _adminUsername, search, craft_category = craftCategory }, ct);
 

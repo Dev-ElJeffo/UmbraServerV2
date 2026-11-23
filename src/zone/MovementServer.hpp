@@ -47,6 +47,8 @@ struct PlayerStateNet {
   std::vector<EquippedVisualWireEntry> equippedVisual;
   /** Opcode 119: 0 = relaxado (arma nas costas), 1 = combate. Comeca relaxado ao logar. */
   uint8_t combatStance = 0;
+  /** Opcode 125: companheiros invocados (um por slot: pet/elemental). Vai no snapshot de quem entra. */
+  std::vector<CompanionStatePayload> companions;
 };
 
 class MovementServer {
@@ -63,6 +65,14 @@ public:
   }
 
   /** Callback chamado quando um jogador desconecta. Usado para remover do grupo no servidor. Retorna party_id se estava em grupo, 0 caso contrário. */
+  /** Opcode 124: roda no inbound worker (pode ir ao DB), nunca no recv. */
+  void setCompanionRequestHandler(std::function<void(uint32_t playerId, const CompanionRequestPayload&)> cb) {
+    companionRequestHandler_ = std::move(cb);
+  }
+
+  /** Player saiu de vez da zone (sem reconexão): limpa caches de serviços (companheiros). */
+  void setPlayerGoneHook(std::function<void(uint32_t playerId)> cb) { playerGoneHook_ = std::move(cb); }
+
   void setOnPlayerDisconnectCallback(std::function<uint32_t(uint32_t playerId)> cb) {
     onPlayerDisconnect_ = std::move(cb);
   }
@@ -797,6 +807,25 @@ public:
         return;
       }
 
+      // Companheiro: invocar/recolher/filtro (124). O dono vem do cid, nunca do payload.
+      if (msgType == MovementMsgType::CompanionRequest) {
+        CompanionRequestPayload payload;
+        if (decodeCompanionRequest(data, payload) && companionRequestHandler_) {
+          uint32_t playerId = 0;
+          {
+            std::lock_guard<std::mutex> lock(mu_);
+            auto cidIt = clientIdToPlayerId_.find(cid);
+            if (cidIt != clientIdToPlayerId_.end()) playerId = cidIt->second;
+          }
+          if (playerId > 0) {
+            companionRequestHandler_(playerId, payload);
+          } else {
+            Umbra::Core::Logger::getInstance().warn("CompanionRequest ignorado: client {} sem player", cid);
+          }
+        }
+        return;
+      }
+
       // Loot take all (114)
       if (msgType == MovementMsgType::LootTakeAll) {
         LootTakeAllPayload payload;
@@ -1325,6 +1354,41 @@ public:
     return players_.size();
   }
 
+  /** Posição atual do player (false se offline/sem estado). Sem cópia do mapa inteiro. */
+  bool tryGetPlayerPosition(uint32_t playerId, float& x, float& y, float& z) const {
+    std::lock_guard<std::mutex> lock(mu_);
+    auto it = players_.find(playerId);
+    if (it == players_.end()) return false;
+    x = it->second.x;
+    y = it->second.y;
+    z = it->second.z;
+    return true;
+  }
+
+  /**
+   * Opcode 125: guarda o companheiro do slot no estado do player (snapshot de quem entra)
+   * e retransmite a todos. active=0 remove o slot.
+   */
+  void setPlayerCompanionState(const CompanionStatePayload& state) {
+    if (state.ownerId == 0) return;
+    std::vector<uint8_t> msg = encodeCompanionState(state);
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      auto pit = players_.find(state.ownerId);
+      if (pit == players_.end()) {
+        PlayerStateNet np{};
+        np.playerId = state.ownerId;
+        pit = players_.emplace(state.ownerId, np).first;
+      }
+      auto& list = pit->second.companions;
+      list.erase(std::remove_if(list.begin(), list.end(),
+                                [&](const CompanionStatePayload& c) { return c.slot == state.slot; }),
+                 list.end());
+      if (state.active != 0) list.push_back(state);
+    }
+    broadcastToAll(msg);
+  }
+
   /** True se o player tem sessão TCP mapeada (client↔player) nesta zone. */
   bool isPlayerConnected(uint32_t playerId) const {
     if (playerId == 0) return false;
@@ -1643,6 +1707,13 @@ private:
         cs.stance = st.combatStance;
         cs.flags = kCombatStanceFlagAuto;
         outbox.emplace_back(clientId, encodeCombatStanceState(cs));
+      }
+    }
+
+    // Opcode 125: companheiros já invocados por quem está na zone.
+    for (const auto& [pid, st] : players_) {
+      for (const auto& comp : st.companions) {
+        outbox.emplace_back(clientId, encodeCompanionState(comp));
       }
     }
 
@@ -1985,6 +2056,14 @@ private:
         Umbra::Core::Logger::getInstance().info(
             "Player {} já reconectou em outro client: limpeza do client {} ignorada", playerId, cid);
         return;
+      }
+
+      if (playerGoneHook_) {
+        try {
+          playerGoneHook_(playerId);
+        } catch (const std::exception& e) {
+          Umbra::Core::Logger::getInstance().error("Exception in playerGoneHook for player {}: {}", playerId, e.what());
+        }
       }
 
       // Membros do grupo lidos do cache ANTES de sair: o próximo refresh tira quem desconectou.
@@ -2504,6 +2583,8 @@ private:
   uint32_t chatRateLimitPerMinute_ = 30;
   CombatCoreEngine* combatCoreEngine_ = nullptr;
   LootService* lootService_ = nullptr;
+  std::function<void(uint32_t, const CompanionRequestPayload&)> companionRequestHandler_;
+  std::function<void(uint32_t)> playerGoneHook_;
   MovementSessionAuth sessionAuth_;
   bool sessionAuthEnabled_ = false;
 

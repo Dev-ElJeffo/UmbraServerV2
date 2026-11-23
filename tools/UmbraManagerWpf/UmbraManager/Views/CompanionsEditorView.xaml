@@ -1,0 +1,98 @@
+<UserControl x:Class="UmbraManager.Views.CompanionsEditorView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes">
+  <Grid Margin="8">
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="*" MinWidth="380"/>
+      <ColumnDefinition Width="Auto"/>
+      <ColumnDefinition Width="440"/>
+    </Grid.ColumnDefinitions>
+    <DockPanel Grid.Column="0">
+      <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+        <Button Content="Atualizar" Command="{Binding RefreshCompanionTemplatesCommand}" Margin="0,0,8,4"
+                Style="{StaticResource ManagerActionOutlinedButton}"/>
+        <Button Content="Novo companheiro" Command="{Binding NewCompanionTemplateCommand}" Margin="0,0,8,4"
+                Style="{StaticResource ManagerActionOutlinedButton}"/>
+        <Button Content="Recarregar no Zone" Command="{Binding ReloadCompanionsOnZonesCommand}" Margin="0,0,8,4"
+                Style="{StaticResource ManagerActionOutlinedButton}"/>
+        <TextBlock Text="{Binding CompanionTemplates.Count, StringFormat={}{0} companheiros}"
+                   VerticalAlignment="Center" Opacity="0.7"/>
+      </WrapPanel>
+      <TextBlock DockPanel.Dock="Bottom" Margin="0,8,0,0" Opacity="0.7" TextWrapping="Wrap"
+                 Text="O jogador ganha o companheiro usando um item consumível com item_subtype = companion e stats_json {&quot;companion_template_id&quot;: ID} (aba Itens)."/>
+      <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding CompanionTemplates}" IsReadOnly="True">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="ID" Binding="{Binding CompanionId}" Width="45"/>
+          <DataGridTextColumn Header="Chave" Binding="{Binding CompanionKey}" Width="130"/>
+          <DataGridTextColumn Header="Nome" Binding="{Binding Name}" Width="*"/>
+          <DataGridTextColumn Header="Tipo" Binding="{Binding CompanionType}" Width="75"/>
+          <DataGridTextColumn Header="Raio" Binding="{Binding LootRadiusUu}" Width="60"/>
+          <DataGridTextColumn Header="Nível" Binding="{Binding RequiredLevel}" Width="50"/>
+          <DataGridCheckBoxColumn Header="On" Binding="{Binding IsActive}" Width="40"/>
+          <DataGridTemplateColumn Header="Ações" Width="90">
+            <DataGridTemplateColumn.CellTemplate>
+              <DataTemplate>
+                <Button Content="Editar" Style="{StaticResource ManagerActionButton}"
+                        Command="{Binding DataContext.EditCompanionTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        CommandParameter="{Binding}"/>
+              </DataTemplate>
+            </DataGridTemplateColumn.CellTemplate>
+          </DataGridTemplateColumn>
+        </DataGrid.Columns>
+      </DataGrid>
+    </DockPanel>
+    <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" Background="Transparent"
+                  ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
+    <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+      <StackPanel Margin="8,0,0,12">
+        <TextBlock Text="{Binding CompanionFormTitle}" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,8"/>
+
+        <TextBlock Text="Identificação" FontWeight="SemiBold" Margin="0,4,0,4"/>
+        <TextBox Text="{Binding CompanionFormKey, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Chave única (ex.: PET_SPRITE)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding CompanionFormName, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Nome exibido no jogo" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding CompanionFormDescription, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Descrição (janela de companheiros)" materialDesign:HintAssist.IsFloating="True"/>
+        <ComboBox Margin="0,0,0,6" SelectedValue="{Binding CompanionFormType}" SelectedValuePath="Content"
+                  materialDesign:HintAssist.Hint="Tipo (pet = coleta loot; elemental = etapa 2)" materialDesign:HintAssist.IsFloating="True">
+          <ComboBoxItem Content="pet"/>
+          <ComboBoxItem Content="elemental"/>
+        </ComboBox>
+        <TextBox Text="{Binding CompanionFormRequiredLevel, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Nível exigido (usar o item e invocar)" materialDesign:HintAssist.IsFloating="True"/>
+        <CheckBox Content="Ativo (desmarcado = não pode ser invocado)" IsChecked="{Binding CompanionFormIsActive}" Margin="0,0,0,10"/>
+
+        <TextBlock Text="Visual (soft paths /Game/...Asset.Asset)" FontWeight="SemiBold" Margin="0,4,0,4"/>
+        <TextBox Text="{Binding CompanionFormIconPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Ícone (Texture2D)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding CompanionFormMeshPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Mesh (SkeletalMesh ou StaticMesh; vazio = esfera)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding CompanionFormIdleAnimPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Animação parado (AnimSequence, só SkeletalMesh)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding CompanionFormMoveAnimPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Animação movendo (AnimSequence, só SkeletalMesh)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding CompanionFormPickupVfxPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="VFX ao coletar (NiagaraSystem, opcional)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding CompanionFormScale}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Escala (0.1 a 5)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding CompanionFormFollowDistance}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Distância atrás do dono (uu, 50 a 1000)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding CompanionFormHoverHeight}" Margin="0,0,0,10"
+                 materialDesign:HintAssist.Hint="Altura acima do chão (uu; 0 = no chão)" materialDesign:HintAssist.IsFloating="True"/>
+
+        <TextBlock Text="Coleta (só pet)" FontWeight="SemiBold" Margin="0,4,0,4"/>
+        <TextBox Text="{Binding CompanionFormLootRadiusUu}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Raio dono-corpo (uu, 0 a 5000; 1500 = 15 m)" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding CompanionFormLootDelayMs, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12"
+                 materialDesign:HintAssist.Hint="Espera após o kill (ms, 0 a 5000)" materialDesign:HintAssist.IsFloating="True"/>
+
+        <WrapPanel>
+          <Button Content="{Binding CompanionSaveButtonText}" Command="{Binding SaveCompanionTemplateCommand}"
+                  Style="{StaticResource ManagerActionButton}" Margin="0,0,8,4"/>
+        </WrapPanel>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

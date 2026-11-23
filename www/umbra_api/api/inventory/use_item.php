@@ -146,6 +146,69 @@ try {
     }
 
     $item_subtype = $inv['item_subtype'] ?? 'consumable';
+
+    // Selo de companheiro: concede o pet/elemental (permanente) e consome o item. Sem cooldown.
+    if ($item_subtype === 'companion') {
+        $c_stats = json_decode($inv['stats_json'] ?? '{}', true);
+        $companion_id = is_array($c_stats) ? (int)($c_stats['companion_template_id'] ?? 0) : 0;
+        $tpl_stmt = $pdo->prepare(
+            'SELECT companion_id, name, companion_type, required_level FROM companion_templates
+              WHERE companion_id = :cid AND is_active = 1'
+        );
+        $tpl_stmt->execute(['cid' => $companion_id]);
+        $tpl = $tpl_stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$tpl) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Companheiro deste item não está disponível'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $lvl_stmt = $pdo->prepare('SELECT level FROM players WHERE id = :player_id');
+        $lvl_stmt->execute(['player_id' => $player_id]);
+        if ((int)$lvl_stmt->fetchColumn() < (int)$tpl['required_level']) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Nível insuficiente: requer nível ' . (int)$tpl['required_level']], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        $pdo->beginTransaction();
+        $owned = $pdo->prepare('SELECT 1 FROM player_companions WHERE player_id = :player_id AND companion_id = :cid FOR UPDATE');
+        $owned->execute(['player_id' => $player_id, 'cid' => $companion_id]);
+        if ($owned->fetchColumn()) {
+            $pdo->rollBack();
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Você já possui ' . $tpl['name']], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $pdo->prepare('INSERT INTO player_companions (player_id, companion_id) VALUES (:player_id, :cid)')
+            ->execute(['player_id' => $player_id, 'cid' => $companion_id]);
+
+        $c_inventory_id = (int)$inv['inventory_id'];
+        $c_new_qty = (int)$inv['quantity'] - 1;
+        if ($c_new_qty <= 0) {
+            $pdo->prepare('DELETE FROM player_inventory WHERE inventory_id = :inventory_id')
+                ->execute(['inventory_id' => $c_inventory_id]);
+        } else {
+            $pdo->prepare('UPDATE player_inventory SET quantity = :qty WHERE inventory_id = :inventory_id')
+                ->execute(['qty' => $c_new_qty, 'inventory_id' => $c_inventory_id]);
+        }
+        $pdo->commit();
+
+        http_response_code(200);
+        echo json_encode([
+            'success' => true,
+            'message' => 'Você obteve ' . $tpl['name'] . '!',
+            'inventory_id' => $c_inventory_id,
+            'quantity_remaining' => max(0, $c_new_qty),
+            'item_subtype' => $item_subtype,
+            'companion_granted' => [
+                'companion_id' => (int)$tpl['companion_id'],
+                'name' => $tpl['name'],
+                'companion_type' => $tpl['companion_type'],
+            ],
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     $use_cooldown_ms = (int)($inv['use_cooldown_ms'] ?? 5000);
     if ($use_cooldown_ms < 0) {
         $use_cooldown_ms = 5000;

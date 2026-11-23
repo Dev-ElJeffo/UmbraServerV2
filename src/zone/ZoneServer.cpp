@@ -228,6 +228,17 @@ bool ZoneServer::start() {
         questProgress->setShareRadiusUu(partyShareRadius);
       }
       movementServer_->setLootService(lootService_.get());
+
+      // Companheiros (opcodes 124-126): pet de coleta usa o LootService.
+      companionService_ = std::make_unique<CompanionService>(config_.dbConnector, movementServer_.get());
+      companionService_->loadTemplates();
+      lootService_->setCompanionService(companionService_.get());
+      movementServer_->setCompanionRequestHandler(
+          [svc = companionService_.get()](uint32_t playerId, const CompanionRequestPayload& p) {
+            svc->handleRequest(playerId, p);
+          });
+      movementServer_->setPlayerGoneHook(
+          [svc = companionService_.get()](uint32_t playerId) { svc->onPlayerGone(playerId); });
       Core::Logger::getInstance().info(
           "ExperienceService, ExpZoneManager and LootService initialized for zone {} "
           "(party.share_radius_uu={})",

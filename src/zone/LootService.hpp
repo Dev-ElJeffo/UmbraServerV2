@@ -3,12 +3,16 @@
 #include "zone/MovementProtocol.hpp"
 #include "zone/ExperienceService.hpp"
 #include "database/MySQLConnector.hpp"
+#include "zone/CompanionService.hpp"
+#include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <random>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -60,6 +64,10 @@ public:
 
   LootService(uint32_t zoneId, std::shared_ptr<Database::MySQLConnector> db,
               MovementServer* movementServer, ExperienceService* experienceService);
+  ~LootService();
+
+  /** Pet de coleta: com o serviço ligado, kills de quem tem pet ativo passam pela coleta automática. */
+  void setCompanionService(CompanionService* companions);
 
   void setResolvePartyMembers(std::function<std::vector<uint32_t>(uint32_t)> cb) {
     resolvePartyMembers_ = std::move(cb);
@@ -96,6 +104,17 @@ private:
   std::vector<LootSlotPayload> remainingPayloadSlots(const LootCorpseRuntime& corpse) const;
   int64_t nowMs() const;
 
+  // --- Pet de coleta (opcode 126) ---
+  struct PendingPetPickup {
+    uint64_t corpseId = 0;
+    uint32_t ownerId = 0;
+    int64_t dueAtMs = 0;
+  };
+  void enqueuePetPickup(const PendingPetPickup& pickup);
+  void petWorkerLoop();
+  void processPetPickup(const PendingPetPickup& pickup);
+  uint8_t itemRarityOf(uint32_t itemTemplateId);
+
   uint32_t zoneId_ = 0;
   std::shared_ptr<Database::MySQLConnector> db_;
   MovementServer* movementServer_ = nullptr;
@@ -107,8 +126,17 @@ private:
   std::mutex mu_;
   std::unordered_map<uint32_t, NpcLootTableDef> tablesByTemplate_;
   std::unordered_map<uint64_t, LootCorpseRuntime> corpses_;
+  std::unordered_map<uint32_t, uint8_t> itemRarity_;  // item_templates.rarity (0..4), sob mu_
   std::mt19937 rng_;
   float expireAccum_ = 0.f;
+
+  CompanionService* companionService_ = nullptr;
+  // Coletas do pet rodam numa thread própria: concedem itens no DB sem travar o tick da zone.
+  std::mutex petMu_;
+  std::condition_variable petCv_;
+  std::deque<PendingPetPickup> petQueue_;
+  bool petStop_ = false;
+  std::thread petWorker_;
 };
 
 }  // namespace Zone

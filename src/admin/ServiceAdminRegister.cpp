@@ -346,6 +346,25 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
     d["zone_id"] = server.getConfig().zoneId;
     return d;
   });
+
+  // Manager > Companheiros > Recarregar no Zone. Quem já invocou mantém o visual até reinvocar;
+  // a regra de coleta (raio/delay) passa a valer na hora.
+  registry.registerCommand("reload_companions", [&server](const nlohmann::json&) {
+    nlohmann::json d;
+    auto* companions = server.getCompanionService();
+    if (companions) {
+      companions->loadTemplates();
+      d["ok"] = true;
+      d["reloaded"] = true;
+      d["templates"] = companions->templateCount();
+    } else {
+      d["ok"] = false;
+      d["reloaded"] = false;
+      d["message"] = "CompanionService indisponível";
+    }
+    d["zone_id"] = server.getConfig().zoneId;
+    return d;
+  });
 }
 
 void registerWorldCommands(CommandRegistry& registry, World::WorldServer& server) {

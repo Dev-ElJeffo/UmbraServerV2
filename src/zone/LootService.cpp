@@ -19,6 +19,22 @@ LootService::LootService(uint32_t zoneId, std::shared_ptr<Database::MySQLConnect
       rng_(static_cast<uint32_t>(
           std::chrono::steady_clock::now().time_since_epoch().count())) {}
 
+LootService::~LootService() {
+  {
+    std::lock_guard<std::mutex> lock(petMu_);
+    petStop_ = true;
+  }
+  petCv_.notify_all();
+  if (petWorker_.joinable()) petWorker_.join();
+}
+
+void LootService::setCompanionService(CompanionService* companions) {
+  companionService_ = companions;
+  if (companions && !petWorker_.joinable()) {
+    petWorker_ = std::thread([this] { petWorkerLoop(); });
+  }
+}
+
 int64_t LootService::nowMs() const {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
              std::chrono::system_clock::now().time_since_epoch())
@@ -65,9 +81,23 @@ void LootService::loadFromDatabase() {
     Core::Logger::getInstance().warn("[LootService] loot entries load failed: {}", ex.what());
   }
 
+  // Raridade dos itens para o filtro do pet de coleta.
+  std::unordered_map<uint32_t, uint8_t> rarities;
+  try {
+    auto rows = db_->executePreparedQuery(
+        "SELECT item_id, COALESCE(rarity,'common') FROM item_templates", {});
+    for (const auto& row : rows) {
+      if (row.size() < 2) continue;
+      rarities[static_cast<uint32_t>(std::stoul(row[0]))] = companionRarityRank(row[1]);
+    }
+  } catch (const std::exception& ex) {
+    Core::Logger::getInstance().warn("[LootService] item rarity load failed: {}", ex.what());
+  }
+
   {
     std::lock_guard<std::mutex> lock(mu_);
     tablesByTemplate_ = std::move(next);
+    itemRarity_ = std::move(rarities);
   }
   Core::Logger::getInstance().info("[LootService] loaded loot tables for {} templates (zone {})",
                                    tablesByTemplate_.size(), zoneId_);
@@ -252,6 +282,18 @@ void LootService::onNpcKilled(uint32_t killerPlayerId, uint32_t npcInstanceId, u
     std::lock_guard<std::mutex> lock(mu_);
     corpses_[corpseId] = corpse;
   }
+
+  // Pet de coleta ativo: a janela só abre depois, com o que o pet deixar (filtro/bolsa cheia/fora do raio).
+  PetLootRule petRule;
+  if (companionService_ && companionService_->getActivePetRule(killerPlayerId, petRule)) {
+    PendingPetPickup pickup;
+    pickup.corpseId = corpseId;
+    pickup.ownerId = killerPlayerId;
+    pickup.dueAtMs = nowMs() + static_cast<int64_t>(petRule.lootDelayMs);
+    enqueuePetPickup(pickup);
+    return;
+  }
+
   sendWindowOpen(killerPlayerId, corpse);
   Core::Logger::getInstance().info(
       "[LootService] corpse {} opened for killer {} npcTpl={} slots={}", corpseId, killerPlayerId,
@@ -504,6 +546,121 @@ void LootService::handleLootTakeAll(uint32_t playerId, const LootTakeAllPayload&
     markCorpseClosed(payload.corpseId);
     sendWindowClose(playerId, payload.corpseId, LootCloseReason::Empty);
   }
+}
+
+uint8_t LootService::itemRarityOf(uint32_t itemTemplateId) {
+  std::lock_guard<std::mutex> lock(mu_);
+  auto it = itemRarity_.find(itemTemplateId);
+  return it == itemRarity_.end() ? 0 : it->second;
+}
+
+void LootService::enqueuePetPickup(const PendingPetPickup& pickup) {
+  {
+    std::lock_guard<std::mutex> lock(petMu_);
+    petQueue_.push_back(pickup);
+  }
+  petCv_.notify_one();
+}
+
+void LootService::petWorkerLoop() {
+  std::unique_lock<std::mutex> lock(petMu_);
+  while (!petStop_) {
+    if (petQueue_.empty()) {
+      petCv_.wait(lock, [this] { return petStop_ || !petQueue_.empty(); });
+      continue;
+    }
+    // Fila quase em ordem (mesmo delay por pet): pega o vencimento mais cedo.
+    auto earliest = std::min_element(petQueue_.begin(), petQueue_.end(),
+                                     [](const PendingPetPickup& a, const PendingPetPickup& b) {
+                                       return a.dueAtMs < b.dueAtMs;
+                                     });
+    const int64_t waitMs = earliest->dueAtMs - nowMs();
+    if (waitMs > 0) {
+      petCv_.wait_for(lock, std::chrono::milliseconds(waitMs));
+      continue;
+    }
+    const PendingPetPickup job = *earliest;
+    petQueue_.erase(earliest);
+    lock.unlock();
+    try {
+      processPetPickup(job);
+    } catch (const std::exception& e) {
+      Core::Logger::getInstance().error("[LootService] pet pickup corpse {} falhou: {}", job.corpseId, e.what());
+    }
+    lock.lock();
+  }
+}
+
+void LootService::processPetPickup(const PendingPetPickup& pickup) {
+  LootCorpseRuntime corpseCopy;
+  {
+    std::lock_guard<std::mutex> lock(mu_);
+    auto it = corpses_.find(pickup.corpseId);
+    if (it == corpses_.end() || it->second.closed) return;
+    corpseCopy = it->second;
+  }
+
+  // O pet pode ter sido recolhido ou o dono saído do raio durante o delay: janela normal.
+  PetLootRule rule;
+  float ox = 0.f, oy = 0.f, oz = 0.f;
+  const bool online = movementServer_ && movementServer_->tryGetPlayerPosition(pickup.ownerId, ox, oy, oz);
+  if (!online) return;
+  if (!companionService_ || !companionService_->getActivePetRule(pickup.ownerId, rule) ||
+      !companionWithinRadius(ox, oy, corpseCopy.x, corpseCopy.y, rule.lootRadiusUu)) {
+    sendWindowOpen(pickup.ownerId, corpseCopy);
+    return;
+  }
+
+  CompanionLootCollectedPayload out;
+  out.ownerId = pickup.ownerId;
+  out.corpseId = corpseCopy.corpseId;
+  out.x = corpseCopy.x;
+  out.y = corpseCopy.y;
+  out.z = corpseCopy.z;
+  bool invChanged = false;
+  int64_t playerGold = -1;
+  for (auto& s : corpseCopy.slots) {
+    if (s.taken) continue;
+    const bool isGold = s.entryKind == static_cast<uint8_t>(LootEntryKind::Gold);
+    const uint8_t rarity = isGold ? 0 : itemRarityOf(s.itemTemplateId);
+    if (!companionShouldTakeSlot(rule, s.entryKind, rarity)) continue;
+    const uint32_t qty = s.quantity;
+    const uint32_t itemId = s.itemTemplateId;
+    bool slotInv = false;
+    int64_t slotGold = -1;
+    // Bolsa cheia: o item fica no corpo (ouro ainda pode entrar), sem parar o resto.
+    if (!takeSlot(corpseCopy, s.slotIndex, pickup.ownerId, slotInv, slotGold)) continue;
+    if (isGold) {
+      out.goldCollected += qty;
+      if (slotGold >= 0) playerGold = slotGold;
+    } else {
+      out.items.push_back({itemId, qty});
+      if (slotInv) invChanged = true;
+    }
+  }
+
+  const bool empty = remainingPayloadSlots(corpseCopy).empty();
+  {
+    std::lock_guard<std::mutex> lock(mu_);
+    corpses_[corpseCopy.corpseId] = corpseCopy;
+    if (empty) corpses_[corpseCopy.corpseId].closed = true;
+  }
+
+  const bool collected = out.goldCollected > 0 || !out.items.empty();
+  if (collected) {
+    out.playerGold = playerGold;
+    out.inventoryChanged = invChanged ? 1 : 0;
+    // Dono atualiza bolsa/ouro; quem está perto só vê o pet ir até o corpo.
+    movementServer_->broadcastNearPlayer(pickup.ownerId, encodeCompanionLootCollected(out));
+  }
+  if (empty) {
+    markCorpseClosed(corpseCopy.corpseId);
+  } else {
+    sendWindowOpen(pickup.ownerId, corpseCopy);
+  }
+  Core::Logger::getInstance().info(
+      "[LootService] pet {} do player {} coletou corpse {}: itens={} ouro={} sobrou={}", rule.companionId,
+      pickup.ownerId, corpseCopy.corpseId, out.items.size(), out.goldCollected, empty ? 0 : 1);
 }
 
 void LootService::tick(float deltaSeconds) {

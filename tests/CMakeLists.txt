@@ -52,6 +52,16 @@ target_link_libraries(test_network
 )
 
 # Teste das implementações da Fase 1
+add_executable(test_companion_loot
+  test_companion_loot.cpp
+)
+target_link_libraries(test_companion_loot
+  umbra_zone
+  gtest
+  gtest_main
+  Threads::Threads
+)
+
 find_package(OpenSSL REQUIRED)
 add_executable(test_fase1 ../scripts_main/test_fase1_implementations.cpp)
 target_include_directories(test_fase1 PRIVATE ${CMAKE_SOURCE_DIR})
@@ -121,5 +131,6 @@ add_test(NAME PlayerDAOTests COMMAND test_playerdao)
 add_test(NAME AuthPlayerDAOIntegrationTests COMMAND test_auth_playerdao)
 add_test(NAME StatMappingTests COMMAND test_stat_mapping)
 add_test(NAME CombatEffectTests COMMAND test_combat_effects)
+add_test(NAME CompanionLootTests COMMAND test_companion_loot)
 add_test(NAME AdminCryptoTests COMMAND test_admin_crypto)
 
