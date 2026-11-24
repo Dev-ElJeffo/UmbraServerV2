@@ -175,6 +175,11 @@
                 <adminv:RatesView/>
             </TabItem>
 
+            <!-- PvP e duelo (etapa 6) -->
+            <TabItem Header="PvP" Visibility="{Binding TabVisibilitySuper}">
+                <adminv:PvpView/>
+            </TabItem>
+
             <!-- Audit -->
             <TabItem Header="Audit" Visibility="{Binding TabVisibilityOps}">
                 <adminv:AuditView/>

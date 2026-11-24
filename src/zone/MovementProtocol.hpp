@@ -47,11 +47,11 @@ enum class MovementMsgType : uint8_t {
   FriendAdded = 33,           // Servidor -> Clientes: Amigo adicionado
   WhisperMessage = 40,        // Cliente -> Servidor: Enviar whisper
   WhisperReceived = 41,       // Servidor -> Cliente: Receber whisper
-  DuelRequest = 50,           // Cliente -> Servidor: Desafiar duelo
-  DuelRequestReceived = 51,   // Servidor -> Cliente: Receber desafio
-  DuelRequestResponse = 52,   // Cliente -> Servidor: Aceitar/Recusar
-  DuelStarted = 53,           // Servidor -> Clientes: Duelo iniciado
-  DuelEnded = 54,             // Servidor -> Clientes: Duelo terminado
+  DuelRequest = 50,           // Cliente -> Servidor: [targetPlayerId:4] desafiar duelo (etapa 6)
+  DuelRequestReceived = 51,   // Servidor -> Cliente: [fromPlayerId:4][expiresSec:1][name:u16+utf8]
+  DuelRequestResponse = 52,   // Cliente -> Servidor: [action:1][otherPlayerId:4] 0 recusa, 1 aceita, 2 desiste, 3 cancela
+  DuelStarted = 53,           // Servidor -> os dois: bandeira, raio, contagem, regras (ver encodeDuelStarted)
+  DuelEnded = 54,             // Servidor -> Cliente: [duelId:4][winner:4][loser:4][reason:1] (duelId 0 = resposta ao desafio)
   PersonalShopOpenNotify = 60,   // Cliente -> Servidor: loja aberta (após HTTP)
   PersonalShopOpened = 61,       // Servidor -> Clientes: broadcast loja
   PersonalShopCloseNotify = 62,  // Cliente -> Servidor: loja fechada
@@ -4254,7 +4254,190 @@ inline bool decodeBossState(const std::vector<uint8_t>& data, BossStatePayload& 
   return true;
 }
 
+
+// ===================== Duelo (etapa 6, opcodes 50-54) =====================
+
+enum class DuelResponseAction : uint8_t {
+  Decline = 0,
+  Accept = 1,
+  Forfeit = 2,        // desiste do duelo em andamento (otherPlayerId ignorado)
+  CancelRequest = 3,  // cancela o desafio que enviou
+};
+
+/** Motivo do 54. 1-6 = duelo encerrado; 10+ = resposta ao desafio (duelId 0). */
+enum class DuelEndReason : uint8_t {
+  Defeat = 1,
+  Fled = 2,
+  Timeout = 3,
+  Forfeit = 4,
+  Disconnect = 5,
+  Interrupted = 6,
+  RequestDeclined = 10,
+  RequestExpired = 11,
+  RequestBusy = 12,
+  RequestTooFar = 13,
+  RequestInvalid = 14,
+  RequestNotHere = 15,
+  RequestSent = 16,      // confirmação para quem desafiou
+  RequestCanceled = 17,  // quem desafiou cancelou (vai para o desafiado)
+};
+
+inline std::vector<uint8_t> encodeDuelRequest(uint32_t targetPlayerId) {
+  std::vector<uint8_t> data;
+  data.reserve(5);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::DuelRequest));
+  appendLootU32(data, targetPlayerId);
+  return data;
+}
+
+inline bool decodeDuelRequest(const std::vector<uint8_t>& data, uint32_t& targetPlayerId) {
+  if (data.size() < 5 || data[0] != static_cast<uint8_t>(MovementMsgType::DuelRequest)) return false;
+  size_t off = 1;
+  targetPlayerId = readLootU32(data, off);
+  return targetPlayerId != 0;
+}
+
+struct DuelRequestReceivedPayload {
+  uint32_t fromPlayerId = 0;
+  uint8_t expiresSec = 30;
+  std::string fromName;
+};
+
+inline std::vector<uint8_t> encodeDuelRequestReceived(const DuelRequestReceivedPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(8 + p.fromName.size());
+  data.push_back(static_cast<uint8_t>(MovementMsgType::DuelRequestReceived));
+  appendLootU32(data, p.fromPlayerId);
+  data.push_back(p.expiresSec);
+  appendStringField(data, p.fromName, 64);
+  return data;
+}
+
+inline bool decodeDuelRequestReceived(const std::vector<uint8_t>& data, DuelRequestReceivedPayload& p) {
+  if (data.size() < 6 || data[0] != static_cast<uint8_t>(MovementMsgType::DuelRequestReceived)) return false;
+  size_t off = 1;
+  p.fromPlayerId = readLootU32(data, off);
+  p.expiresSec = data[off++];
+  p.fromName.clear();
+  if (off < data.size() && !readStringField(data, off, p.fromName, 64)) return false;
+  return true;
+}
+
+inline std::vector<uint8_t> encodeDuelRequestResponse(DuelResponseAction action, uint32_t otherPlayerId) {
+  std::vector<uint8_t> data;
+  data.reserve(6);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::DuelRequestResponse));
+  data.push_back(static_cast<uint8_t>(action));
+  appendLootU32(data, otherPlayerId);
+  return data;
+}
+
+inline bool decodeDuelRequestResponse(const std::vector<uint8_t>& data, uint8_t& action, uint32_t& otherPlayerId) {
+  if (data.size() < 6 || data[0] != static_cast<uint8_t>(MovementMsgType::DuelRequestResponse)) return false;
+  action = data[1];
+  size_t off = 2;
+  otherPlayerId = readLootU32(data, off);
+  return action <= static_cast<uint8_t>(DuelResponseAction::CancelRequest);
+}
+
+struct DuelStartedPayload {
+  uint32_t duelId = 0;
+  uint32_t player1Id = 0;
+  uint32_t player2Id = 0;
+  float flagX = 0.f;
+  float flagY = 0.f;
+  float flagZ = 0.f;
+  float radius = 0.f;
+  uint16_t countdownMs = 0;
+  uint16_t maxDurationSec = 0;
+  uint8_t outOfBoundsSec = 0;
+  std::string opponentName;
+  /** Soft paths da bandeira (vazio = visual padrão do cliente). */
+  std::string flagMeshPath;
+  std::string flagVfxPath;
+};
+
+// [53][duelId:4][p1:4][p2:4][x:f4][y:f4][z:f4][radius:f4][countdownMs:2][maxDurSec:2][oobSec:1]
+// [opponentName:u16+utf8<=64][flagMesh:u16+utf8<=255][flagVfx:u16+utf8<=255]
+inline std::vector<uint8_t> encodeDuelStarted(const DuelStartedPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(48 + p.opponentName.size() + p.flagMeshPath.size() + p.flagVfxPath.size());
+  auto u16 = [&data](uint16_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  };
+  data.push_back(static_cast<uint8_t>(MovementMsgType::DuelStarted));
+  appendLootU32(data, p.duelId);
+  appendLootU32(data, p.player1Id);
+  appendLootU32(data, p.player2Id);
+  appendCompanionF32(data, p.flagX);
+  appendCompanionF32(data, p.flagY);
+  appendCompanionF32(data, p.flagZ);
+  appendCompanionF32(data, p.radius);
+  u16(p.countdownMs);
+  u16(p.maxDurationSec);
+  data.push_back(p.outOfBoundsSec);
+  appendStringField(data, p.opponentName, 64);
+  appendStringField(data, p.flagMeshPath, 255);
+  appendStringField(data, p.flagVfxPath, 255);
+  return data;
+}
+
+inline bool decodeDuelStarted(const std::vector<uint8_t>& data, DuelStartedPayload& p) {
+  constexpr size_t kFixed = 1 + 4 * 3 + 4 * 4 + 2 + 2 + 1;
+  if (data.size() < kFixed || data[0] != static_cast<uint8_t>(MovementMsgType::DuelStarted)) return false;
+  size_t off = 1;
+  auto u16 = [&data, &off]() {
+    const uint16_t v = static_cast<uint16_t>(data[off]) | static_cast<uint16_t>(data[off + 1] << 8);
+    off += 2;
+    return v;
+  };
+  p.duelId = readLootU32(data, off);
+  p.player1Id = readLootU32(data, off);
+  p.player2Id = readLootU32(data, off);
+  p.flagX = readCompanionF32(data, off);
+  p.flagY = readCompanionF32(data, off);
+  p.flagZ = readCompanionF32(data, off);
+  p.radius = readCompanionF32(data, off);
+  p.countdownMs = u16();
+  p.maxDurationSec = u16();
+  p.outOfBoundsSec = data[off++];
+  p.opponentName.clear();
+  p.flagMeshPath.clear();
+  p.flagVfxPath.clear();
+  if (off < data.size() && !readStringField(data, off, p.opponentName, 64)) return false;
+  if (off < data.size() && !readStringField(data, off, p.flagMeshPath, 255)) return false;
+  if (off < data.size() && !readStringField(data, off, p.flagVfxPath, 255)) return false;
+  return true;
+}
+
+struct DuelEndedPayload {
+  uint32_t duelId = 0;
+  uint32_t winnerId = 0;
+  uint32_t loserId = 0;
+  uint8_t reason = 0;
+};
+
+inline std::vector<uint8_t> encodeDuelEnded(const DuelEndedPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(14);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::DuelEnded));
+  appendLootU32(data, p.duelId);
+  appendLootU32(data, p.winnerId);
+  appendLootU32(data, p.loserId);
+  data.push_back(p.reason);
+  return data;
+}
+
+inline bool decodeDuelEnded(const std::vector<uint8_t>& data, DuelEndedPayload& p) {
+  if (data.size() < 14 || data[0] != static_cast<uint8_t>(MovementMsgType::DuelEnded)) return false;
+  size_t off = 1;
+  p.duelId = readLootU32(data, off);
+  p.winnerId = readLootU32(data, off);
+  p.loserId = readLootU32(data, off);
+  p.reason = data[off];
+  return true;
+}
+
 } // namespace Zone
 } // namespace Umbra
-
-

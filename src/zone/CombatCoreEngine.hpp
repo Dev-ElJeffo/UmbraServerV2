@@ -163,6 +163,15 @@ public:
   void setBossController(class BossController* boss) { bossController_ = boss; }
   /** Etapa 5b: chefe reiniciou (wipe/leash) → remove DOTs e debuffs dos jogadores nele e avisa os clientes. */
   void clearNpcHostileEffects(uint32_t npcInstanceId);
+  /** Etapa 6: duelo e regras de PvP (pvp_settings). */
+  void setDuelService(class DuelService* duel) { duelService_ = duel; }
+  /**
+   * Ponto único de PvP: o jogador src pode afetar tgt? hostile = dano/debuff; false = cura/buff.
+   * Hoje: duelo + pvp_settings.open_world_pvp. Futuro: facção e safezones entram aqui.
+   */
+  bool canAffectPlayer(uint32_t sourcePlayerId, uint32_t targetPlayerId, bool hostile) const;
+  /** Fim do duelo (no combat worker): remove efeitos de um no outro; restore = HP/MP cheios. */
+  void enqueueDuelCleanup(uint32_t playerA, uint32_t playerB, bool restore);
   /** Recarrega os NPCs dos moldes (reload_instances). */
   size_t reloadInstanceMoldes();
   /** Dados do NPC portal (false se não for portal). */
@@ -560,6 +569,7 @@ private:
   std::thread combatWorker_;
   std::function<void(uint32_t, uint32_t, uint8_t, uint32_t)> instanceNpcKilledHook_;
   class BossController* bossController_ = nullptr;
+  class DuelService* duelService_ = nullptr;
   std::atomic<bool> workerRunning_{false};
 
   // ---- Escrita assíncrona (write-behind) ----

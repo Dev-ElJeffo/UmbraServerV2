@@ -495,7 +495,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
         if (_isDisposed) return;
         if (TabVisibilitySuper == Visibility.Visible)
+        {
             await RefreshGameRatesAsync();
+            if (_isDisposed) return;
+            await RefreshPvpSettingsAsync();
+        }
         if (_isDisposed) return;
         await RefreshProjectStateAsync();
         if (!_isDisposed)

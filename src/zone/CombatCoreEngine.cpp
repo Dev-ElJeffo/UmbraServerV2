@@ -4,6 +4,7 @@
 #include "zone/CombatRange.hpp"
 #include "zone/QuestProgressService.hpp"
 #include "zone/BossController.hpp"
+#include "zone/DuelService.hpp"
 #include "core/Timer.hpp"
 #include "SkillTypes.hpp"
 #include "StatKeyMapping.hpp"
@@ -1763,6 +1764,8 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
         }
         const float radius = skill.areaRadius > 0 ? static_cast<float>(skill.areaRadius) : 500.f;
         for (const uint32_t memberId : members) {
+          // Etapa 6: membro do grupo duelando com outra pessoa não recebe cura/buff de fora.
+          if (!g_npcSourceEffects && !canAffectPlayer(sourcePlayerId, memberId, false)) continue;
           if (effectiveTarget == Combat::TargetType::AREA_ALLY && memberId != sourcePlayerId) {
             float x = 0.f, y = 0.f, z = 0.f;
             if (!tryGetPlayerPosition(memberId, x, y, z) ||
@@ -2872,6 +2875,66 @@ void CombatCoreEngine::tickNpcBuffExpirations() {
         "[CombatCoreEngine] buff NPC expirado npc={} buff_id={} skill={}", inst.npcInstanceId,
         inst.buffId, inst.skillId);
   }
+}
+
+bool CombatCoreEngine::canAffectPlayer(uint32_t sourcePlayerId, uint32_t targetPlayerId, bool hostile) const {
+  if (sourcePlayerId == 0 || targetPlayerId == 0 || sourcePlayerId == targetPlayerId) return true;
+  if (!duelService_) return true;  // sem serviço (sem DB): comportamento antigo
+  // Futuro: facção (mesma facção só em duelo) e safezones entram aqui.
+  return DuelRules::canAffect(duelService_->relation(sourcePlayerId, targetPlayerId), hostile,
+                              duelService_->openWorldPvp());
+}
+
+void CombatCoreEngine::enqueueDuelCleanup(uint32_t playerA, uint32_t playerB, bool restore) {
+  auto isPair = [playerA, playerB](uint32_t target, uint32_t source) {
+    return (target == playerA && source == playerB) || (target == playerB && source == playerA);
+  };
+  // DOTs de um no outro saem JÁ (o tick de DOT não espera o worker): o perdedor com 1 de HP não morre
+  // por um tick que chegue entre o golpe final e a limpeza.
+  std::vector<SkillBuffSyncPayload> removed;
+  {
+    std::lock_guard<std::mutex> lock(playerDotsMu_);
+    playerDots_.erase(std::remove_if(playerDots_.begin(), playerDots_.end(),
+                                     [&](const PlayerDotInstance& d) {
+                                       if (d.isHeal || !isPair(d.targetPlayerId, d.sourcePlayerId)) return false;
+                                       if (d.dotBuffId != 0) {
+                                         SkillBuffSyncPayload sync;
+                                         sync.action = 1;
+                                         sync.targetPlayerId = d.targetPlayerId;
+                                         sync.buffId = d.dotBuffId;
+                                         sync.skillId = d.skillId;
+                                         sync.buffType = static_cast<uint8_t>(Combat::BuffType::DOT);
+                                         removed.push_back(std::move(sync));
+                                       }
+                                       return true;
+                                     }),
+                      playerDots_.end());
+  }
+  enqueueWorldOp([this, playerA, playerB, restore, isPair, removed]() mutable {
+    // Debuffs de um no outro: expiram já; tickBuffExpirations apaga do DB e avisa os clientes.
+    {
+      std::lock_guard<std::mutex> lock(playerBuffsMu_);
+      for (auto& b : playerBuffs_) {
+        if (b.buffType == static_cast<uint8_t>(Combat::BuffType::DEBUFF) && isPair(b.targetPlayerId, b.sourcePlayerId)) {
+          b.expiresAtMs = 1;
+        }
+      }
+    }
+    for (auto& sync : removed) {
+      enrichSkillBuffSyncPayload(sync);
+      broadcastSkillBuffSync(sync);
+    }
+    tickBuffExpirations();
+    for (uint32_t pid : {playerA, playerB}) {
+      broadcastCombatControlState(0, pid);
+      if (!restore || !stateLoader_) continue;
+      Combat::CharacterState st;
+      if (!stateLoader_->tryGetCachedState(pid, st) || st.buffedStats.currentHealth <= 0) continue;
+      const int32_t missingHp = st.buffedStats.maxHealth - st.buffedStats.currentHealth;
+      if (missingHp > 0) applyPlayerDamage(pid, pid, missingHp, static_cast<uint8_t>(CombatReason::Heal));
+      restorePlayerMana(pid, std::max(1, st.buffedStats.maxMana));
+    }
+  });
 }
 
 void CombatCoreEngine::clearNpcHostileEffects(uint32_t npcInstanceId) {
@@ -4047,6 +4110,21 @@ bool CombatCoreEngine::applyPlayerDamage(uint32_t sourcePlayerId, uint32_t targe
     reactionEngine_->onPlayerDamaged(targetPlayerId, sourcePlayerId, delta, isCrit);
   }
 
+  // Etapa 6: ninguém morre em duelo. Golpe letal do oponente (golpe, DOT, reflexo) deixa 1 de HP
+  // e encerra o duelo depois do broadcast.
+  bool duelDefeat = false;
+  // Golpe que já estava a caminho quando o duelo acabou (hit pendente, Ripostar, reflexo): descartado.
+  if (delta < 0 && duelService_ && sourcePlayerId != targetPlayerId &&
+      duelService_->isRecentlyEndedPair(sourcePlayerId, targetPlayerId)) {
+    return false;
+  }
+  if (delta < 0 && duelService_ && sourcePlayerId != targetPlayerId &&
+      duelService_->isFightingOpponent(sourcePlayerId, targetPlayerId)) {
+    const auto clamp = DuelRules::clampLethal(curHealth, delta);
+    delta = clamp.first;
+    duelDefeat = clamp.second;
+  }
+
   const int32_t clampedHealth = std::max(0, std::min(maxHealth, curHealth + delta));
   const bool deadAfter = (clampedHealth <= 0);
 
@@ -4080,6 +4158,7 @@ bool CombatCoreEngine::applyPlayerDamage(uint32_t sourcePlayerId, uint32_t targe
 
   movementServer_->broadcastVitalsAndCombat(targetPlayerId, vitals, sourcePlayerId,
                                             clampedHealth - curHealth, deadAfter, isCrit, isDouble);
+  if (duelDefeat) duelService_->onLethalHit(targetPlayerId, sourcePlayerId);
 
   if (delta < 0 && sourcePlayerId > 0 && !resolvingReflect) {
     int32_t reflectPercent = 0;
@@ -4443,6 +4522,23 @@ void CombatCoreEngine::processSkillCast(uint32_t sourcePlayerId, const SkillCast
         !movementServer_->isPlayerConnected(payload.targetId)))) {
     payload.targetType = static_cast<uint8_t>(CombatTargetType::Player);
     payload.targetId = sourcePlayerId;
+  }
+
+  // Etapa 6 (PvP): cura/buff em quem está duelando com outro vira self-cast;
+  // golpe em jogador não hostil (fora de duelo, PvP livre desligado) é recusado.
+  if (payload.targetType == static_cast<uint8_t>(CombatTargetType::Player) && payload.targetId != sourcePlayerId &&
+      payload.targetId != 0) {
+    if (skill->target == Combat::TargetType::ALLY &&
+        !canAffectPlayer(sourcePlayerId, payload.targetId, false)) {
+      payload.targetId = sourcePlayerId;
+    } else if (skill->target == Combat::TargetType::ENEMY &&
+               !canAffectPlayer(sourcePlayerId, payload.targetId, true)) {
+      if (!hitOnly) {
+        sendSkillCastRejected(sourcePlayerId, payload.skillId, SkillCastRejectReason::NoTarget,
+                              "Alvo não hostil");
+      }
+      return;
+    }
   }
 
   Combat::CharacterState sourceState;
@@ -4898,6 +4994,7 @@ std::vector<std::pair<uint8_t, uint32_t>> CombatCoreEngine::collectAreaEnemies(
     }
     for (const auto& [playerId, player] : movementServer_->getPlayerStates()) {
       if (playerId == sourcePlayerId || player.isDead || party.count(playerId) > 0) continue;
+      if (!canAffectPlayer(sourcePlayerId, playerId, true)) continue;  // etapa 6: só hostis (duelo/PvP)
       const float d = distanceSquared3D(cx, cy, cz, player.x, player.y, player.z);
       if (d <= radiusSq) {
         candidates.push_back({static_cast<uint8_t>(CombatTargetType::Player), playerId, d});
@@ -4952,6 +5049,12 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
   }
 
   disambiguateTargetType(sourcePlayerId, payload.targetType, payload.targetId);
+
+  // Etapa 6 (PvP): ataque básico em jogador só se for hostil (duelo / PvP livre).
+  if (payload.targetType == static_cast<uint8_t>(CombatTargetType::Player) &&
+      !canAffectPlayer(sourcePlayerId, payload.targetId, true)) {
+    return;
+  }
 
   Combat::CharacterState attacker;
   const bool haveAttacker = stateLoader_ && stateLoader_->getCachedOrWarm(sourcePlayerId, attacker);

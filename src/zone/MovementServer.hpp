@@ -56,6 +56,14 @@ struct PlayerStateNet {
   float instExitX = 0.f, instExitY = 0.f, instExitZ = 0.f;
 };
 
+/** Etapa 6 (duelo): resumo do player sem copiar o mapa inteiro. */
+struct PlayerBrief {
+  float x = 0.f, y = 0.f, z = 0.f;
+  uint32_t layer = 0;
+  bool isDead = false;
+  std::string name;
+};
+
 class MovementServer {
 public:
   using Outbox = std::vector<std::pair<uint32_t, std::vector<uint8_t>>>;
@@ -96,6 +104,13 @@ public:
     instanceEnterHandler_ = std::move(cb);
   }
   void setInstanceLeaveHandler(std::function<void(uint32_t playerId)> cb) { instanceLeaveHandler_ = std::move(cb); }
+
+  /** Opcodes 50/52 (duelo, etapa 6): rodam no inbound worker (tick da zone). */
+  void setDuelHandlers(std::function<void(uint32_t fromPlayerId, uint32_t targetPlayerId)> onRequest,
+                       std::function<void(uint32_t playerId, uint8_t action, uint32_t otherPlayerId)> onResponse) {
+    duelRequestHandler_ = std::move(onRequest);
+    duelResponseHandler_ = std::move(onResponse);
+  }
 
   /** Player saiu de vez da zone (sem reconexão): limpa caches de serviços (companheiros). */
   void setPlayerGoneHook(std::function<void(uint32_t playerId)> cb) { playerGoneHook_ = std::move(cb); }
@@ -1026,6 +1041,27 @@ public:
         return;
       }
 
+      // Duelo (50/52, etapa 6). O dono vem do cid; o DuelService valida tudo.
+      if (msgType == MovementMsgType::DuelRequest || msgType == MovementMsgType::DuelRequestResponse) {
+        uint32_t playerId = 0;
+        {
+          std::lock_guard<std::mutex> lock(mu_);
+          playerId = playerIdForClientUnlocked(cid);
+        }
+        if (playerId == 0) return;
+        if (msgType == MovementMsgType::DuelRequest) {
+          uint32_t targetId = 0;
+          if (decodeDuelRequest(data, targetId) && duelRequestHandler_) duelRequestHandler_(playerId, targetId);
+        } else {
+          uint8_t action = 0;
+          uint32_t otherId = 0;
+          if (decodeDuelRequestResponse(data, action, otherId) && duelResponseHandler_) {
+            duelResponseHandler_(playerId, action, otherId);
+          }
+        }
+        return;
+      }
+
       // Consumível pela zone (127) e regras do elemental (129). O dono vem do cid.
       if (msgType == MovementMsgType::ConsumableUseRequest || msgType == MovementMsgType::ElementalRulesSet) {
         uint32_t playerId = 0;
@@ -1617,6 +1653,20 @@ public:
     }
     if (includeSelf) targets.insert(playerId);
     for (uint32_t t : targets) sendToPlayerUnlocked(t, msg);
+  }
+
+  /** Etapa 6: posição, camada, morte e nome (false se offline/sem estado). */
+  bool tryGetPlayerBrief(uint32_t playerId, PlayerBrief& out) const {
+    std::lock_guard<std::mutex> lock(mu_);
+    auto it = players_.find(playerId);
+    if (it == players_.end()) return false;
+    out.x = it->second.x;
+    out.y = it->second.y;
+    out.z = it->second.z;
+    out.layer = it->second.instanceId;
+    out.isDead = it->second.isDead;
+    out.name = it->second.characterName;
+    return true;
   }
 
   /** Posição atual do player (false se offline/sem estado). Sem cópia do mapa inteiro. */
@@ -2920,6 +2970,8 @@ private:
   std::function<void(uint32_t, uint32_t, uint32_t)> questInteractHandler_;
   std::function<void(uint32_t, uint32_t, uint8_t, uint8_t)> instanceEnterHandler_;
   std::function<void(uint32_t)> instanceLeaveHandler_;
+  std::function<void(uint32_t, uint32_t)> duelRequestHandler_;
+  std::function<void(uint32_t, uint8_t, uint32_t)> duelResponseHandler_;
   int64_t lastVitalsIgnoreLogMs_ = 0;
   MovementSessionAuth sessionAuth_;
   bool sessionAuthEnabled_ = false;

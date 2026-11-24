@@ -1,0 +1,75 @@
+<UserControl x:Class="UmbraManager.Views.Admin.PvpView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes">
+<ScrollViewer VerticalScrollBarVisibility="Auto">
+<Border Style="{StaticResource ManagerEditorCard}" Margin="8" MaxWidth="620" HorizontalAlignment="Left">
+    <StackPanel>
+        <TextBlock Text="PvP e duelo" Style="{StaticResource ManagerEditorTitle}"/>
+        <TextBlock Text="Regras de PvP e números do duelo (etapa 6). As zones recarregam ao salvar; duelos em andamento seguem com os valores antigos."
+                   Style="{StaticResource ManagerEditorSubtitle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+        <CheckBox Content="PvP livre no mundo (desligado = jogador só ataca jogador em duelo)"
+                  IsChecked="{Binding PvpOpenWorld}" Margin="0,0,0,4"/>
+        <TextBlock Text="No futuro, a facção e as safezones vão decidir isso."
+                   Opacity="0.7" FontSize="11" Margin="22,0,0,14"/>
+
+        <TextBlock Text="Duelo" FontWeight="SemiBold" Margin="0,0,0,6"/>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition/>
+                <RowDefinition/>
+                <RowDefinition/>
+                <RowDefinition/>
+            </Grid.RowDefinitions>
+            <TextBox Grid.Row="0" Grid.Column="0" Text="{Binding PvpDuelRequestDistance, UpdateSourceTrigger=PropertyChanged}"
+                     materialDesign:HintAssist.Hint="Distância para desafiar (uu, 100 uu = 1 m)"
+                     materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,10"/>
+            <TextBox Grid.Row="0" Grid.Column="2" Text="{Binding PvpDuelRequestTimeoutSec, UpdateSourceTrigger=PropertyChanged}"
+                     materialDesign:HintAssist.Hint="Tempo para aceitar (s, 5–120)"
+                     materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,10"/>
+            <TextBox Grid.Row="1" Grid.Column="0" Text="{Binding PvpDuelRadius, UpdateSourceTrigger=PropertyChanged}"
+                     materialDesign:HintAssist.Hint="Raio da área (uu, 500–20000)"
+                     materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,10"/>
+            <TextBox Grid.Row="1" Grid.Column="2" Text="{Binding PvpDuelCountdownSec, UpdateSourceTrigger=PropertyChanged}"
+                     materialDesign:HintAssist.Hint="Contagem antes da luta (s, 0–10)"
+                     materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,10"/>
+            <TextBox Grid.Row="2" Grid.Column="0" Text="{Binding PvpDuelMaxDurationSec, UpdateSourceTrigger=PropertyChanged}"
+                     materialDesign:HintAssist.Hint="Duração máxima (s; esgotou = empate)"
+                     materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,10"/>
+            <TextBox Grid.Row="2" Grid.Column="2" Text="{Binding PvpDuelOutOfBoundsSec, UpdateSourceTrigger=PropertyChanged}"
+                     materialDesign:HintAssist.Hint="Tolerância fora da área (s, 1–30)"
+                     materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,10"/>
+            <CheckBox Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3"
+                      Content="Restaurar HP/MP dos dois no fim do duelo" IsChecked="{Binding PvpDuelRestoreOnEnd}"
+                      Margin="0,0,0,10"/>
+        </Grid>
+
+        <TextBox Text="{Binding PvpDuelFlagMeshPath, UpdateSourceTrigger=PropertyChanged}"
+                 materialDesign:HintAssist.Hint="Mesh da bandeira (/Game/.../SM_Asset.SM_Asset; vazio = padrão do cliente)"
+                 materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,10"/>
+        <TextBox Text="{Binding PvpDuelFlagVfxPath, UpdateSourceTrigger=PropertyChanged}"
+                 materialDesign:HintAssist.Hint="VFX da área (/Game/.../NS_Asset.NS_Asset; vazio = sem VFX)"
+                 materialDesign:HintAssist.IsFloating="True" Margin="0,0,0,10"/>
+
+        <TextBlock Text="{Binding PvpStatus}" Opacity="0.8" Margin="0,0,0,12"/>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="8"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Button Grid.Column="0" Content="Atualizar" Command="{Binding RefreshPvpSettingsCommand}"
+                    Style="{StaticResource ManagerFormSecondaryButton}"/>
+            <Button Grid.Column="2" Content="Salvar PvP" Command="{Binding SavePvpSettingsCommand}"
+                    Style="{StaticResource ManagerFormPrimaryButton}"/>
+        </Grid>
+    </StackPanel>
+</Border>
+</ScrollViewer>
+</UserControl>

@@ -16,6 +16,7 @@
 #include "zone/InstanceManager.hpp"
 #include "zone/DungeonService.hpp"
 #include "zone/BossController.hpp"
+#include "zone/DuelService.hpp"
 
 namespace Umbra {
 namespace Auth { class JWTManager; }
@@ -56,6 +57,7 @@ class ZoneServer {
   GuildMissionService* getGuildMissionService() { return guildMissionService_.get(); }
   InstanceManager* getInstanceManager() { return instanceManager_.get(); }
   BossController* getBossController() { return bossController_.get(); }
+  DuelService* getDuelService() { return duelService_.get(); }
   const Config& getConfig() const;
   void forceSavePositions();
   void reloadGameRates();
@@ -82,8 +84,10 @@ class ZoneServer {
   std::unique_ptr<DungeonService> dungeonService_;
   // Etapa 5b: sem thread própria (usa o combat worker); o combate para no stop() antes de destruir.
   std::unique_ptr<BossController> bossController_;
+  std::unique_ptr<DuelService> duelService_;
   std::unique_ptr<Umbra::Auth::JWTManager> jwtManager_;
   float expZoneTickAccumulator_ = 0.0f;
+  float duelTickAccumulator_ = 0.0f;  // etapa 6: DuelService::tick a cada 250 ms
   float snapshotAccumulator_ = 0.0f;
   float wsKeepaliveAccumulator_ = 0.0f;
   float dotTickAccumulator_ = 0.0f;

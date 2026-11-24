@@ -462,6 +462,14 @@ public sealed class PhpAdminClient : IDisposable
         return await PostAsync("/admin/save_boss_config.php", dict, ct);
     }
 
+    // --- PvP e duelo (etapa 6) ---
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> GetPvpSettingsAsync(CancellationToken ct = default) =>
+        await PostAsync("/admin/get_pvp_settings.php", new { admin_username = _adminUsername }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> SavePvpSettingsAsync(
+        IDictionary<string, object?> settings, CancellationToken ct = default) =>
+        await PostAsync("/admin/save_pvp_settings.php", new { admin_username = _adminUsername, settings }, ct);
+
     // --- Dungeons (etapa 5) ---
     public async Task<(bool Ok, string Error, JsonDocument? Data)> ListDungeonDifficultiesAsync(int instanceTemplateId, CancellationToken ct = default) =>
         await PostAsync("/admin/list_dungeon_difficulties.php",

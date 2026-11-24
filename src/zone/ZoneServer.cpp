@@ -295,6 +295,16 @@ bool ZoneServer::start() {
                                                          movementServer_.get(), combatCoreEngine_.get());
       bossController_->reload();
       combatCoreEngine_->setBossController(bossController_.get());
+      // Duelo e regras de PvP (etapa 6, opcodes 50-54).
+      duelService_ = std::make_unique<DuelService>(config_.dbConnector, config_.zoneId, movementServer_.get(),
+                                                   combatCoreEngine_.get());
+      duelService_->reload();
+      combatCoreEngine_->setDuelService(duelService_.get());
+      movementServer_->setDuelHandlers(
+          [ds = duelService_.get()](uint32_t from, uint32_t target) { ds->handleRequest(from, target); },
+          [ds = duelService_.get()](uint32_t pid, uint8_t action, uint32_t other) {
+            ds->handleResponse(pid, action, other);
+          });
       combatCoreEngine_->setInstanceNpcKilledHook(
           [im = instanceManager_.get()](uint32_t instanceId, uint32_t npcId, uint8_t role, uint32_t killer) {
             im->onInstanceNpcKilled(instanceId, npcId, role, killer);
@@ -309,11 +319,13 @@ bool ZoneServer::start() {
 
       movementServer_->setPlayerGoneHook(
           [svc = companionService_.get(), cs = consumableService_.get(),
-           qs = combatCoreEngine_->getQuestProgressService(), im = instanceManager_.get()](uint32_t playerId) {
+           qs = combatCoreEngine_->getQuestProgressService(), im = instanceManager_.get(),
+           ds = duelService_.get()](uint32_t playerId) {
             svc->onPlayerGone(playerId);
             cs->onPlayerGone(playerId);
             if (qs) qs->onPlayerGone(playerId);
             if (im) im->onPlayerGone(playerId);
+            if (ds) ds->onPlayerGone(playerId);
           });
       Core::Logger::getInstance().info(
           "ExperienceService, ExpZoneManager and LootService initialized for zone {} "
@@ -394,6 +406,12 @@ void ZoneServer::update(float deltaTime) {
     const int64_t b = Core::steadyNowMs();
     combatCoreEngine_->tickRegen(deltaTime);
     tRegen = Core::steadyNowMs() - b;
+  }
+
+  duelTickAccumulator_ += deltaTime;
+  if (duelTickAccumulator_ >= 0.25f) {
+    duelTickAccumulator_ = 0.0f;
+    if (duelService_) duelService_->tick();  // contagem, área, tempo, desconexão (etapa 6)
   }
 
   expZoneTickAccumulator_ += deltaTime;

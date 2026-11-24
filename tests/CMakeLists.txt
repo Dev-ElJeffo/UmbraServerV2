@@ -72,6 +72,16 @@ target_link_libraries(test_boss_phases
   Threads::Threads
 )
 
+add_executable(test_duel_rules
+  test_duel_rules.cpp
+)
+target_link_libraries(test_duel_rules
+  umbra_zone
+  gtest
+  gtest_main
+  Threads::Threads
+)
+
 add_executable(test_dungeons
   test_dungeons.cpp
 )
@@ -187,5 +197,6 @@ add_test(NAME QuestEventTests COMMAND test_quest_events)
 add_test(NAME InstanceTests COMMAND test_instances)
 add_test(NAME DungeonTests COMMAND test_dungeons)
 add_test(NAME BossPhaseTests COMMAND test_boss_phases)
+add_test(NAME DuelRulesTests COMMAND test_duel_rules)
 add_test(NAME AdminCryptoTests COMMAND test_admin_crypto)
 

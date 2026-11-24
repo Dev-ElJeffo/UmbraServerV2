@@ -383,6 +383,23 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
 
   // Chefes com fases (etapa 5b): configs, fases, skills e adds. Chefes já em combate seguem a config nova
   // na próxima troca de fase.
+  // PvP e duelo (etapa 6): pvp_settings. Duelos em andamento seguem com o raio/tempo antigos.
+  registry.registerCommand("reload_pvp_settings", [&server](const nlohmann::json&) {
+    nlohmann::json d;
+    auto* duel = server.getDuelService();
+    if (duel) {
+      d["ok"] = duel->reload();
+      d["reloaded"] = true;
+      d["open_world_pvp"] = duel->openWorldPvp();
+    } else {
+      d["ok"] = false;
+      d["reloaded"] = false;
+      d["message"] = "DuelService indisponível";
+    }
+    d["zone_id"] = server.getConfig().zoneId;
+    return d;
+  });
+
   registry.registerCommand("reload_boss_configs", [&server](const nlohmann::json&) {
     nlohmann::json d;
     auto* boss = server.getBossController();
