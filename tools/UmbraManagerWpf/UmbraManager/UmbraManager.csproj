@@ -6,7 +6,20 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- Identidade do executável (overhaul) -->
+    <ApplicationIcon>Assets\UmbraManager.ico</ApplicationIcon>
+    <AssemblyName>UmbraManager</AssemblyName>
+    <Product>Umbra Manager</Product>
+    <Company>UmbraEternum</Company>
+    <Description>Painel de administração do UmbraEternum</Description>
+    <Version>2.0.0</Version>
+    <AssemblyVersion>2.0.0.0</AssemblyVersion>
+    <FileVersion>2.0.0.0</FileVersion>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\UmbraManager.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />

@@ -42,19 +42,47 @@ Portas admin padrão:
 
 > **Nota:** Chat usa porta **8084** (não 8083) para não conflitar com **Zone 1** (`8082+1`). Para múltiplas zones, ajuste `zone_instances` em `config/manager.json`.
 
-## Abas
+## Interface (v2: overhaul)
 
-1. **Dashboard** — cards por serviço, gráfico CPU (LiveCharts2), totais players/zones
-2. **Servers** — Start/Stop/Restart, Start All/Stop All, auto-restart
-3. **Zones** — instâncias zone e players por zone
-4. **Players** — lista tempo real; menu Kick/Teleport/Broadcast
-5. **Logs** — tail por serviço (TabControl), filtro por nível, busca, export
-6. **Accounts** — list/ban/unban via PHP admin API
-7. **Items** — create/list/delete de itens master
-8. **NPCs** — sub-abas **Templates** (CRUD + spawn) e **Instâncias no mundo** (grid X/Y/Z estilo Players; PHP `api/admin/*`; ver [`GUIA_COMBAT_V2_DANO_BASIC_ATTACK_NPC.md`](GUIA_COMBAT_V2_DANO_BASIC_ATTACK_NPC.md) seção 13)
-9. **Config** — editor `server.json` + reload runtime
-10. **GM Console** — REPL de comandos admin (Tab autocompletar, ↑↓ histórico)
-11. **Scheduler** — tarefas periódicas (restart stack)
+Tema escuro na paleta do jogo (carvão, vinho e dourado), menu lateral agrupado e recolhível, cabeçalho com o título da tela e barra de status.
+
+| Recurso | Como usar |
+|---------|-----------|
+| Buscar tela | **Ctrl+K** (ou a caixa no topo do menu) e **Enter** abre a primeira tela encontrada; **Esc** limpa |
+| Atualizar a tela | **F5** ou o botão ↻ no cabeçalho |
+| Salvar o formulário | **Ctrl+S** nas telas com Salvar (Skills, Classes, Fórmulas, PvP, Instâncias…) |
+| Recolher o menu | botão no topo do menu (fica só com ícones) |
+| Avisos | sucesso aparece como toast no canto; erros continuam em caixa de mensagem |
+| Preferências | tamanho/posição da janela, menu recolhido e última tela ficam em `%AppData%\UmbraManager\ui.json` |
+
+A tela é escolhida pela **chave** da rota (`NavRoutes` em `MainViewModel.Shell.cs` ↔ `Tag` do `TabItem` em `MainWindow.xaml`), nunca pela posição. Tela nova: um `TabItem Tag="chave"` + uma linha `Add("chave", …)`; a ordem não importa.
+
+O preview do `server.json` (tela Config) mascara senhas, segredos e tokens.
+
+## Telas
+
+| Grupo | Telas |
+|-------|-------|
+| Visão geral | **Dashboard** (cards por serviço, gráfico de CPU com uma cor por serviço) |
+| Operação | **Servidores** (Start/Stop/Restart), **Zones**, **Players** (Kick/Teleport/Broadcast), **Logs** (filtro por nível, busca, export), **Audit**, **GM Console** (Tab autocompleta, ↑↓ histórico) |
+| Conteúdo | **Itens**, **Crafting**, **Encantamentos**, **Skills**, **Mob Skills**, **Classes**, **Appearance**, **Progressão**, **Companheiros**, **Missões de guilda** |
+| NPC e mundo | **NPCs e mundo** (Templates, Instâncias no mundo, Loot, Chefe, Vendor, Quests), **Instâncias** (dungeons) |
+| Administração | **Admin Hub** (inspetor, EXP zones, refino, guildas, leilão, correio), **Contas**, **Rates**, **Fórmulas de combate**, **PvP e duelo** |
+| Sistema | **Config** (editor `server.json`), **Scheduler** |
+
+NPCs: ver [`GUIA_COMBAT_V2_DANO_BASIC_ATTACK_NPC.md`](GUIA_COMBAT_V2_DANO_BASIC_ATTACK_NPC.md) seção 13.
+
+## Conferência visual (desenvolvimento)
+
+```bat
+UmbraManager.exe --snapshots C:\temp\snaps 1366x768
+```
+
+Abre a janela fora da tela (sem login e sem rede), passa por todas as telas e sub-abas e salva um PNG de cada uma, mais:
+- `_rotulos_cortados.txt`: campos cujo rótulo não cabe na largura (deve ficar vazio);
+- `_icones_invalidos.txt`: nomes de ícone que não existem no MaterialDesign.
+
+Use depois de mexer em XAML. **Atenção:** a tela Config mostra o formulário do `server.json`; não compartilhe as imagens.
 
 ## Protocolo Admin Channel
 
@@ -84,7 +112,7 @@ shutdown grace_sec=5
 scripts\package_umbra_manager.bat
 ```
 
-Gera `dist/UmbraManager/UmbraManager.exe` (single-file, self-contained ~70–100 MB) + exemplos em `config/`.
+Gera `dist/UmbraManager/UmbraManager.exe` (arquivo único, autocontido e comprimido, ~85 MB, roda sem .NET instalado; ícone e versão no Explorer) + exemplos em `config/`. Feche o Manager antes. `--nopause` para automação.
 
 Após publish, abra:
 
@@ -96,7 +124,7 @@ Comando manual:
 
 ```bat
 cd tools\UmbraManagerWpf
-dotnet publish UmbraManager/UmbraManager.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o ../../dist/UmbraManager
+dotnet publish UmbraManager/UmbraManager.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o ../../dist/UmbraManager
 ```
 
 ## Persistência local
