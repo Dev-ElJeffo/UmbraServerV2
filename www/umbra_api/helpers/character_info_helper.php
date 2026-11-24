@@ -9,6 +9,7 @@
  * @return array|null Array 'character' ou null se jogador não existir.
  */
 require_once __DIR__ . '/stat_key_mapping.php';
+require_once __DIR__ . '/combat_formula_helper.php';
 require_once __DIR__ . '/enchant_helper.php';
 require_once __DIR__ . '/item_visual_helper.php';
 require_once __DIR__ . '/item_weapon_class_helper.php';
@@ -575,6 +576,8 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
         }
     }
 
+    $combat_formulas = combat_formula_load($pdo);
+
     $current_level = (int)$player['level'];
     $current_exp = (int)$player['experience'];
 
@@ -667,7 +670,10 @@ function get_character_info_data(PDO $pdo, int $player_id, array $options = []):
                 'current' => (int)$player['stamina'],
                 'max' => (int)$player['max_stamina']
             ],
-            'combat' => $combat_stats
+            'combat' => $combat_stats,
+            // Fórmulas de combate: % efetivos e constantes (o cliente recalcula na prévia de pontos).
+            'combat_effective' => combat_formula_effective($combat_formulas, $combat_stats, (int)$player['level']),
+            'combat_formulas' => $combat_formulas
         ],
         'equipped_items' => $equipped_by_slot,
         'resolved_visual' => aggregate_player_equipped_visual($pdo, $player_id, $player_class_id),

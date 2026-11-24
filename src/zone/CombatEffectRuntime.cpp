@@ -57,10 +57,12 @@ void clampStats(Combat::CharacterStats& stats) {
   stats.magicDefense = std::max(0, stats.magicDefense);
   stats.accuracy = std::max(0, stats.accuracy);
   stats.dodge = std::max(0, stats.dodge);
-  stats.criticalChance = std::clamp(stats.criticalChance, 0, 100);
-  stats.criticalResistance = std::clamp(stats.criticalResistance, 0, 100);
-  stats.doubleAttackRate = std::clamp(stats.doubleAttackRate, 0, 100);
-  stats.doubleAttackResistance = std::clamp(stats.doubleAttackResistance, 0, 100);
+  // Crítico/duplo e resistências são PONTOS (sem teto): CombatFormulas converte em %. O teto de 100
+  // antes da subtração zerava o crítico de quem enfrentava alguém com resistência alta.
+  stats.criticalChance = std::max(0, stats.criticalChance);
+  stats.criticalResistance = std::max(0, stats.criticalResistance);
+  stats.doubleAttackRate = std::max(0, stats.doubleAttackRate);
+  stats.doubleAttackResistance = std::max(0, stats.doubleAttackResistance);
   stats.movementSpeed = std::clamp(stats.movementSpeed, 10, 500);
   stats.damageReductionPercent = std::clamp(stats.damageReductionPercent, 0, 90);
   stats.stunResist = std::clamp(stats.stunResist, 0, 100);

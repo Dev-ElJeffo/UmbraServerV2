@@ -470,6 +470,14 @@ public sealed class PhpAdminClient : IDisposable
         IDictionary<string, object?> settings, CancellationToken ct = default) =>
         await PostAsync("/admin/save_pvp_settings.php", new { admin_username = _adminUsername, settings }, ct);
 
+    // --- Fórmulas de combate ---
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> GetCombatFormulasAsync(CancellationToken ct = default) =>
+        await PostAsync("/admin/get_combat_formulas.php", new { admin_username = _adminUsername }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> SaveCombatFormulasAsync(
+        IDictionary<string, object?> settings, CancellationToken ct = default) =>
+        await PostAsync("/admin/save_combat_formulas.php", new { admin_username = _adminUsername, settings }, ct);
+
     // --- Dungeons (etapa 5) ---
     public async Task<(bool Ok, string Error, JsonDocument? Data)> ListDungeonDifficultiesAsync(int instanceTemplateId, CancellationToken ct = default) =>
         await PostAsync("/admin/list_dungeon_difficulties.php",

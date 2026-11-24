@@ -1,0 +1,94 @@
+<UserControl x:Class="UmbraManager.Views.Admin.CombatFormulasView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes">
+<UserControl.Resources>
+    <Style x:Key="CfBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+        <Setter Property="Margin" Value="0,0,12,10"/>
+        <Setter Property="materialDesign:HintAssist.IsFloating" Value="True"/>
+    </Style>
+    <Style x:Key="CfSection" TargetType="TextBlock">
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Margin" Value="0,10,0,4"/>
+    </Style>
+    <Style x:Key="CfHelp" TargetType="TextBlock">
+        <Setter Property="Opacity" Value="0.7"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="Margin" Value="0,0,0,6"/>
+    </Style>
+</UserControl.Resources>
+<ScrollViewer VerticalScrollBarVisibility="Auto">
+<Border Style="{StaticResource ManagerEditorCard}" Margin="8" MaxWidth="860" HorizontalAlignment="Left">
+    <StackPanel>
+        <TextBlock Text="Fórmulas de combate" Style="{StaticResource ManagerEditorTitle}"/>
+        <TextBlock Style="{StaticResource ManagerEditorSubtitle}" TextWrapping="Wrap" Margin="0,0,0,8"
+                   Text="Atributos são pontos e viram % com retorno decrescente: pontos / (pontos + K). K maior = cada ponto vale menos. Vale para jogadores e NPCs; as zones recarregam ao salvar."/>
+
+        <TextBlock Text="Crítico" Style="{StaticResource CfSection}"/>
+        <TextBlock Style="{StaticResource CfHelp}" Text="Chance = base + bônus máx × C/(C+K), vezes (1 − R/(R + K resistência)), limitada ao teto. Ex.: 509 de crítico contra 204 de resistência ≈ 29%."/>
+        <UniformGrid Columns="3">
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfCritBasePct, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="Crítico base (%)"/>
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfCritBonusMaxPct, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="Bônus máximo dos pontos (%)"/>
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfCritCapPct, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="Teto da chance (%)"/>
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfCritK, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="K do crítico"/>
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfCritResistK, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="K da resistência a crítico"/>
+        </UniformGrid>
+
+        <TextBlock Text="Duplo" Style="{StaticResource CfSection}"/>
+        <TextBlock Style="{StaticResource CfHelp}" Text="Chance = máximo × D/(D+K), vezes (1 − R/(R + K resistência)). O duplo soma um golpe extra de X% do golpe."/>
+        <UniformGrid Columns="3">
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfDoubleMaxPct, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="Duplo máximo (%)"/>
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfDoubleK, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="K do duplo"/>
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfDoubleResistK, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="K da resistência a duplo"/>
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfDoubleDamagePct, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="Golpe extra do duplo (% do golpe)"/>
+        </UniformGrid>
+
+        <TextBlock Text="Acerto e esquiva" Style="{StaticResource CfSection}"/>
+        <TextBlock Style="{StaticResource CfHelp}" Text="Acerto = base + bônus × A/(A+K precisão) − esquiva máx × E/(E+K esquiva), entre o mínimo e o máximo."/>
+        <UniformGrid Columns="3">
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfHitBasePct, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="Acerto base (%)"/>
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfHitAccuracyBonusPct, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="Bônus máximo da precisão (%)"/>
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfHitAccuracyK, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="K da precisão"/>
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfHitDodgeMaxPct, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="Esquiva máxima (%)"/>
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfHitDodgeK, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="K da esquiva"/>
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfHitMinPct, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="Acerto mínimo (%)"/>
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfHitMaxPct, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="Acerto máximo (%)"/>
+        </UniformGrid>
+
+        <TextBlock Text="Defesa" Style="{StaticResource CfSection}"/>
+        <TextBlock Style="{StaticResource CfHelp}" Text="Redução = DEF/(DEF + K), K = base + por nível × nível do atacante. Ex.: DEF 1900 contra nível 50 (K 3000) ≈ 39%."/>
+        <UniformGrid Columns="3">
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfDefenseKBase, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="K base"/>
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfDefenseKPerLevel, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="K por nível do atacante"/>
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfDefenseCapPct, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="Teto da redução (%, até 95)"/>
+        </UniformGrid>
+
+        <TextBlock Text="Atributo e variação" Style="{StaticResource CfSection}"/>
+        <TextBlock Style="{StaticResource CfHelp}" Text="Bônus da skill = escala% × S/(S+K) por atributo. Variação: dano, cura e escudo variam ±X% a cada golpe (0 = fixo)."/>
+        <UniformGrid Columns="3">
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfAttributeScalingK, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="K da escala de atributo"/>
+            <TextBox Style="{StaticResource CfBox}" Text="{Binding CfDamageVariancePct, UpdateSourceTrigger=PropertyChanged}" materialDesign:HintAssist.Hint="Variação (± %, 0–50)"/>
+        </UniformGrid>
+        <TextBlock Style="{StaticResource CfHelp}" Text="O multiplicador de dano PvP fica na aba PvP."/>
+
+        <TextBlock Text="{Binding CfStatus}" Opacity="0.8" Margin="0,8,0,12"/>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="8"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="8"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Button Grid.Column="0" Content="Atualizar" Command="{Binding RefreshCombatFormulasCommand}"
+                    Style="{StaticResource ManagerFormSecondaryButton}"/>
+            <Button Grid.Column="2" Content="Preencher padrões" Command="{Binding ResetCombatFormulaDefaultsCommand}"
+                    Style="{StaticResource ManagerFormSecondaryButton}"/>
+            <Button Grid.Column="4" Content="Salvar fórmulas" Command="{Binding SaveCombatFormulasCommand}"
+                    Style="{StaticResource ManagerFormPrimaryButton}"/>
+        </Grid>
+    </StackPanel>
+</Border>
+</ScrollViewer>
+</UserControl>

@@ -1,7 +1,7 @@
 <?php
 /**
  * POST /api/admin/save_pvp_settings.php — grava as regras de PvP e do duelo (etapa 6, linha única id = 1).
- * Body: settings{open_world_pvp, duel_request_distance, duel_request_timeout_sec, duel_radius, duel_countdown_sec,
+ * Body: settings{open_world_pvp, pvp_damage_mult, duel_request_distance, duel_request_timeout_sec, duel_radius, duel_countdown_sec,
  *       duel_max_duration_sec, duel_out_of_bounds_sec, duel_restore_on_end, duel_flag_mesh_path,
  *       duel_flag_vfx_path}. Valores fora da faixa são recusados. Depois: reload_pvp_settings.
  */
@@ -58,6 +58,7 @@ $in = is_array($data['settings'] ?? null) ? $data['settings'] : [];
 
 $s = [
     'open_world_pvp' => ((int)($in['open_world_pvp'] ?? 0)) !== 0 ? 1 : 0,
+    'pvp_damage_mult' => pvp_range($in, 'pvp_damage_mult', 0.05, 5, 0.7, 'Multiplicador de dano PvP'),
     'duel_request_distance' => pvp_range($in, 'duel_request_distance', 100, 20000, 1500, 'Distância do desafio'),
     'duel_request_timeout_sec' => (int)pvp_range($in, 'duel_request_timeout_sec', 5, 120, 30, 'Tempo para aceitar'),
     'duel_radius' => pvp_range($in, 'duel_radius', 500, 20000, 3000, 'Raio da área'),
@@ -72,14 +73,15 @@ $s = [
 try {
     $pdo = getConnection();
     $stmt = $pdo->prepare(
-        'INSERT INTO pvp_settings (id, open_world_pvp, duel_request_distance, duel_request_timeout_sec, duel_radius,
-                                   duel_countdown_sec, duel_max_duration_sec, duel_out_of_bounds_sec,
+        'INSERT INTO pvp_settings (id, open_world_pvp, pvp_damage_mult, duel_request_distance, duel_request_timeout_sec,
+                                   duel_radius, duel_countdown_sec, duel_max_duration_sec, duel_out_of_bounds_sec,
                                    duel_restore_on_end, duel_flag_mesh_path, duel_flag_vfx_path)
-         VALUES (1, :open_world_pvp, :duel_request_distance, :duel_request_timeout_sec, :duel_radius,
+         VALUES (1, :open_world_pvp, :pvp_damage_mult, :duel_request_distance, :duel_request_timeout_sec, :duel_radius,
                  :duel_countdown_sec, :duel_max_duration_sec, :duel_out_of_bounds_sec, :duel_restore_on_end,
                  :duel_flag_mesh_path, :duel_flag_vfx_path)
          ON DUPLICATE KEY UPDATE
-           open_world_pvp = VALUES(open_world_pvp), duel_request_distance = VALUES(duel_request_distance),
+           open_world_pvp = VALUES(open_world_pvp), pvp_damage_mult = VALUES(pvp_damage_mult),
+           duel_request_distance = VALUES(duel_request_distance),
            duel_request_timeout_sec = VALUES(duel_request_timeout_sec), duel_radius = VALUES(duel_radius),
            duel_countdown_sec = VALUES(duel_countdown_sec), duel_max_duration_sec = VALUES(duel_max_duration_sec),
            duel_out_of_bounds_sec = VALUES(duel_out_of_bounds_sec), duel_restore_on_end = VALUES(duel_restore_on_end),

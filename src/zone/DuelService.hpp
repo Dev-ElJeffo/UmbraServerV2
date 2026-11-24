@@ -22,6 +22,8 @@ class CombatCoreEngine;
 /** Linha única de pvp_settings (Manager → aba PvP). */
 struct PvpSettings {
   bool openWorldPvp = false;
+  /** Multiplicador global de dano PvP (aplicado pelo CombatCalculator via CombatFormulas). */
+  float pvpDamageMult = 0.7f;
   float requestDistance = 1500.f;
   uint32_t requestTimeoutSec = 30;
   float radius = 3000.f;

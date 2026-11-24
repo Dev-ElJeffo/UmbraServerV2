@@ -11,6 +11,7 @@
  */
 
 #include "SkillTypes.hpp"
+#include "CombatFormulas.hpp"
 #include <algorithm>
 #include <random>
 #include <mutex>
@@ -159,10 +160,16 @@ public:
     
     /**
      * Calcula redução de defesa
-     * Reduction = Defense / (Defense + 100)
-     * Resultado entre 0 e 0.9 (máximo 90% redução)
+     * Reduction = DEF / (DEF + K), K = defense_k_base + defense_k_per_level x nível do atacante
+     * Teto em combat_formula_settings.defense_cap_pct
      */
-    float calculateDefenseReduction(int32_t defense);
+    float calculateDefenseReduction(int32_t defense, int32_t attackerLevel = 1);
+
+    /** Variação de dano/cura/escudo (combat_formula_settings.damage_variance_pct). */
+    int32_t applyVariance(int32_t value);
+
+    /** Multiplicador global PvP (pvp_settings.pvp_damage_mult). */
+    float pvpDamageMultiplier() const;
     
     /**
      * Calcula redução de resistência elemental
@@ -311,15 +318,10 @@ private:
     }
     
     // Constants
-    static constexpr int32_t MIN_HIT_CHANCE = 5;
-    static constexpr int32_t MAX_HIT_CHANCE = 95;
-    /** R3: a esquiva do alvo tira no máximo 60 pontos do acerto. */
-    static constexpr int32_t MAX_DODGE_PENALTY = 60;
-    static constexpr int32_t MAX_CRIT_CHANCE = 80;
-    static constexpr int32_t MAX_DEFENSE_REDUCTION = 90;
     static constexpr int32_t MAX_RESISTANCE = 75;
     static constexpr int32_t BASE_CRIT_MULTIPLIER = 150; // 1.5x
-    static constexpr float PVP_DAMAGE_REDUCTION = 0.7f;  // 30% redução em PvP
+    // Acerto, crítico, duplo, defesa, escala de atributo, variação e PvP: CombatFormulas
+    // (combat_formula_settings / pvp_settings, editáveis no Manager).
 };
 
 // ============================================================================
@@ -344,11 +346,23 @@ inline int32_t CombatCalculator::rollRange(int32_t min, int32_t max) {
     return dist(rng_);
 }
 
-inline float CombatCalculator::calculateDefenseReduction(int32_t defense) {
-    // Defense / (Defense + 100), capped at 90%
-    if (defense <= 0) return 0.0f;
-    float reduction = static_cast<float>(defense) / (defense + 100.0f);
-    return std::min(reduction, MAX_DEFENSE_REDUCTION / 100.0f);
+inline float CombatCalculator::calculateDefenseReduction(int32_t defense, int32_t attackerLevel) {
+    return static_cast<float>(
+        CombatFormulas::defenseReduction(defense, attackerLevel, CombatFormulas::settings()));
+}
+
+inline int32_t CombatCalculator::applyVariance(int32_t value) {
+    double roll = 0.5;
+    {
+        std::lock_guard<std::mutex> lock(rngMutex_);
+        std::uniform_real_distribution<double> dist(0.0, 1.0);
+        roll = dist(rng_);
+    }
+    return CombatFormulas::applyVariance(value, roll, CombatFormulas::settings());
+}
+
+inline float CombatCalculator::pvpDamageMultiplier() const {
+    return static_cast<float>(CombatFormulas::settings().pvpDamageMult);
 }
 
 inline float CombatCalculator::calculateResistanceReduction(int32_t resistance) {
@@ -360,16 +374,12 @@ inline int32_t CombatCalculator::calculateHitChance(
     const CharacterState& attacker,
     const CharacterState& defender
 ) {
-    int32_t baseHit = 80; // 80% base hit chance
-    int32_t accuracyBonus = attacker.buffedStats.accuracy;
-    // ignore_dodge (ex.: Predator Eye): ignora % da esquiva do alvo.
-    const int32_t ignorePct = clamp(attacker.buffedStats.ignoreDodge, 0, 100);
-    // R3: teto da esquiva efetiva (acerto mínimo = 80 − 60 + precisão).
-    int32_t dodgePenalty =
-        std::min(MAX_DODGE_PENALTY, defender.buffedStats.dodge * (100 - ignorePct) / 100);
-
-    int32_t hitChance = baseHit + accuracyBonus - dodgePenalty;
-    return clamp(hitChance, MIN_HIT_CHANCE, MAX_HIT_CHANCE);
+    // Pontos de precisão/esquiva viram % com retorno decrescente; ignore_dodge (ex.: Predator Eye)
+    // corta a esquiva do alvo antes da conversão.
+    const double pct = CombatFormulas::hitChancePct(attacker.buffedStats.accuracy, defender.buffedStats.dodge,
+                                                    attacker.buffedStats.ignoreDodge,
+                                                    CombatFormulas::settings());
+    return clamp(static_cast<int32_t>(std::lround(pct)), 0, 100);  // faixa hit_min/hit_max já aplicada
 }
 
 inline bool CombatCalculator::rollHit(int32_t hitChance) {
@@ -380,8 +390,12 @@ inline int32_t CombatCalculator::calculateCritChance(
     const CharacterState& attacker,
     const CharacterState& defender
 ) {
-    int32_t critChance = attacker.buffedStats.criticalChance - defender.buffedStats.criticalResistance;
-    return clamp(critChance, 0, MAX_CRIT_CHANCE);
+    // Antes: crítico − resistência (com os dois limitados a 100, quem tinha mais resistência zerava o
+    // crítico do outro). Agora: pontos → % com retorno decrescente; a resistência corta proporcionalmente.
+    const double pct = CombatFormulas::critChancePct(attacker.buffedStats.criticalChance,
+                                                     defender.buffedStats.criticalResistance,
+                                                     CombatFormulas::settings());
+    return static_cast<int32_t>(std::lround(pct));
 }
 
 inline bool CombatCalculator::rollCrit(int32_t critChance) {
@@ -392,8 +406,10 @@ inline int32_t CombatCalculator::calculateDoubleAttackChance(
     const CharacterState& attacker,
     const CharacterState& defender
 ) {
-    int32_t chance = attacker.buffedStats.doubleAttackRate - defender.buffedStats.doubleAttackResistance;
-    return clamp(chance, 0, 100);
+    const double pct = CombatFormulas::doubleChancePct(attacker.buffedStats.doubleAttackRate,
+                                                       defender.buffedStats.doubleAttackResistance,
+                                                       CombatFormulas::settings());
+    return clamp(static_cast<int32_t>(std::lround(pct)), 0, 100);
 }
 
 inline bool CombatCalculator::rollDoubleAttack(int32_t chance) {
@@ -442,27 +458,17 @@ inline float CombatCalculator::calculateAttributeScaling(
     const CharacterState& character,
     const SkillData& skill
 ) {
-    float totalScaling = 0.0f;
+    // Antes: (atributo − 10) x escala% por ponto, sem teto (STR/DEX na casa das centenas davam +300%).
+    // Agora: escala% x S/(S+K) — o atributo já soma no ATK; aqui é só o bônus da skill.
     const auto& stats = character.buffedStats;
-    
-    // Cada ponto acima de 10 contribui com o scaling%
-    if (skill.strScaling > 0 && stats.strength > 10) {
-        totalScaling += ((stats.strength - 10) * skill.strScaling) / 100.0f / 100.0f;
-    }
-    if (skill.dexScaling > 0 && stats.dexterity > 10) {
-        totalScaling += ((stats.dexterity - 10) * skill.dexScaling) / 100.0f / 100.0f;
-    }
-    if (skill.vitScaling > 0 && stats.vitality > 10) {
-        totalScaling += ((stats.vitality - 10) * skill.vitScaling) / 100.0f / 100.0f;
-    }
-    if (skill.intScaling > 0 && stats.intelligence > 10) {
-        totalScaling += ((stats.intelligence - 10) * skill.intScaling) / 100.0f / 100.0f;
-    }
-    if (skill.lckScaling > 0 && stats.luck > 10) {
-        totalScaling += ((stats.luck - 10) * skill.lckScaling) / 100.0f / 100.0f;
-    }
-    
-    return totalScaling;
+    const CombatFormulaSettings s = CombatFormulas::settings();
+    double total = 0.0;
+    total += CombatFormulas::attributeScaling(stats.strength, skill.strScaling, s);
+    total += CombatFormulas::attributeScaling(stats.dexterity, skill.dexScaling, s);
+    total += CombatFormulas::attributeScaling(stats.vitality, skill.vitScaling, s);
+    total += CombatFormulas::attributeScaling(stats.intelligence, skill.intScaling, s);
+    total += CombatFormulas::attributeScaling(stats.luck, skill.lckScaling, s);
+    return static_cast<float>(total);
 }
 
 /** ATK da school oposta para secondary_coef (TRUE = 0). */
@@ -518,6 +524,8 @@ inline DamageBreakdown CombatCalculator::calculatePhysicalDamage(
     float attrScaling = calculateAttributeScaling(attacker, skill);
     breakdown.scalingBonus = static_cast<int32_t>(scaledDamage * attrScaling);
     scaledDamage += breakdown.scalingBonus;
+    // Variação (±damage_variance_pct): antes o mesmo golpe batia sempre igual.
+    scaledDamage = applyVariance(scaledDamage);
     
     // 4. Buff multipliers are already in buffedStats
     breakdown.buffMultiplier = 100;
@@ -529,15 +537,16 @@ inline DamageBreakdown CombatCalculator::calculatePhysicalDamage(
     scaledDamage = (scaledDamage * breakdown.critMultiplier) / 100;
     
     // 6. PvP modifier
-    breakdown.pvpModifier = isPvP ? static_cast<int32_t>(PVP_DAMAGE_REDUCTION * 100) : 100;
+    const float pvpMult = isPvP ? pvpDamageMultiplier() : 1.0f;
+    breakdown.pvpModifier = static_cast<int32_t>(std::lround(pvpMult * 100.0f));
     if (isPvP) {
         scaledDamage = (scaledDamage * skill.pvpModifier) / 100;
-        scaledDamage = static_cast<int32_t>(scaledDamage * PVP_DAMAGE_REDUCTION);
+        scaledDamage = static_cast<int32_t>(scaledDamage * pvpMult);
     }
     
     // 7. Defense reduction (if not ignoring defense)
     if (!skill.ignoresDefense) {
-        float defReduction = calculateDefenseReduction(defender.buffedStats.physicalDefense);
+        float defReduction = calculateDefenseReduction(defender.buffedStats.physicalDefense, attacker.level);
         breakdown.defenseReduction = static_cast<int32_t>(scaledDamage * defReduction);
         scaledDamage -= breakdown.defenseReduction;
     }
@@ -581,6 +590,8 @@ inline DamageBreakdown CombatCalculator::calculateMagicDamage(
     float attrScaling = calculateAttributeScaling(attacker, skill);
     breakdown.scalingBonus = static_cast<int32_t>(scaledDamage * attrScaling);
     scaledDamage += breakdown.scalingBonus;
+    // Variação (±damage_variance_pct): antes o mesmo golpe batia sempre igual.
+    scaledDamage = applyVariance(scaledDamage);
     
     breakdown.buffMultiplier = 100;
     
@@ -589,14 +600,15 @@ inline DamageBreakdown CombatCalculator::calculateMagicDamage(
     breakdown.critMultiplier = isCrit ? attacker.buffedStats.criticalDamage : 100;
     scaledDamage = (scaledDamage * breakdown.critMultiplier) / 100;
     
-    breakdown.pvpModifier = isPvP ? static_cast<int32_t>(PVP_DAMAGE_REDUCTION * 100) : 100;
+    const float pvpMult = isPvP ? pvpDamageMultiplier() : 1.0f;
+    breakdown.pvpModifier = static_cast<int32_t>(std::lround(pvpMult * 100.0f));
     if (isPvP) {
         scaledDamage = (scaledDamage * skill.pvpModifier) / 100;
-        scaledDamage = static_cast<int32_t>(scaledDamage * PVP_DAMAGE_REDUCTION);
+        scaledDamage = static_cast<int32_t>(scaledDamage * pvpMult);
     }
     
     if (!skill.ignoresDefense) {
-        float defReduction = calculateDefenseReduction(defender.buffedStats.magicDefense);
+        float defReduction = calculateDefenseReduction(defender.buffedStats.magicDefense, attacker.level);
         breakdown.defenseReduction = static_cast<int32_t>(scaledDamage * defReduction);
         scaledDamage -= breakdown.defenseReduction;
     }
@@ -650,6 +662,8 @@ inline DamageBreakdown CombatCalculator::calculateTrueDamage(
     const float attrScaling = calculateAttributeScaling(attacker, skill);
     breakdown.scalingBonus = static_cast<int32_t>(scaledDamage * attrScaling);
     scaledDamage += breakdown.scalingBonus;
+    // Variação (±damage_variance_pct): antes o mesmo golpe batia sempre igual.
+    scaledDamage = applyVariance(scaledDamage);
 
     breakdown.buffMultiplier = 100;
 
@@ -658,10 +672,11 @@ inline DamageBreakdown CombatCalculator::calculateTrueDamage(
     breakdown.critMultiplier = isCrit ? attacker.buffedStats.criticalDamage : 100;
     scaledDamage = (scaledDamage * breakdown.critMultiplier) / 100;
 
-    breakdown.pvpModifier = isPvP ? static_cast<int32_t>(PVP_DAMAGE_REDUCTION * 100) : 100;
+    const float pvpMult = isPvP ? pvpDamageMultiplier() : 1.0f;
+    breakdown.pvpModifier = static_cast<int32_t>(std::lround(pvpMult * 100.0f));
     if (isPvP) {
         scaledDamage = (scaledDamage * skill.pvpModifier) / 100;
-        scaledDamage = static_cast<int32_t>(scaledDamage * PVP_DAMAGE_REDUCTION);
+        scaledDamage = static_cast<int32_t>(scaledDamage * pvpMult);
     }
 
     // Sem DEF / sem resist elemental
@@ -721,6 +736,7 @@ inline int32_t CombatCalculator::calculateHeal(
     
     float attrScaling = calculateAttributeScaling(healer, skill);
     healAmount += static_cast<int32_t>(healAmount * attrScaling);
+    healAmount = applyVariance(healAmount);
     
     // Apply healing bonus
     healAmount = (healAmount * (100 + target.buffedStats.healingBonus)) / 100;
@@ -756,6 +772,7 @@ inline int32_t CombatCalculator::calculateShieldValue(
     
     float attrScaling = calculateAttributeScaling(caster, skill);
     shieldValue += static_cast<int32_t>(shieldValue * attrScaling);
+    shieldValue = applyVariance(shieldValue);
     
     return shieldValue;
 }

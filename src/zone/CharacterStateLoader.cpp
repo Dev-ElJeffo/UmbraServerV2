@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <unordered_map>
 #include <vector>
 
@@ -372,10 +373,18 @@ bool CharacterStateLoader::loadPlayerStateFromDb(uint32_t playerId, Combat::Char
     if (er.size() > 1 && !er[1].empty() && er[1] != "null") {
       nlohmann::json bonus = nlohmann::json::parse(er[1], nullptr, false);
       if (bonus.is_object()) {
+        // Sinônimos no mesmo refino (ex.: "attack" e "physical_attack" = 8 cada) contam uma vez,
+        // como no character_info_helper.php; antes o ATK do refino entrava em dobro.
+        std::unordered_map<std::string, int64_t> canonBonus;
         for (auto it = bonus.begin(); it != bonus.end(); ++it) {
+          const std::string key = Combat::StatKeyMapping::mapTargetStatToCanonical(it.key());
           const int64_t v = jsonInt(bonus, it.key().c_str());
-          if (!stats.contains(it.key())) stats[it.key()] = 0;
-          stats[it.key()] = jsonInt(stats, it.key().c_str()) + v;
+          auto found = canonBonus.find(key);
+          if (found == canonBonus.end() || std::llabs(v) > std::llabs(found->second)) canonBonus[key] = v;
+        }
+        for (const auto& [key, v] : canonBonus) {
+          if (!stats.contains(key)) stats[key] = 0;
+          stats[key] = jsonInt(stats, key.c_str()) + v;
         }
       }
     }

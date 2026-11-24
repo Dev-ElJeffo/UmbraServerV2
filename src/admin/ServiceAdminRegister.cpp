@@ -383,6 +383,22 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
 
   // Chefes com fases (etapa 5b): configs, fases, skills e adds. Chefes já em combate seguem a config nova
   // na próxima troca de fase.
+  // Fórmulas de combate (crítico, duplo, acerto, defesa, atributo, variação): combat_formula_settings.
+  registry.registerCommand("reload_combat_formulas", [&server](const nlohmann::json&) {
+    nlohmann::json d;
+    auto* engine = server.getCombatCoreEngine();
+    if (engine) {
+      d["ok"] = engine->reloadCombatFormulas();
+      d["reloaded"] = true;
+    } else {
+      d["ok"] = false;
+      d["reloaded"] = false;
+      d["message"] = "CombatCoreEngine indisponível";
+    }
+    d["zone_id"] = server.getConfig().zoneId;
+    return d;
+  });
+
   // PvP e duelo (etapa 6): pvp_settings. Duelos em andamento seguem com o raio/tempo antigos.
   registry.registerCommand("reload_pvp_settings", [&server](const nlohmann::json&) {
     nlohmann::json d;

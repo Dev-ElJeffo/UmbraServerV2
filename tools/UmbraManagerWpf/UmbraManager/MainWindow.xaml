@@ -175,11 +175,6 @@
                 <adminv:RatesView/>
             </TabItem>
 
-            <!-- PvP e duelo (etapa 6) -->
-            <TabItem Header="PvP" Visibility="{Binding TabVisibilitySuper}">
-                <adminv:PvpView/>
-            </TabItem>
-
             <!-- Audit -->
             <TabItem Header="Audit" Visibility="{Binding TabVisibilityOps}">
                 <adminv:AuditView/>
@@ -208,6 +203,19 @@
             <!-- Instâncias (etapa 4) -->
             <TabItem Header="Instâncias" Visibility="{Binding TabVisibilityContent}">
                 <views:InstancesEditorView/>
+            </TabItem>
+
+            <!-- ATENÇÃO: a navegação usa o índice da aba (NavRoutes em MainViewModel.Shell.cs).
+                 Aba nova entra SEMPRE no fim, com a rota do mesmo índice. -->
+
+            <!-- 24: Fórmulas de combate -->
+            <TabItem Header="Fórmulas" Visibility="{Binding TabVisibilitySuper}">
+                <adminv:CombatFormulasView/>
+            </TabItem>
+
+            <!-- 25: PvP e duelo (etapa 6) -->
+            <TabItem Header="PvP" Visibility="{Binding TabVisibilitySuper}">
+                <adminv:PvpView/>
             </TabItem>
         </TabControl>
         <Border Background="{StaticResource ManagerBrush.Error}" Padding="12,8" VerticalAlignment="Top"

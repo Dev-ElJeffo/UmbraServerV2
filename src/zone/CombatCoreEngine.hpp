@@ -170,6 +170,8 @@ public:
    * Hoje: duelo + pvp_settings.open_world_pvp. Futuro: facção e safezones entram aqui.
    */
   bool canAffectPlayer(uint32_t sourcePlayerId, uint32_t targetPlayerId, bool hostile) const;
+  /** Lê combat_formula_settings (reload_combat_formulas). false = tabela ausente (padrões). */
+  bool reloadCombatFormulas();
   /** Fim do duelo (no combat worker): remove efeitos de um no outro; restore = HP/MP cheios. */
   void enqueueDuelCleanup(uint32_t playerA, uint32_t playerB, bool restore);
   /** Recarrega os NPCs dos moldes (reload_instances). */

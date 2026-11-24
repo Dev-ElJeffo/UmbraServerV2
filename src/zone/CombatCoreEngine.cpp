@@ -131,7 +131,6 @@ int32_t rollPercent() {
 constexpr float kRegenIntervalSeconds = 2.0f;
 constexpr float kRegenHealthFraction = 0.02f;  // ~2% do max HP por tick
 constexpr float kRegenManaFraction = 0.03f;    // ~3% do max MP por tick
-constexpr int32_t kDoubleAttackDamagePercent = 80;
 
 SkillCastRejectReason rejectReasonFromErrorCode(const std::string& code) {
   if (code == "NO_MANA") return SkillCastRejectReason::NoMana;
@@ -280,6 +279,7 @@ bool CombatCoreEngine::initialize(uint32_t zoneId,
                                        basicAttacksByClass_.size());
   }
 
+  reloadCombatFormulas();
   skillService_->loadSkillsFromDatabase();
   skillService_->loadNpcSkillsFromDatabase();
   preloadSkillAnimPaths();
@@ -2875,6 +2875,64 @@ void CombatCoreEngine::tickNpcBuffExpirations() {
         "[CombatCoreEngine] buff NPC expirado npc={} buff_id={} skill={}", inst.npcInstanceId,
         inst.buffId, inst.skillId);
   }
+}
+
+bool CombatCoreEngine::reloadCombatFormulas() {
+  Combat::CombatFormulaSettings s;
+  bool ok = false;
+  if (db_ && db_->isConnected() && !db_->executeQuery("SHOW TABLES LIKE 'combat_formula_settings'").empty()) {
+    const auto rows = db_->executeQuery(
+        "SELECT crit_base_pct, crit_bonus_max_pct, crit_k, crit_resist_k, crit_cap_pct, double_max_pct, double_k, "
+        "double_resist_k, double_damage_pct, hit_base_pct, hit_accuracy_bonus_pct, hit_accuracy_k, "
+        "hit_dodge_max_pct, hit_dodge_k, hit_min_pct, hit_max_pct, defense_k_base, defense_k_per_level, "
+        "defense_cap_pct, attribute_scaling_k, damage_variance_pct FROM combat_formula_settings WHERE id = 1");
+    if (!rows.empty() && rows[0].size() >= 21) {
+      const auto& r = rows[0];
+      auto f = [&r](size_t i, double def) {
+        try {
+          return r[i].empty() ? def : std::stod(r[i]);
+        } catch (...) {
+          return def;
+        }
+      };
+      s.critBasePct = f(0, s.critBasePct);
+      s.critBonusMaxPct = f(1, s.critBonusMaxPct);
+      s.critK = f(2, s.critK);
+      s.critResistK = f(3, s.critResistK);
+      s.critCapPct = f(4, s.critCapPct);
+      s.doubleMaxPct = f(5, s.doubleMaxPct);
+      s.doubleK = f(6, s.doubleK);
+      s.doubleResistK = f(7, s.doubleResistK);
+      s.doubleDamagePct = static_cast<int32_t>(f(8, s.doubleDamagePct));
+      s.hitBasePct = f(9, s.hitBasePct);
+      s.hitAccuracyBonusPct = f(10, s.hitAccuracyBonusPct);
+      s.hitAccuracyK = f(11, s.hitAccuracyK);
+      s.hitDodgeMaxPct = f(12, s.hitDodgeMaxPct);
+      s.hitDodgeK = f(13, s.hitDodgeK);
+      s.hitMinPct = f(14, s.hitMinPct);
+      s.hitMaxPct = f(15, s.hitMaxPct);
+      s.defenseKBase = f(16, s.defenseKBase);
+      s.defenseKPerLevel = f(17, s.defenseKPerLevel);
+      s.defenseCapPct = f(18, s.defenseCapPct);
+      s.attributeScalingK = f(19, s.attributeScalingK);
+      s.damageVariancePct = f(20, s.damageVariancePct);
+      ok = true;
+    }
+  } else {
+    Core::Logger::getInstance().warn(
+        "[CombatCoreEngine] combat_formula_settings ausente: rode www/umbra_api/scripts/add_combat_formula_settings.sql "
+        "(usando padrões)");
+  }
+  Combat::CombatFormulas::setSettings(s);
+  const auto applied = Combat::CombatFormulas::settings();
+  Core::Logger::getInstance().info(
+      "[CombatCoreEngine] fórmulas de combate: crit {}+{}%/K{} resistK{} teto {}% | duplo {}%/K{} +{}% | "
+      "DEF K {}+{}/nível teto {}% | atributo K{} | variação ±{}% | PvP x{}",
+      applied.critBasePct, applied.critBonusMaxPct, applied.critK, applied.critResistK, applied.critCapPct,
+      applied.doubleMaxPct, applied.doubleK, applied.doubleDamagePct, applied.defenseKBase,
+      applied.defenseKPerLevel, applied.defenseCapPct, applied.attributeScalingK, applied.damageVariancePct,
+      applied.pvpDamageMult);
+  return ok;
 }
 
 bool CombatCoreEngine::canAffectPlayer(uint32_t sourcePlayerId, uint32_t targetPlayerId, bool hostile) const {
@@ -5474,7 +5532,9 @@ int32_t CombatCoreEngine::computeDoubleBonus(const Combat::CharacterState& attac
     return 0;
   }
 
-  return std::max(1, firstHitAbs * kDoubleAttackDamagePercent / 100);
+  // combat_formula_settings.double_damage_pct (padrão 80% do golpe).
+  const int32_t pct = Combat::CombatFormulas::settings().doubleDamagePct;
+  return std::max(1, firstHitAbs * pct / 100);
 }
 
 std::string CombatCoreEngine::resolveNpcSkillCastAnimPath(NpcRuntimeInstance& inst,

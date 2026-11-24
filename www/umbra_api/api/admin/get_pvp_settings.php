@@ -1,7 +1,7 @@
 <?php
 /**
  * POST /api/admin/get_pvp_settings.php — regras de PvP e números do duelo (etapa 6, linha única id = 1).
- * Resposta: settings{open_world_pvp, duel_request_distance, duel_request_timeout_sec, duel_radius,
+ * Resposta: settings{open_world_pvp, pvp_damage_mult, duel_request_distance, duel_request_timeout_sec, duel_radius,
  *           duel_countdown_sec, duel_max_duration_sec, duel_out_of_bounds_sec, duel_restore_on_end,
  *           duel_flag_mesh_path, duel_flag_vfx_path}.
  */
@@ -22,7 +22,7 @@ requireAdminAuth($data);
 try {
     $pdo = getConnection();
     $stmt = $pdo->query(
-        'SELECT open_world_pvp, duel_request_distance, duel_request_timeout_sec, duel_radius, duel_countdown_sec,
+        'SELECT open_world_pvp, pvp_damage_mult, duel_request_distance, duel_request_timeout_sec, duel_radius, duel_countdown_sec,
                 duel_max_duration_sec, duel_out_of_bounds_sec, duel_restore_on_end, duel_flag_mesh_path,
                 duel_flag_vfx_path
            FROM pvp_settings WHERE id = 1'
@@ -30,6 +30,7 @@ try {
     $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     $settings = [
         'open_world_pvp' => (int)($row['open_world_pvp'] ?? 0),
+        'pvp_damage_mult' => (float)($row['pvp_damage_mult'] ?? 0.7),
         'duel_request_distance' => (float)($row['duel_request_distance'] ?? 1500),
         'duel_request_timeout_sec' => (int)($row['duel_request_timeout_sec'] ?? 30),
         'duel_radius' => (float)($row['duel_radius'] ?? 3000),

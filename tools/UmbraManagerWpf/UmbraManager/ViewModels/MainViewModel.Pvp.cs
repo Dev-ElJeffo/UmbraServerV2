@@ -17,6 +17,8 @@ public partial class MainViewModel
 {
     /// <summary>1 = qualquer jogador ataca qualquer jogador fora do duelo (desligado = só duelo).</summary>
     [ObservableProperty] private bool _pvpOpenWorld;
+    /// <summary>Multiplicador global do dano entre jogadores (0,7 = 30% a menos).</summary>
+    [ObservableProperty] private double _pvpDamageMult = 0.7;
     /// <summary>Distância máxima (uu) para desafiar.</summary>
     [ObservableProperty] private double _pvpDuelRequestDistance = 1500;
     [ObservableProperty] private int _pvpDuelRequestTimeoutSec = 30;
@@ -48,6 +50,8 @@ public partial class MainViewModel
         {
             if (!data.RootElement.TryGetProperty("settings", out var s)) return;
             PvpOpenWorld = TryGetIntProp(s, "open_world_pvp") != 0;
+            var mult = TryGetDoubleProp(s, "pvp_damage_mult");
+            PvpDamageMult = mult <= 0 ? 0.7 : mult;
             var dist = TryGetDoubleProp(s, "duel_request_distance");
             PvpDuelRequestDistance = dist <= 0 ? 1500 : dist;
             var timeout = TryGetIntProp(s, "duel_request_timeout_sec");
@@ -72,6 +76,7 @@ public partial class MainViewModel
         var settings = new Dictionary<string, object?>
         {
             ["open_world_pvp"] = PvpOpenWorld ? 1 : 0,
+            ["pvp_damage_mult"] = PvpDamageMult <= 0 ? 0.7 : PvpDamageMult,
             ["duel_request_distance"] = PvpDuelRequestDistance <= 0 ? 1500 : PvpDuelRequestDistance,
             ["duel_request_timeout_sec"] = PvpDuelRequestTimeoutSec <= 0 ? 30 : PvpDuelRequestTimeoutSec,
             ["duel_radius"] = PvpDuelRadius <= 0 ? 3000 : PvpDuelRadius,

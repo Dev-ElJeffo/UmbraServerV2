@@ -7,6 +7,7 @@
 
 #include "core/Logger.hpp"
 #include "database/MySQLConnector.hpp"
+#include "services/CombatFormulas.hpp"
 #include "zone/CombatCoreEngine.hpp"
 #include "zone/MovementProtocol.hpp"
 #include "zone/MovementServer.hpp"
@@ -60,6 +61,11 @@ bool DuelService::reload() {
       s.flagVfxPath = r[9];
       ok = true;
     }
+    // Coluna da revisão de fórmulas (add_combat_formula_settings.sql); ausente = 0,7.
+    if (!db_->executeQuery("SHOW COLUMNS FROM pvp_settings LIKE 'pvp_damage_mult'").empty()) {
+      const auto m = db_->executeQuery("SELECT pvp_damage_mult FROM pvp_settings WHERE id = 1");
+      if (!m.empty() && !m[0].empty()) s.pvpDamageMult = std::clamp(toF(m[0][0], 0.7f), 0.05f, 5.f);
+    }
   } else {
     Core::Logger::getInstance().warn(
         "[DuelService] tabela pvp_settings ausente: rode www/umbra_api/scripts/add_pvp_duel.sql (usando padrões)");
@@ -68,8 +74,10 @@ bool DuelService::reload() {
     std::lock_guard<std::mutex> lock(mu_);
     settings_ = s;
   }
-  Core::Logger::getInstance().info("[DuelService] PvP livre no mundo={} raio={} contagem={}s duração={}s",
-                                   s.openWorldPvp ? 1 : 0, s.radius, s.countdownSec, s.maxDurationSec);
+  Combat::CombatFormulas::setPvpDamageMult(s.pvpDamageMult);
+  Core::Logger::getInstance().info("[DuelService] PvP livre no mundo={} dano PvP x{} raio={} contagem={}s duração={}s",
+                                   s.openWorldPvp ? 1 : 0, s.pvpDamageMult, s.radius, s.countdownSec,
+                                   s.maxDurationSec);
   return ok;
 }
 

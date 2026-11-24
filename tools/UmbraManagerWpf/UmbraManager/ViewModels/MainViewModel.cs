@@ -499,6 +499,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
             await RefreshGameRatesAsync();
             if (_isDisposed) return;
             await RefreshPvpSettingsAsync();
+            if (_isDisposed) return;
+            await RefreshCombatFormulasAsync();
         }
         if (_isDisposed) return;
         await RefreshProjectStateAsync();

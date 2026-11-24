@@ -82,6 +82,8 @@ public partial class MainViewModel
         Add("companions", "Companheiros", "Conteúdo", 21, "content", "Paw");
         Add("guildmissions", "Missões de guilda", "Conteúdo", 22, "content", "ShieldStar");
         Add("instances", "Instâncias", "NPC e mundo", 23, "content", "Castle");
+        Add("formulas", "Fórmulas de combate", "Administração", 24, "super", "Calculator");
+        Add("pvp", "PvP e duelo", "Administração", 25, "super", "SwordCross");
         ApplyNavVisibility();
     }
 
