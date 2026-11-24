@@ -116,7 +116,7 @@
           <TextBox Text="{Binding InstanceFormMaxCopies, UpdateSourceTrigger=PropertyChanged}"
                    materialDesign:HintAssist.Hint="Cópias simultâneas" materialDesign:HintAssist.IsFloating="True"/>
           <TextBox Text="{Binding InstanceFormTimeLimitMinutes, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
-                   materialDesign:HintAssist.Hint="Tempo limite (min, 0=sem)" materialDesign:HintAssist.IsFloating="True"/>
+                   materialDesign:HintAssist.Hint="Tempo limite (min)" ToolTip="Tempo limite (min, 0=sem)" materialDesign:HintAssist.IsFloating="True"/>
           <TextBox Text="{Binding InstanceFormEmptyCloseSeconds, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
                    materialDesign:HintAssist.Hint="Fecha vazia após (s)" materialDesign:HintAssist.IsFloating="True"/>
         </UniformGrid>

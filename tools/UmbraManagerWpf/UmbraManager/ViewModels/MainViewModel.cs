@@ -33,6 +33,29 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<string> AllLogs { get; } = new();
     public ObservableCollection<ScheduledTaskItem> ScheduledTasks { get; } = new();
     public ObservableCollection<ISeries> CpuChartSeries { get; } = new();
+
+    // Gráfico de CPU no tema escuro (eixos, grade e legenda legíveis).
+    private static readonly SKColor ChartLabel = new(0xA8, 0x9D, 0x90);
+    private static readonly SKColor ChartGrid = new(0x3B, 0x31, 0x34);
+    private static readonly SKColor[] ChartPalette =
+    {
+        new(0xC9, 0xA2, 0x4D), new(0x5B, 0x8D, 0xBE), new(0x5F, 0xA8, 0x5A),
+        new(0xC2, 0x45, 0x3F), new(0x9C, 0x6A, 0xC9), new(0x4F, 0xB3, 0xB0), new(0xD9, 0x84, 0x41),
+    };
+    public Axis[] CpuXAxes { get; } =
+    {
+        new Axis { LabelsPaint = new SolidColorPaint(ChartLabel), TextSize = 11, ShowSeparatorLines = false, Name = null },
+    };
+    public Axis[] CpuYAxes { get; } =
+    {
+        new Axis
+        {
+            LabelsPaint = new SolidColorPaint(ChartLabel), TextSize = 11, MinLimit = 0,
+            SeparatorsPaint = new SolidColorPaint(ChartGrid) { StrokeThickness = 1 },
+            Labeler = v => $"{v:0}%",
+        },
+    };
+    public SolidColorPaint CpuLegendPaint { get; } = new(ChartLabel);
     public ObservableCollection<DashboardCard> DashboardCards { get; } = new();
     public ObservableCollection<AccountRow> Accounts { get; } = new();
     public ObservableCollection<ItemRow> Items { get; } = new();
@@ -400,7 +423,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var configPath = AppConfig.Instance.AbsolutePath(AppConfig.Instance.ConfigPath);
         if (File.Exists(configPath)) ConfigJson = File.ReadAllText(configPath);
         try { ConfigModel = ServerConfigModel.FromJson(ConfigJson); } catch { ConfigModel = new ServerConfigModel(); }
-        ConfigPreviewJson = ConfigJson;
+        ConfigPreviewJson = MaskSecretsForPreview(ConfigJson);
         LoadItemStatFields("{}");
         BuildNavRoutes();
         RestorePersistedScheduler();
@@ -1089,15 +1112,19 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (_cpuSeries[serviceId].Count > 120) _cpuSeries[serviceId].RemoveAt(0);
 
         CpuChartSeries.Clear();
+        var colorIndex = 0;
         foreach (var (sid, points) in _cpuSeries)
         {
+            // Uma cor por serviço (antes todas eram azuis e indistinguíveis).
+            var color = ChartPalette[colorIndex++ % ChartPalette.Length];
             CpuChartSeries.Add(new LineSeries<double>
             {
                 Name = sid,
                 Values = points.Select(p => p.Item2).ToArray(),
                 GeometrySize = 0,
-                LineSmoothness = 0,
-                Stroke = new SolidColorPaint(SKColors.DeepSkyBlue) { StrokeThickness = 2 }
+                LineSmoothness = 0.4,
+                Fill = null,
+                Stroke = new SolidColorPaint(color) { StrokeThickness = 2 }
             });
         }
     }
@@ -1301,7 +1328,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             var path = AppConfig.Instance.AbsolutePath(AppConfig.Instance.ConfigPath);
             File.WriteAllText(path, ConfigJson);
             var notes = AppConfig.Instance.ReloadServerJsonFromDisk();
-            ConfigPreviewJson = ConfigJson;
+            ConfigPreviewJson = MaskSecretsForPreview(ConfigJson);
             ConfigStatus = $"Salvo: {path}. {notes}";
             Audit.Log(AppConfig.Instance.AdminUsername, "save_config", path);
         }

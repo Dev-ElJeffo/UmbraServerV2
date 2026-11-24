@@ -40,12 +40,13 @@
         </UniformGrid>
 
         <!-- Gráfico CPU -->
-        <Border Padding="10" CornerRadius="6"
-                Background="#FF252526"
-                Margin="0,0,0,16">
+        <Border Style="{StaticResource ManagerEditorCard}" Margin="0,0,0,16">
             <StackPanel>
-                <TextBlock Text="CPU últimos minutos" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                <lvc:CartesianChart Series="{Binding CpuChartSeries}" Height="200"/>
+                <TextBlock Text="CPU por serviço (últimos minutos)" Style="{StaticResource ManagerSectionHeader}" Margin="0,0,0,6"/>
+                <lvc:CartesianChart Series="{Binding CpuChartSeries}" Height="200" Background="Transparent"
+                                    XAxes="{Binding CpuXAxes}" YAxes="{Binding CpuYAxes}"
+                                    LegendPosition="Right" LegendTextPaint="{Binding CpuLegendPaint}"
+                                    TooltipPosition="Top"/>
             </StackPanel>
         </Border>
 

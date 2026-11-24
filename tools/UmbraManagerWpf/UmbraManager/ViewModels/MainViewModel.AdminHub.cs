@@ -1082,6 +1082,8 @@ public partial class MainViewModel
     private async Task KickSelectedGuildMemberAsync()
     {
         if (SelectedGuild == null || SelectedGuildMember == null) return;
+        if (MessageBox.Show($"Expulsar o player {SelectedGuildMember.PlayerId} da guild '{SelectedGuild.GuildName}'?",
+                "Confirmar", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         var (ok, err, _) = await Php.KickGuildMemberAsync(SelectedGuild.GuildId, SelectedGuildMember.PlayerId);
         if (!ok) { MessageBox.Show(err, "Kick guild"); return; }
         Audit.Log(AppConfig.Instance.AdminUsername, "kick_guild_member",

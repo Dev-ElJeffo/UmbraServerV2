@@ -83,7 +83,7 @@
           <TextBox Text="{Binding GuildMissionFormMinContribution, UpdateSourceTrigger=PropertyChanged}"
                    materialDesign:HintAssist.Hint="Contribuição mínima" materialDesign:HintAssist.IsFloating="True"/>
           <TextBox Text="{Binding GuildMissionFormRewardItemId, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
-                   materialDesign:HintAssist.Hint="Item por membro (ID, 0=nenhum)" materialDesign:HintAssist.IsFloating="True"/>
+                   materialDesign:HintAssist.Hint="Item/membro (ID)" ToolTip="Item por membro (ID, 0=nenhum)" materialDesign:HintAssist.IsFloating="True"/>
           <TextBox Text="{Binding GuildMissionFormRewardItemQty, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
                    materialDesign:HintAssist.Hint="Qtd do item" materialDesign:HintAssist.IsFloating="True"/>
         </UniformGrid>

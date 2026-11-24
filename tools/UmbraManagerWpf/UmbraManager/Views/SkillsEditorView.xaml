@@ -114,7 +114,7 @@
         <TextBlock Text="Progressão por rank" FontWeight="SemiBold" Margin="0,4,0,4"/>
         <UniformGrid Columns="3" Margin="0,0,0,6">
           <TextBox Text="{Binding SkillFormRankGrowthPercent, UpdateSourceTrigger=PropertyChanged}"
-                   materialDesign:HintAssist.Hint="crescimento %/rank (vazio = padrão)" materialDesign:HintAssist.IsFloating="True" Margin="0,0,4,4"
+                   materialDesign:HintAssist.Hint="Cresc. %/rank" materialDesign:HintAssist.IsFloating="True" Margin="0,0,4,4"
                    ToolTip="Vazio = padrão por tipo de efeito (dano/cura/escudo/DOT/HOT 12,5%; buff/debuff/slow 10%; controle +10% de duração e +5 de chance por rank). 0 = não escala. Um efeito com rank_growth próprio tem prioridade."/>
           <TextBox Text="{Binding SkillFormRankCostStep}"
                    materialDesign:HintAssist.Hint="pontos extras/rank" materialDesign:HintAssist.IsFloating="True" Margin="0,0,4,4"

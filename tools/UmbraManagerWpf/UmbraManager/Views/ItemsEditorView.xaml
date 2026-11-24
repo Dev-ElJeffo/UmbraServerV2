@@ -11,7 +11,7 @@
 
                     <!-- Lista -->
                     <DockPanel Grid.Column="0">
-                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                             <Button Content="Atualizar" Command="{Binding RefreshItemsCommand}" Margin="0,0,8,4"
                                     Style="{StaticResource ManagerActionOutlinedButton}"/>
                             <Button Content="Novo item" Command="{Binding NewItemCommand}" Margin="0,0,8,4"
@@ -32,7 +32,7 @@
                                           materialDesign:HintAssist.IsFloating="True"/>
                             <TextBlock Text="{Binding Items.Count, StringFormat={}{0} itens}"
                                        VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0.7"/>
-                        </StackPanel>
+                        </WrapPanel>
 
                         <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding Items}" IsReadOnly="True">
                             <DataGrid.Columns>

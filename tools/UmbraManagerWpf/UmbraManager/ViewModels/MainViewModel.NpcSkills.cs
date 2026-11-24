@@ -289,6 +289,9 @@ public partial class MainViewModel
     private async Task RemoveNpcTemplateSkillAsync(NpcTemplateSkillRow? row)
     {
         if (row == null) return;
+        // Grava na hora (não espera o Salvar): confirma antes.
+        if (MessageBox.Show("Remover esta skill do template e salvar agora?", "Confirmar",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         NpcTemplateSkills.Remove(row);
         await SaveNpcTemplateSkillsAsync();
     }

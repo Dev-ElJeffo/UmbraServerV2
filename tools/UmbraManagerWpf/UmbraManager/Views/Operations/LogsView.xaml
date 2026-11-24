@@ -1,37 +1,73 @@
 <UserControl x:Class="UmbraManager.Views.Operations.LogsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
-             xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
-             xmlns:views="clr-namespace:UmbraManager.Views"
-             xmlns:controls="clr-namespace:UmbraManager.Controls">
-<DockPanel Margin="8">
+             xmlns:sys="clr-namespace:System;assembly=mscorlib"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes">
+<DockPanel>
+    <!-- Filtros -->
     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-        <ComboBox Width="120" Margin="0,0,8,4"
+        <!-- Antes: combo sem itens (só aceitava o padrão) e estreito demais para o rótulo -->
+        <ComboBox Width="170" Margin="0,0,8,0"
                   Text="{Binding LogFilter, UpdateSourceTrigger=PropertyChanged}"
-                  materialDesign:HintAssist.Hint="Nível (ALL/DEBUG...)"/>
-        <TextBox Width="200" Margin="0,0,8,4"
+                  materialDesign:HintAssist.Hint="Nível">
+            <sys:String>ALL</sys:String>
+            <sys:String>DEBUG</sys:String>
+            <sys:String>INFO</sys:String>
+            <sys:String>WARN</sys:String>
+            <sys:String>ERROR</sys:String>
+            <sys:String>CRITICAL</sys:String>
+        </ComboBox>
+        <TextBox Width="280" Margin="0,0,8,0"
                  Text="{Binding LogSearch, UpdateSourceTrigger=PropertyChanged}"
-                 materialDesign:HintAssist.Hint="Buscar texto"/>
-        <Button Content="Exportar tudo" Command="{Binding ExportLogsCommand}" CommandParameter="{x:Null}"
-                Style="{StaticResource ManagerActionOutlinedButton}" Margin="0,0,8,4"/>
+                 materialDesign:HintAssist.Hint="Buscar texto"
+                 materialDesign:TextFieldAssist.HasLeadingIcon="True"
+                 materialDesign:TextFieldAssist.LeadingIcon="Magnify"
+                 materialDesign:TextFieldAssist.HasClearButton="True"/>
+        <Button Command="{Binding ExportLogsCommand}" CommandParameter="{x:Null}" VerticalAlignment="Center"
+                Style="{StaticResource ManagerActionOutlinedButton}">
+            <StackPanel Orientation="Horizontal">
+                <materialDesign:PackIcon Kind="Export" Margin="0,0,6,0"/>
+                <TextBlock Text="Exportar tudo"/>
+            </StackPanel>
+        </Button>
     </WrapPanel>
-    <TabControl ItemsSource="{Binding LogTabs}">
-        <TabControl.ItemTemplate>
-            <DataTemplate>
-                <TextBlock Text="{Binding DisplayName}"/>
-            </DataTemplate>
-        </TabControl.ItemTemplate>
-        <TabControl.ContentTemplate>
-            <DataTemplate>
-                <DockPanel>
-                    <Button DockPanel.Dock="Top" Content="Exportar" HorizontalAlignment="Left" Margin="0,0,0,4"
-                            Command="{Binding DataContext.ExportLogsCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                            CommandParameter="{Binding ServiceId}"/>
-                    <ListBox ItemsSource="{Binding Lines}" FontFamily="Consolas" FontSize="11"/>
-                </DockPanel>
-            </DataTemplate>
-        </TabControl.ContentTemplate>
-    </TabControl>
+
+    <!-- Uma aba por serviço -->
+    <Border Style="{StaticResource ManagerEditorCard}" Padding="8">
+        <TabControl ItemsSource="{Binding LogTabs}">
+            <TabControl.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding DisplayName}"/>
+                </DataTemplate>
+            </TabControl.ItemTemplate>
+            <TabControl.ContentTemplate>
+                <DataTemplate>
+                    <DockPanel Margin="0,8,0,0">
+                        <Button DockPanel.Dock="Top" HorizontalAlignment="Right" Margin="0,0,0,6"
+                                Style="{StaticResource ManagerCompactButton}"
+                                Command="{Binding DataContext.ExportLogsCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                CommandParameter="{Binding ServiceId}">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="Export" Margin="0,0,6,0"/>
+                                <TextBlock Text="Exportar este serviço"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Linhas densas (antes cada linha ocupava ~40 px) -->
+                        <ListBox ItemsSource="{Binding Lines}" FontFamily="{StaticResource Umbra.Font.Mono}" FontSize="12"
+                                 Background="{StaticResource Umbra.Brush.Surface}"
+                                 VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem" BasedOn="{StaticResource MaterialDesignListBoxItem}">
+                                    <Setter Property="Padding" Value="8,2"/>
+                                    <Setter Property="MinHeight" Value="0"/>
+                                    <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                        </ListBox>
+                    </DockPanel>
+                </DataTemplate>
+            </TabControl.ContentTemplate>
+        </TabControl>
+    </Border>
 </DockPanel>
 </UserControl>

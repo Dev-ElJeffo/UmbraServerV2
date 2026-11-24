@@ -5,7 +5,7 @@
              xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
              xmlns:views="clr-namespace:UmbraManager.Views"
              xmlns:controls="clr-namespace:UmbraManager.Controls">
-<Border Style="{StaticResource ManagerEditorCard}" Margin="8" MaxWidth="520" HorizontalAlignment="Left">
+<Border Style="{StaticResource ManagerEditorCard}" Margin="8" MaxWidth="520" HorizontalAlignment="Left" VerticalAlignment="Top">
     <StackPanel>
         <TextBlock Text="Rates globais" Style="{StaticResource ManagerEditorTitle}"/>
         <TextBlock Text="Multiplicadores de EXP e Drop aplicados nas zones (reload após salvar)."
