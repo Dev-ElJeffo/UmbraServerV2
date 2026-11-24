@@ -3,37 +3,99 @@
                     xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
                     xmlns:helpers="clr-namespace:UmbraManager.Helpers">
 
+    <!-- =====================================================================
+         Umbra design system (overhaul): paleta do jogo (carvão, vinho, dourado),
+         tipografia, espaçamento e estilos globais. As chaves Manager* antigas
+         continuam existindo (as telas usam), agora com o visual novo.
+         ===================================================================== -->
+
     <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
-    <SolidColorBrush x:Key="ManagerBrush.SurfaceAlt" Color="#FF252526"/>
-    <SolidColorBrush x:Key="ManagerBrush.Border" Color="#FF3F3F46"/>
-    <SolidColorBrush x:Key="ManagerBrush.Text" Color="#FFECECEC"/>
-    <SolidColorBrush x:Key="ManagerBrush.Success" Color="#FF4CAF50"/>
-    <SolidColorBrush x:Key="ManagerBrush.Warning" Color="#FFFFC107"/>
-    <SolidColorBrush x:Key="ManagerBrush.Error" Color="#FFE53935"/>
-    <SolidColorBrush x:Key="ManagerBrush.Focus" Color="#FF7E57C2"/>
+    <helpers:AtLeastConverter x:Key="Umbra.AtLeast"/>
+
+    <!-- Cores base -->
+    <Color x:Key="Umbra.Color.Bg">#FF121014</Color>
+    <Color x:Key="Umbra.Color.Surface">#FF19161A</Color>
+    <Color x:Key="Umbra.Color.SurfaceAlt">#FF201C1F</Color>
+    <Color x:Key="Umbra.Color.Elevated">#FF2A2427</Color>
+    <Color x:Key="Umbra.Color.Hover">#FF332B2E</Color>
+    <Color x:Key="Umbra.Color.Border">#FF3B3134</Color>
+    <Color x:Key="Umbra.Color.Text">#FFEDE6DA</Color>
+    <Color x:Key="Umbra.Color.TextMuted">#FFA89D90</Color>
+    <Color x:Key="Umbra.Color.Gold">#FFC9A24D</Color>
+    <Color x:Key="Umbra.Color.GoldSoft">#33C9A24D</Color>
+    <Color x:Key="Umbra.Color.Wine">#FF8E2B2B</Color>
+    <Color x:Key="Umbra.Color.WineHover">#FFA83636</Color>
+
+    <SolidColorBrush x:Key="Umbra.Brush.Bg" Color="{StaticResource Umbra.Color.Bg}"/>
+    <SolidColorBrush x:Key="Umbra.Brush.Surface" Color="{StaticResource Umbra.Color.Surface}"/>
+    <SolidColorBrush x:Key="Umbra.Brush.SurfaceAlt" Color="{StaticResource Umbra.Color.SurfaceAlt}"/>
+    <SolidColorBrush x:Key="Umbra.Brush.Elevated" Color="{StaticResource Umbra.Color.Elevated}"/>
+    <SolidColorBrush x:Key="Umbra.Brush.Hover" Color="{StaticResource Umbra.Color.Hover}"/>
+    <SolidColorBrush x:Key="Umbra.Brush.Border" Color="{StaticResource Umbra.Color.Border}"/>
+    <SolidColorBrush x:Key="Umbra.Brush.Text" Color="{StaticResource Umbra.Color.Text}"/>
+    <SolidColorBrush x:Key="Umbra.Brush.TextMuted" Color="{StaticResource Umbra.Color.TextMuted}"/>
+    <SolidColorBrush x:Key="Umbra.Brush.Gold" Color="{StaticResource Umbra.Color.Gold}"/>
+    <SolidColorBrush x:Key="Umbra.Brush.GoldSoft" Color="{StaticResource Umbra.Color.GoldSoft}"/>
+    <SolidColorBrush x:Key="Umbra.Brush.Wine" Color="{StaticResource Umbra.Color.Wine}"/>
+    <SolidColorBrush x:Key="Umbra.Brush.WineHover" Color="{StaticResource Umbra.Color.WineHover}"/>
+
+    <!-- Sobrescreve as superfícies do MaterialDesign (o dark padrão é cinza neutro) -->
+    <SolidColorBrush x:Key="MaterialDesign.Brush.Background" Color="{StaticResource Umbra.Color.Bg}"/>
+    <SolidColorBrush x:Key="MaterialDesign.Brush.Foreground" Color="{StaticResource Umbra.Color.Text}"/>
+    <SolidColorBrush x:Key="MaterialDesign.Brush.Card.Background" Color="{StaticResource Umbra.Color.SurfaceAlt}"/>
+    <SolidColorBrush x:Key="MaterialDesign.Brush.ToolBar.Background" Color="{StaticResource Umbra.Color.Surface}"/>
+    <SolidColorBrush x:Key="MaterialDesign.Brush.TextBox.Border" Color="{StaticResource Umbra.Color.Border}"/>
+    <SolidColorBrush x:Key="MaterialDesign.Brush.TextBox.HoverBorder" Color="{StaticResource Umbra.Color.TextMuted}"/>
+
+    <!-- Chaves antigas (mantidas) -->
+    <SolidColorBrush x:Key="ManagerBrush.SurfaceAlt" Color="{StaticResource Umbra.Color.SurfaceAlt}"/>
+    <SolidColorBrush x:Key="ManagerBrush.Border" Color="{StaticResource Umbra.Color.Border}"/>
+    <SolidColorBrush x:Key="ManagerBrush.Text" Color="{StaticResource Umbra.Color.Text}"/>
+    <SolidColorBrush x:Key="ManagerBrush.Success" Color="#FF5FA85A"/>
+    <SolidColorBrush x:Key="ManagerBrush.Warning" Color="#FFD9A441"/>
+    <SolidColorBrush x:Key="ManagerBrush.Error" Color="#FFC2453F"/>
+    <SolidColorBrush x:Key="ManagerBrush.Focus" Color="{StaticResource Umbra.Color.Gold}"/>
     <Thickness x:Key="ManagerSpace.Sm">8</Thickness>
     <Thickness x:Key="ManagerSpace.Md">12</Thickness>
     <Thickness x:Key="ManagerSpace.Lg">16</Thickness>
 
+    <FontFamily x:Key="Umbra.Font">Segoe UI Variable Text, Segoe UI</FontFamily>
+    <FontFamily x:Key="Umbra.Font.Display">Segoe UI Variable Display, Segoe UI Semibold</FontFamily>
+    <FontFamily x:Key="Umbra.Font.Mono">Cascadia Mono, Consolas</FontFamily>
+
+    <!-- ===== Tipografia ===== -->
     <Style x:Key="ManagerEditorTitle" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="16"/>
-        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="FontFamily" Value="{StaticResource Umbra.Font.Display}"/>
+        <Setter Property="FontSize" Value="17"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="Margin" Value="0,0,0,4"/>
-        <Setter Property="Foreground" Value="{DynamicResource MaterialDesign.Brush.Foreground}"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
     </Style>
 
     <Style x:Key="ManagerEditorSubtitle" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="11"/>
-        <Setter Property="Opacity" Value="0.75"/>
+        <Setter Property="FontSize" Value="12"/>
         <Setter Property="TextWrapping" Value="Wrap"/>
-        <Setter Property="Foreground" Value="{DynamicResource MaterialDesign.Brush.Foreground}"/>
+        <Setter Property="LineHeight" Value="17"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.TextMuted}"/>
     </Style>
 
     <Style x:Key="ManagerSectionHeader" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="11"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
-        <Setter Property="Margin" Value="0,0,0,6"/>
-        <Setter Property="Opacity" Value="0.9"/>
-        <Setter Property="Foreground" Value="{DynamicResource MaterialDesign.Brush.Foreground}"/>
+        <Setter Property="Margin" Value="0,10,0,6"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Gold}"/>
+    </Style>
+
+    <Style x:Key="ManagerPageHeader" TargetType="TextBlock" BasedOn="{StaticResource ManagerEditorTitle}">
+        <Setter Property="FontSize" Value="22"/>
+        <Setter Property="Margin" Value="0,0,0,2"/>
+    </Style>
+
+    <Style x:Key="ManagerEmptyState" TargetType="TextBlock">
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="Margin" Value="12"/>
+        <Setter Property="HorizontalAlignment" Value="Center"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.TextMuted}"/>
     </Style>
 
     <Style x:Key="ManagerNavButton" TargetType="RadioButton" BasedOn="{StaticResource MaterialDesignTabRadioButton}">
@@ -41,34 +103,114 @@
         <Setter Property="Padding" Value="10,6"/>
         <Setter Property="HorizontalContentAlignment" Value="Left"/>
         <Setter Property="Margin" Value="4,2"/>
-        <Setter Property="Foreground" Value="{StaticResource ManagerBrush.Text}"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
     </Style>
 
-    <Style x:Key="ManagerPageHeader" TargetType="TextBlock" BasedOn="{StaticResource ManagerEditorTitle}">
-        <Setter Property="FontSize" Value="20"/>
-        <Setter Property="Margin" Value="0,0,0,4"/>
+    <!-- ===== Campos (globais): contorno com rótulo flutuando DENTRO da borda.
+         Antes: rótulo flutuante acima da linha encostava no campo de cima. ===== -->
+    <Style TargetType="TextBox" BasedOn="{StaticResource MaterialDesignOutlinedTextBox}">
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Margin" Value="0,4,0,6"/>
+        <Setter Property="Padding" Value="10,8"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="materialDesign:HintAssist.IsFloating" Value="True"/>
+        <Setter Property="materialDesign:HintAssist.FloatingScale" Value="0.85"/>
+        <Setter Property="materialDesign:TextFieldAssist.UnderlineBrush" Value="{StaticResource Umbra.Brush.Gold}"/>
+        <Setter Property="materialDesign:HintAssist.Foreground" Value="{StaticResource Umbra.Brush.Gold}"/>
+        <Setter Property="materialDesign:HintAssist.Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
+        <Setter Property="CaretBrush" Value="{StaticResource Umbra.Brush.Gold}"/>
     </Style>
+
+    <Style TargetType="PasswordBox" BasedOn="{StaticResource MaterialDesignOutlinedPasswordBox}">
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Margin" Value="0,4,0,6"/>
+        <Setter Property="Padding" Value="10,8"/>
+        <Setter Property="materialDesign:HintAssist.IsFloating" Value="True"/>
+        <Setter Property="materialDesign:HintAssist.Foreground" Value="{StaticResource Umbra.Brush.Gold}"/>
+        <Setter Property="materialDesign:HintAssist.Background" Value="Transparent"/>
+    </Style>
+
+    <Style TargetType="ComboBox" BasedOn="{StaticResource MaterialDesignOutlinedComboBox}">
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Margin" Value="0,4,0,6"/>
+        <Setter Property="Padding" Value="10,8"/>
+        <Setter Property="materialDesign:HintAssist.IsFloating" Value="True"/>
+        <Setter Property="materialDesign:HintAssist.FloatingScale" Value="0.85"/>
+        <Setter Property="materialDesign:HintAssist.Foreground" Value="{StaticResource Umbra.Brush.Gold}"/>
+        <Setter Property="materialDesign:HintAssist.Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
+    </Style>
+
+    <Style TargetType="CheckBox" BasedOn="{StaticResource MaterialDesignCheckBox}">
+        <Setter Property="Margin" Value="0,6,12,6"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- Campos compactos (sem contorno) para dentro de grades/linhas densas -->
+    <Style x:Key="Umbra.Compact.TextBox" TargetType="TextBox" BasedOn="{StaticResource MaterialDesignTextBox}">
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Margin" Value="0"/>
+        <Setter Property="Padding" Value="2,0"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="materialDesign:HintAssist.IsFloating" Value="False"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
+    </Style>
+    <Style x:Key="Umbra.Compact.ComboBox" TargetType="ComboBox" BasedOn="{StaticResource MaterialDesignComboBox}">
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Margin" Value="0"/>
+        <Setter Property="Padding" Value="2,0"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="materialDesign:HintAssist.IsFloating" Value="False"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
+    </Style>
+
+    <!-- ===== Abas internas: cabeçalhos legíveis (antes quase invisíveis) ===== -->
     <Style TargetType="TabControl" BasedOn="{StaticResource MaterialDesignTabControl}">
         <Setter Property="helpers:TabHeaderScrollAssist.ShowHorizontalBar" Value="True"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="materialDesign:ColorZoneAssist.Mode" Value="Custom"/>
+        <Setter Property="materialDesign:ColorZoneAssist.Background" Value="Transparent"/>
+        <Setter Property="materialDesign:ColorZoneAssist.Foreground" Value="{StaticResource Umbra.Brush.Gold}"/>
+    </Style>
+    <Style TargetType="TabItem" BasedOn="{StaticResource MaterialDesignTabItem}">
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.TextMuted}"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Height" Value="40"/>
+        <Setter Property="Padding" Value="16,0"/>
+        <Style.Triggers>
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Gold}"/>
+            </Trigger>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
-    <!-- Botões de ação em DataGrid: sem Height baixo que corta o texto MD3 -->
+    <!-- ===== Botões ===== -->
     <Style x:Key="ManagerActionButton" TargetType="Button" BasedOn="{StaticResource MaterialDesignRaisedButton}">
         <Setter Property="MinHeight" Value="32"/>
         <Setter Property="MinWidth" Value="64"/>
-        <Setter Property="Padding" Value="10,4"/>
+        <Setter Property="Padding" Value="12,4"/>
         <Setter Property="Margin" Value="2,0"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
         <Setter Property="FontSize" Value="12"/>
+        <Setter Property="materialDesign:ButtonAssist.CornerRadius" Value="6"/>
     </Style>
 
     <Style x:Key="ManagerActionOutlinedButton" TargetType="Button" BasedOn="{StaticResource MaterialDesignOutlinedButton}">
         <Setter Property="MinHeight" Value="32"/>
         <Setter Property="MinWidth" Value="64"/>
-        <Setter Property="Padding" Value="10,4"/>
+        <Setter Property="Padding" Value="12,4"/>
         <Setter Property="Margin" Value="2,0"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
         <Setter Property="FontSize" Value="12"/>
+        <Setter Property="BorderBrush" Value="{StaticResource Umbra.Brush.Border}"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
+        <Setter Property="materialDesign:ButtonAssist.CornerRadius" Value="6"/>
     </Style>
 
     <Style x:Key="ManagerCompactButton" TargetType="Button" BasedOn="{StaticResource MaterialDesignOutlinedButton}">
@@ -78,41 +220,101 @@
         <Setter Property="Margin" Value="2,0"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
         <Setter Property="FontSize" Value="12"/>
+        <Setter Property="BorderBrush" Value="{StaticResource Umbra.Brush.Border}"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
+        <Setter Property="materialDesign:ButtonAssist.CornerRadius" Value="6"/>
     </Style>
 
-    <!-- Grade escura: o DataGrid padrão WPF/MD fica com linhas brancas -->
+    <Style x:Key="ManagerFormPrimaryButton" TargetType="Button" BasedOn="{StaticResource MaterialDesignRaisedButton}">
+        <Setter Property="Height" Value="38"/>
+        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="MinWidth" Value="88"/>
+        <Setter Property="materialDesign:ButtonAssist.CornerRadius" Value="6"/>
+    </Style>
+
+    <Style x:Key="ManagerFormSecondaryButton" TargetType="Button" BasedOn="{StaticResource MaterialDesignOutlinedButton}">
+        <Setter Property="Height" Value="38"/>
+        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="MinWidth" Value="88"/>
+        <Setter Property="BorderBrush" Value="{StaticResource Umbra.Brush.Border}"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
+        <Setter Property="materialDesign:ButtonAssist.CornerRadius" Value="6"/>
+    </Style>
+
+    <Style x:Key="Umbra.Button.Danger" TargetType="Button" BasedOn="{StaticResource MaterialDesignRaisedButton}">
+        <Setter Property="Background" Value="{StaticResource Umbra.Brush.Wine}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource Umbra.Brush.Wine}"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
+        <Setter Property="materialDesign:ButtonAssist.CornerRadius" Value="6"/>
+    </Style>
+
+    <Style x:Key="Umbra.Button.Icon" TargetType="Button" BasedOn="{StaticResource MaterialDesignIconButton}">
+        <Setter Property="Width" Value="36"/>
+        <Setter Property="Height" Value="36"/>
+        <Setter Property="Padding" Value="6"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.TextMuted}"/>
+    </Style>
+
+    <!-- ===== Grades ===== -->
+    <Style x:Key="Umbra.DataGrid.ColumnHeader" TargetType="DataGridColumnHeader"
+           BasedOn="{StaticResource MaterialDesignDataGridColumnHeader}">
+        <Setter Property="Background" Value="{StaticResource Umbra.Brush.Elevated}"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.TextMuted}"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Padding" Value="8,0"/>
+        <Setter Property="ContentTemplate">
+            <Setter.Value>
+                <DataTemplate>
+                    <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" ToolTip="{Binding}"/>
+                </DataTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style x:Key="ManagerDataGrid" TargetType="DataGrid" BasedOn="{StaticResource MaterialDesignDataGrid}">
-        <Setter Property="RowHeight" Value="40"/>
-        <Setter Property="ColumnHeaderHeight" Value="36"/>
+        <Style.Resources>
+            <Style TargetType="TextBlock">
+                <Setter Property="VerticalAlignment" Value="Center"/>
+            </Style>
+            <Style TargetType="TextBox" BasedOn="{StaticResource Umbra.Compact.TextBox}"/>
+            <Style TargetType="ComboBox" BasedOn="{StaticResource Umbra.Compact.ComboBox}"/>
+        </Style.Resources>
+        <Setter Property="RowHeight" Value="38"/>
+        <Setter Property="ColumnHeaderHeight" Value="34"/>
         <Setter Property="HeadersVisibility" Value="Column"/>
         <Setter Property="CanUserResizeColumns" Value="True"/>
         <Setter Property="HorizontalScrollBarVisibility" Value="Auto"/>
         <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
         <Setter Property="AutoGenerateColumns" Value="False"/>
-        <Setter Property="Background" Value="#FF1E1E1E"/>
-        <Setter Property="Foreground" Value="#FFECECEC"/>
-        <Setter Property="BorderBrush" Value="#FF3F3F46"/>
-        <Setter Property="RowBackground" Value="#FF252526"/>
-        <Setter Property="AlternatingRowBackground" Value="#FF2A2A2E"/>
-        <Setter Property="HorizontalGridLinesBrush" Value="#FF3F3F46"/>
-        <Setter Property="VerticalGridLinesBrush" Value="#FF3F3F46"/>
+        <Setter Property="Background" Value="{StaticResource Umbra.Brush.Surface}"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource Umbra.Brush.Border}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="RowBackground" Value="{StaticResource Umbra.Brush.Surface}"/>
+        <Setter Property="AlternatingRowBackground" Value="{StaticResource Umbra.Brush.SurfaceAlt}"/>
+        <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource Umbra.Brush.Border}"/>
+        <Setter Property="VerticalGridLinesBrush" Value="{StaticResource Umbra.Brush.Border}"/>
         <Setter Property="GridLinesVisibility" Value="Horizontal"/>
         <Setter Property="SelectionUnit" Value="FullRow"/>
         <Setter Property="AlternationCount" Value="2"/>
+        <Setter Property="materialDesign:DataGridAssist.CellPadding" Value="8,4"/>
+        <Setter Property="materialDesign:DataGridAssist.ColumnHeaderPadding" Value="8,4"/>
+        <Setter Property="ColumnHeaderStyle" Value="{StaticResource Umbra.DataGrid.ColumnHeader}"/>
         <Setter Property="RowStyle">
             <Setter.Value>
                 <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
-                    <Setter Property="Background" Value="#FF252526"/>
-                    <Setter Property="Foreground" Value="#FFECECEC"/>
+                    <Setter Property="Background" Value="{StaticResource Umbra.Brush.Surface}"/>
+                    <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
                     <Style.Triggers>
                         <Trigger Property="AlternationIndex" Value="1">
-                            <Setter Property="Background" Value="#FF2A2A2E"/>
+                            <Setter Property="Background" Value="{StaticResource Umbra.Brush.SurfaceAlt}"/>
                         </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Background" Value="#FF3A3A40"/>
+                            <Setter Property="Background" Value="{StaticResource Umbra.Brush.Hover}"/>
                         </Trigger>
                         <Trigger Property="IsSelected" Value="True">
-                            <Setter Property="Background" Value="#FF4A3768"/>
+                            <Setter Property="Background" Value="{StaticResource Umbra.Brush.GoldSoft}"/>
                             <Setter Property="Foreground" Value="#FFFFFFFF"/>
                         </Trigger>
                     </Style.Triggers>
@@ -123,9 +325,8 @@
             <Setter.Value>
                 <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
                     <Setter Property="Background" Value="Transparent"/>
-                    <Setter Property="Foreground" Value="#FFECECEC"/>
+                    <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
                     <Setter Property="BorderThickness" Value="0"/>
-                    <Setter Property="Padding" Value="6,0"/>
                     <Setter Property="VerticalContentAlignment" Value="Center"/>
                     <Style.Triggers>
                         <Trigger Property="IsSelected" Value="True">
@@ -137,50 +338,89 @@
                 </Style>
             </Setter.Value>
         </Setter>
+        <Style.Triggers>
+            <!-- Grade vazia: aviso no lugar do retângulo escuro -->
+            <MultiDataTrigger>
+                <MultiDataTrigger.Conditions>
+                    <Condition Binding="{Binding HasItems, RelativeSource={RelativeSource Self}}" Value="False"/>
+                    <Condition Binding="{Binding ActualHeight, RelativeSource={RelativeSource Self}, Converter={StaticResource Umbra.AtLeast}, ConverterParameter=150}" Value="True"/>
+                </MultiDataTrigger.Conditions>
+                <Setter Property="Background">
+                    <Setter.Value>
+                        <VisualBrush Stretch="None" AlignmentX="Center" AlignmentY="Center">
+                            <VisualBrush.Visual>
+                                <StackPanel Margin="0,60,0,0">
+                                    <TextBlock Text="Nenhum registro" FontSize="13" FontWeight="SemiBold"
+                                               Foreground="{StaticResource Umbra.Brush.TextMuted}" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="Use Atualizar (F5) para carregar" FontSize="11" Margin="0,4,0,0"
+                                               Foreground="{StaticResource Umbra.Brush.TextMuted}" Opacity="0.7"
+                                               HorizontalAlignment="Center"/>
+                                </StackPanel>
+                            </VisualBrush.Visual>
+                        </VisualBrush>
+                    </Setter.Value>
+                </Setter>
+            </MultiDataTrigger>
+        </Style.Triggers>
     </Style>
 
-    <!-- Painel lateral: superfície escura (Card.Background do MD3 fica claro e quebra o tema) -->
+    <!-- Toda grade usa o visual escuro; dentro dela campos são compactos (sem contorno) -->
+    <Style TargetType="DataGrid" BasedOn="{StaticResource ManagerDataGrid}">
+        <Style.Resources>
+            <!-- Texto das células alinhado ao centro (antes ficava no alto, desalinhado dos botões) -->
+            <Style TargetType="TextBlock">
+                <Setter Property="VerticalAlignment" Value="Center"/>
+            </Style>
+            <Style TargetType="TextBox" BasedOn="{StaticResource Umbra.Compact.TextBox}"/>
+            <Style TargetType="ComboBox" BasedOn="{StaticResource Umbra.Compact.ComboBox}"/>
+            <Style TargetType="CheckBox" BasedOn="{StaticResource MaterialDesignCheckBox}">
+                <Setter Property="Margin" Value="0"/>
+                <Setter Property="HorizontalAlignment" Value="Center"/>
+            </Style>
+        </Style.Resources>
+    </Style>
+
+    <!-- ===== Cartões e seções ===== -->
     <Style x:Key="ManagerEditorCard" TargetType="Border">
-        <Setter Property="Background" Value="#FF252526"/>
-        <Setter Property="BorderBrush" Value="#FF3F3F46"/>
+        <Setter Property="Background" Value="{StaticResource Umbra.Brush.SurfaceAlt}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource Umbra.Brush.Border}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="CornerRadius" Value="6"/>
-        <Setter Property="Padding" Value="14"/>
-        <Setter Property="TextElement.Foreground" Value="{DynamicResource MaterialDesign.Brush.Foreground}"/>
+        <Setter Property="CornerRadius" Value="10"/>
+        <Setter Property="Padding" Value="16"/>
+        <Setter Property="TextElement.Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
     </Style>
 
-    <Style x:Key="ManagerFormPrimaryButton" TargetType="Button" BasedOn="{StaticResource MaterialDesignRaisedButton}">
-        <Setter Property="Height" Value="36"/>
-        <Setter Property="HorizontalAlignment" Value="Stretch"/>
-        <Setter Property="MinWidth" Value="88"/>
-    </Style>
-
-    <Style x:Key="ManagerFormSecondaryButton" TargetType="Button" BasedOn="{StaticResource MaterialDesignOutlinedButton}">
-        <Setter Property="Height" Value="36"/>
-        <Setter Property="HorizontalAlignment" Value="Stretch"/>
-        <Setter Property="MinWidth" Value="88"/>
-    </Style>
-
-    <Style x:Key="ManagerFormSection" TargetType="Expander">
+    <Style x:Key="ManagerFormSection" TargetType="Expander" BasedOn="{StaticResource MaterialDesignExpander}">
         <Setter Property="IsExpanded" Value="True"/>
         <Setter Property="Margin" Value="0,0,0,10"/>
-        <Setter Property="Foreground" Value="{StaticResource ManagerBrush.Text}"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="Padding" Value="0,4"/>
+        <Setter Property="materialDesign:ExpanderAssist.HorizontalHeaderPadding" Value="0,6"/>
     </Style>
-
-    <Style x:Key="ManagerEmptyState" TargetType="TextBlock">
-        <Setter Property="Opacity" Value="0.65"/>
-        <Setter Property="TextWrapping" Value="Wrap"/>
-        <Setter Property="Margin" Value="12"/>
-        <Setter Property="HorizontalAlignment" Value="Center"/>
-        <Setter Property="Foreground" Value="{StaticResource ManagerBrush.Text}"/>
+    <Style TargetType="Expander" BasedOn="{StaticResource MaterialDesignExpander}">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
+        <Setter Property="materialDesign:ExpanderAssist.HorizontalHeaderPadding" Value="0,6"/>
     </Style>
 
     <Style x:Key="ManagerStatusBadge" TargetType="Border">
         <Setter Property="CornerRadius" Value="10"/>
         <Setter Property="Padding" Value="8,2"/>
         <Setter Property="Background" Value="{StaticResource ManagerBrush.Success}"/>
+    </Style>
+
+    <Style TargetType="GroupBox" BasedOn="{StaticResource MaterialDesignGroupBox}">
+        <Setter Property="materialDesign:ColorZoneAssist.Mode" Value="Custom"/>
+        <Setter Property="materialDesign:ColorZoneAssist.Background" Value="{StaticResource Umbra.Brush.Elevated}"/>
+        <Setter Property="materialDesign:ColorZoneAssist.Foreground" Value="{StaticResource Umbra.Brush.Gold}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource Umbra.Brush.Border}"/>
+        <Setter Property="Background" Value="{StaticResource Umbra.Brush.SurfaceAlt}"/>
+    </Style>
+
+    <Style TargetType="ToolTip" BasedOn="{StaticResource MaterialDesignToolTip}">
+        <Setter Property="Background" Value="{StaticResource Umbra.Brush.Elevated}"/>
+        <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
     </Style>
 </ResourceDictionary>

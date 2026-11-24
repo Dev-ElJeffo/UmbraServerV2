@@ -6,7 +6,8 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <materialDesign:BundledTheme BaseTheme="Dark" PrimaryColor="DeepPurple" SecondaryColor="Lime" />
+                <!-- Paleta do jogo: dourado (primária) e vinho (secundária) -->
+                <materialDesign:CustomColorTheme BaseTheme="Dark" PrimaryColor="#C9A24D" SecondaryColor="#8E2B2B" />
                 <ResourceDictionary Source="pack://application:,,,/MaterialDesignThemes.Wpf;component/Themes/MaterialDesign3.Defaults.xaml" />
                 <ResourceDictionary Source="Themes/ManagerChrome.xaml" />
             </ResourceDictionary.MergedDictionaries>
