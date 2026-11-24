@@ -62,6 +62,26 @@ target_link_libraries(test_quest_events
   Threads::Threads
 )
 
+add_executable(test_dungeons
+  test_dungeons.cpp
+)
+target_link_libraries(test_dungeons
+  umbra_zone
+  gtest
+  gtest_main
+  Threads::Threads
+)
+
+add_executable(test_instances
+  test_instances.cpp
+)
+target_link_libraries(test_instances
+  umbra_zone
+  gtest
+  gtest_main
+  Threads::Threads
+)
+
 add_executable(test_consumable_rules
   test_consumable_rules.cpp
 )
@@ -154,5 +174,7 @@ add_test(NAME CombatEffectTests COMMAND test_combat_effects)
 add_test(NAME CompanionLootTests COMMAND test_companion_loot)
 add_test(NAME ConsumableRulesTests COMMAND test_consumable_rules)
 add_test(NAME QuestEventTests COMMAND test_quest_events)
+add_test(NAME InstanceTests COMMAND test_instances)
+add_test(NAME DungeonTests COMMAND test_dungeons)
 add_test(NAME AdminCryptoTests COMMAND test_admin_crypto)
 

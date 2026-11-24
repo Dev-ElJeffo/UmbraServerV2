@@ -1,0 +1,219 @@
+<UserControl x:Class="UmbraManager.Views.InstancesEditorView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes">
+  <Grid Margin="8">
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="*" MinWidth="420"/>
+      <ColumnDefinition Width="Auto"/>
+      <ColumnDefinition Width="480"/>
+    </Grid.ColumnDefinitions>
+    <DockPanel Grid.Column="0">
+      <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+        <Button Content="Atualizar" Command="{Binding RefreshInstanceTemplatesCommand}" Margin="0,0,8,4"
+                Style="{StaticResource ManagerActionOutlinedButton}"/>
+        <Button Content="Nova instância" Command="{Binding NewInstanceTemplateCommand}" Margin="0,0,8,4"
+                Style="{StaticResource ManagerActionOutlinedButton}"/>
+        <Button Content="Recarregar no Zone" Command="{Binding ReloadInstancesOnZonesCommand}" Margin="0,0,8,4"
+                Style="{StaticResource ManagerActionOutlinedButton}"/>
+        <TextBlock Text="{Binding InstanceTemplates.Count, StringFormat={}{0} instâncias}"
+                   VerticalAlignment="Center" Opacity="0.7"/>
+      </WrapPanel>
+
+      <!-- Cópias abertas nas zones -->
+      <Border DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="8" BorderThickness="1"
+              BorderBrush="{DynamicResource MaterialDesignDivider}" CornerRadius="4">
+        <StackPanel>
+          <WrapPanel Margin="0,0,0,6">
+            <TextBlock Text="Cópias abertas" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0"/>
+            <Button Content="Consultar zones" Command="{Binding RefreshActiveInstancesCommand}" Margin="0,0,8,4"
+                    Style="{StaticResource ManagerActionOutlinedButton}"/>
+            <TextBox Width="110" Margin="0,0,8,4" Text="{Binding CloseInstanceId, UpdateSourceTrigger=PropertyChanged}"
+                     materialDesign:HintAssist.Hint="Nº da cópia" materialDesign:HintAssist.IsFloating="True"/>
+            <Button Content="Fechar cópia" Command="{Binding CloseActiveInstanceCommand}" Margin="0,0,8,4"
+                    Style="{StaticResource ManagerActionOutlinedButton}"/>
+          </WrapPanel>
+          <TextBox Text="{Binding ActiveInstancesText, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas"
+                   TextWrapping="Wrap" MinHeight="60" MaxHeight="160" VerticalScrollBarVisibility="Auto"/>
+        </StackPanel>
+      </Border>
+
+      <TextBlock DockPanel.Dock="Bottom" Margin="0,8,0,0" Opacity="0.7" TextWrapping="Wrap"
+                 Text="Cada cópia fica em Origem + nº da cópia × Espaçamento (eixo Y); o cliente carrega o level ali. Os NPCs do molde e o ponto de entrada usam coordenadas LOCAIS do level (as do Editor). Para levar jogadores até a instância, marque um NPC não atacável do mundo aberto como Portal (aba NPCs → Instâncias no mundo)."/>
+      <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding InstanceTemplates}" IsReadOnly="True">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="ID" Binding="{Binding InstanceTemplateId}" Width="40"/>
+          <DataGridTextColumn Header="Código" Binding="{Binding Code}" Width="110"/>
+          <DataGridTextColumn Header="Nome" Binding="{Binding Name}" Width="*"/>
+          <DataGridTextColumn Header="Nível" Binding="{Binding MinLevel}" Width="45"/>
+          <DataGridTextColumn Header="Máx." Binding="{Binding MaxPlayers}" Width="45"/>
+          <DataGridTextColumn Header="NPCs" Binding="{Binding NpcCount}" Width="45"/>
+          <DataGridCheckBoxColumn Header="Dungeon" Binding="{Binding IsDungeon}" Width="60"/>
+          <DataGridTextColumn Header="Chefes" Binding="{Binding BossCount}" Width="50"/>
+          <DataGridTextColumn Header="Min." Binding="{Binding TimeLimitMinutes}" Width="45"/>
+          <DataGridCheckBoxColumn Header="On" Binding="{Binding IsActive}" Width="40"/>
+          <DataGridTemplateColumn Header="Ações" Width="80">
+            <DataGridTemplateColumn.CellTemplate>
+              <DataTemplate>
+                <Button Content="Editar" Style="{StaticResource ManagerActionButton}"
+                        Command="{Binding DataContext.EditInstanceTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        CommandParameter="{Binding}"/>
+              </DataTemplate>
+            </DataGridTemplateColumn.CellTemplate>
+          </DataGridTemplateColumn>
+        </DataGrid.Columns>
+      </DataGrid>
+    </DockPanel>
+    <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" Background="Transparent"
+                  ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
+    <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+      <StackPanel Margin="8,0,0,12">
+        <TextBlock Text="{Binding InstanceFormTitleText}" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,8"/>
+
+        <UniformGrid Columns="2" Margin="0,0,0,6">
+          <TextBox Text="{Binding InstanceFormCode, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                   materialDesign:HintAssist.Hint="Código único (ex.: INST_CRIPTA)" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding InstanceFormZoneId, UpdateSourceTrigger=PropertyChanged}"
+                   materialDesign:HintAssist.Hint="Zone (0 = qualquer)" materialDesign:HintAssist.IsFloating="True"/>
+        </UniformGrid>
+        <TextBox Text="{Binding InstanceFormName, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Nome exibido no jogo" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding InstanceFormDescription, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Descrição" materialDesign:HintAssist.IsFloating="True"/>
+        <TextBox Text="{Binding InstanceFormMapPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                 materialDesign:HintAssist.Hint="Level do UE (/Game/Maps/Instances/Lvl_X.Lvl_X)" materialDesign:HintAssist.IsFloating="True"/>
+
+        <TextBlock Text="Posição das cópias (mundo)" FontWeight="SemiBold" Margin="0,6,0,4"/>
+        <UniformGrid Columns="4" Margin="0,0,0,6">
+          <TextBox Text="{Binding InstanceFormOriginX, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                   materialDesign:HintAssist.Hint="Origem X" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding InstanceFormOriginY, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                   materialDesign:HintAssist.Hint="Origem Y" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding InstanceFormOriginZ, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                   materialDesign:HintAssist.Hint="Origem Z" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding InstanceFormSlotSpacing, UpdateSourceTrigger=PropertyChanged}"
+                   materialDesign:HintAssist.Hint="Espaçamento (Y)" materialDesign:HintAssist.IsFloating="True"/>
+        </UniformGrid>
+
+        <TextBlock Text="Entrada (coordenadas LOCAIS do level)" FontWeight="SemiBold" Margin="0,6,0,4"/>
+        <UniformGrid Columns="4" Margin="0,0,0,6">
+          <TextBox Text="{Binding InstanceFormEntryX, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                   materialDesign:HintAssist.Hint="X" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding InstanceFormEntryY, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                   materialDesign:HintAssist.Hint="Y" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding InstanceFormEntryZ, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                   materialDesign:HintAssist.Hint="Z" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding InstanceFormEntryYaw, UpdateSourceTrigger=PropertyChanged}"
+                   materialDesign:HintAssist.Hint="Yaw" materialDesign:HintAssist.IsFloating="True"/>
+        </UniformGrid>
+
+        <TextBlock Text="Regras" FontWeight="SemiBold" Margin="0,6,0,4"/>
+        <UniformGrid Columns="3" Margin="0,0,0,6">
+          <TextBox Text="{Binding InstanceFormMinLevel, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                   materialDesign:HintAssist.Hint="Nível mínimo" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding InstanceFormMaxPlayers, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                   materialDesign:HintAssist.Hint="Máx. jogadores" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding InstanceFormMaxCopies, UpdateSourceTrigger=PropertyChanged}"
+                   materialDesign:HintAssist.Hint="Cópias simultâneas" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding InstanceFormTimeLimitMinutes, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                   materialDesign:HintAssist.Hint="Tempo limite (min, 0=sem)" materialDesign:HintAssist.IsFloating="True"/>
+          <TextBox Text="{Binding InstanceFormEmptyCloseSeconds, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                   materialDesign:HintAssist.Hint="Fecha vazia após (s)" materialDesign:HintAssist.IsFloating="True"/>
+        </UniformGrid>
+        <CheckBox Content="Exige grupo" IsChecked="{Binding InstanceFormPartyRequired}" Margin="0,4,0,4"/>
+        <CheckBox Content="Ativa (portais funcionam)" IsChecked="{Binding InstanceFormIsActive}" Margin="0,0,0,12"/>
+
+        <!-- Dungeon (etapa 5) -->
+        <CheckBox Content="É dungeon (chefes, conclusão, recompensa e lockout)" IsChecked="{Binding InstanceFormIsDungeon}"
+                  FontWeight="SemiBold" Margin="0,0,0,6"/>
+        <StackPanel>
+          <StackPanel.Style>
+            <Style TargetType="StackPanel">
+              <Setter Property="Visibility" Value="Collapsed"/>
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding InstanceFormIsDungeon}" Value="True">
+                  <Setter Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </StackPanel.Style>
+          <UniformGrid Columns="3" Margin="0,0,0,6">
+            <ComboBox Margin="0,0,6,0" ItemsSource="{Binding DungeonCompletionModes}" SelectedItem="{Binding InstanceFormCompletionMode}"
+                      materialDesign:HintAssist.Hint="Conclui com" materialDesign:HintAssist.IsFloating="True"
+                      ToolTip="final_boss: matar o(s) chefe(s) final(is) · all_bosses: todos os chefes"/>
+            <ComboBox Margin="0,0,6,0" ItemsSource="{Binding DungeonLockoutResets}" SelectedItem="{Binding InstanceFormLockoutReset}"
+                      materialDesign:HintAssist.Hint="Lockout" materialDesign:HintAssist.IsFloating="True"
+                      ToolTip="Recompensa de conclusão 1x por dia/semana por dificuldade (none = sempre)"/>
+            <TextBox Text="{Binding InstanceFormCompletionCloseSeconds, UpdateSourceTrigger=PropertyChanged}"
+                     materialDesign:HintAssist.Hint="Fecha após concluir (s)" materialDesign:HintAssist.IsFloating="True"/>
+            <TextBox Text="{Binding InstanceFormRewardExp, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                     materialDesign:HintAssist.Hint="EXP de conclusão" materialDesign:HintAssist.IsFloating="True"/>
+            <TextBox Text="{Binding InstanceFormRewardGold, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                     materialDesign:HintAssist.Hint="Ouro de conclusão" materialDesign:HintAssist.IsFloating="True"/>
+          </UniformGrid>
+
+          <DockPanel Margin="0,6,0,4">
+            <TextBlock Text="Dificuldades" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <Button Content="+ Dificuldade" Command="{Binding AddDungeonDifficultyCommand}" HorizontalAlignment="Right"
+                    Style="{StaticResource ManagerActionOutlinedButton}"/>
+          </DockPanel>
+          <DataGrid ItemsSource="{Binding DungeonDifficulties}" AutoGenerateColumns="False" CanUserAddRows="False"
+                    MaxHeight="180" Margin="0,0,0,8" HeadersVisibility="Column">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="Chave" Binding="{Binding DifficultyKey}" Width="70"/>
+              <DataGridTextColumn Header="Nome" Binding="{Binding Name}" Width="*"/>
+              <DataGridTextColumn Header="Ordem" Binding="{Binding SortOrder}" Width="45"/>
+              <DataGridTextColumn Header="Nv mín." Binding="{Binding MinLevel}" Width="50"/>
+              <DataGridTextColumn Header="x Vida" Binding="{Binding HpMult}" Width="50"/>
+              <DataGridTextColumn Header="x Dano" Binding="{Binding DamageMult}" Width="50"/>
+              <DataGridTextColumn Header="x Recomp." Binding="{Binding RewardMult}" Width="60"/>
+              <DataGridCheckBoxColumn Header="On" Binding="{Binding IsActive}" Width="35"/>
+              <DataGridTemplateColumn Width="30">
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate>
+                    <Button Content="✕" Padding="2,0" ToolTip="Remover"
+                            Command="{Binding DataContext.RemoveDungeonDifficultyCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                            CommandParameter="{Binding}"/>
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+            </DataGrid.Columns>
+          </DataGrid>
+
+          <DockPanel Margin="0,0,0,4">
+            <TextBlock Text="Recompensas de conclusão (por jogador)" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <Button Content="+ Item" Command="{Binding AddDungeonRewardCommand}" HorizontalAlignment="Right"
+                    Style="{StaticResource ManagerActionOutlinedButton}"/>
+          </DockPanel>
+          <DataGrid ItemsSource="{Binding DungeonRewards}" AutoGenerateColumns="False" CanUserAddRows="False"
+                    MaxHeight="200" Margin="0,0,0,4" HeadersVisibility="Column">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="Dificuldade" Binding="{Binding DifficultyKey}" Width="75"/>
+              <DataGridTextColumn Header="Item ID" Binding="{Binding ItemTemplateId}" Width="55"/>
+              <DataGridTextColumn Header="Nome" Binding="{Binding ItemName}" Width="*" IsReadOnly="True"/>
+              <DataGridTextColumn Header="Chance" Binding="{Binding DropChance}" Width="50"/>
+              <DataGridTextColumn Header="Mín" Binding="{Binding MinQty}" Width="40"/>
+              <DataGridTextColumn Header="Máx" Binding="{Binding MaxQty}" Width="40"/>
+              <DataGridCheckBoxColumn Header="On" Binding="{Binding IsActive}" Width="35"/>
+              <DataGridTemplateColumn Width="30">
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate>
+                    <Button Content="✕" Padding="2,0" ToolTip="Remover"
+                            Command="{Binding DataContext.RemoveDungeonRewardCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                            CommandParameter="{Binding}"/>
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+            </DataGrid.Columns>
+          </DataGrid>
+          <TextBlock FontSize="11" Opacity="0.65" TextWrapping="Wrap" Margin="0,0,0,12"
+                     Text="Dificuldade vazia = vale para todas. Chance de 0 a 1 (1 = sempre). Bolsa cheia: o item vai para o correio. Marque chefes na aba NPCs → Instâncias no mundo → Papel na dungeon. Salvar grava o molde, as dificuldades e as recompensas."/>
+        </StackPanel>
+        <WrapPanel>
+          <Button Content="{Binding InstanceSaveButtonText}" Command="{Binding SaveInstanceTemplateCommand}"
+                  Style="{StaticResource ManagerActionButton}" Margin="0,0,8,4"/>
+        </WrapPanel>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

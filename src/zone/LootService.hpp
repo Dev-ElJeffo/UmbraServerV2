@@ -87,6 +87,18 @@ public:
   void onNpcKilled(uint32_t killerPlayerId, uint32_t npcInstanceId, uint32_t npcTemplateId,
                     uint32_t zoneId, float x, float y, float z);
 
+  // ---- Recompensas fora do loot de corpo (etapa 5, conclusão de dungeon). Chamar fora do tick. ----
+  /** EXP com os mesmos avisos do kill (106/107). Retorna o EXP efetivamente concedido. */
+  int64_t grantExperienceAndNotify(uint32_t playerId, int64_t amount, const std::string& source);
+  /** Ouro na conta; retorna o total depois (-1 se falhar). */
+  int64_t grantGold(uint32_t playerId, uint32_t amount) { return grantGoldToPlayer(playerId, amount); }
+  /** Há pelo menos um slot livre na bolsa? */
+  bool hasFreeInventorySlot(uint32_t playerId) { return findFreeInventorySlot(playerId) >= 0; }
+  /** Item na bolsa (empilha); false se faltou espaço. */
+  bool grantItem(uint32_t playerId, uint32_t itemTemplateId, uint32_t quantity) {
+    return grantItemToPlayer(playerId, itemTemplateId, quantity);
+  }
+
   void handleLootTakeItem(uint32_t playerId, const LootTakeItemPayload& payload);
   void handleLootTakeAll(uint32_t playerId, const LootTakeAllPayload& payload);
 

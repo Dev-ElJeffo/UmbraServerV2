@@ -14,6 +14,12 @@ public sealed class NpcInstanceRow
     public int CurrentMana { get; set; }
     public bool IsDead { get; set; }
     public string CreatedAt { get; set; } = "";
+    /// <summary>Etapa 4: molde de instância do NPC (0 = mundo aberto; posição LOCAL do level).</summary>
+    public int InstanceTemplateId { get; set; }
+    /// <summary>Etapa 4: NPC portal para o molde (0 = não é portal).</summary>
+    public int PortalInstanceTemplateId { get; set; }
+    /// <summary>Etapa 5: papel na dungeon ("" = comum, trash, boss, final_boss).</summary>
+    public string DungeonRole { get; set; } = "";
     public string TemplateLabel => $"{TemplateName} (#{TemplateId})";
     public string PositionLabel => $"({PosX:F1}, {PosY:F1}, {PosZ:F1})";
 }

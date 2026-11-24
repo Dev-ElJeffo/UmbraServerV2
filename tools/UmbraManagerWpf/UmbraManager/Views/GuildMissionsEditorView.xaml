@@ -65,7 +65,7 @@
                  AcceptsReturn="True" Height="54" TextWrapping="Wrap" FontFamily="Consolas"
                  materialDesign:HintAssist.Hint="Parâmetros (JSON)" materialDesign:HintAssist.IsFloating="True"/>
         <TextBlock FontSize="11" Opacity="0.65" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="kill: {&quot;npc_template_id&quot;:6} ou {&quot;npc_template_ids&quot;:[6,9]} · kill_any: {&quot;min_level&quot;:1,&quot;max_level&quot;:10,&quot;zone_id&quot;:0} · use_skill: {&quot;skill_id&quot;:0} · use_consumable: {&quot;item_subtype&quot;:&quot;health_potion&quot;} · craft_item: {&quot;item_template_id&quot;:0} · refine_item: {&quot;min_refine_level&quot;:3} · earn_gold: {}"/>
+                   Text="kill: {&quot;npc_template_id&quot;:6} ou {&quot;npc_template_ids&quot;:[6,9]} · kill_any: {&quot;min_level&quot;:1,&quot;max_level&quot;:10,&quot;zone_id&quot;:0} · use_skill: {&quot;skill_id&quot;:0} · use_consumable: {&quot;item_subtype&quot;:&quot;health_potion&quot;} · craft_item: {&quot;item_template_id&quot;:0} · refine_item: {&quot;min_refine_level&quot;:3} · earn_gold: {} · complete_dungeon: {&quot;instance_template_id&quot;:0,&quot;difficulty_key&quot;:&quot;&quot;}"/>
         <UniformGrid Columns="3" Margin="0,0,0,6">
           <TextBox Text="{Binding GuildMissionFormRequiredTotal, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
                    materialDesign:HintAssist.Hint="Meta da guilda" materialDesign:HintAssist.IsFloating="True"/>

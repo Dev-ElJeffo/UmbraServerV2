@@ -66,6 +66,7 @@ QuestObjectiveKind questKindFromString(const std::string& type) {
   if (type == "reach_level") return QuestObjectiveKind::ReachLevel;
   if (type == "reach_area") return QuestObjectiveKind::ReachArea;
   if (type == "use_item_at") return QuestObjectiveKind::UseItemAt;
+  if (type == "complete_dungeon") return QuestObjectiveKind::CompleteDungeon;
   return QuestObjectiveKind::Other;
 }
 
@@ -90,6 +91,8 @@ QuestObjectiveParams parseQuestObjectiveParams(QuestObjectiveKind kind, const st
   p.posY = jsonF(j, "pos_y", 0.f);
   p.posZ = jsonF(j, "pos_z", 0.f);
   p.radius = jsonF(j, "radius", 300.f);
+  p.instanceTemplateId = jsonU32(j, "instance_template_id");
+  if (auto it = j.find("difficulty_key"); it != j.end() && it->is_string()) p.difficultyKey = it->get<std::string>();
   if (auto it = j.find("consume"); it != j.end()) {
     p.consume = it->is_boolean() ? it->get<bool>() : (it->is_number() && it->get<int>() != 0);
   }
@@ -124,6 +127,9 @@ bool questEventMatches(QuestObjectiveKind objKind, const QuestObjectiveParams& p
       return ev.amount > 0;
     case QuestObjectiveKind::ReachLevel:
       return ev.level > 0;
+    case QuestObjectiveKind::CompleteDungeon:
+      if (p.instanceTemplateId > 0 && p.instanceTemplateId != ev.key) return false;
+      return p.difficultyKey.empty() || p.difficultyKey == ev.subtype;
     default:
       return false;
   }

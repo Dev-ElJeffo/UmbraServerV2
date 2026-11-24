@@ -419,6 +419,56 @@ public sealed class PhpAdminClient : IDisposable
         return await PostAsync("/admin/update_guild_mission_template.php", dict, ct);
     }
 
+    // --- Instâncias (instance_templates, etapa 4) ---
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListInstanceTemplatesAsync(CancellationToken ct = default) =>
+        await PostAsync("/admin/list_instance_templates.php", new { admin_username = _adminUsername }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> CreateInstanceTemplateAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/create_instance_template.php", dict, ct);
+    }
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpdateInstanceTemplateAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/update_instance_template.php", dict, ct);
+    }
+
+    /// <summary>Etapa 4/5: NPC do molde de instância, NPC portal (0 = NULL) e papel na dungeon ("" = comum).</summary>
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> UpdateNpcInstanceInstanceFieldsAsync(
+        int npcInstanceId, int instanceTemplateId, int portalInstanceTemplateId, string dungeonRole = "",
+        CancellationToken ct = default) =>
+        await PostAsync("/admin/update_npc_instance.php", new
+        {
+            admin_username = _adminUsername,
+            npc_instance_id = npcInstanceId,
+            instance_template_id = instanceTemplateId,
+            portal_instance_template_id = portalInstanceTemplateId,
+            dungeon_role = dungeonRole ?? "",
+        }, ct);
+
+    // --- Dungeons (etapa 5) ---
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListDungeonDifficultiesAsync(int instanceTemplateId, CancellationToken ct = default) =>
+        await PostAsync("/admin/list_dungeon_difficulties.php",
+            new { admin_username = _adminUsername, instance_template_id = instanceTemplateId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> SaveDungeonDifficultiesAsync(int instanceTemplateId,
+        IEnumerable<object> difficulties, CancellationToken ct = default) =>
+        await PostAsync("/admin/save_dungeon_difficulties.php",
+            new { admin_username = _adminUsername, instance_template_id = instanceTemplateId, difficulties }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> ListDungeonRewardsAsync(int instanceTemplateId, CancellationToken ct = default) =>
+        await PostAsync("/admin/list_dungeon_rewards.php",
+            new { admin_username = _adminUsername, instance_template_id = instanceTemplateId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> SaveDungeonRewardsAsync(int instanceTemplateId,
+        IEnumerable<object> rewards, CancellationToken ct = default) =>
+        await PostAsync("/admin/save_dungeon_rewards.php",
+            new { admin_username = _adminUsername, instance_template_id = instanceTemplateId, rewards }, ct);
+
     // --- Companheiros (companion_templates) ---
     public async Task<(bool Ok, string Error, JsonDocument? Data)> ListCompanionTemplatesAsync(CancellationToken ct = default) =>
         await PostAsync("/admin/list_companion_templates.php", new { admin_username = _adminUsername }, ct);

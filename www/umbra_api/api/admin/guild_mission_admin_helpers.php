@@ -16,7 +16,8 @@ function guild_mission_template_columns(): array
 
 function guild_mission_allowed_types(): array
 {
-    return ['kill', 'kill_any', 'earn_gold', 'use_consumable', 'use_skill', 'craft_item', 'refine_item'];
+    return ['kill', 'kill_any', 'earn_gold', 'use_consumable', 'use_skill', 'craft_item', 'refine_item',
+        'complete_dungeon'];
 }
 
 /** Normaliza um campo; lança InvalidArgumentException (pt-BR) se inválido. $type = objective_type efetivo. */

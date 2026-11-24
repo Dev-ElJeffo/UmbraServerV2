@@ -25,6 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 }
 
 require_once __DIR__ . '/require_admin_auth.php';
+require_once __DIR__ . '/instance_admin_helpers.php';
 requireAdminAuth($data);
 
 $zoneFilter = isset($data['zone_id']) && $data['zone_id'] !== '' && $data['zone_id'] !== null
@@ -41,9 +42,18 @@ try {
         exit;
     }
 
+    // Etapa 4: molde de instância e portal (0 = mundo aberto / não é portal).
+    $instCols = npc_instance_has_instance_columns($pdo)
+        ? 'COALESCE(ni.instance_template_id, 0) AS instance_template_id,
+           COALESCE(ni.portal_instance_template_id, 0) AS portal_instance_template_id'
+        : '0 AS instance_template_id, 0 AS portal_instance_template_id';
+    // Etapa 5: papel na dungeon ('' = inimigo comum).
+    $instCols .= npc_instance_has_dungeon_role($pdo)
+        ? ", COALESCE(ni.dungeon_role, '') AS dungeon_role"
+        : ", '' AS dungeon_role";
     $sql = 'SELECT ni.npc_instance_id, ni.npc_template_id, nt.npc_name,
                    ni.zone_id, ni.pos_x, ni.pos_y, ni.pos_z, ni.yaw,
-                   ni.current_health, ni.current_mana, ni.is_dead, ni.created_at
+                   ni.current_health, ni.current_mana, ni.is_dead, ni.created_at, ' . $instCols . '
             FROM npc_instances ni
             JOIN npc_templates nt ON nt.npc_template_id = ni.npc_template_id';
     $params = [];

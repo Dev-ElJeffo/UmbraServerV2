@@ -122,6 +122,12 @@ enum class MovementMsgType : uint8_t {
 	QuestStateChanged = 131,             // Cliente -> Servidor: [msgType][questId:4] aceitou/abandonou/entregou (HTTP) → recarrega cache
 	QuestInteract = 132,                 // Cliente -> Servidor: [msgType][questId:4][itemTemplateId:4] usar item no local (zone valida)
 	GuildMissionProgress = 133,          // Servidor -> membros da guilda: [msgType][guildMissionId:4][progress:4][required:4][status:1]
+	InstanceEnterRequest = 134,          // Cliente -> Servidor: [msgType][portalNpcInstanceId:4][action:1] sala da instância (abrir/pronto/desmarcar/cancelar)
+	InstanceState = 135,                 // Servidor -> dono: entrou/saiu/recusado (ver encodeInstanceState)
+	InstanceLeaveRequest = 136,          // Cliente -> Servidor: [msgType] sair da instância atual
+	InstanceLobbyState = 137,            // Servidor -> membros da sala: sala aberta/atualizada/fechada (ver encodeInstanceLobbyState)
+	DungeonProgress = 138,               // Servidor -> membros da cópia: chefes/inimigos mortos e estado da run (etapa 5)
+	DungeonCompleted = 139,              // Servidor -> cada membro: recompensas da conclusão (etapa 5)
 	WsKeepalive = 250                      // Servidor -> Cliente: heartbeat (1 byte); cliente ignora
 };
 
@@ -2249,6 +2255,8 @@ struct NpcSpawnPayload {
   std::vector<std::string> castAnimPaths;
   std::vector<std::string> buffAnimPaths;
   uint16_t deathDurationMs = 0;
+  /** Trailing (etapa 4): molde de instância do NPC portal (0 = não é portal). flags bit3 = portal. */
+  uint32_t portalInstanceTemplateId = 0;
 };
 
 struct NpcDespawnPayload {
@@ -2559,6 +2567,7 @@ inline std::vector<uint8_t> encodeNpcSpawnNotify(const NpcSpawnPayload& p) {
   writePathList(p.buffAnimPaths);
   writeF32(p.collisionRadius);
   writeF32(p.nameplateRadius);
+  writeU32(p.portalInstanceTemplateId);
   return data;
 }
 
@@ -2671,6 +2680,12 @@ inline bool decodeNpcSpawnNotify(const std::vector<uint8_t>& data, NpcSpawnPaylo
   if (off + 4 <= data.size()) {
     p.nameplateRadius = readF32();
     if (p.nameplateRadius < 1.f) p.nameplateRadius = 2000.f;
+  }
+  if (off + 4 <= data.size()) {
+    p.portalInstanceTemplateId = static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) |
+                                 (static_cast<uint32_t>(data[off + 2]) << 16) |
+                                 (static_cast<uint32_t>(data[off + 3]) << 24);
+    off += 4;
   }
   return true;
 }
@@ -3756,6 +3771,406 @@ inline bool decodeQuestProgressNotify(const std::vector<uint8_t>& data, QuestPro
   p.status = data[9];
   p.flags = data[10];
   return true;
+}
+
+// ===================== Instâncias (etapa 4, opcodes 134-136) =====================
+
+/** 134: ação na sala da instância. */
+enum class InstanceLobbyAction : uint8_t {
+  Open = 1,     // abre a sala pelo NPC portal (portalNpcInstanceId obrigatório)
+  Ready = 2,
+  Unready = 3,
+  Cancel = 4,   // desfaz a sala para todos
+  SetDifficulty = 5,  // etapa 5: [value:1] = índice na lista de dificuldades do 137 (só quem abriu)
+};
+
+inline std::vector<uint8_t> encodeInstanceEnterRequest(uint32_t portalNpcInstanceId,
+                                                       InstanceLobbyAction action = InstanceLobbyAction::Open,
+                                                       uint8_t value = 0) {
+  std::vector<uint8_t> data;
+  data.reserve(7);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::InstanceEnterRequest));
+  appendLootU32(data, portalNpcInstanceId);
+  data.push_back(static_cast<uint8_t>(action));
+  data.push_back(value);
+  return data;
+}
+
+/** Sem o byte de ação (frame curto) = Open. Open exige o portal; as outras ações não. value trailing (0 se ausente). */
+inline bool decodeInstanceEnterRequest(const std::vector<uint8_t>& data, uint32_t& portalNpcInstanceId,
+                                       uint8_t& action, uint8_t& value) {
+  if (data.size() < 5 || data[0] != static_cast<uint8_t>(MovementMsgType::InstanceEnterRequest)) return false;
+  size_t off = 1;
+  portalNpcInstanceId = readLootU32(data, off);
+  action = data.size() >= 6 ? data[5] : static_cast<uint8_t>(InstanceLobbyAction::Open);
+  value = data.size() >= 7 ? data[6] : 0;
+  if (action < static_cast<uint8_t>(InstanceLobbyAction::Open) ||
+      action > static_cast<uint8_t>(InstanceLobbyAction::SetDifficulty)) {
+    return false;
+  }
+  if (action == static_cast<uint8_t>(InstanceLobbyAction::Open) && portalNpcInstanceId == 0) return false;
+  return true;
+}
+
+/** 137: membro da sala. flags bit0 = nível abaixo do mínimo; bit1 = lockout (já recebeu a recompensa no período). */
+struct InstanceLobbyMemberPayload {
+  uint32_t playerId = 0;
+  uint16_t level = 0;
+  uint8_t ready = 0;
+  uint8_t flags = 0;
+  std::string name;
+};
+
+enum class InstanceLobbyStateKind : uint8_t {
+  Open = 1,    // aberta ou atualizada
+  Closed = 2,  // desfeita (reason) ou concluída (todos entraram)
+};
+
+struct InstanceLobbyStatePayload {
+  uint8_t state = 0;
+  uint32_t lobbyId = 0;
+  uint32_t templateId = 0;
+  uint16_t minLevel = 1;
+  uint8_t maxPlayers = 5;
+  uint8_t partyRequired = 0;
+  uint16_t timeLimitMinutes = 0;
+  /** Segundos até a sala expirar. */
+  uint16_t expiresInSeconds = 0;
+  /** 1 = o grupo já está numa cópia (quem confirmar entra direto). */
+  uint8_t joinExisting = 0;
+  std::string name;
+  std::string description;
+  std::string reason;
+  std::vector<InstanceLobbyMemberPayload> members;
+  // ---- trailing (etapa 5, dungeons) ----
+  uint8_t isDungeon = 0;
+  /** Índice da dificuldade escolhida em difficulties. */
+  uint8_t selectedDifficulty = 0;
+  /** Quem pode trocar a dificuldade (quem abriu a sala). */
+  uint32_t leaderPlayerId = 0;
+  struct Difficulty {
+    std::string key;
+    std::string name;
+    uint16_t minLevel = 1;
+  };
+  std::vector<Difficulty> difficulties;
+};
+
+// [137][state:1][lobbyId:4][templateId:4][minLevel:2][maxPlayers:1][partyRequired:1][timeLimitMin:2]
+// [expiresInSec:2][joinExisting:1][name:u16+utf8<=120][description:u16+utf8<=500][reason:u16+utf8<=200]
+// [count:1]{playerId:4, level:2, ready:1, flags:1, name:u16+utf8<=64}
+inline std::vector<uint8_t> encodeInstanceLobbyState(const InstanceLobbyStatePayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(64 + p.name.size() + p.description.size() + p.reason.size() + p.members.size() * 24);
+  auto u16 = [&data](uint16_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  };
+  data.push_back(static_cast<uint8_t>(MovementMsgType::InstanceLobbyState));
+  data.push_back(p.state);
+  appendLootU32(data, p.lobbyId);
+  appendLootU32(data, p.templateId);
+  u16(p.minLevel);
+  data.push_back(p.maxPlayers);
+  data.push_back(p.partyRequired);
+  u16(p.timeLimitMinutes);
+  u16(p.expiresInSeconds);
+  data.push_back(p.joinExisting);
+  appendStringField(data, p.name, 120);
+  appendStringField(data, p.description, 500);
+  appendStringField(data, p.reason, 200);
+  const size_t n = p.members.size() > 40 ? 40 : p.members.size();
+  data.push_back(static_cast<uint8_t>(n));
+  for (size_t i = 0; i < n; ++i) {
+    const auto& m = p.members[i];
+    appendLootU32(data, m.playerId);
+    u16(m.level);
+    data.push_back(m.ready);
+    data.push_back(m.flags);
+    appendStringField(data, m.name, 64);
+  }
+  // Trailing (etapa 5): [isDungeon:1][selected:1][leaderPlayerId:4][n:1]{key:u16+utf8<=32, name:u16+utf8<=64, minLevel:2}
+  data.push_back(p.isDungeon);
+  data.push_back(p.selectedDifficulty);
+  appendLootU32(data, p.leaderPlayerId);
+  const size_t nd = p.difficulties.size() > 8 ? 8 : p.difficulties.size();
+  data.push_back(static_cast<uint8_t>(nd));
+  for (size_t i = 0; i < nd; ++i) {
+    appendStringField(data, p.difficulties[i].key, 32);
+    appendStringField(data, p.difficulties[i].name, 64);
+    u16(p.difficulties[i].minLevel);
+  }
+  return data;
+}
+
+inline bool decodeInstanceLobbyState(const std::vector<uint8_t>& data, InstanceLobbyStatePayload& p) {
+  constexpr size_t kFixed = 1 + 1 + 4 + 4 + 2 + 1 + 1 + 2 + 2 + 1;
+  if (data.size() < kFixed || data[0] != static_cast<uint8_t>(MovementMsgType::InstanceLobbyState)) return false;
+  size_t off = 1;
+  auto u16 = [&data, &off]() {
+    const uint16_t v = static_cast<uint16_t>(data[off]) | static_cast<uint16_t>(data[off + 1] << 8);
+    off += 2;
+    return v;
+  };
+  p.state = data[off++];
+  p.lobbyId = readLootU32(data, off);
+  p.templateId = readLootU32(data, off);
+  p.minLevel = u16();
+  p.maxPlayers = data[off++];
+  p.partyRequired = data[off++];
+  p.timeLimitMinutes = u16();
+  p.expiresInSeconds = u16();
+  p.joinExisting = data[off++];
+  if (!readStringField(data, off, p.name, 120)) return false;
+  if (!readStringField(data, off, p.description, 500)) return false;
+  if (!readStringField(data, off, p.reason, 200)) return false;
+  if (off >= data.size()) return false;
+  const uint8_t n = data[off++];
+  p.members.clear();
+  for (uint8_t i = 0; i < n; ++i) {
+    if (off + 8 > data.size()) return false;
+    InstanceLobbyMemberPayload m;
+    m.playerId = readLootU32(data, off);
+    m.level = u16();
+    m.ready = data[off++];
+    m.flags = data[off++];
+    if (!readStringField(data, off, m.name, 64)) return false;
+    p.members.push_back(std::move(m));
+  }
+  // Trailing (etapa 5): frame antigo termina aqui.
+  p.difficulties.clear();
+  if (off + 7 <= data.size()) {
+    p.isDungeon = data[off++];
+    p.selectedDifficulty = data[off++];
+    p.leaderPlayerId = readLootU32(data, off);
+    const uint8_t nd = data[off++];
+    for (uint8_t i = 0; i < nd; ++i) {
+      InstanceLobbyStatePayload::Difficulty d;
+      if (!readStringField(data, off, d.key, 32)) return false;
+      if (!readStringField(data, off, d.name, 64)) return false;
+      if (off + 2 > data.size()) return false;
+      d.minLevel = u16();
+      p.difficulties.push_back(std::move(d));
+    }
+  }
+  return true;
+}
+
+// ===================== Dungeons (etapa 5, opcodes 138-139) =====================
+
+enum class DungeonRunState : uint8_t {
+  Running = 0,
+  Completed = 1,
+  Failed = 2,
+};
+
+struct DungeonProgressPayload {
+  uint32_t instanceId = 0;
+  uint16_t bossesKilled = 0;
+  uint16_t bossesTotal = 0;
+  uint16_t enemiesKilled = 0;
+  uint16_t enemiesTotal = 0;
+  uint8_t state = 0;
+  /** Segundos até a cópia fechar (concluída); 0 = não definido. */
+  uint16_t closesInSeconds = 0;
+  std::string difficultyName;
+};
+
+// [138][instanceId:4][bossesKilled:2][bossesTotal:2][enemiesKilled:2][enemiesTotal:2][state:1][closesIn:2]
+// [difficultyName:u16+utf8<=64]
+inline std::vector<uint8_t> encodeDungeonProgress(const DungeonProgressPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(24 + p.difficultyName.size());
+  auto u16 = [&data](uint16_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  };
+  data.push_back(static_cast<uint8_t>(MovementMsgType::DungeonProgress));
+  appendLootU32(data, p.instanceId);
+  u16(p.bossesKilled);
+  u16(p.bossesTotal);
+  u16(p.enemiesKilled);
+  u16(p.enemiesTotal);
+  data.push_back(p.state);
+  u16(p.closesInSeconds);
+  appendStringField(data, p.difficultyName, 64);
+  return data;
+}
+
+inline bool decodeDungeonProgress(const std::vector<uint8_t>& data, DungeonProgressPayload& p) {
+  constexpr size_t kFixed = 1 + 4 + 2 * 4 + 1 + 2;
+  if (data.size() < kFixed || data[0] != static_cast<uint8_t>(MovementMsgType::DungeonProgress)) return false;
+  size_t off = 1;
+  auto u16 = [&data, &off]() {
+    const uint16_t v = static_cast<uint16_t>(data[off]) | static_cast<uint16_t>(data[off + 1] << 8);
+    off += 2;
+    return v;
+  };
+  p.instanceId = readLootU32(data, off);
+  p.bossesKilled = u16();
+  p.bossesTotal = u16();
+  p.enemiesKilled = u16();
+  p.enemiesTotal = u16();
+  p.state = data[off++];
+  p.closesInSeconds = u16();
+  if (off < data.size() && !readStringField(data, off, p.difficultyName, 64)) return false;
+  return true;
+}
+
+struct DungeonRewardItemPayload {
+  uint32_t itemTemplateId = 0;
+  uint16_t quantity = 0;
+  /** 1 = bolsa cheia, foi para o correio. */
+  uint8_t mailed = 0;
+  std::string name;
+};
+
+struct DungeonCompletedPayload {
+  uint32_t templateId = 0;
+  uint32_t durationSeconds = 0;
+  /** 0 = em lockout (concluiu sem recompensa). */
+  uint8_t rewarded = 0;
+  uint32_t exp = 0;
+  uint32_t gold = 0;
+  /** Ouro total depois da recompensa (-1 = desconhecido). */
+  int64_t playerGold = -1;
+  uint8_t inventoryChanged = 0;
+  std::string dungeonName;
+  std::string difficultyName;
+  std::vector<DungeonRewardItemPayload> items;
+};
+
+// [139][templateId:4][duration:4][rewarded:1][exp:4][gold:4][playerGold:8][invChanged:1]
+// [dungeonName:u16+utf8<=120][difficultyName:u16+utf8<=64][n:1]{itemId:4, qty:2, mailed:1, name:u16+utf8<=64}
+inline std::vector<uint8_t> encodeDungeonCompleted(const DungeonCompletedPayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(48 + p.dungeonName.size() + p.items.size() * 24);
+  data.push_back(static_cast<uint8_t>(MovementMsgType::DungeonCompleted));
+  appendLootU32(data, p.templateId);
+  appendLootU32(data, p.durationSeconds);
+  data.push_back(p.rewarded);
+  appendLootU32(data, p.exp);
+  appendLootU32(data, p.gold);
+  const uint64_t g = static_cast<uint64_t>(p.playerGold);
+  appendLootU32(data, static_cast<uint32_t>(g & 0xFFFFFFFFu));
+  appendLootU32(data, static_cast<uint32_t>(g >> 32));
+  data.push_back(p.inventoryChanged);
+  appendStringField(data, p.dungeonName, 120);
+  appendStringField(data, p.difficultyName, 64);
+  const size_t n = p.items.size() > 32 ? 32 : p.items.size();
+  data.push_back(static_cast<uint8_t>(n));
+  for (size_t i = 0; i < n; ++i) {
+    appendLootU32(data, p.items[i].itemTemplateId);
+    data.push_back(static_cast<uint8_t>(p.items[i].quantity & 0xFF));
+    data.push_back(static_cast<uint8_t>((p.items[i].quantity >> 8) & 0xFF));
+    data.push_back(p.items[i].mailed);
+    appendStringField(data, p.items[i].name, 64);
+  }
+  return data;
+}
+
+inline bool decodeDungeonCompleted(const std::vector<uint8_t>& data, DungeonCompletedPayload& p) {
+  constexpr size_t kFixed = 1 + 4 + 4 + 1 + 4 + 4 + 8 + 1;
+  if (data.size() < kFixed || data[0] != static_cast<uint8_t>(MovementMsgType::DungeonCompleted)) return false;
+  size_t off = 1;
+  p.templateId = readLootU32(data, off);
+  p.durationSeconds = readLootU32(data, off);
+  p.rewarded = data[off++];
+  p.exp = readLootU32(data, off);
+  p.gold = readLootU32(data, off);
+  const uint64_t lo = readLootU32(data, off);
+  const uint64_t hi = readLootU32(data, off);
+  p.playerGold = static_cast<int64_t>(lo | (hi << 32));
+  p.inventoryChanged = data[off++];
+  if (!readStringField(data, off, p.dungeonName, 120)) return false;
+  if (!readStringField(data, off, p.difficultyName, 64)) return false;
+  if (off >= data.size()) return false;
+  const uint8_t n = data[off++];
+  p.items.clear();
+  for (uint8_t i = 0; i < n; ++i) {
+    if (off + 7 > data.size()) return false;
+    DungeonRewardItemPayload it;
+    it.itemTemplateId = readLootU32(data, off);
+    it.quantity = static_cast<uint16_t>(data[off] | (data[off + 1] << 8));
+    off += 2;
+    it.mailed = data[off++];
+    if (!readStringField(data, off, it.name, 64)) return false;
+    p.items.push_back(std::move(it));
+  }
+  return true;
+}
+
+/** 135: estado da instância do jogador. */
+enum class InstanceStateKind : uint8_t {
+  Entered = 1,   // posição = ponto de entrada da cópia; origin = onde o cliente carrega o level
+  Left = 2,      // posição = ponto de saída (mundo aberto); reason = motivo (vazio = saiu)
+  Refused = 3,   // reason = motivo da recusa; sem teleporte
+};
+
+struct InstanceStatePayload {
+  uint8_t state = 0;
+  uint32_t instanceId = 0;
+  uint32_t templateId = 0;
+  float originX = 0.f;
+  float originY = 0.f;
+  float originZ = 0.f;
+  float posX = 0.f;
+  float posY = 0.f;
+  float posZ = 0.f;
+  float yaw = 0.f;
+  /** Unix (s) em que a instância expira; 0 = sem limite. */
+  uint32_t expiresAtUnix = 0;
+  std::string mapPath;
+  std::string name;
+  std::string reason;
+};
+
+// [msgType][state:1][instanceId:4][templateId:4][originX,Y,Z:f*3][posX,Y,Z,yaw:f*4][expiresAt:4]
+// [mapPath:u16+utf8 (<=255)][name:u16+utf8 (<=120)][reason:u16+utf8 (<=200)]
+inline std::vector<uint8_t> encodeInstanceState(const InstanceStatePayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(64 + p.mapPath.size() + p.name.size() + p.reason.size());
+  data.push_back(static_cast<uint8_t>(MovementMsgType::InstanceState));
+  data.push_back(p.state);
+  appendLootU32(data, p.instanceId);
+  appendLootU32(data, p.templateId);
+  appendCompanionF32(data, p.originX);
+  appendCompanionF32(data, p.originY);
+  appendCompanionF32(data, p.originZ);
+  appendCompanionF32(data, p.posX);
+  appendCompanionF32(data, p.posY);
+  appendCompanionF32(data, p.posZ);
+  appendCompanionF32(data, p.yaw);
+  appendLootU32(data, p.expiresAtUnix);
+  appendStringField(data, p.mapPath, 255);
+  appendStringField(data, p.name, 120);
+  appendStringField(data, p.reason, 200);
+  return data;
+}
+
+inline bool decodeInstanceState(const std::vector<uint8_t>& data, InstanceStatePayload& p) {
+  constexpr size_t kFixed = 1 + 1 + 4 + 4 + 7 * 4 + 4;
+  if (data.size() < kFixed || data[0] != static_cast<uint8_t>(MovementMsgType::InstanceState)) return false;
+  size_t off = 1;
+  p.state = data[off++];
+  p.instanceId = readLootU32(data, off);
+  p.templateId = readLootU32(data, off);
+  p.originX = readCompanionF32(data, off);
+  p.originY = readCompanionF32(data, off);
+  p.originZ = readCompanionF32(data, off);
+  p.posX = readCompanionF32(data, off);
+  p.posY = readCompanionF32(data, off);
+  p.posZ = readCompanionF32(data, off);
+  p.yaw = readCompanionF32(data, off);
+  p.expiresAtUnix = readLootU32(data, off);
+  if (off < data.size() && !readStringField(data, off, p.mapPath, 255)) return false;
+  if (off < data.size() && !readStringField(data, off, p.name, 120)) return false;
+  if (off < data.size() && !readStringField(data, off, p.reason, 200)) return false;
+  return true;
+}
+
+inline std::vector<uint8_t> encodeInstanceLeaveRequest() {
+  return {static_cast<uint8_t>(MovementMsgType::InstanceLeaveRequest)};
 }
 
 } // namespace Zone

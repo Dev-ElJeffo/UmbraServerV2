@@ -34,6 +34,8 @@ enum class QuestObjectiveKind : uint8_t {
   ReachLevel,
   ReachArea,
   UseItemAt,
+  /** Etapa 5: concluir dungeon (key = instance_template_id, subtype = difficulty_key). */
+  CompleteDungeon,
 };
 
 QuestObjectiveKind questKindFromString(const std::string& type);
@@ -51,6 +53,9 @@ struct QuestObjectiveParams {
   std::string itemSubtype;
   float posX = 0.f, posY = 0.f, posZ = 0.f, radius = 300.f;
   bool consume = false;
+  /** complete_dungeon: 0 = qualquer dungeon; vazio = qualquer dificuldade. */
+  uint32_t instanceTemplateId = 0;
+  std::string difficultyKey;
   int32_t required = 1;  // required_count / amount / level
 };
 

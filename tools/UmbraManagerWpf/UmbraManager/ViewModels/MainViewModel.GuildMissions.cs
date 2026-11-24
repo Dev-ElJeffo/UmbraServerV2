@@ -16,7 +16,7 @@ public partial class MainViewModel
     public IReadOnlyList<string> GuildMissionPeriods { get; } = new List<string> { "daily", "weekly" };
 
     public IReadOnlyList<string> GuildMissionObjectiveTypes { get; } =
-        new List<string> { "kill", "kill_any", "earn_gold", "use_consumable", "use_skill", "craft_item", "refine_item" };
+        new List<string> { "kill", "kill_any", "earn_gold", "use_consumable", "use_skill", "craft_item", "refine_item", "complete_dungeon" };
 
     [ObservableProperty] private int _editingGuildMissionId;
     [ObservableProperty] private string _guildMissionFormKey = "";

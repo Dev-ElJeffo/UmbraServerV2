@@ -135,8 +135,33 @@ public:
   /** Recarrega definitions de skills (+ skill_rank_scaling) do MySQL em runtime. */
   bool reloadSkills();
 
+  /** Spawn (100) para a camada do NPC (etapa 4: mundo aberto ou instância). */
   void broadcastNpcSpawnToAll(const NpcRuntimeInstance& inst);
+  /** Despawn (101) para a camada do NPC. */
   void broadcastNpcDespawnToAll(uint32_t npcInstanceId, uint8_t reason = 0);
+
+  // ---- Instâncias (etapa 4) ----
+  /** Clona os NPCs do molde na camada e manda o spawn a quem estiver nela (no combat worker). */
+  void enqueueSpawnInstanceNpcs(uint32_t instanceTemplateId, uint32_t instanceId, float originX, float originY,
+                                float originZ, float hpMult = 1.f, float damageMult = 1.f);
+  /** Etapa 5: atacáveis/chefes do molde (totais do progresso da dungeon). */
+  NpcManager::MoldeRoleCounts instanceMoldeRoleCounts(uint32_t instanceTemplateId) const;
+  /**
+   * Etapa 5: NPC de cópia morreu (instanceId, npcId, dungeonRole, killerPlayerId). Roda no combat worker;
+   * não chamar de volta o CombatCoreEngine sob lock.
+   */
+  void setInstanceNpcKilledHook(std::function<void(uint32_t, uint32_t, uint8_t, uint32_t)> hook) {
+    instanceNpcKilledHook_ = std::move(hook);
+  }
+  /** Remove os clones da camada e manda o despawn (no combat worker). */
+  void enqueueRemoveInstanceNpcs(uint32_t instanceId);
+  /** O player trocou de camada: despawn dos NPCs da antiga e snapshot da nova, só para ele (no worker). */
+  void enqueueNpcLayerSwitch(uint32_t playerId, uint32_t oldLayer, uint32_t newLayer);
+  /** Recarrega os NPCs dos moldes (reload_instances). */
+  size_t reloadInstanceMoldes();
+  /** Dados do NPC portal (false se não for portal). */
+  bool getNpcPortalInfo(uint32_t npcInstanceId, NpcManager::PortalInfo& out) const;
+  size_t instanceMoldeNpcCount(uint32_t instanceTemplateId) const;
 
   const NpcManager* getNpcManager() const { return npcManager_.get(); }
   CharacterStateLoader* getCharacterStateLoader() { return stateLoader_.get(); }
@@ -163,7 +188,7 @@ public:
   static void pickNpcBasicAttackAnim(NpcRuntimeInstance& inst, std::string& outPath,
                                       uint8_t& outAnimIndex);
   /** Broadcast opcode 102 (HP + posição) — usado pelo NpcAiSystem. */
-  void broadcastNpcStatePublic(const NpcStatePayload& payload) { broadcastNpcState(payload); }
+  void broadcastNpcStatePublic(const NpcStatePayload& payload, uint32_t layer) { broadcastNpcState(payload, layer); }
   void cancelPendingSkillHit(uint32_t sourcePlayerId);
   /** Aplica AGORA todos os hits pendentes do jogador (animation cancel de combo).
    *  Mana/CD já foram cobrados no cast; commitar evita perder dano do cast anterior. */
@@ -333,7 +358,8 @@ private:
   void broadcastSkillCast(const SkillCastBroadcastPayload& payload);
   void broadcastBasicAttack(const BasicAttackBroadcastPayload& payload);
   void broadcastNpcCombatEvent(const NpcCombatEventPayload& payload);
-  void broadcastNpcState(const NpcStatePayload& payload);
+  /** layer = instanceId do NPC (etapa 4). Não consulta o NpcManager: pode rodar sob o lock dele. */
+  void broadcastNpcState(const NpcStatePayload& payload, uint32_t layer);
   void broadcastSkillBuffSync(const SkillBuffSyncPayload& payload);
   void broadcastCombatControlState(uint8_t targetType, uint32_t targetId);
   /** Opcode 104 action=0 para jogador: targetType=0, enrich e broadcast. */
@@ -494,7 +520,9 @@ private:
     /** Opcode 88: rebroadcast de vitals do alvo lidos do DB (nunca do payload do cliente). */
     ForeignVitals = 3,
     /** Consumível validado pelo ConsumableService (127 / elemental). */
-    ConsumableEffect = 4
+    ConsumableEffect = 4,
+    /** Etapa 4: mudança estrutural na lista de NPCs (clones de instância) serializada no worker. */
+    WorldOp = 5
   };
   struct CombatJob {
     CombatJobKind kind = CombatJobKind::SkillCast;
@@ -503,6 +531,7 @@ private:
     BasicAttackPayload basic{};
     PlayerVitalsPayload vitals{};
     ConsumableEffectJob consumable{};
+    std::function<void()> worldOp;
   };
   /** Roda no combat worker: valida o sender, lê HP/MP do alvo no DB e faz o broadcast. */
   void processForeignVitals(uint32_t senderPlayerId, const PlayerVitalsPayload& payload);
@@ -521,6 +550,7 @@ private:
   /** Skills em processamento (fora da fila) — evita spam re-enfileirar sem carimbar CD cedo. */
   std::unordered_set<uint64_t> skillCastInFlight_;
   std::thread combatWorker_;
+  std::function<void(uint32_t, uint32_t, uint8_t, uint32_t)> instanceNpcKilledHook_;
   std::atomic<bool> workerRunning_{false};
 
   // ---- Escrita assíncrona (write-behind) ----

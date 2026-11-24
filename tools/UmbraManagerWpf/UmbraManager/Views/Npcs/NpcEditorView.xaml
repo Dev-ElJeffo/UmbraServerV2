@@ -654,6 +654,33 @@
                            VerticalAlignment="Center" Margin="8,0,0,4" Opacity="0.7"/>
             </WrapPanel>
 
+            <!-- Etapa 4: vínculo com instâncias (molde e portal) do NPC selecionado -->
+            <Border DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="8" BorderThickness="1"
+                    BorderBrush="{DynamicResource MaterialDesignDivider}" CornerRadius="4">
+                <StackPanel>
+                    <TextBlock Text="{Binding NpcInstanceLinkTitle}" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                    <WrapPanel>
+                        <TextBox Width="190" Margin="0,0,8,4"
+                                 Text="{Binding NpcInstanceFormInstanceTemplateId, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="Pertence à instância (molde, 0=mundo)"
+                                 materialDesign:HintAssist.IsFloating="True"/>
+                        <TextBox Width="190" Margin="0,0,8,4"
+                                 Text="{Binding NpcInstanceFormPortalTemplateId, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="Portal para a instância (molde, 0=não)"
+                                 materialDesign:HintAssist.IsFloating="True"/>
+                        <ComboBox Width="150" Margin="0,0,8,4" ItemsSource="{Binding DungeonRoles}"
+                                  SelectedItem="{Binding NpcInstanceFormDungeonRole}"
+                                  materialDesign:HintAssist.Hint="Papel na dungeon (vazio = comum)"
+                                  materialDesign:HintAssist.IsFloating="True"
+                                  ToolTip="Só para NPC de molde: boss = chefe, final_boss = chefe final (conclui a dungeon)"/>
+                        <Button Content="Salvar vínculo" Command="{Binding SaveNpcInstanceLinkCommand}"
+                                Style="{StaticResource ManagerActionButton}" Margin="0,0,8,4" VerticalAlignment="Bottom"/>
+                    </WrapPanel>
+                    <TextBlock FontSize="11" Opacity="0.65" TextWrapping="Wrap"
+                               Text="NPC de molde: X/Y/Z são coordenadas LOCAIS do level da instância e ele não aparece no mundo aberto. Portal: NPC não atacável no mundo aberto; interagir com ele leva à instância. Depois de salvar, o Manager manda reload_instances e reload_npc_instances."/>
+                </StackPanel>
+            </Border>
+
             <DataGrid Style="{StaticResource ManagerDataGrid}" ItemsSource="{Binding NpcInstances}"
                       SelectedItem="{Binding SelectedNpcInstance}" IsReadOnly="True">
                 <DataGrid.ContextMenu>
@@ -686,6 +713,9 @@
                     <DataGridTextColumn Header="Yaw" Binding="{Binding Yaw, StringFormat=F1}" Width="60"/>
                     <DataGridTextColumn Header="HP" Binding="{Binding CurrentHealth}" Width="70"/>
                     <DataGridCheckBoxColumn Header="Morto" Binding="{Binding IsDead}" Width="60"/>
+                    <DataGridTextColumn Header="Molde" Binding="{Binding InstanceTemplateId}" Width="55"/>
+                    <DataGridTextColumn Header="Portal" Binding="{Binding PortalInstanceTemplateId}" Width="55"/>
+                    <DataGridTextColumn Header="Papel" Binding="{Binding DungeonRole}" Width="75"/>
                     <DataGridTextColumn Header="Criado" Binding="{Binding CreatedAt}" Width="*"/>
                 </DataGrid.Columns>
             </DataGrid>

@@ -401,6 +401,8 @@ void CombatCoreEngine::enqueueJob(CombatJob job) {
       processForeignVitals(job.sourcePlayerId, job.vitals);
     } else if (job.kind == CombatJobKind::ConsumableEffect) {
       processConsumableEffect(job.consumable);
+    } else if (job.kind == CombatJobKind::WorldOp) {
+      if (job.worldOp) job.worldOp();
     } else {
       processBasicAttack(job.sourcePlayerId, job.basic);
     }
@@ -410,10 +412,14 @@ void CombatCoreEngine::enqueueJob(CombatJob job) {
   {
     std::lock_guard<std::mutex> lock(combatQueueMu_);
     while (combatQueue_.size() >= kCombatQueueCap) {
+      // WorldOp (clones de instância) nunca é descartado: derruba o job de combate mais antigo.
+      auto victim = std::find_if(combatQueue_.begin(), combatQueue_.end(),
+                                 [](const CombatJob& j) { return j.kind != CombatJobKind::WorldOp; });
+      if (victim == combatQueue_.end()) break;
       Core::Logger::getInstance().warn(
           "[CombatCoreEngine] fila de combate cheia ({}), dropando job antigo kind={}",
-          combatQueue_.size(), static_cast<int>(combatQueue_.front().kind));
-      combatQueue_.pop_front();
+          combatQueue_.size(), static_cast<int>(victim->kind));
+      combatQueue_.erase(victim);
     }
     combatQueue_.push_back(std::move(job));
   }
@@ -657,6 +663,8 @@ void CombatCoreEngine::combatWorkerLoop() {
         processForeignVitals(job.sourcePlayerId, job.vitals);
       } else if (job.kind == CombatJobKind::ConsumableEffect) {
         processConsumableEffect(job.consumable);
+      } else if (job.kind == CombatJobKind::WorldOp) {
+        if (job.worldOp) job.worldOp();
       } else {
         processBasicAttack(job.sourcePlayerId, job.basic);
       }
@@ -882,16 +890,18 @@ void CombatCoreEngine::broadcastSkillCastInterrupted(uint8_t sourceType, uint32_
   const auto frame = encodeSkillCastInterrupted(p);
   if (sourceType == static_cast<uint8_t>(CombatTargetType::Npc)) {
     float x = 0.f, y = 0.f;
+    uint32_t layer = 0;
     bool found = false;
     if (npcManager_) {
       if (const NpcRuntimeInstance* inst = npcManager_->findInstance(sourceId)) {
         x = inst->x;
         y = inst->y;
+        layer = inst->instanceId;
         found = true;
       }
     }
     if (found) {
-      movementServer_->broadcastNearWorldXY(x, y, frame);
+      movementServer_->broadcastNearWorldXY(x, y, frame, 8000.f, layer);
     } else {
       movementServer_->broadcastToAll(frame);
     }
@@ -2196,7 +2206,7 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
           const float move = displacement(length);
           npc.x += dx / length * move;
           npc.y += dy / length * move;
-          broadcastNpcState(npcManager_->toStatePayload(npc));
+          broadcastNpcState(npcManager_->toStatePayload(npc), npc.instanceId);
         });
       } else if (effectPlayerId > 0 && movementServer_) {
         float x = 0.f, y = 0.f, z = 0.f;
@@ -2979,7 +2989,7 @@ size_t CombatCoreEngine::reloadAllNpcInstancesFromDatabase() {
 
 void CombatCoreEngine::broadcastNpcSpawnToAll(const NpcRuntimeInstance& inst) {
   if (!movementServer_ || !npcManager_) return;
-  movementServer_->broadcastToAll(encodeNpcSpawnNotify(npcManager_->toSpawnPayload(inst)));
+  movementServer_->broadcastToLayer(inst.instanceId, encodeNpcSpawnNotify(npcManager_->toSpawnPayload(inst)));
 }
 
 void CombatCoreEngine::broadcastNpcDespawnToAll(uint32_t npcInstanceId, uint8_t reason) {
@@ -2987,7 +2997,90 @@ void CombatCoreEngine::broadcastNpcDespawnToAll(uint32_t npcInstanceId, uint8_t 
   NpcDespawnPayload p;
   p.npcId = npcInstanceId;
   p.reason = reason;
-  movementServer_->broadcastToAll(encodeNpcDespawnNotify(p));
+  const uint32_t layer = npcManager_ ? npcManager_->layerOf(npcInstanceId) : 0;
+  movementServer_->broadcastToLayer(layer, encodeNpcDespawnNotify(p));
+}
+
+// ===================== Instâncias (etapa 4) =====================
+
+void CombatCoreEngine::enqueueSpawnInstanceNpcs(uint32_t instanceTemplateId, uint32_t instanceId, float originX,
+                                                float originY, float originZ, float hpMult, float damageMult) {
+  CombatJob job;
+  job.kind = CombatJobKind::WorldOp;
+  job.worldOp = [this, instanceTemplateId, instanceId, originX, originY, originZ, hpMult, damageMult]() {
+    if (!npcManager_) return;
+    const auto ids = npcManager_->spawnInstanceClones(instanceTemplateId, instanceId, originX, originY, originZ,
+                                                      hpMult, damageMult);
+    for (uint32_t id : ids) {
+      if (const NpcRuntimeInstance* inst = npcManager_->findInstance(id)) {
+        broadcastNpcSpawnToAll(*inst);
+      }
+    }
+    Core::Logger::getInstance().info("[CombatCoreEngine] instância {} (molde {}): {} NPC(s) clonados",
+                                     instanceId, instanceTemplateId, ids.size());
+  };
+  enqueueJob(std::move(job));
+}
+
+void CombatCoreEngine::enqueueRemoveInstanceNpcs(uint32_t instanceId) {
+  CombatJob job;
+  job.kind = CombatJobKind::WorldOp;
+  job.worldOp = [this, instanceId]() {
+    if (!npcManager_ || !movementServer_) return;
+    const auto ids = npcManager_->removeInstanceClones(instanceId);
+    for (uint32_t id : ids) {
+      NpcDespawnPayload p;
+      p.npcId = id;
+      p.reason = 0;
+      movementServer_->broadcastToLayer(instanceId, encodeNpcDespawnNotify(p));
+    }
+    Core::Logger::getInstance().info("[CombatCoreEngine] instância {} fechada: {} NPC(s) removidos", instanceId,
+                                     ids.size());
+  };
+  enqueueJob(std::move(job));
+}
+
+void CombatCoreEngine::enqueueNpcLayerSwitch(uint32_t playerId, uint32_t oldLayer, uint32_t newLayer) {
+  CombatJob job;
+  job.kind = CombatJobKind::WorldOp;
+  job.worldOp = [this, playerId, oldLayer, newLayer]() {
+    if (!npcManager_ || !movementServer_ || oldLayer == newLayer) return;
+    const uint32_t cid = movementServer_->getClientIdForPlayer(playerId);
+    if (cid == 0) return;
+    size_t despawned = 0;
+    size_t spawned = 0;
+    for (const auto& inst : npcManager_->getAllInstances()) {
+      if (inst.instanceId == oldLayer) {
+        NpcDespawnPayload p;
+        p.npcId = inst.npcInstanceId;
+        p.reason = 0;
+        movementServer_->sendBinaryToClient(cid, encodeNpcDespawnNotify(p));
+        ++despawned;
+      } else if (inst.instanceId == newLayer && !inst.isDead) {
+        movementServer_->sendBinaryToClient(cid, encodeNpcSpawnNotify(npcManager_->toSpawnPayload(inst)));
+        ++spawned;
+      }
+    }
+    Core::Logger::getInstance().info("[CombatCoreEngine] player {} camada {}→{}: despawn={} spawn={}", playerId,
+                                     oldLayer, newLayer, despawned, spawned);
+  };
+  enqueueJob(std::move(job));
+}
+
+size_t CombatCoreEngine::reloadInstanceMoldes() {
+  return npcManager_ ? npcManager_->reloadInstanceMoldes() : 0;
+}
+
+bool CombatCoreEngine::getNpcPortalInfo(uint32_t npcInstanceId, NpcManager::PortalInfo& out) const {
+  return npcManager_ && npcManager_->getPortalInfo(npcInstanceId, out);
+}
+
+size_t CombatCoreEngine::instanceMoldeNpcCount(uint32_t instanceTemplateId) const {
+  return npcManager_ ? npcManager_->moldeNpcCount(instanceTemplateId) : 0;
+}
+
+NpcManager::MoldeRoleCounts CombatCoreEngine::instanceMoldeRoleCounts(uint32_t instanceTemplateId) const {
+  return npcManager_ ? npcManager_->moldeRoleCounts(instanceTemplateId) : NpcManager::MoldeRoleCounts{};
 }
 
 void CombatCoreEngine::handleNpcDamageResult(uint32_t npcInstanceId, int32_t applied, bool npcDied,
@@ -3008,6 +3101,14 @@ void CombatCoreEngine::handleNpcDamageResult(uint32_t npcInstanceId, int32_t app
                                    victim->zoneId, victim->x, victim->y, victim->z);
       }
     }
+    // Etapa 5: progresso da dungeon (chefes/inimigos da cópia).
+    if (instanceNpcKilledHook_) {
+      if (const NpcRuntimeInstance* victim = npcManager_->findInstance(npcInstanceId)) {
+        if (victim->instanceId != 0) {
+          instanceNpcKilledHook_(victim->instanceId, victim->npcInstanceId, victim->dungeonRole, killerPlayerId);
+        }
+      }
+    }
     {
       std::lock_guard<std::mutex> lock(npcBuffsMu_);
       npcBuffs_.erase(std::remove_if(npcBuffs_.begin(), npcBuffs_.end(),
@@ -3025,7 +3126,7 @@ void CombatCoreEngine::handleNpcDamageResult(uint32_t npcInstanceId, int32_t app
       if (hasDeathAnim && deathMs == 0) deathMs = 1500;
       if (deathMs > 0 && deathMs < 500) deathMs = 500;
       if (deathMs > 5000) deathMs = 5000;
-      broadcastNpcState(npcManager_->toStatePayload(*victim));
+      broadcastNpcState(npcManager_->toStatePayload(*victim), victim->instanceId);
     }
 
     if (hasDeathAnim && deathMs > 0) {
@@ -3046,7 +3147,7 @@ void CombatCoreEngine::handleNpcDamageResult(uint32_t npcInstanceId, int32_t app
     npcManager_->setAggroTarget(npcInstanceId, killerPlayerId);
   }
   if (const NpcRuntimeInstance* inst = npcManager_->findInstance(npcInstanceId)) {
-    broadcastNpcState(npcManager_->toStatePayload(*inst));
+    broadcastNpcState(npcManager_->toStatePayload(*inst), inst->instanceId);
   }
 }
 
@@ -3054,7 +3155,9 @@ void CombatCoreEngine::sendNpcSnapshotToClient(uint32_t clientId) {
   if (!movementServer_ || !npcManager_) return;
   size_t sent = 0;
   size_t skippedDead = 0;
+  const uint32_t layer = movementServer_->getLayerForClient(clientId);  // etapa 4
   for (const auto& inst : npcManager_->getAllInstances()) {
+    if (inst.instanceId != layer) continue;
     if (inst.isDead) {
       ++skippedDead;
       continue;
@@ -3946,7 +4049,7 @@ void CombatCoreEngine::broadcastSkillBuffSync(const SkillBuffSyncPayload& payloa
         payload.targetPlayerId, payload.skillId, static_cast<int>(payload.action), payload.buffId);
     if (npcManager_) {
       if (const NpcRuntimeInstance* inst = npcManager_->findInstance(payload.targetPlayerId)) {
-        movementServer_->broadcastNearWorldXY(inst->x, inst->y, encodeSkillBuffSync(payload));
+        movementServer_->broadcastNearWorldXY(inst->x, inst->y, encodeSkillBuffSync(payload), 8000.f, inst->instanceId);
         return;
       }
     }
@@ -3987,8 +4090,8 @@ void CombatCoreEngine::broadcastCombatControlState(uint8_t targetType, uint32_t 
       static_cast<uint16_t>(std::clamp(state.buffedStats.movementSpeed, 10, 500));
   if (targetType == 1) {
     if (const NpcRuntimeInstance* npc = npcManager_->findInstance(targetId)) {
-      movementServer_->broadcastNearWorldXY(npc->x, npc->y,
-                                             encodeCombatControlState(payload));
+      movementServer_->broadcastNearWorldXY(npc->x, npc->y, encodeCombatControlState(payload), 8000.f,
+                                            npc->instanceId);
     }
   } else {
     movementServer_->broadcastNearPlayer(targetId, encodeCombatControlState(payload));
@@ -4172,7 +4275,7 @@ void CombatCoreEngine::broadcastSkillCast(const SkillCastBroadcastPayload& paylo
   if (payload.sourceType == static_cast<uint8_t>(CombatTargetType::Npc)) {
     if (npcManager_) {
       if (const NpcRuntimeInstance* inst = npcManager_->findInstance(payload.sourcePlayerId)) {
-        movementServer_->broadcastNearWorldXY(inst->x, inst->y, encodeSkillCastBroadcast(payload));
+        movementServer_->broadcastNearWorldXY(inst->x, inst->y, encodeSkillCastBroadcast(payload), 8000.f, inst->instanceId);
         return;
       }
     }
@@ -4191,7 +4294,7 @@ void CombatCoreEngine::broadcastBasicAttack(const BasicAttackBroadcastPayload& p
   if (payload.sourceType == static_cast<uint8_t>(CombatTargetType::Npc)) {
     if (npcManager_) {
       if (const NpcRuntimeInstance* inst = npcManager_->findInstance(payload.sourcePlayerId)) {
-        movementServer_->broadcastNearWorldXY(inst->x, inst->y, encodeBasicAttackBroadcast(payload));
+        movementServer_->broadcastNearWorldXY(inst->x, inst->y, encodeBasicAttackBroadcast(payload), 8000.f, inst->instanceId);
         return;
       }
     }
@@ -4211,7 +4314,7 @@ void CombatCoreEngine::broadcastNpcCombatEvent(const NpcCombatEventPayload& payl
     movementServer_->broadcastNearPlayer(payload.sourcePlayerId, encodeNpcCombatEvent(payload));
   } else if (npcManager_) {
     if (const NpcRuntimeInstance* inst = npcManager_->findInstance(payload.npcId)) {
-      movementServer_->broadcastNearWorldXY(inst->x, inst->y, encodeNpcCombatEvent(payload));
+      movementServer_->broadcastNearWorldXY(inst->x, inst->y, encodeNpcCombatEvent(payload), 8000.f, inst->instanceId);
     } else {
       movementServer_->broadcastToAll(encodeNpcCombatEvent(payload));
     }
@@ -4220,11 +4323,11 @@ void CombatCoreEngine::broadcastNpcCombatEvent(const NpcCombatEventPayload& payl
   }
 }
 
-void CombatCoreEngine::broadcastNpcState(const NpcStatePayload& payload) {
+void CombatCoreEngine::broadcastNpcState(const NpcStatePayload& payload, uint32_t layer) {
   if (!movementServer_) return;
-  // Sempre zone-wide: AOI só na pos do NPC deixava "fantasma" no cliente quando o mob
-  // voltava ao home (>radius) e o player não recebia mais o opcode 102.
-  movementServer_->broadcastToAll(encodeNpcStateUpdate(payload));
+  // Sempre a camada inteira: AOI só na pos do NPC deixava "fantasma" no cliente quando o mob
+  // voltava ao home (>radius) e o player não recebia mais o opcode 102. Etapa 4: por camada.
+  movementServer_->broadcastToLayer(layer, encodeNpcStateUpdate(payload));
 }
 
 void CombatCoreEngine::finalizeSkillCastHit(uint32_t sourcePlayerId, const SkillCastPayload& payload) {
@@ -4797,7 +4900,7 @@ void CombatCoreEngine::processBasicAttack(uint32_t sourcePlayerId, const BasicAt
     if (payload.targetType == static_cast<uint8_t>(CombatTargetType::Npc) && npcManager_) {
       if (const NpcRuntimeInstance* inst = npcManager_->findInstance(payload.targetId)) {
         if (!inst->isDead) {
-          broadcastNpcState(npcManager_->toStatePayload(*inst));
+          broadcastNpcState(npcManager_->toStatePayload(*inst), inst->instanceId);
         }
       }
     }

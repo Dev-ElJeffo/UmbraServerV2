@@ -364,6 +364,42 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
     return d;
   });
 
+  // Instâncias (etapa 4): moldes + NPCs dos moldes. Cópias abertas mantêm os NPCs já clonados.
+  registry.registerCommand("reload_instances", [&server](const nlohmann::json&) {
+    nlohmann::json d;
+    auto* instances = server.getInstanceManager();
+    if (instances) {
+      d["templates"] = instances->reload();
+      d["ok"] = true;
+      d["reloaded"] = true;
+    } else {
+      d["ok"] = false;
+      d["reloaded"] = false;
+      d["message"] = "InstanceManager indisponível";
+    }
+    d["zone_id"] = server.getConfig().zoneId;
+    return d;
+  });
+
+  registry.registerCommand("list_instances", [&server](const nlohmann::json&) {
+    nlohmann::json d;
+    auto* instances = server.getInstanceManager();
+    d["ok"] = instances != nullptr;
+    d["instances"] = instances ? instances->listJson() : nlohmann::json::array();
+    d["zone_id"] = server.getConfig().zoneId;
+    return d;
+  });
+
+  registry.registerCommand("close_instance", [&server](const nlohmann::json& args) {
+    nlohmann::json d;
+    auto* instances = server.getInstanceManager();
+    const uint32_t instanceId = args.value("instance_id", 0u);
+    d["ok"] = instances && instanceId > 0 && instances->closeInstance(instanceId, args.value("reason", std::string()));
+    d["instance_id"] = instanceId;
+    d["zone_id"] = server.getConfig().zoneId;
+    return d;
+  });
+
   // Itens consumíveis (stats_json/cooldown) usados pela zone no opcode 127 e pelo elemental.
   registry.registerCommand("reload_consumables", [&server](const nlohmann::json&) {
     nlohmann::json d;

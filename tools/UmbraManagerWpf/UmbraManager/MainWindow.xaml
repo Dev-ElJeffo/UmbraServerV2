@@ -199,6 +199,11 @@
             <TabItem Header="Missões de guilda" Visibility="{Binding TabVisibilityContent}">
                 <views:GuildMissionsEditorView/>
             </TabItem>
+
+            <!-- Instâncias (etapa 4) -->
+            <TabItem Header="Instâncias" Visibility="{Binding TabVisibilityContent}">
+                <views:InstancesEditorView/>
+            </TabItem>
         </TabControl>
         <Border Background="{StaticResource ManagerBrush.Error}" Padding="12,8" VerticalAlignment="Top"
                 AutomationProperties.Name="Erro do editor">

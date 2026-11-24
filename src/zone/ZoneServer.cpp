@@ -277,12 +277,37 @@ bool ZoneServer::start() {
           });
       consumableService_->start();
 
+      // Instâncias (etapa 4, opcodes 134-136).
+      instanceManager_ = std::make_unique<InstanceManager>(config_.dbConnector, config_.zoneId,
+                                                           movementServer_.get(), combatCoreEngine_.get());
+      instanceManager_->setResolvePartyMembers(partyCb);
+      instanceManager_->setLobbyTimeoutSeconds(
+          static_cast<uint32_t>(configManager.get<int>("instance.lobby_timeout_seconds", 120)));
+      // Dungeons (etapa 5, opcodes 138-139): recompensas e lockout numa thread própria.
+      dungeonService_ = std::make_unique<DungeonService>(config_.dbConnector, movementServer_.get(),
+                                                         lootService_.get(),
+                                                         combatCoreEngine_->getQuestProgressService());
+      dungeonService_->start();
+      instanceManager_->setDungeonService(dungeonService_.get());
+      combatCoreEngine_->setInstanceNpcKilledHook(
+          [im = instanceManager_.get()](uint32_t instanceId, uint32_t npcId, uint8_t role, uint32_t killer) {
+            im->onInstanceNpcKilled(instanceId, npcId, role, killer);
+          });
+      instanceManager_->reload();
+      movementServer_->setInstanceEnterHandler(
+          [im = instanceManager_.get()](uint32_t playerId, uint32_t portalNpcId, uint8_t action, uint8_t value) {
+            im->handleLobbyAction(playerId, portalNpcId, action, value);
+          });
+      movementServer_->setInstanceLeaveHandler(
+          [im = instanceManager_.get()](uint32_t playerId) { im->handleLeave(playerId); });
+
       movementServer_->setPlayerGoneHook(
           [svc = companionService_.get(), cs = consumableService_.get(),
-           qs = combatCoreEngine_->getQuestProgressService()](uint32_t playerId) {
+           qs = combatCoreEngine_->getQuestProgressService(), im = instanceManager_.get()](uint32_t playerId) {
             svc->onPlayerGone(playerId);
             cs->onPlayerGone(playerId);
             if (qs) qs->onPlayerGone(playerId);
+            if (im) im->onPlayerGone(playerId);
           });
       Core::Logger::getInstance().info(
           "ExperienceService, ExpZoneManager and LootService initialized for zone {} "
@@ -306,6 +331,7 @@ void ZoneServer::stop() {
   running_ = false;
   // Antes do combate: o worker de consumíveis enfileira efeitos no combat worker.
   if (consumableService_) consumableService_->stop();
+  if (dungeonService_) dungeonService_->stop();
   if (combatCoreEngine_) {
     combatCoreEngine_->shutdown();
   }
@@ -373,6 +399,9 @@ void ZoneServer::update(float deltaTime) {
     if (lootService_) {
       lootService_->tick(expZoneTickAccumulator_);
     }
+    if (instanceManager_) {
+      instanceManager_->tick();
+    }
     tExp = Core::steadyNowMs() - a;
     expZoneTickAccumulator_ = 0.0f;
   }
@@ -415,9 +444,14 @@ void ZoneServer::autoSavePlayerPositions() {
   uint32_t saved = 0;
   for (const auto& [pid, state] : players) {
     if (state.x == 0.0f && state.y == 0.0f && state.z == 0.0f) continue;
+    // Etapa 4: dentro de instância grava o ponto de saída (relog volta para a frente do portal).
+    const bool inInstance = state.instanceId != 0;
+    const float sx = inInstance ? state.instExitX : state.x;
+    const float sy = inInstance ? state.instExitY : state.y;
+    const float sz = inInstance ? state.instExitZ : state.z;
     if (config_.dbConnector->executePreparedInsert(
           "UPDATE players SET pos_x=?, pos_y=?, pos_z=?, current_zone=? WHERE id=?",
-          {std::to_string(state.x), std::to_string(state.y), std::to_string(state.z),
+          {std::to_string(sx), std::to_string(sy), std::to_string(sz),
            config_.zoneName, std::to_string(pid)})) {
       ++saved;
     }

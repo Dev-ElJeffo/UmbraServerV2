@@ -81,6 +81,7 @@ public partial class MainViewModel
         Add("scheduler", "Scheduler", "Sistema", 20, "super", "ClockOutline");
         Add("companions", "Companheiros", "Conteúdo", 21, "content", "Paw");
         Add("guildmissions", "Missões de guilda", "Conteúdo", 22, "content", "ShieldStar");
+        Add("instances", "Instâncias", "NPC e mundo", 23, "content", "Castle");
         ApplyNavVisibility();
     }
 

@@ -192,6 +192,13 @@ void LootService::broadcastExpForGrant(uint32_t playerId, const ExperienceGrantR
   }
 }
 
+int64_t LootService::grantExperienceAndNotify(uint32_t playerId, int64_t amount, const std::string& source) {
+  if (!experienceService_ || playerId == 0 || amount <= 0) return 0;
+  auto grant = experienceService_->grantExperience(playerId, amount, source);
+  broadcastExpForGrant(playerId, grant);
+  return grant.success ? grant.expGranted : 0;
+}
+
 void LootService::onNpcKilled(uint32_t killerPlayerId, uint32_t npcInstanceId, uint32_t npcTemplateId,
                                uint32_t zoneId, float x, float y, float z) {
   if (killerPlayerId == 0 || !db_) return;

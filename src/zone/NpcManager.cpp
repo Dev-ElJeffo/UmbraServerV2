@@ -138,8 +138,218 @@ std::string buildNpcInstanceSelectSql(Database::MySQLConnector& db) {
 const char* NpcManager::kInstanceSelectSql =
     "SELECT ni.npc_instance_id FROM npc_instances ni ";  // legado; queries usam buildNpcInstanceSelectSql
 
-std::string NpcManager::zoneWhereClause() {
+bool NpcManager::hasInstanceColumns() const {
+  // Etapa 4 (create_instances.sql). Cache estático: aplicar o SQL exige reiniciar a zone.
+  static int hasCols = -1;
+  if (hasCols < 0) {
+    if (!db_ || !db_->isConnected()) return false;
+    hasCols = !db_->executeQuery("SHOW COLUMNS FROM npc_instances LIKE 'instance_template_id'").empty() ? 1 : 0;
+  }
+  return hasCols == 1;
+}
+
+std::string NpcManager::zoneWhereClause() const {
+  // NPCs de molde de instância (instance_template_id) não sobem no mundo aberto.
+  if (hasInstanceColumns()) {
+    return "WHERE (ni.zone_id = ? OR ni.zone_id = 0) AND ni.instance_template_id IS NULL ";
+  }
   return "WHERE (ni.zone_id = ? OR ni.zone_id = 0) ";
+}
+
+void NpcManager::applyInstanceColumnsLocked() {
+  if (!hasInstanceColumns()) return;
+  for (auto& inst : instances_) {
+    if (inst.instanceId == 0) inst.portalInstanceTemplateId = 0;
+  }
+  auto rows = db_->executePreparedQuery(
+      "SELECT npc_instance_id, portal_instance_template_id FROM npc_instances "
+      "WHERE portal_instance_template_id IS NOT NULL AND portal_instance_template_id > 0 "
+      "AND instance_template_id IS NULL AND (zone_id = ? OR zone_id = 0)",
+      {std::to_string(zoneId_)});
+  for (const auto& row : rows) {
+    if (row.size() < 2) continue;
+    try {
+      const uint32_t id = static_cast<uint32_t>(std::stoul(row[0]));
+      const uint32_t tpl = static_cast<uint32_t>(std::stoul(row[1]));
+      auto it = indexById_.find(id);
+      if (it != indexById_.end()) instances_[it->second].portalInstanceTemplateId = tpl;
+    } catch (...) {
+    }
+  }
+}
+
+size_t NpcManager::reloadInstanceMoldes() {
+  if (!db_ || !db_->isConnected() || !hasInstanceColumns()) return 0;
+  const std::string zoneStr = std::to_string(zoneId_);
+  auto idRows = db_->executePreparedQuery(
+      "SELECT npc_instance_id, instance_template_id FROM npc_instances "
+      "WHERE instance_template_id IS NOT NULL AND (zone_id = ? OR zone_id = 0)",
+      {zoneStr});
+  std::unordered_map<uint32_t, uint32_t> templateByNpc;
+  for (const auto& row : idRows) {
+    if (row.size() < 2) continue;
+    try {
+      templateByNpc[static_cast<uint32_t>(std::stoul(row[0]))] = static_cast<uint32_t>(std::stoul(row[1]));
+    } catch (...) {
+    }
+  }
+  // Etapa 5: papel na dungeon (query própria; coluna opcional).
+  std::unordered_map<uint32_t, uint8_t> roleByNpc;
+  static int hasRoleCol = -1;
+  if (hasRoleCol < 0) {
+    hasRoleCol = !db_->executeQuery("SHOW COLUMNS FROM npc_instances LIKE 'dungeon_role'").empty() ? 1 : 0;
+  }
+  if (hasRoleCol == 1) {
+    auto roleRows = db_->executePreparedQuery(
+        "SELECT npc_instance_id, COALESCE(dungeon_role, '') FROM npc_instances "
+        "WHERE instance_template_id IS NOT NULL AND (zone_id = ? OR zone_id = 0)",
+        {zoneStr});
+    for (const auto& row : roleRows) {
+      if (row.size() < 2) continue;
+      try {
+        const uint32_t id = static_cast<uint32_t>(std::stoul(row[0]));
+        uint8_t role = 0;
+        if (row[1] == "trash") role = 1;
+        else if (row[1] == "boss") role = 2;
+        else if (row[1] == "final_boss") role = 3;
+        roleByNpc[id] = role;
+      } catch (...) {
+      }
+    }
+  }
+  auto rows = db_->executePreparedQuery(
+      buildNpcInstanceSelectSql(*db_) +
+          "WHERE ni.instance_template_id IS NOT NULL AND (ni.zone_id = ? OR ni.zone_id = 0) ",
+      {zoneStr});
+
+  // Monta fora de instances_ (a lista viva é lida pelo combat worker sem lock).
+  std::unordered_map<uint32_t, std::vector<NpcRuntimeInstance>> loaded;
+  size_t total = 0;
+  for (const auto& row : rows) {
+    NpcRuntimeInstance molde;
+    if (!buildInstanceFromRow(row, molde)) continue;
+    auto tplIt = templateByNpc.find(molde.npcInstanceId);
+    if (tplIt == templateByNpc.end() || tplIt->second == 0) continue;
+    molde.isDead = false;
+    molde.respawnAt = {};
+    molde.currentHealth = molde.maxHealth;
+    molde.currentMana = molde.maxMana;
+    molde.portalInstanceTemplateId = 0;
+    auto roleIt = roleByNpc.find(molde.npcInstanceId);
+    molde.dungeonRole = roleIt != roleByNpc.end() ? roleIt->second : 0;
+    loaded[tplIt->second].push_back(std::move(molde));
+    ++total;
+  }
+  {
+    std::lock_guard<std::mutex> lock(mu_);
+    moldesByTemplate_ = std::move(loaded);
+  }
+  Core::Logger::getInstance().info("[NpcManager] moldes de instância: {} NPC(s) em {} molde(s) (zone_id={})",
+                                   total, moldesByTemplate_.size(), zoneId_);
+  return total;
+}
+
+size_t NpcManager::moldeNpcCount(uint32_t instanceTemplateId) const {
+  std::lock_guard<std::mutex> lock(mu_);
+  auto it = moldesByTemplate_.find(instanceTemplateId);
+  return it == moldesByTemplate_.end() ? 0 : it->second.size();
+}
+
+NpcManager::MoldeRoleCounts NpcManager::moldeRoleCounts(uint32_t instanceTemplateId) const {
+  MoldeRoleCounts c;
+  std::lock_guard<std::mutex> lock(mu_);
+  auto it = moldesByTemplate_.find(instanceTemplateId);
+  if (it == moldesByTemplate_.end()) return c;
+  for (const auto& m : it->second) {
+    if (!m.isAttackable) continue;
+    ++c.enemies;
+    if (m.dungeonRole >= 2) ++c.bosses;
+    if (m.dungeonRole == 3) ++c.finalBosses;
+  }
+  return c;
+}
+
+std::vector<uint32_t> NpcManager::spawnInstanceClones(uint32_t instanceTemplateId, uint32_t instanceId,
+                                                      float originX, float originY, float originZ, float hpMult,
+                                                      float damageMult) {
+  hpMult = std::clamp(hpMult, 0.1f, 100.f);
+  damageMult = std::clamp(damageMult, 0.1f, 100.f);
+  std::vector<uint32_t> ids;
+  if (instanceId == 0) return ids;
+  std::lock_guard<std::mutex> lock(mu_);
+  auto it = moldesByTemplate_.find(instanceTemplateId);
+  if (it == moldesByTemplate_.end()) return ids;
+  for (const auto& molde : it->second) {
+    NpcRuntimeInstance c = molde;
+    do {
+      c.npcInstanceId = nextCloneId_++;
+      if (nextCloneId_ < kCloneIdBase) nextCloneId_ = kCloneIdBase;  // volta da faixa
+    } while (indexById_.count(c.npcInstanceId) > 0);
+    c.instanceId = instanceId;
+    c.portalInstanceTemplateId = 0;
+    // Posição do molde é LOCAL do level; a cópia soma a origem dela.
+    c.homeX = molde.homeX + originX;
+    c.homeY = molde.homeY + originY;
+    c.homeZ = molde.homeZ + originZ;
+    c.x = c.homeX;
+    c.y = c.homeY;
+    c.z = c.homeZ;
+    c.isDead = false;
+    c.respawnAt = {};
+    // Dificuldade (etapa 5): vida e ataques da cópia.
+    c.maxHealth = std::max<int32_t>(1, static_cast<int32_t>(std::lround(static_cast<double>(c.maxHealth) * hpMult)));
+    c.physicalAttack = static_cast<int32_t>(std::lround(static_cast<double>(c.physicalAttack) * damageMult));
+    c.magicAttack = static_cast<int32_t>(std::lround(static_cast<double>(c.magicAttack) * damageMult));
+    c.currentHealth = c.maxHealth;
+    c.currentMana = c.maxMana;
+    resetAiState(c);
+    c.lastBroadcastX = c.x;
+    c.lastBroadcastY = c.y;
+    c.lastBroadcastYaw = c.yaw;
+    ids.push_back(c.npcInstanceId);
+    indexById_[c.npcInstanceId] = instances_.size();
+    instances_.push_back(std::move(c));
+  }
+  return ids;
+}
+
+std::vector<uint32_t> NpcManager::removeInstanceClones(uint32_t instanceId) {
+  std::vector<uint32_t> removed;
+  if (instanceId == 0) return removed;
+  std::lock_guard<std::mutex> lock(mu_);
+  auto newEnd = std::remove_if(instances_.begin(), instances_.end(), [&](const NpcRuntimeInstance& inst) {
+    if (inst.instanceId != instanceId) return false;
+    removed.push_back(inst.npcInstanceId);
+    return true;
+  });
+  if (removed.empty()) return removed;
+  instances_.erase(newEnd, instances_.end());
+  indexById_.clear();
+  for (size_t i = 0; i < instances_.size(); ++i) {
+    indexById_[instances_[i].npcInstanceId] = i;
+  }
+  return removed;
+}
+
+uint32_t NpcManager::layerOf(uint32_t npcInstanceId) const {
+  std::lock_guard<std::mutex> lock(mu_);
+  auto it = indexById_.find(npcInstanceId);
+  return it == indexById_.end() ? 0 : instances_[it->second].instanceId;
+}
+
+bool NpcManager::getPortalInfo(uint32_t npcInstanceId, PortalInfo& out) const {
+  std::lock_guard<std::mutex> lock(mu_);
+  auto it = indexById_.find(npcInstanceId);
+  if (it == indexById_.end()) return false;
+  const NpcRuntimeInstance& inst = instances_[it->second];
+  if (inst.portalInstanceTemplateId == 0) return false;
+  out.instanceTemplateId = inst.portalInstanceTemplateId;
+  out.layer = inst.instanceId;
+  out.x = inst.x;
+  out.y = inst.y;
+  out.z = inst.z;
+  out.interactionRadius = inst.interactionRadius;
+  return true;
 }
 
 NpcManager::NpcManager(std::shared_ptr<Database::MySQLConnector> db, uint32_t zoneId)
@@ -296,6 +506,11 @@ bool NpcManager::reloadFromDatabase() {
   if (!db_ || !db_->isConnected()) return false;
 
   std::lock_guard<std::mutex> lock(mu_);
+  // Clones de instância (etapa 4) vivem só em memória: sobrevivem ao reload do mundo aberto.
+  std::vector<NpcRuntimeInstance> clones;
+  for (auto& inst : instances_) {
+    if (inst.instanceId != 0) clones.push_back(std::move(inst));
+  }
   instances_.clear();
   indexById_.clear();
 
@@ -305,6 +520,12 @@ bool NpcManager::reloadFromDatabase() {
   for (const auto& row : rows) {
     loadInstanceFromRow(row);
   }
+  for (auto& c : clones) {
+    if (indexById_.count(c.npcInstanceId) > 0) continue;
+    indexById_[c.npcInstanceId] = instances_.size();
+    instances_.push_back(std::move(c));
+  }
+  applyInstanceColumnsLocked();
 
   Core::Logger::getInstance().info("[NpcManager] carregadas {} instancias de NPC para zone_id={}",
                                    instances_.size(), zoneId_);
@@ -336,6 +557,7 @@ bool NpcManager::loadInstanceById(uint32_t npcInstanceId) {
   std::lock_guard<std::mutex> lock(mu_);
   if (indexById_.find(npcInstanceId) != indexById_.end()) return true;
   loadInstanceFromRow(rows[0]);
+  applyInstanceColumnsLocked();
   return indexById_.find(npcInstanceId) != indexById_.end();
 }
 
@@ -358,6 +580,7 @@ size_t NpcManager::reloadMissingInstancesFromDatabase() {
     } catch (...) {
     }
   }
+  if (loaded > 0) applyInstanceColumnsLocked();
 
   if (loaded > 0) {
     Core::Logger::getInstance().info("[NpcManager] {} instancia(s) NPC adicionada(s) em runtime zone_id={}",
@@ -367,9 +590,15 @@ size_t NpcManager::reloadMissingInstancesFromDatabase() {
 }
 
 void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
-  if (row.size() < kMinRowFields) return;
-
   NpcRuntimeInstance inst;
+  if (!buildInstanceFromRow(row, inst)) return;
+  indexById_[inst.npcInstanceId] = instances_.size();
+  instances_.push_back(std::move(inst));
+}
+
+bool NpcManager::buildInstanceFromRow(const std::vector<std::string>& row, NpcRuntimeInstance& inst) {
+  if (row.size() < kMinRowFields) return false;
+
   try {
     inst.npcInstanceId = static_cast<uint32_t>(std::stoul(row[0]));
     inst.templateId = static_cast<uint32_t>(std::stoul(row[1]));
@@ -601,11 +830,9 @@ void NpcManager::loadInstanceFromRow(const std::vector<std::string>& row) {
     loadBoundSkills(inst);
     resetAiState(inst);
   } catch (...) {
-    return;
+    return false;
   }
-
-  indexById_[inst.npcInstanceId] = instances_.size();
-  instances_.push_back(std::move(inst));
+  return true;
 }
 
 void NpcManager::loadBoundSkills(NpcRuntimeInstance& inst) {
@@ -730,6 +957,7 @@ int32_t NpcManager::applyDamage(uint32_t npcInstanceId, int32_t delta, bool& out
     inst.respawnAt = std::chrono::system_clock::now() + std::chrono::seconds(respawnSec);
     if (outNpcDied) *outNpcDied = true;
 
+    if (inst.instanceId != 0) return applied;  // clone de instância: só memória
     persistNpcSql(
         "UPDATE npc_instances SET current_health = 0, is_dead = 1, respawn_at = DATE_ADD(NOW(), "
         "INTERVAL " +
@@ -739,6 +967,7 @@ int32_t NpcManager::applyDamage(uint32_t npcInstanceId, int32_t delta, bool& out
     return applied;
   }
 
+  if (inst.instanceId != 0) return applied;  // clone de instância: só memória
   persistNpcSql(
       "UPDATE npc_instances SET current_health = " + std::to_string(inst.currentHealth) +
       ", is_dead = 0, last_combat_at = CURRENT_TIMESTAMP WHERE npc_instance_id = " +
@@ -755,6 +984,7 @@ std::vector<uint32_t> NpcManager::tickRespawns(float deltaSeconds) {
   std::lock_guard<std::mutex> lock(mu_);
   for (auto& inst : instances_) {
     if (!inst.isDead) continue;
+    if (inst.instanceId != 0) continue;  // clone de instância não respawna (etapa 5 decide chefes)
     if (inst.pendingDeathDespawn) continue;  // ainda mostrando death no cliente
     if (inst.respawnAt.time_since_epoch().count() == 0) continue;
     if (now < inst.respawnAt) continue;
@@ -810,6 +1040,7 @@ bool NpcManager::setInstanceTransform(uint32_t npcInstanceId, float x, float y, 
       return false;
     }
     NpcRuntimeInstance& inst = instances_[it->second];
+    if (inst.instanceId != 0) persistToDb = false;  // clone de instância: só memória
     inst.x = x;
     inst.y = y;
     inst.z = z;
@@ -878,6 +1109,10 @@ NpcSpawnPayload NpcManager::toSpawnPayload(const NpcRuntimeInstance& inst) const
   if (inst.isAttackable) p.flags |= 0x01;
   if (inst.hasVendor) p.flags |= 0x02;
   if (inst.hasQuestDialog) p.flags |= 0x04;
+  if (inst.portalInstanceTemplateId > 0) {
+    p.flags |= 0x08;  // etapa 4: NPC portal (campo trailing com o molde)
+    p.portalInstanceTemplateId = inst.portalInstanceTemplateId;
+  }
   p.interactionRadius = inst.interactionRadius;
   p.collisionRadius = inst.collisionRadius;
   p.nameplateRadius = inst.nameplateRadius;

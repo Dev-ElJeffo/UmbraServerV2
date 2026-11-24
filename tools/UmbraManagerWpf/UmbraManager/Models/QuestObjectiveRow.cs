@@ -51,6 +51,7 @@ public sealed class QuestObjectiveRow
         "reach_level" => "Reach level",
         "craft_item" => "Craft item",
         "refine_item" => "Refine item",
+        "complete_dungeon" => "Complete dungeon",
         _ => ObjectiveType,
     };
 
@@ -75,6 +76,12 @@ public sealed class QuestObjectiveRow
                 case "use_skill": TargetId = Int("skill_id"); break;
                 case "earn_gold": RequiredCount = Math.Max(1, Int("amount")); break;
                 case "reach_level": RequiredCount = Math.Max(1, Int("level")); break;
+                case "complete_dungeon":
+                    TargetId = Int("instance_template_id");
+                    ItemSubtype = p.TryGetProperty("difficulty_key", out var dk) && dk.ValueKind == JsonValueKind.String
+                        ? dk.GetString() ?? ""
+                        : "";
+                    break;
             }
         }
         catch (JsonException)

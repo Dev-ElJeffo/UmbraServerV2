@@ -22,6 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 require_once __DIR__ . '/require_admin_auth.php';
+require_once __DIR__ . '/instance_admin_helpers.php';
 $data = admin_decode_json_body();
 requireAdminAuth($data);
 
@@ -37,7 +38,11 @@ if ($instanceId <= 0) {
 $hasPos = array_key_exists('pos_x', $data) || array_key_exists('pos_y', $data)
     || array_key_exists('pos_z', $data) || array_key_exists('yaw', $data)
     || array_key_exists('zone_id', $data);
-if (!$hasPos) {
+// Etapa 4: molde de instância e portal (0 = NULL).
+$hasInstanceFields = array_key_exists('instance_template_id', $data)
+    || array_key_exists('portal_instance_template_id', $data)
+    || array_key_exists('dungeon_role', $data);
+if (!$hasPos && !$hasInstanceFields) {
     ob_clean();
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'Informe ao menos pos_x/pos_y/pos_z/yaw/zone_id'], JSON_UNESCAPED_UNICODE);
@@ -91,6 +96,36 @@ try {
         ':home_z' => $z,
         ':id' => $instanceId,
     ]);
+
+    if ($hasInstanceFields && npc_instance_has_instance_columns($pdo)) {
+        $instSets = [];
+        $instParams = [':id' => $instanceId];
+        if (array_key_exists('instance_template_id', $data)) {
+            $instSets[] = 'instance_template_id = :inst';
+            $instParams[':inst'] = npc_instance_template_ref($data['instance_template_id']);
+        }
+        if (array_key_exists('portal_instance_template_id', $data)) {
+            $instSets[] = 'portal_instance_template_id = :portal';
+            $instParams[':portal'] = npc_instance_template_ref($data['portal_instance_template_id']);
+        }
+        // Etapa 5: papel na dungeon (NULL = inimigo comum).
+        if (array_key_exists('dungeon_role', $data) && npc_instance_has_dungeon_role($pdo)) {
+            try {
+                $instParams[':role'] = npc_instance_dungeon_role($data['dungeon_role']);
+            } catch (InvalidArgumentException $e) {
+                ob_clean();
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+                ob_end_flush();
+                exit;
+            }
+            $instSets[] = 'dungeon_role = :role';
+        }
+        if ($instSets) {
+            $pdo->prepare('UPDATE npc_instances SET ' . implode(', ', $instSets) . ' WHERE npc_instance_id = :id LIMIT 1')
+                ->execute($instParams);
+        }
+    }
 
     ob_clean();
     echo json_encode([

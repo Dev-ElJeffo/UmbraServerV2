@@ -62,6 +62,17 @@ function quest_validate_params(string $type, $params): array
                 throw new InvalidArgumentException('refine_item exige min_refine_level e required_count positivos');
             }
             return $params;
+        case 'complete_dungeon':
+            // Etapa 5: instance_template_id 0 = qualquer dungeon; difficulty_key vazio = qualquer dificuldade.
+            $params['instance_template_id'] = max(0, (int)($params['instance_template_id'] ?? 0));
+            $params['difficulty_key'] = strtolower(trim((string)($params['difficulty_key'] ?? '')));
+            if ($params['difficulty_key'] !== '' && !preg_match('/^[a-z0-9_]{1,32}$/', $params['difficulty_key'])) {
+                throw new InvalidArgumentException('complete_dungeon: difficulty_key inválido');
+            }
+            if ((int)($params['required_count'] ?? 0) <= 0) {
+                throw new InvalidArgumentException('complete_dungeon exige required_count positivo');
+            }
+            return $params;
         case 'earn_gold':
             if ((int)($params['amount'] ?? 0) <= 0) {
                 throw new InvalidArgumentException('earn_gold exige amount positivo');

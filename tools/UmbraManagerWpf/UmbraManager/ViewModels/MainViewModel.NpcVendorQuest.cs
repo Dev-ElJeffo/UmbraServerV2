@@ -24,6 +24,8 @@ public partial class MainViewModel
             "talk", "kill", "collect", "deliver", "reach_area", "use_item_at",
             // Quests v2
             "kill_any", "use_skill", "use_consumable", "earn_gold", "reach_level", "craft_item", "refine_item",
+            // Dungeons: alvo = id da dungeon (0 = qualquer); subtipo = dificuldade (vazio = qualquer)
+            "complete_dungeon",
         };
 
     /// <summary>companion: Amount = companion_id; guild_xp: vai para a guilda do jogador.</summary>
@@ -986,6 +988,13 @@ public partial class MainViewModel
                 return new Dictionary<string, object?> { ["amount"] = count };
             case "reach_level":
                 return new Dictionary<string, object?> { ["level"] = Math.Max(2, count) };
+            case "complete_dungeon":
+                return new Dictionary<string, object?>
+                {
+                    ["instance_template_id"] = Math.Max(0, o.TargetId),
+                    ["difficulty_key"] = (o.ItemSubtype ?? "").Trim().ToLowerInvariant(),
+                    ["required_count"] = count,
+                };
         }
 
         return new Dictionary<string, object?>();

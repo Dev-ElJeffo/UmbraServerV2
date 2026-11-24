@@ -58,7 +58,7 @@ void chaseAimXY(float npcX, float npcY, float targetX, float targetY, float hold
 void forceBroadcast(CombatCoreEngine* combat, NpcManager* npcManager, NpcRuntimeInstance& inst,
                     const std::chrono::steady_clock::time_point& now) {
   if (!combat || !npcManager) return;
-  combat->broadcastNpcStatePublic(npcManager->toStatePayload(inst));
+  combat->broadcastNpcStatePublic(npcManager->toStatePayload(inst), inst.instanceId);
   inst.lastBroadcastX = inst.x;
   inst.lastBroadcastY = inst.y;
   inst.lastBroadcastYaw = inst.yaw;
@@ -154,6 +154,7 @@ void NpcAiSystem::tick(float deltaSeconds) {
       for (const auto& kv : players) {
         const PlayerStateNet& p = kv.second;
         if (p.isDead || p.playerId == 0 || stealthed.count(p.playerId)) continue;
+        if (p.instanceId != inst.instanceId) continue;  // etapa 4: só a mesma camada
         const float d = dist2dSq(inst.x, inst.y, p.x, p.y);
         if (d <= bestDist) {
           bestDist = d;
@@ -172,7 +173,8 @@ void NpcAiSystem::tick(float deltaSeconds) {
     if (inst.aiState == NpcAiState::Combat || inst.aiState == NpcAiState::Chase) {
       const auto it = players.find(inst.targetPlayerId);
       bool lost = (inst.targetPlayerId == 0 || it == players.end() || it->second.isDead ||
-                   stealthed.count(inst.targetPlayerId) > 0);
+                   stealthed.count(inst.targetPlayerId) > 0 ||
+                   it->second.instanceId != inst.instanceId);  // etapa 4: saiu da camada
       float tx = 0.f, ty = 0.f;
       if (!lost) {
         tx = it->second.x;
@@ -356,6 +358,7 @@ void NpcAiSystem::tick(float deltaSeconds) {
       for (const auto& kv : players) {
         const PlayerStateNet& p = kv.second;
         if (p.isDead || p.playerId == 0) continue;
+        if (p.instanceId != inst.instanceId) continue;  // etapa 4: só a mesma camada
         // Separação física só por body: o anel de stop fica no recuo limitado por kite_speed_mult.
         // Usar combat_stop_range aqui teleportava o ranged e impedia melee de fechar.
         const float minDist = inst.bodyMinDist();

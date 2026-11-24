@@ -228,6 +228,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         SpawnYaw = value.Yaw;
         StatusText = $"Instância #{value.InstanceId} selecionada — altere X/Y/Z e clique Atualizar posição.";
         OnPropertyChanged(nameof(EditingNpcInstanceLabel));
+        LoadNpcInstanceLinkForm(value);
     }
 
     partial void OnEditingNpcInstanceIdChanged(long value) =>
@@ -1654,6 +1655,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     CurrentMana = TryGetIntProp(row, "current_mana"),
                     IsDead = TryGetBoolProp(row, "is_dead"),
                     CreatedAt = TryGetStringProp(row, "created_at"),
+                    InstanceTemplateId = TryGetIntProp(row, "instance_template_id"),
+                    PortalInstanceTemplateId = TryGetIntProp(row, "portal_instance_template_id"),
+                    DungeonRole = TryGetStringProp(row, "dungeon_role"),
                 });
             }
         }

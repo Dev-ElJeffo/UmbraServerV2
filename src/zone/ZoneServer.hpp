@@ -13,6 +13,8 @@
 #include "zone/CompanionService.hpp"
 #include "zone/ConsumableService.hpp"
 #include "zone/GuildMissionService.hpp"
+#include "zone/InstanceManager.hpp"
+#include "zone/DungeonService.hpp"
 
 namespace Umbra {
 namespace Auth { class JWTManager; }
@@ -51,6 +53,7 @@ class ZoneServer {
   CompanionService* getCompanionService() { return companionService_.get(); }
   ConsumableService* getConsumableService() { return consumableService_.get(); }
   GuildMissionService* getGuildMissionService() { return guildMissionService_.get(); }
+  InstanceManager* getInstanceManager() { return instanceManager_.get(); }
   const Config& getConfig() const;
   void forceSavePositions();
   void reloadGameRates();
@@ -71,6 +74,10 @@ class ZoneServer {
   std::unique_ptr<LootService> lootService_;
   // Último: o worker dele usa combate, movimento e companheiros (morre primeiro).
   std::unique_ptr<ConsumableService> consumableService_;
+  // Etapa 4: usa movimento e combate (sem thread própria; roda no tick e no inbound).
+  std::unique_ptr<InstanceManager> instanceManager_;
+  // Etapa 5: thread própria (recompensas de dungeon); usa movimento, loot e quests (morre primeiro).
+  std::unique_ptr<DungeonService> dungeonService_;
   std::unique_ptr<Umbra::Auth::JWTManager> jwtManager_;
   float expZoneTickAccumulator_ = 0.0f;
   float snapshotAccumulator_ = 0.0f;

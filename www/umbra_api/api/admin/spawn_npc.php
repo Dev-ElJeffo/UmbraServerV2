@@ -22,6 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 require_once __DIR__ . '/require_admin_auth.php';
+require_once __DIR__ . '/instance_admin_helpers.php';
 $data = admin_decode_json_body();
 requireAdminAuth($data);
 
@@ -89,6 +90,26 @@ try {
         exit;
     }
 
+    // Etapa 4: NPC do molde de instância (posição LOCAL do level) e/ou NPC portal.
+    $instanceTemplateRef = npc_instance_template_ref($data['instance_template_id'] ?? 0);
+    $portalTemplateRef = npc_instance_template_ref($data['portal_instance_template_id'] ?? 0);
+    if (($instanceTemplateRef !== null || $portalTemplateRef !== null) && npc_instance_has_instance_columns($pdo)) {
+        $pdo->prepare(
+            'UPDATE npc_instances SET instance_template_id = :inst, portal_instance_template_id = :portal
+             WHERE npc_instance_id = :id LIMIT 1'
+        )->execute([':inst' => $instanceTemplateRef, ':portal' => $portalTemplateRef, ':id' => $instanceId]);
+    }
+    // Etapa 5: papel na dungeon (só NPC de molde).
+    if ($instanceTemplateRef !== null && array_key_exists('dungeon_role', $data) && npc_instance_has_dungeon_role($pdo)) {
+        try {
+            $role = npc_instance_dungeon_role($data['dungeon_role']);
+        } catch (InvalidArgumentException $e) {
+            $role = null;
+        }
+        $pdo->prepare('UPDATE npc_instances SET dungeon_role = :role WHERE npc_instance_id = :id LIMIT 1')
+            ->execute([':role' => $role, ':id' => $instanceId]);
+    }
+
     ob_clean();
     echo json_encode([
         'success' => true,
@@ -100,6 +121,8 @@ try {
         'pos_y' => $y,
         'pos_z' => $z,
         'yaw' => $yaw,
+        'instance_template_id' => $instanceTemplateRef ?? 0,
+        'portal_instance_template_id' => $portalTemplateRef ?? 0,
     ], JSON_UNESCAPED_UNICODE);
     ob_end_flush();
 } catch (Throwable $e) {

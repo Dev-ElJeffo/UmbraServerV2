@@ -49,6 +49,11 @@ struct PlayerStateNet {
   uint8_t combatStance = 0;
   /** Opcode 125: companheiros invocados (um por slot: pet/elemental). Vai no snapshot de quem entra. */
   std::vector<CompanionStatePayload> companions;
+  /** Etapa 4: camada (0 = mundo aberto; >0 = instância). */
+  uint32_t instanceId = 0;
+  /** Dentro da instância: ponto de entrada da cópia (respawn) e de saída (mundo aberto, autosave). */
+  float instEntryX = 0.f, instEntryY = 0.f, instEntryZ = 0.f, instEntryYaw = 0.f;
+  float instExitX = 0.f, instExitY = 0.f, instExitZ = 0.f;
 };
 
 class MovementServer {
@@ -85,6 +90,12 @@ public:
   void setQuestInteractHandler(std::function<void(uint32_t playerId, uint32_t questId, uint32_t itemTemplateId)> cb) {
     questInteractHandler_ = std::move(cb);
   }
+
+  /** Opcodes 134/136 (instâncias): rodam no inbound worker (tick da zone). */
+  void setInstanceEnterHandler(std::function<void(uint32_t playerId, uint32_t portalNpcInstanceId, uint8_t action, uint8_t value)> cb) {
+    instanceEnterHandler_ = std::move(cb);
+  }
+  void setInstanceLeaveHandler(std::function<void(uint32_t playerId)> cb) { instanceLeaveHandler_ = std::move(cb); }
 
   /** Player saiu de vez da zone (sem reconexão): limpa caches de serviços (companheiros). */
   void setPlayerGoneHook(std::function<void(uint32_t playerId)> cb) { playerGoneHook_ = std::move(cb); }
@@ -324,9 +335,12 @@ public:
     }
   }
 
-  /** Broadcast para clientes cujo player está a até `radius` de (x,y) no mundo (NPC/eventos). */
+  /**
+   * Broadcast para clientes cujo player está a até `radius` de (x,y) no mundo (NPC/eventos).
+   * `layer` (etapa 4): só jogadores da mesma camada; sem ninguém perto cai para a camada inteira.
+   */
   void broadcastNearWorldXY(float x, float y, const std::vector<uint8_t>& data,
-                            float radius = 8000.f) {
+                            float radius = 8000.f, uint32_t layer = 0) {
     std::vector<uint32_t> recipients;
     {
       std::lock_guard<std::mutex> lock(mu_);
@@ -334,6 +348,7 @@ public:
       for (const auto& [cid, pid] : clientIdToPlayerId_) {
         auto oit = players_.find(pid);
         if (oit == players_.end()) continue;
+        if (oit->second.instanceId != layer) continue;
         const float dx = oit->second.x - x;
         const float dy = oit->second.y - y;
         if (dx * dx + dy * dy <= r2) {
@@ -342,12 +357,134 @@ public:
       }
     }
     if (recipients.empty()) {
-      broadcastToAll(data);
+      broadcastToLayer(layer, data);
       return;
     }
     for (uint32_t cid : recipients) {
       ws_.sendBinary(cid, data);
     }
+  }
+
+  /**
+   * Etapa 4: broadcast para todos os clientes da camada (0 = mundo aberto, inclui quem ainda
+   * não mandou posição). Mesmo padrão do broadcastToAll: coleta sob mu_, envia fora.
+   */
+  void broadcastToLayer(uint32_t layer, const std::vector<uint8_t>& data) {
+    std::vector<uint32_t> recipients;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      recipients.reserve(clientIdToPlayerId_.size());
+      for (const auto& [cid, pid] : clientIdToPlayerId_) {
+        if (layerOfPlayerUnlocked(pid) == layer) recipients.push_back(cid);
+      }
+    }
+    for (uint32_t cid : recipients) {
+      ws_.sendBinary(cid, data);
+    }
+  }
+
+  /** Nome do personagem (vazio se offline/sem PlayerInfo). Sala da instância (137). */
+  std::string getPlayerName(uint32_t playerId) const {
+    std::lock_guard<std::mutex> lock(mu_);
+    auto it = players_.find(playerId);
+    return it == players_.end() ? std::string() : it->second.characterName;
+  }
+
+  /** Camada do player (0 se offline ou mundo aberto). */
+  uint32_t getPlayerLayer(uint32_t playerId) const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return layerOfPlayerUnlocked(playerId);
+  }
+
+  /** Camada do player do client WS (0 se ainda sem player). */
+  uint32_t getLayerForClient(uint32_t clientId) const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return layerOfPlayerUnlocked(playerIdForClientUnlocked(clientId));
+  }
+
+  /** Jogadores (playerId) de uma camada. */
+  std::vector<uint32_t> getPlayersInLayer(uint32_t layer) const {
+    std::vector<uint32_t> out;
+    std::lock_guard<std::mutex> lock(mu_);
+    for (const auto& [pid, st] : players_) {
+      if (st.instanceId == layer && playerIdToClientId_.count(pid) > 0) out.push_back(pid);
+    }
+    return out;
+  }
+
+  /**
+   * Etapa 4: muda o player de camada e teleporta.
+   * - quem fica na camada antiga perde o ator dele (PlayerDisconnected) e ele perde os de lá;
+   * - ele recebe o snapshot de jogadores da camada nova e os de lá recebem o dele;
+   * - NPCs: quem chama manda o despawn/snapshot (CombatCoreEngine::sendNpcLayerSwitch).
+   * entry/exit só valem com newLayer > 0 (respawn e autosave dentro da instância).
+   */
+  bool movePlayerToLayer(uint32_t playerId, uint32_t newLayer, float x, float y, float z, float yaw,
+                         float entryX = 0.f, float entryY = 0.f, float entryZ = 0.f, float entryYaw = 0.f,
+                         float exitX = 0.f, float exitY = 0.f, float exitZ = 0.f) {
+    Outbox outbox;
+    std::vector<uint8_t> moverState;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      auto it = players_.find(playerId);
+      const uint32_t cid = findClientIdForPlayerUnlocked(playerId);
+      if (it == players_.end() || cid == 0) return false;
+      PlayerStateNet& st = it->second;
+      const uint32_t oldLayer = st.instanceId;
+
+      if (oldLayer != newLayer) {
+        const auto goneMsg = encodePlayerDisconnected(playerId);
+        for (const auto& [ocid, opid] : clientIdToPlayerId_) {
+          if (opid == playerId) continue;
+          if (layerOfPlayerUnlocked(opid) != oldLayer) continue;
+          outbox.emplace_back(ocid, goneMsg);
+          outbox.emplace_back(cid, encodePlayerDisconnected(opid));
+        }
+      }
+
+      st.instanceId = newLayer;
+      st.x = x;
+      st.y = y;
+      st.z = z;
+      st.yaw = yaw;
+      if (newLayer != 0) {
+        st.instEntryX = entryX;
+        st.instEntryY = entryY;
+        st.instEntryZ = entryZ;
+        st.instEntryYaw = entryYaw;
+        st.instExitX = exitX;
+        st.instExitY = exitY;
+        st.instExitZ = exitZ;
+      }
+      armPositionGuardUnlocked(playerId, x, y, z);
+      aoiGrid_.updatePlayer(cid, x, y);
+      sendToPlayerUnlocked(playerId, encodePlayerPositionCorrection(playerId, x, y, z, yaw, 0));
+
+      if (oldLayer != newLayer) {
+        size_t infoCount = 0;
+        size_t stateCount = 0;
+        collectInitialSnapshotUnlocked(cid, outbox, infoCount, stateCount);
+        // Quem já está na camada nova passa a ver o player que chegou.
+        for (const auto& [ocid, opid] : clientIdToPlayerId_) {
+          if (opid == playerId || layerOfPlayerUnlocked(opid) != newLayer) continue;
+          outbox.emplace_back(ocid, encodePlayerInfoUpdate(st.playerId, st.characterName, st.characterTitle,
+                                                           st.guildName, st.classId, st.hair, st.head));
+          if (!st.equippedVisual.empty()) {
+            outbox.emplace_back(ocid, encodePlayerEquipmentVisualUpdate(st.playerId, st.equippedVisual));
+          }
+          for (const auto& comp : st.companions) {
+            outbox.emplace_back(ocid, encodeCompanionState(comp));
+          }
+        }
+      }
+      MovementFrame f{MovementMsgType::StateUpdate, playerId, x, y, z, yaw, st.tsMs};
+      moverState = encodeWithAnimation(f, 0.f, 0.f, false);
+      for (const auto& [ocid, opid] : clientIdToPlayerId_) {
+        if (opid != playerId && layerOfPlayerUnlocked(opid) == newLayer) outbox.emplace_back(ocid, moverState);
+      }
+    }
+    flushOutbox(outbox);
+    return true;
   }
 
   /** Envia mensagem binária a um jogador online (ex.: opcode 105 SkillCastRejected). */
@@ -861,6 +998,27 @@ public:
           }
         } else if (decodeQuestInteract(data, questId, itemTemplateId) && questInteractHandler_) {
           questInteractHandler_(playerId, questId, itemTemplateId);
+        }
+        return;
+      }
+
+      // Instâncias (134/136, etapa 4). O dono vem do cid; o InstanceManager valida tudo.
+      if (msgType == MovementMsgType::InstanceEnterRequest || msgType == MovementMsgType::InstanceLeaveRequest) {
+        uint32_t playerId = 0;
+        {
+          std::lock_guard<std::mutex> lock(mu_);
+          playerId = playerIdForClientUnlocked(cid);
+        }
+        if (playerId == 0) return;
+        if (msgType == MovementMsgType::InstanceEnterRequest) {
+          uint32_t portalNpcId = 0;
+          uint8_t action = 0;
+          uint8_t value = 0;
+          if (decodeInstanceEnterRequest(data, portalNpcId, action, value) && instanceEnterHandler_) {
+            instanceEnterHandler_(playerId, portalNpcId, action, value);
+          }
+        } else if (instanceLeaveHandler_) {
+          instanceLeaveHandler_(playerId);
         }
         return;
       }
@@ -1787,8 +1945,11 @@ private:
                                       size_t& sentStateCount) {
     sentInfoCount = 0;
     sentStateCount = 0;
+    // Etapa 4: só jogadores da mesma camada (mundo aberto x cada instância).
+    const uint32_t myLayer = layerOfPlayerUnlocked(playerIdForClientUnlocked(clientId));
 
     for (const auto& [pid, st] : players_) {
+      if (st.instanceId != myLayer) continue;
       if (!st.characterName.empty() || !st.characterTitle.empty() || !st.guildName.empty()) {
         outbox.emplace_back(clientId,
                             encodePlayerInfoUpdate(st.playerId, st.characterName, st.characterTitle,
@@ -1798,6 +1959,7 @@ private:
     }
 
     for (const auto& [pid, st] : players_) {
+      if (st.instanceId != myLayer) continue;
       if (!st.equippedVisual.empty()) {
         outbox.emplace_back(clientId, encodePlayerEquipmentVisualUpdate(st.playerId, st.equippedVisual));
       }
@@ -1805,6 +1967,7 @@ private:
 
     // Opcode 119: quem chega ve quem ja esta em combate (flag auto = sem anim de sacar).
     for (const auto& [pid, st] : players_) {
+      if (st.instanceId != myLayer) continue;
       if (st.combatStance != 0) {
         CombatStancePayload cs;
         cs.playerId = st.playerId;
@@ -1816,12 +1979,14 @@ private:
 
     // Opcode 125: companheiros já invocados por quem está na zone.
     for (const auto& [pid, st] : players_) {
+      if (st.instanceId != myLayer) continue;
       for (const auto& comp : st.companions) {
         outbox.emplace_back(clientId, encodeCompanionState(comp));
       }
     }
 
     for (const auto& [pid, st] : players_) {
+      if (st.instanceId != myLayer) continue;
       const bool hasValidPosition = (st.x != 0.0f || st.y != 0.0f || st.z != 0.0f);
       if (!hasValidPosition) continue;
 
@@ -1831,6 +1996,7 @@ private:
     }
 
     for (const auto& [pid, info] : personalShopOpenByPlayerId_) {
+      if (layerOfPlayerUnlocked(pid) != myLayer) continue;
       outbox.emplace_back(clientId, encodePersonalShopOpened(pid, info.first, info.second));
     }
   }
@@ -2037,16 +2203,19 @@ private:
         firstBroadcastBytes = encodeWithAnimation(firstOut, 0.0f, 0.0f, false);
       }
 
+      // Etapa 4: só a camada do player (quem está em instância não vê o mundo aberto e vice-versa).
+      const uint32_t moverLayer = moveState.instanceId;
       std::vector<uint32_t> allClients;
       allClients.reserve(clientIdToPlayerId_.size());
       for (const auto& [c, p] : clientIdToPlayerId_) {
-        (void)p;
+        if (layerOfPlayerUnlocked(p) != moverLayer) continue;
         allClients.push_back(c);
       }
 
       Outbox newPlayerSnapshot;
       if (isNewPlayer) {
         for (const auto& [pid, st] : players_) {
+          if (st.instanceId != moverLayer) continue;
           const bool hasValidPosition = (st.x != 0.0f || st.y != 0.0f || st.z != 0.0f);
           if (!hasValidPosition) continue;
           MovementFrame sf{MovementMsgType::StateUpdate, st.playerId, st.x, st.y, st.z, st.yaw, st.tsMs};
@@ -2254,6 +2423,13 @@ private:
     return (it != playerIdToClientId_.end()) ? it->second : 0;
   }
 
+  /** Etapa 4: camada do player (chamar sob mu_). */
+  uint32_t layerOfPlayerUnlocked(uint32_t playerId) const {
+    if (playerId == 0) return 0;
+    auto it = players_.find(playerId);
+    return it == players_.end() ? 0 : it->second.instanceId;
+  }
+
   uint32_t playerIdForClientUnlocked(uint32_t clientId) const {
     auto it = clientIdToPlayerId_.find(clientId);
     return (it != clientIdToPlayerId_.end()) ? it->second : 0;
@@ -2332,9 +2508,17 @@ private:
   }
 
   // Enviar mensagem para um jogador específico (por PlayerID) - versão sem lock (chamada com lock já adquirido)
-  void applyRespawnSuccessUnlocked(uint32_t playerId, const PlayerRespawnPayload& payload,
+  void applyRespawnSuccessUnlocked(uint32_t playerId, const PlayerRespawnPayload& payloadIn,
                                    Outbox& outbox) {
+    // Etapa 4: morreu dentro da instância → renasce na entrada da cópia, não no spawn da zone.
+    PlayerRespawnPayload payload = payloadIn;
     auto it = players_.find(playerId);
+    if (it != players_.end() && it->second.instanceId != 0) {
+      payload.x = it->second.instEntryX;
+      payload.y = it->second.instEntryY;
+      payload.z = it->second.instEntryZ;
+      payload.yaw = it->second.instEntryYaw;
+    }
     if (it != players_.end()) {
       it->second.isDead = false;
       it->second.x = payload.x;
@@ -2693,6 +2877,8 @@ private:
   std::function<void(uint32_t, const ElementalRulesSetPayload&)> elementalRulesHandler_;
   std::function<void(uint32_t, uint32_t)> questStateChangedHandler_;
   std::function<void(uint32_t, uint32_t, uint32_t)> questInteractHandler_;
+  std::function<void(uint32_t, uint32_t, uint8_t, uint8_t)> instanceEnterHandler_;
+  std::function<void(uint32_t)> instanceLeaveHandler_;
   int64_t lastVitalsIgnoreLogMs_ = 0;
   MovementSessionAuth sessionAuth_;
   bool sessionAuthEnabled_ = false;

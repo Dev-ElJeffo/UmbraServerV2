@@ -11,6 +11,8 @@ function adminQuestAllowedObjectiveTypes(): array
         'talk', 'kill', 'collect', 'deliver', 'reach_area', 'use_item_at',
         // Quests v2 (add_quests_v2.sql)
         'kill_any', 'use_skill', 'use_consumable', 'earn_gold', 'reach_level', 'craft_item', 'refine_item',
+        // Dungeons (add_dungeons.sql)
+        'complete_dungeon',
     ];
 }
 

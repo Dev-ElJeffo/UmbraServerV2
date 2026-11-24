@@ -26,6 +26,12 @@ struct NpcRuntimeInstance {
   uint32_t npcInstanceId = 0;
   uint32_t templateId = 0;
   uint32_t zoneId = 0;
+  /** Etapa 4: camada (0 = mundo aberto; >0 = id da instância). Clones não gravam no DB nem respawnam. */
+  uint32_t instanceId = 0;
+  /** npc_instances.portal_instance_template_id: NPC portal que leva à instância (0 = não é portal). */
+  uint32_t portalInstanceTemplateId = 0;
+  /** Etapa 5: npc_instances.dungeon_role (0 = comum, 1 = trash, 2 = chefe, 3 = chefe final). */
+  uint8_t dungeonRole = 0;
   float x = 0.f;
   float y = 0.f;
   float z = 0.f;
@@ -231,10 +237,54 @@ public:
   NpcSpawnPayload toSpawnPayload(const NpcRuntimeInstance& inst) const;
   NpcStatePayload toStatePayload(const NpcRuntimeInstance& inst) const;
 
+  // ---- Instâncias (etapa 4) ----
+  /** IDs de clone começam aqui (nunca colidem com npc_instances). */
+  static constexpr uint32_t kCloneIdBase = 0x40000000u;
+
+  /** Carrega os NPCs dos moldes (npc_instances.instance_template_id) com posição LOCAL do level. */
+  size_t reloadInstanceMoldes();
+  /** Quantos NPCs o molde tem (0 = molde sem NPCs ou coluna ausente). */
+  size_t moldeNpcCount(uint32_t instanceTemplateId) const;
+  /**
+   * Clona os NPCs do molde na camada `instanceId`, somando a origem da cópia. Retorna os IDs novos.
+   * hpMult/damageMult (etapa 5, dificuldade): vida máxima e ataques físico/mágico dos clones.
+   */
+  std::vector<uint32_t> spawnInstanceClones(uint32_t instanceTemplateId, uint32_t instanceId, float originX,
+                                            float originY, float originZ, float hpMult = 1.f,
+                                            float damageMult = 1.f);
+
+  /** Etapa 5: quantos NPCs atacáveis, chefes e chefes finais o molde tem. */
+  struct MoldeRoleCounts {
+    uint32_t enemies = 0;
+    uint32_t bosses = 0;       // chefe + chefe final
+    uint32_t finalBosses = 0;
+  };
+  MoldeRoleCounts moldeRoleCounts(uint32_t instanceTemplateId) const;
+  /** Remove todos os clones da camada. Retorna os IDs removidos (para o despawn no cliente). */
+  std::vector<uint32_t> removeInstanceClones(uint32_t instanceId);
+  /** Camada do NPC (0 se mundo aberto ou não encontrado). */
+  uint32_t layerOf(uint32_t npcInstanceId) const;
+
+  struct PortalInfo {
+    uint32_t instanceTemplateId = 0;
+    uint32_t layer = 0;
+    float x = 0.f;
+    float y = 0.f;
+    float z = 0.f;
+    float interactionRadius = 300.f;
+  };
+  /** Dados do NPC portal (false se não existe ou não é portal). */
+  bool getPortalInfo(uint32_t npcInstanceId, PortalInfo& out) const;
+
 private:
   static const char* kInstanceSelectSql;
-  static std::string zoneWhereClause();
+  std::string zoneWhereClause() const;
+  /** Lê instance_template_id/portal_instance_template_id em query própria (não mexe no SELECT posicional). */
+  void applyInstanceColumnsLocked();
+  bool hasInstanceColumns() const;
   void loadInstanceFromRow(const std::vector<std::string>& row);
+  /** Monta o NPC da linha do SELECT posicional sem tocar em instances_ (moldes de instância). */
+  bool buildInstanceFromRow(const std::vector<std::string>& row, NpcRuntimeInstance& out);
   void loadBoundSkills(NpcRuntimeInstance& inst);
   bool respawnInstance(NpcRuntimeInstance& inst);
   void resetAiState(NpcRuntimeInstance& inst);
@@ -247,6 +297,9 @@ private:
   mutable std::mutex mu_;
   std::vector<NpcRuntimeInstance> instances_;
   std::unordered_map<uint32_t, size_t> indexById_;
+  /** instance_template_id -> NPCs do molde (posição local; nunca entram em instances_). */
+  std::unordered_map<uint32_t, std::vector<NpcRuntimeInstance>> moldesByTemplate_;
+  uint32_t nextCloneId_ = kCloneIdBase;
 };
 
 }  // namespace Zone
