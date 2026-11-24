@@ -653,8 +653,10 @@ Combat::CharacterState CharacterStateLoader::makeNpcDefenderState(const NpcRunti
 
 Combat::CharacterState CharacterStateLoader::makeNpcAttackerState(const NpcRuntimeInstance& inst) {
   Combat::CharacterState s = makeNpcDefenderState(inst);
-  s.baseStats.physicalAttack = inst.physicalAttack;
-  s.baseStats.magicAttack = inst.magicAttack;
+  // Etapa 5b: multiplicador da fase do chefe (já inclui o enrage).
+  const double mult = inst.bossDamageMult > 0.f ? static_cast<double>(inst.bossDamageMult) : 1.0;
+  s.baseStats.physicalAttack = static_cast<int32_t>(std::lround(static_cast<double>(inst.physicalAttack) * mult));
+  s.baseStats.magicAttack = static_cast<int32_t>(std::lround(static_cast<double>(inst.magicAttack) * mult));
   s.baseStats.accuracy = inst.accuracy;
   s.baseStats.criticalChance = inst.critical;
   s.baseStats.doubleAttackRate = inst.doubleAttackRate;

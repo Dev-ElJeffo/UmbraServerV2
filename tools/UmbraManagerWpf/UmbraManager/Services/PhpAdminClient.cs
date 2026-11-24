@@ -450,6 +450,18 @@ public sealed class PhpAdminClient : IDisposable
             dungeon_role = dungeonRole ?? "",
         }, ct);
 
+    // --- Chefes com fases (etapa 5b) ---
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> GetBossConfigAsync(int npcTemplateId, CancellationToken ct = default) =>
+        await PostAsync("/admin/get_boss_config.php",
+            new { admin_username = _adminUsername, npc_template_id = npcTemplateId }, ct);
+
+    public async Task<(bool Ok, string Error, JsonDocument? Data)> SaveBossConfigAsync(object payload, CancellationToken ct = default)
+    {
+        var dict = JsonSerializer.SerializeToElement(payload).Deserialize<Dictionary<string, object>>() ?? new();
+        dict["admin_username"] = _adminUsername;
+        return await PostAsync("/admin/save_boss_config.php", dict, ct);
+    }
+
     // --- Dungeons (etapa 5) ---
     public async Task<(bool Ok, string Error, JsonDocument? Data)> ListDungeonDifficultiesAsync(int instanceTemplateId, CancellationToken ct = default) =>
         await PostAsync("/admin/list_dungeon_difficulties.php",

@@ -19,6 +19,7 @@ add_library(umbra_zone STATIC
   GuildMissionService.cpp
   InstanceManager.cpp
   DungeonService.cpp
+  BossController.cpp
   MovementServer.hpp
   MovementProtocol.hpp
   SpatialGrid.hpp
@@ -37,6 +38,7 @@ add_library(umbra_zone STATIC
   GuildMissionService.hpp
   InstanceManager.hpp
   DungeonService.hpp
+  BossController.hpp
   ExperienceService.hpp
   ExpZoneManager.hpp
 )

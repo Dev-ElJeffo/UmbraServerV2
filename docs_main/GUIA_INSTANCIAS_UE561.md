@@ -222,6 +222,8 @@ Logs esperados na zone:
 | Pawn cai no vazio ao entrar | Sem chão abaixo de entrada.Z + 500 no level | Ajustar a entrada local ou o chão do mapa |
 | Pawn fica travado e volta depois de 20 s | Level não carregou (path errado ou mapa não salvo) | Conferir o soft path `/Game/...Lvl_X.Lvl_X` e o asset salvo |
 | Sol/céu duplicados ou muito claros | Level da instância tem Directional Light/Sky | Remover do level da instância |
+| Skills recusadas "Alvo muito distante" com o alvo do lado; log `teleport distance too high` | Cliente e servidor dessincronizados (antes: queda no vazio enquanto o level carregava) | Corrigido: o 123 espera o level aparecer, a trava de entrada dura 30 s e o servidor corrige o cliente depois de ~1 s de recusas (`Player N dessincronizado: correção autoritativa`) |
+| "Não foi encontrado chão na entrada da instância" | Entrada (local) sem chão abaixo em até 10 s | Ajustar a entrada no Manager ou o chão/landscape do level |
 | NPC do molde aparece no mundo aberto | Vínculo salvo sem reload | **Salvar vínculo** de novo (manda `reload_npc_instances`) ou reiniciar a zone |
 | Cópias se enxergando | Espaçamento menor que o level + 30 000 | Aumentar o espaçamento no molde |
 | `tabela instance_templates ausente` no log | SQL não aplicado | Rodar `create_instances.sql` e reiniciar a zone |

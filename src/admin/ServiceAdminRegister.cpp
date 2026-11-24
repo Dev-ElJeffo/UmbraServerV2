@@ -381,6 +381,24 @@ void registerZoneCommands(CommandRegistry& registry, Zone::ZoneServer& server) {
     return d;
   });
 
+  // Chefes com fases (etapa 5b): configs, fases, skills e adds. Chefes já em combate seguem a config nova
+  // na próxima troca de fase.
+  registry.registerCommand("reload_boss_configs", [&server](const nlohmann::json&) {
+    nlohmann::json d;
+    auto* boss = server.getBossController();
+    if (boss) {
+      d["bosses"] = boss->reload();
+      d["ok"] = true;
+      d["reloaded"] = true;
+    } else {
+      d["ok"] = false;
+      d["reloaded"] = false;
+      d["message"] = "BossController indisponível";
+    }
+    d["zone_id"] = server.getConfig().zoneId;
+    return d;
+  });
+
   registry.registerCommand("list_instances", [&server](const nlohmann::json&) {
     nlohmann::json d;
     auto* instances = server.getInstanceManager();

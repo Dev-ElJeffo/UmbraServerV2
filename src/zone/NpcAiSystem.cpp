@@ -6,6 +6,7 @@
 #include "core/Logger.hpp"
 #include "core/Timer.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <random>
@@ -144,7 +145,11 @@ void NpcAiSystem::tick(float deltaSeconds) {
     const bool npcCanMove = !combat_ || combat_->canNpcMove(inst);
     const bool npcCanAct = !combat_ || combat_->canNpcAct(inst, false);
     const float speedMultiplier =
-        combat_ ? combat_->getNpcMovementSpeedPercent(inst) / 100.f : 1.f;
+        (combat_ ? combat_->getNpcMovementSpeedPercent(inst) / 100.f : 1.f) *
+        std::clamp(inst.bossSpeedMult, 0.2f, 5.f);  // etapa 5b: fase do chefe
+    // Etapa 5b: intervalo de ataque da fase do chefe (< 1 = mais rápido).
+    const auto attackCd = std::chrono::milliseconds(static_cast<int64_t>(
+        static_cast<float>(inst.attackCooldownMs) * std::clamp(inst.bossAttackCooldownMult, 0.2f, 5.f)));
     // --- Aggro por proximidade ---
     if (inst.isHostile && inst.aggroRadius > 0.f &&
         (inst.aiState == NpcAiState::Idle || inst.aiState == NpcAiState::Wander)) {
@@ -232,7 +237,7 @@ void NpcAiSystem::tick(float deltaSeconds) {
             inst.yaw = yawFromDir(dx, dy);
           }
           const auto readyAt =
-              inst.lastAttackAt + std::chrono::milliseconds(inst.attackCooldownMs);
+              inst.lastAttackAt + attackCd;
           // Só enfileira basic/skills e consome CD se já estiver no reach de hit.
           if (npcCanAct && now >= readyAt && toPlayer2d <= meleeReach) {
             const uint32_t skillId = pickBoundSkillId(inst, toPlayer2d, true, now);
@@ -261,7 +266,7 @@ void NpcAiSystem::tick(float deltaSeconds) {
             inst.yaw = yawFromDir(tx - inst.x, ty - inst.y);
           }
           if (npcCanAct &&
-              now >= inst.lastAttackAt + std::chrono::milliseconds(inst.attackCooldownMs)) {
+              now >= inst.lastAttackAt + attackCd) {
             const uint32_t skillId = pickBoundSkillId(inst, toPlayer2d, false, now);
             if (skillId > 0) {
               attackQueue.push_back({inst.npcInstanceId, skillId});

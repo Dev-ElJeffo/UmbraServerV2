@@ -157,6 +157,12 @@ public:
   void enqueueRemoveInstanceNpcs(uint32_t instanceId);
   /** O player trocou de camada: despawn dos NPCs da antiga e snapshot da nova, só para ele (no worker). */
   void enqueueNpcLayerSwitch(uint32_t playerId, uint32_t oldLayer, uint32_t newLayer);
+  /** Etapa 5b: tarefa serializada no combat worker (mudança estrutural de NPCs, fases de chefe). */
+  void enqueueWorldOp(std::function<void()> op);
+  /** Etapa 5b: chefes com fases (dano/morte de NPC e snapshot do 140). */
+  void setBossController(class BossController* boss) { bossController_ = boss; }
+  /** Etapa 5b: chefe reiniciou (wipe/leash) → remove DOTs e debuffs dos jogadores nele e avisa os clientes. */
+  void clearNpcHostileEffects(uint32_t npcInstanceId);
   /** Recarrega os NPCs dos moldes (reload_instances). */
   size_t reloadInstanceMoldes();
   /** Dados do NPC portal (false se não for portal). */
@@ -164,6 +170,8 @@ public:
   size_t instanceMoldeNpcCount(uint32_t instanceTemplateId) const;
 
   const NpcManager* getNpcManager() const { return npcManager_.get(); }
+  /** Etapa 5b: BossController muta NPCs (sempre no combat worker ou sob o lock do NpcManager). */
+  NpcManager* getNpcManagerMutable() { return npcManager_.get(); }
   CharacterStateLoader* getCharacterStateLoader() { return stateLoader_.get(); }
   QuestProgressService* getQuestProgressService() { return questProgressService_.get(); }
 
@@ -551,6 +559,7 @@ private:
   std::unordered_set<uint64_t> skillCastInFlight_;
   std::thread combatWorker_;
   std::function<void(uint32_t, uint32_t, uint8_t, uint32_t)> instanceNpcKilledHook_;
+  class BossController* bossController_ = nullptr;
   std::atomic<bool> workerRunning_{false};
 
   // ---- Escrita assíncrona (write-behind) ----

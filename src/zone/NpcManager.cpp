@@ -249,6 +249,104 @@ size_t NpcManager::reloadInstanceMoldes() {
   return total;
 }
 
+bool NpcManager::loadTemplatePrototypeLocked(uint32_t npcTemplateId, NpcRuntimeInstance& out) {
+  auto cached = templatePrototypes_.find(npcTemplateId);
+  if (cached != templatePrototypes_.end()) {
+    out = cached->second;
+    return true;
+  }
+  if (!db_ || !db_->isConnected()) return false;
+  // Mesmo SELECT posicional, mas a partir do template: colunas da instância viram constantes/NULL
+  // (LEFT JOIN que nunca casa). Assim o índice de todas as colunas continua igual.
+  std::string sql = buildNpcInstanceSelectSql(*db_);
+  const std::string instPrefix =
+      "SELECT ni.npc_instance_id, ni.npc_template_id, ni.zone_id, ni.pos_x, ni.pos_y, ni.pos_z, ni.yaw, "
+      "ni.current_health, ni.current_mana, ni.is_dead, "
+      "COALESCE(UNIX_TIMESTAMP(ni.respawn_at), 0) AS respawn_at_unix, ";
+  const std::string tplPrefix =
+      "SELECT 0, nt.npc_template_id, 0, 0, 0, 0, 0, nt.max_health, nt.max_mana, 0, 0 AS respawn_at_unix, ";
+  const std::string instFrom =
+      "FROM npc_instances ni JOIN npc_templates nt ON nt.npc_template_id = ni.npc_template_id ";
+  const std::string tplFrom = "FROM npc_templates nt LEFT JOIN npc_instances ni ON 1 = 0 ";
+  const auto p1 = sql.find(instPrefix);
+  const auto p2 = sql.find(instFrom);
+  if (p1 != 0 || p2 == std::string::npos) {
+    Core::Logger::getInstance().error("[NpcManager] protótipo de template: SELECT base mudou (tpl {})", npcTemplateId);
+    return false;
+  }
+  sql.replace(p2, instFrom.size(), tplFrom);
+  sql.replace(0, instPrefix.size(), tplPrefix);
+  auto rows = db_->executePreparedQuery(sql + "WHERE nt.npc_template_id = ? LIMIT 1", {std::to_string(npcTemplateId)});
+  if (rows.empty()) return false;
+  NpcRuntimeInstance proto;
+  if (!buildInstanceFromRow(rows[0], proto) || proto.templateId != npcTemplateId || proto.maxHealth <= 0) {
+    Core::Logger::getInstance().warn("[NpcManager] protótipo do template {} inválido", npcTemplateId);
+    return false;
+  }
+  templatePrototypes_[npcTemplateId] = proto;
+  out = std::move(proto);
+  return true;
+}
+
+std::vector<uint32_t> NpcManager::spawnTemplateClones(uint32_t npcTemplateId, uint32_t layer, float x, float y,
+                                                      float z, uint32_t count, float radius, uint32_t ownerNpcId,
+                                                      uint32_t aggroPlayerId) {
+  std::vector<uint32_t> ids;
+  if (count == 0 || npcTemplateId == 0) return ids;
+  std::lock_guard<std::mutex> lock(mu_);
+  NpcRuntimeInstance proto;
+  if (!loadTemplatePrototypeLocked(npcTemplateId, proto)) return ids;
+  radius = std::clamp(radius, 50.f, 3000.f);
+  count = std::min<uint32_t>(count, 20);
+  for (uint32_t i = 0; i < count; ++i) {
+    NpcRuntimeInstance c = proto;
+    do {
+      c.npcInstanceId = nextCloneId_++;
+      if (nextCloneId_ < kCloneIdBase) nextCloneId_ = kCloneIdBase;
+    } while (indexById_.count(c.npcInstanceId) > 0);
+    const float ang = 6.2831853f * static_cast<float>(i) / static_cast<float>(count);
+    c.instanceId = layer;
+    c.portalInstanceTemplateId = 0;
+    c.dungeonRole = 4;  // add: não conta na dungeon
+    c.bossOwnerNpcId = ownerNpcId;
+    c.x = c.homeX = x + std::cos(ang) * radius;
+    c.y = c.homeY = y + std::sin(ang) * radius;
+    c.z = c.homeZ = z;
+    c.isDead = false;
+    c.respawnAt = {};
+    c.currentHealth = c.maxHealth;
+    c.currentMana = c.maxMana;
+    resetAiState(c);
+    if (aggroPlayerId > 0 && c.isHostile) {
+      c.targetPlayerId = aggroPlayerId;
+      c.aiState = NpcAiState::Chase;  // já chega lutando
+    }
+    c.lastBroadcastX = c.x;
+    c.lastBroadcastY = c.y;
+    c.lastBroadcastYaw = c.yaw;
+    ids.push_back(c.npcInstanceId);
+    indexById_[c.npcInstanceId] = instances_.size();
+    instances_.push_back(std::move(c));
+  }
+  return ids;
+}
+
+std::vector<uint32_t> NpcManager::removeBossAdds(uint32_t ownerNpcId) {
+  std::vector<uint32_t> removed;
+  if (ownerNpcId == 0) return removed;
+  std::lock_guard<std::mutex> lock(mu_);
+  auto newEnd = std::remove_if(instances_.begin(), instances_.end(), [&](const NpcRuntimeInstance& inst) {
+    if (inst.bossOwnerNpcId != ownerNpcId) return false;
+    removed.push_back(inst.npcInstanceId);
+    return true;
+  });
+  if (removed.empty()) return removed;
+  instances_.erase(newEnd, instances_.end());
+  indexById_.clear();
+  for (size_t i = 0; i < instances_.size(); ++i) indexById_[instances_[i].npcInstanceId] = i;
+  return removed;
+}
+
 size_t NpcManager::moldeNpcCount(uint32_t instanceTemplateId) const {
   std::lock_guard<std::mutex> lock(mu_);
   auto it = moldesByTemplate_.find(instanceTemplateId);
@@ -513,6 +611,7 @@ bool NpcManager::reloadFromDatabase() {
   }
   instances_.clear();
   indexById_.clear();
+  templatePrototypes_.clear();  // etapa 5b: protótipos dos adds relidos sob demanda
 
   const std::string zoneStr = std::to_string(zoneId_);
   auto rows = db_->executePreparedQuery(buildNpcInstanceSelectSql(*db_) + zoneWhereClause(), {zoneStr});
@@ -910,6 +1009,16 @@ bool NpcManager::respawnInstance(NpcRuntimeInstance& inst) {
   inst.y = inst.homeY;
   inst.z = inst.homeZ;
   resetAiState(inst);
+  // Etapa 5b: chefe renasce na fase 1.
+  inst.bossPhase = 0;
+  inst.bossInCombat = false;
+  inst.bossEnraged = false;
+  inst.bossCombatStartedAt = {};
+  inst.invulnerableUntil = {};
+  inst.bossDamageMult = 1.f;
+  inst.bossSpeedMult = 1.f;
+  inst.bossAttackCooldownMult = 1.f;
+  if (inst.bossInitialized) inst.boundSkills = inst.baseBoundSkills;
   inst.lastBroadcastX = inst.x;
   inst.lastBroadcastY = inst.y;
   inst.lastBroadcastYaw = inst.yaw;
@@ -941,6 +1050,8 @@ int32_t NpcManager::applyDamage(uint32_t npcInstanceId, int32_t delta, bool& out
   NpcRuntimeInstance& inst = instances_[it->second];
   if (inst.isDead) return 0;
   if (!inst.isAttackable && delta < 0) return 0;
+  // Etapa 5b: imunidade da transição de fase do chefe.
+  if (delta < 0 && std::chrono::steady_clock::now() < inst.invulnerableUntil) return 0;
 
   const int32_t before = inst.currentHealth;
   inst.currentHealth = std::max(0, std::min(inst.maxHealth, inst.currentHealth + delta));

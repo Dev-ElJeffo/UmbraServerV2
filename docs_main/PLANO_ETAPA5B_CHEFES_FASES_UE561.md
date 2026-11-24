@@ -2,7 +2,7 @@
 
 Aprofunda as dungeons da etapa 5: o chefe muda de comportamento ao perder vida (fases), pode chamar ajudantes (adds), fica furioso se a luta demorar (enrage) e se reinicia se o grupo morrer ou fugir (reset). Tudo é configurado no Manager. O servidor é dono da lógica; o cliente só mostra (barra do chefe, aviso de fase, animação).
 
-Estado em 24/11/2026: **plano para aprovação**. Nada implementado.
+Estado em 24/11/2026: **aprovado e implementado** (falta compilar o UE, montar o WBP_BossBar e o QA). Guia: `GUIA_CHEFES_FASES_UE561.md`. Mudanças em relação ao plano: sem flag de chefe no opcode 100 (a barra nasce do 140) e sem a coluna `adds_count_as_enemies` (adds nunca contam, decisão 5).
 
 ## 1) O que existe hoje (base)
 

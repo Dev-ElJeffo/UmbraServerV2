@@ -456,7 +456,10 @@ public:
         st.instExitY = exitY;
         st.instExitZ = exitZ;
       }
-      armPositionGuardUnlocked(playerId, x, y, z);
+      // Entrando em instância: o cliente só chega à entrada quando o level aparece (pode levar vários
+      // segundos). Trava longa: moves de antes disso são ignorados em vez de aceitos/recusados.
+      armPositionGuardUnlocked(playerId, x, y, z, 0.f, newLayer != 0 ? kInstanceEntryGuardMs : kPositionGuardMs);
+      teleportRejectStreak_.erase(playerId);
       aoiGrid_.updatePlayer(cid, x, y);
       sendToPlayerUnlocked(playerId, encodePlayerPositionCorrection(playerId, x, y, z, yaw, 0));
 
@@ -2084,10 +2087,40 @@ private:
         
         // Verificar teleporte primeiro
         if (dist2 > maxTeleportDist_ * maxTeleportDist_) {
-          Umbra::Core::Logger::getInstance().warn("MoveUpdate from client {} rejected: teleport distance too high (dist={})", 
-                                                  cid, std::sqrt(dist2));
+          // Dessincronia: cliente longe da posição do servidor. Sem isto ficava preso para sempre
+          // (todo move recusado). Depois de kDesyncRejectLimit recusas seguidas, o servidor manda o
+          // cliente de volta à posição autoritativa (dentro de instância: à entrada se a posição
+          // conhecida estiver muito abaixo dela, ex.: caiu no vazio enquanto o level carregava).
+          uint32_t& rejects = teleportRejectStreak_[f.playerId];
+          ++rejects;
+          static Umbra::Core::LogThrottle desyncThrottle(2000);
+          if (desyncThrottle.allow()) {
+            Umbra::Core::Logger::getInstance().warn(
+                "MoveUpdate from client {} rejected: teleport distance too high (dist={}, seguidas={}) (+{} suprimidos)",
+                cid, std::sqrt(dist2), rejects, desyncThrottle.takeSuppressed());
+          }
+          if (rejects >= kDesyncRejectLimit) {
+            rejects = 0;
+            PlayerStateNet& st = it->second;
+            float tx = st.x, ty = st.y, tz = st.z;
+            if (st.instanceId != 0 && st.z < st.instEntryZ - 1500.f) {
+              tx = st.instEntryX;
+              ty = st.instEntryY;
+              tz = st.instEntryZ;
+              st.x = tx;
+              st.y = ty;
+              st.z = tz;
+              aoiGrid_.updatePlayer(cid, tx, ty);
+            }
+            armPositionGuardUnlocked(f.playerId, tx, ty, tz);
+            Umbra::Core::Logger::getInstance().warn(
+                "Player {} dessincronizado: correção autoritativa (123) para ({:.0f},{:.0f},{:.0f})", f.playerId, tx, ty,
+                tz);
+            sendToPlayerUnlocked(f.playerId, encodePlayerPositionCorrection(f.playerId, tx, ty, tz, st.yaw, 0));
+          }
           return;
         }
+        teleportRejectStreak_.erase(f.playerId);
         
         // Calcular velocidade apenas se houver movimento significativo
         if (dist2 > 0.01f) {  // Ignorar movimentos muito pequenos (< 0.1 unidades)
@@ -2300,6 +2333,7 @@ private:
         aoiGrid_.removePlayer(cid);
         players_.erase(playerIt);
         positionGuards_.erase(playerId);
+        teleportRejectStreak_.erase(playerId);
         personalShopOpenByPlayerId_.erase(playerId);
         chatMessageHistoryByPlayer_.erase(playerId);
         cleanup.hasPlayer = true;
@@ -2808,11 +2842,18 @@ private:
   static constexpr float kPositionGuardRadius = 500.0f;
   /** Janela máx. ignorando moves obsoletos (latência + cliente processar o 91/StateUpdate). */
   static constexpr int64_t kPositionGuardMs = 3000;
+  /** Etapa 4: entrada em instância espera o level carregar (cliente tem timeout de 20 s). */
+  static constexpr int64_t kInstanceEntryGuardMs = 30000;
+  /** Recusas seguidas por distância antes da correção autoritativa (~1 s de moves). */
+  static constexpr uint32_t kDesyncRejectLimit = 30;
+  /** playerId → recusas seguidas por "teleport distance too high" (sob mu_). */
+  std::unordered_map<uint32_t, uint32_t> teleportRejectStreak_;
 
   /** Arma a trava de posição (chamar sob mu_). Não mexe em tsMs (relógio do cliente). */
-  void armPositionGuardUnlocked(uint32_t playerId, float x, float y, float z, float radius = 0.f) {
+  void armPositionGuardUnlocked(uint32_t playerId, float x, float y, float z, float radius = 0.f,
+                                int64_t durationMs = kPositionGuardMs) {
     positionGuards_[playerId] =
-        PositionGuard{x, y, z, Umbra::Core::steadyNowMs() + kPositionGuardMs, radius};
+        PositionGuard{x, y, z, Umbra::Core::steadyNowMs() + durationMs, radius};
   }
 
   // ---- Limpeza de disconnect (fase 2) fora do loop/threads de rede ----

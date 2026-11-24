@@ -727,6 +727,126 @@
         <views:NpcLootEditorView/>
     </TabItem>
 
+    <!-- Chefe com fases (etapa 5b; template selecionado) -->
+    <TabItem Header="Chefe">
+        <Grid Margin="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MinWidth="460"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="480"/>
+            </Grid.ColumnDefinitions>
+            <DockPanel Grid.Column="0">
+                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <TextBlock Text="{Binding BossTemplateLabel}" FontWeight="SemiBold" FontSize="15" Margin="0,0,0,6"/>
+                    <WrapPanel>
+                        <CheckBox Content="É chefe (fases, barra, enrage)" IsChecked="{Binding BossIsEnabled}"
+                                  FontWeight="SemiBold" Margin="0,0,16,4" VerticalAlignment="Center"/>
+                        <Button Content="Recarregar" Command="{Binding ReloadBossConfigCommand}" Margin="0,0,8,4"
+                                Style="{StaticResource ManagerActionOutlinedButton}"/>
+                        <Button Content="Salvar chefe" Command="{Binding SaveBossConfigCommand}" Margin="0,0,8,4"
+                                Style="{StaticResource ManagerActionButton}"/>
+                    </WrapPanel>
+                    <UniformGrid Columns="3" Margin="0,6,0,0">
+                        <TextBox Text="{Binding BossEnrageSeconds, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                                 materialDesign:HintAssist.Hint="Enrage após (s, 0 = sem)" materialDesign:HintAssist.IsFloating="True"/>
+                        <TextBox Text="{Binding BossEnrageDamageMult, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,6,0"
+                                 materialDesign:HintAssist.Hint="x Dano no enrage" materialDesign:HintAssist.IsFloating="True"/>
+                        <TextBox Text="{Binding BossEnrageText, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="Aviso do enrage (vazio = padrão)" materialDesign:HintAssist.IsFloating="True"/>
+                    </UniformGrid>
+                    <WrapPanel Margin="0,6,0,0">
+                        <CheckBox Content="Reiniciar ao perder o alvo (vida cheia, fase 1, adds somem)"
+                                  IsChecked="{Binding BossResetOnLeash}" Margin="0,0,16,0"/>
+                        <CheckBox Content="Barra do chefe no topo" IsChecked="{Binding BossShowBar}"/>
+                    </WrapPanel>
+                </StackPanel>
+                <WrapPanel DockPanel.Dock="Top" Margin="0,4,0,4">
+                    <TextBlock Text="Fases" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                    <Button Content="+ Fase" Command="{Binding AddBossPhaseCommand}" Margin="0,0,8,0"
+                            Style="{StaticResource ManagerActionOutlinedButton}"/>
+                    <Button Content="Remover fase" Command="{Binding RemoveBossPhaseCommand}"
+                            Style="{StaticResource ManagerActionOutlinedButton}"/>
+                </WrapPanel>
+                <TextBlock DockPanel.Dock="Bottom" FontSize="11" Opacity="0.65" TextWrapping="Wrap" Margin="0,8,0,0"
+                           Text="Fase 1 vale do início (100%). Cada fase seguinte entra quando a vida fica ≤ o limiar (limiares decrescentes). Golpe que pula fases aplica todas de uma vez. Animação e VFX: soft path /Game/.../Asset.Asset. Adds só nascem dentro de instância e não contam para a dungeon."/>
+                <DataGrid ItemsSource="{Binding BossPhases}" SelectedItem="{Binding SelectedBossPhase}"
+                          AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="#" Binding="{Binding PhaseOrder}" Width="30" IsReadOnly="True"/>
+                        <DataGridTextColumn Header="Nome" Binding="{Binding Name}" Width="*"/>
+                        <DataGridTextColumn Header="Vida ≤ %" Binding="{Binding HpThresholdPct}" Width="60"/>
+                        <DataGridTextColumn Header="x Dano" Binding="{Binding DamageMult}" Width="55"/>
+                        <DataGridTextColumn Header="x Veloc." Binding="{Binding SpeedMult}" Width="55"/>
+                        <DataGridTextColumn Header="x Interv." Binding="{Binding AttackCooldownMult}" Width="60"/>
+                        <DataGridTextColumn Header="Imune ms" Binding="{Binding InvulnerableMs}" Width="65"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" Background="Transparent"
+                          ShowsPreview="True" ResizeBehavior="PreviousAndNext"/>
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="8,0,0,12" DataContext="{Binding SelectedBossPhase}">
+                    <TextBlock Text="{Binding Name, StringFormat=Fase selecionada: {0}}" FontWeight="SemiBold" FontSize="15" Margin="0,0,0,8"/>
+                    <TextBox Text="{Binding AnnounceText, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                             materialDesign:HintAssist.Hint="Fala ao entrar na fase" materialDesign:HintAssist.IsFloating="True"/>
+                    <TextBox Text="{Binding TransitionAnimPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                             materialDesign:HintAssist.Hint="Animação de transição (/Game/...Montage.Montage)" materialDesign:HintAssist.IsFloating="True"/>
+                    <TextBox Text="{Binding TransitionVfxPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,10"
+                             materialDesign:HintAssist.Hint="VFX de transição (/Game/...NS.NS)" materialDesign:HintAssist.IsFloating="True"/>
+
+                    <DockPanel Margin="0,0,0,4">
+                        <TextBlock Text="Skills da fase (vazio = skills do template)" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Button Content="+ Skill" HorizontalAlignment="Right" Style="{StaticResource ManagerActionOutlinedButton}"
+                                Command="{Binding DataContext.AddBossPhaseSkillCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                    </DockPanel>
+                    <DataGrid ItemsSource="{Binding Skills}" AutoGenerateColumns="False" CanUserAddRows="False"
+                              HeadersVisibility="Column" MaxHeight="200" Margin="0,0,0,10">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Skill ID" Binding="{Binding NpcSkillId}" Width="60"/>
+                            <DataGridTextColumn Header="Nome" Binding="{Binding SkillName}" Width="*" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Rank" Binding="{Binding SkillRank}" Width="45"/>
+                            <DataGridTextColumn Header="Peso" Binding="{Binding Weight}" Width="50"/>
+                            <DataGridTextColumn Header="CD ms" Binding="{Binding CooldownOverrideMs}" Width="60"/>
+                            <DataGridTemplateColumn Width="30">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="✕" Padding="2,0" ToolTip="Remover"
+                                                Command="{Binding DataContext.RemoveBossPhaseSkillCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <DockPanel Margin="0,0,0,4">
+                        <TextBlock Text="Adds ao entrar na fase" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Button Content="+ Add" HorizontalAlignment="Right" Style="{StaticResource ManagerActionOutlinedButton}"
+                                Command="{Binding DataContext.AddBossPhaseAddCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                    </DockPanel>
+                    <DataGrid ItemsSource="{Binding Adds}" AutoGenerateColumns="False" CanUserAddRows="False"
+                              HeadersVisibility="Column" MaxHeight="200">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Template" Binding="{Binding NpcTemplateId}" Width="65"/>
+                            <DataGridTextColumn Header="Nome" Binding="{Binding NpcName}" Width="*" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Qtd" Binding="{Binding Count}" Width="40"/>
+                            <DataGridTextColumn Header="Raio" Binding="{Binding Radius}" Width="55"/>
+                            <DataGridTemplateColumn Width="30">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="✕" Padding="2,0" ToolTip="Remover"
+                                                Command="{Binding DataContext.RemoveBossPhaseAddCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </TabItem>
+
     <!-- Vendor (venda) -->
     <TabItem Header="Vendor (venda)">
         <Grid Margin="8">

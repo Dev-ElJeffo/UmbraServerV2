@@ -714,6 +714,7 @@ void InstanceManager::onInstanceNpcKilled(uint32_t instanceId, uint32_t npcInsta
   auto tplIt = templates_.find(inst.templateId);
   if (tplIt == templates_.end() || !tplIt->second.isDungeon || inst.completed) return;
   const InstanceTemplateDef& tpl = tplIt->second;
+  if (dungeonRole == 4) return;  // etapa 5b: adds do chefe não contam (fora do total do molde)
 
   ++inst.enemiesKilled;
   if (dungeonRole >= 2) ++inst.bossesKilled;

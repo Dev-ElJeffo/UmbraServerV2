@@ -3,6 +3,7 @@
 #include "zone/MovementServer.hpp"
 #include "zone/CombatRange.hpp"
 #include "zone/QuestProgressService.hpp"
+#include "zone/BossController.hpp"
 #include "core/Timer.hpp"
 #include "SkillTypes.hpp"
 #include "StatKeyMapping.hpp"
@@ -2412,6 +2413,15 @@ void CombatCoreEngine::applySkillEffects(uint32_t sourcePlayerId, uint8_t target
       }
       const uint32_t buffPlayerId = casterResistBuff ? sourcePlayerId : effectPlayerId;
       if (buffPlayerId == 0) continue;
+      // Alvo já morto (ex.: golpe que mata e atordoa): não aplica CC/buff, senão o fim
+      // do CC no cliente devolve o movimento ao pawn morto.
+      if (buffPlayerId == effectPlayerId && stateLoader_) {
+        Combat::CharacterState deadCheck;
+        if (stateLoader_->tryGetCachedState(buffPlayerId, deadCheck) &&
+            deadCheck.buffedStats.currentHealth <= 0) {
+          continue;
+        }
+      }
       const uint64_t buffId =
           applyPlayerBuffInMemory(buffPlayerId, sourcePlayerId, skill.skillId, appliedEff, skill,
                                   buffTypeCode);
@@ -2864,6 +2874,60 @@ void CombatCoreEngine::tickNpcBuffExpirations() {
   }
 }
 
+void CombatCoreEngine::clearNpcHostileEffects(uint32_t npcInstanceId) {
+  if (npcInstanceId == 0) return;
+  std::vector<SkillBuffSyncPayload> removed;
+  {
+    std::lock_guard<std::mutex> lock(npcDotsMu_);
+    npcDots_.erase(std::remove_if(npcDots_.begin(), npcDots_.end(),
+                                  [&](const NpcDotInstance& i) {
+                                    if (i.npcInstanceId != npcInstanceId) return false;
+                                    if (i.dotBuffId != 0) {
+                                      SkillBuffSyncPayload sync;
+                                      sync.action = 1;
+                                      sync.targetType = 1;
+                                      sync.targetPlayerId = npcInstanceId;
+                                      sync.buffId = i.dotBuffId;
+                                      sync.skillId = i.skillId;
+                                      sync.buffType = static_cast<uint8_t>(
+                                          i.tickValue >= 0 ? Combat::BuffType::HOT : Combat::BuffType::DOT);
+                                      removed.push_back(std::move(sync));
+                                    }
+                                    return true;
+                                  }),
+                   npcDots_.end());
+  }
+  {
+    std::lock_guard<std::mutex> lock(npcBuffsMu_);
+    npcBuffs_.erase(std::remove_if(npcBuffs_.begin(), npcBuffs_.end(),
+                                   [&](const NpcBuffInstance& b) {
+                                     if (b.npcInstanceId != npcInstanceId ||
+                                         b.buffType != static_cast<uint8_t>(Combat::BuffType::DEBUFF)) {
+                                       return false;
+                                     }
+                                     SkillBuffSyncPayload sync;
+                                     sync.action = 1;
+                                     sync.targetType = 1;
+                                     sync.targetPlayerId = npcInstanceId;
+                                     sync.buffId = b.buffId;
+                                     sync.skillId = b.skillId;
+                                     sync.buffType = b.buffType;
+                                     removed.push_back(std::move(sync));
+                                     return true;
+                                   }),
+                    npcBuffs_.end());
+  }
+  for (auto& sync : removed) {
+    enrichSkillBuffSyncPayload(sync);
+    broadcastSkillBuffSync(sync);
+  }
+  if (!removed.empty()) {
+    broadcastCombatControlState(1, npcInstanceId);  // CC removido: NPC volta a agir
+    Core::Logger::getInstance().info("[CombatCoreEngine] NPC {}: {} efeito(s) hostil(is) removido(s) no reset",
+                                     npcInstanceId, removed.size());
+  }
+}
+
 void CombatCoreEngine::tickSummonExpirations() {
   const auto now = std::chrono::steady_clock::now();
   std::vector<uint32_t> expired;
@@ -3040,6 +3104,14 @@ void CombatCoreEngine::enqueueRemoveInstanceNpcs(uint32_t instanceId) {
   enqueueJob(std::move(job));
 }
 
+void CombatCoreEngine::enqueueWorldOp(std::function<void()> op) {
+  if (!op) return;
+  CombatJob job;
+  job.kind = CombatJobKind::WorldOp;
+  job.worldOp = std::move(op);
+  enqueueJob(std::move(job));
+}
+
 void CombatCoreEngine::enqueueNpcLayerSwitch(uint32_t playerId, uint32_t oldLayer, uint32_t newLayer) {
   CombatJob job;
   job.kind = CombatJobKind::WorldOp;
@@ -3061,6 +3133,7 @@ void CombatCoreEngine::enqueueNpcLayerSwitch(uint32_t playerId, uint32_t oldLaye
         ++spawned;
       }
     }
+    if (bossController_) bossController_->sendSnapshotToClient(cid, newLayer);  // etapa 5b: chefes em combate
     Core::Logger::getInstance().info("[CombatCoreEngine] player {} camada {}→{}: despawn={} spawn={}", playerId,
                                      oldLayer, newLayer, despawned, spawned);
   };
@@ -3109,6 +3182,8 @@ void CombatCoreEngine::handleNpcDamageResult(uint32_t npcInstanceId, int32_t app
         }
       }
     }
+    // Etapa 5b: chefe morreu → esconde a barra e remove os adds dele.
+    if (bossController_) bossController_->onNpcDied(npcInstanceId);
     {
       std::lock_guard<std::mutex> lock(npcBuffsMu_);
       npcBuffs_.erase(std::remove_if(npcBuffs_.begin(), npcBuffs_.end(),
@@ -3149,6 +3224,8 @@ void CombatCoreEngine::handleNpcDamageResult(uint32_t npcInstanceId, int32_t app
   if (const NpcRuntimeInstance* inst = npcManager_->findInstance(npcInstanceId)) {
     broadcastNpcState(npcManager_->toStatePayload(*inst), inst->instanceId);
   }
+  // Etapa 5b: troca de fase do chefe (enfileirada no combat worker).
+  if (bossController_ && applied < 0) bossController_->onNpcDamaged(npcInstanceId, killerPlayerId);
 }
 
 void CombatCoreEngine::sendNpcSnapshotToClient(uint32_t clientId) {
@@ -3165,6 +3242,7 @@ void CombatCoreEngine::sendNpcSnapshotToClient(uint32_t clientId) {
     movementServer_->sendBinaryToClient(clientId, encodeNpcSpawnNotify(npcManager_->toSpawnPayload(inst)));
     ++sent;
   }
+  if (bossController_) bossController_->sendSnapshotToClient(clientId, layer);  // etapa 5b
   Core::Logger::getInstance().info(
       "[CombatCoreEngine] NpcSnapshot client={} sent={} skippedDead={}", clientId, sent,
       skippedDead);

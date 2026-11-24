@@ -128,6 +128,7 @@ enum class MovementMsgType : uint8_t {
 	InstanceLobbyState = 137,            // Servidor -> membros da sala: sala aberta/atualizada/fechada (ver encodeInstanceLobbyState)
 	DungeonProgress = 138,               // Servidor -> membros da cópia: chefes/inimigos mortos e estado da run (etapa 5)
 	DungeonCompleted = 139,              // Servidor -> cada membro: recompensas da conclusão (etapa 5)
+	BossState = 140,                     // Servidor -> camada do chefe: fase, enrage, imunidade, aviso (etapa 5b)
 	WsKeepalive = 250                      // Servidor -> Cliente: heartbeat (1 byte); cliente ignora
 };
 
@@ -4171,6 +4172,86 @@ inline bool decodeInstanceState(const std::vector<uint8_t>& data, InstanceStateP
 
 inline std::vector<uint8_t> encodeInstanceLeaveRequest() {
   return {static_cast<uint8_t>(MovementMsgType::InstanceLeaveRequest)};
+}
+
+// ===================== Chefes com fases (etapa 5b, opcode 140) =====================
+
+/** flags do 140. */
+constexpr uint8_t kBossFlagEnraged = 0x01;
+constexpr uint8_t kBossFlagInvulnerable = 0x02;
+constexpr uint8_t kBossFlagInCombat = 0x04;
+constexpr uint8_t kBossFlagShowBar = 0x08;
+
+struct BossStatePayload {
+  uint32_t npcId = 0;
+  /** 1-based (fase 1 = 1). */
+  uint8_t phase = 1;
+  uint8_t phaseCount = 1;
+  uint8_t flags = 0;
+  /** Segundos até o enrage (0 = sem enrage ou já enfurecido). */
+  uint16_t enrageInSeconds = 0;
+  uint16_t invulnerableMs = 0;
+  std::string phaseName;
+  /** Fala/aviso desta mudança (vazio = só atualização). */
+  std::string announce;
+  /** Soft path da animação de transição (vazio = nenhuma). */
+  std::string animPath;
+  std::string vfxPath;
+  /** Limiares (% de vida) das fases 2..N, para as marcas da barra. */
+  std::vector<uint8_t> thresholds;
+};
+
+// [140][npcId:4][phase:1][phaseCount:1][flags:1][enrageIn:2][invulnMs:2][phaseName:u16+utf8<=64]
+// [announce:u16+utf8<=200][animPath:u16+utf8<=255][vfxPath:u16+utf8<=255][n:1]{pct:1}
+inline std::vector<uint8_t> encodeBossState(const BossStatePayload& p) {
+  std::vector<uint8_t> data;
+  data.reserve(32 + p.phaseName.size() + p.announce.size() + p.animPath.size() + p.vfxPath.size());
+  auto u16 = [&data](uint16_t v) {
+    data.push_back(static_cast<uint8_t>(v & 0xFF));
+    data.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  };
+  data.push_back(static_cast<uint8_t>(MovementMsgType::BossState));
+  appendLootU32(data, p.npcId);
+  data.push_back(p.phase);
+  data.push_back(p.phaseCount);
+  data.push_back(p.flags);
+  u16(p.enrageInSeconds);
+  u16(p.invulnerableMs);
+  appendStringField(data, p.phaseName, 64);
+  appendStringField(data, p.announce, 200);
+  appendStringField(data, p.animPath, 255);
+  appendStringField(data, p.vfxPath, 255);
+  const size_t n = p.thresholds.size() > 16 ? 16 : p.thresholds.size();
+  data.push_back(static_cast<uint8_t>(n));
+  for (size_t i = 0; i < n; ++i) data.push_back(p.thresholds[i]);
+  return data;
+}
+
+inline bool decodeBossState(const std::vector<uint8_t>& data, BossStatePayload& p) {
+  constexpr size_t kFixed = 1 + 4 + 1 + 1 + 1 + 2 + 2;
+  if (data.size() < kFixed || data[0] != static_cast<uint8_t>(MovementMsgType::BossState)) return false;
+  size_t off = 1;
+  auto u16 = [&data, &off]() {
+    const uint16_t v = static_cast<uint16_t>(data[off]) | static_cast<uint16_t>(data[off + 1] << 8);
+    off += 2;
+    return v;
+  };
+  p.npcId = readLootU32(data, off);
+  p.phase = data[off++];
+  p.phaseCount = data[off++];
+  p.flags = data[off++];
+  p.enrageInSeconds = u16();
+  p.invulnerableMs = u16();
+  if (!readStringField(data, off, p.phaseName, 64)) return false;
+  if (!readStringField(data, off, p.announce, 200)) return false;
+  if (!readStringField(data, off, p.animPath, 255)) return false;
+  if (!readStringField(data, off, p.vfxPath, 255)) return false;
+  p.thresholds.clear();
+  if (off < data.size()) {
+    const uint8_t n = data[off++];
+    for (uint8_t i = 0; i < n && off < data.size(); ++i) p.thresholds.push_back(data[off++]);
+  }
+  return true;
 }
 
 } // namespace Zone

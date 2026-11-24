@@ -289,6 +289,12 @@ bool ZoneServer::start() {
                                                          combatCoreEngine_->getQuestProgressService());
       dungeonService_->start();
       instanceManager_->setDungeonService(dungeonService_.get());
+      // Chefes com fases (etapa 5b, opcode 140).
+      bossController_ = std::make_unique<BossController>(config_.dbConnector,
+                                                         combatCoreEngine_->getNpcManagerMutable(),
+                                                         movementServer_.get(), combatCoreEngine_.get());
+      bossController_->reload();
+      combatCoreEngine_->setBossController(bossController_.get());
       combatCoreEngine_->setInstanceNpcKilledHook(
           [im = instanceManager_.get()](uint32_t instanceId, uint32_t npcId, uint8_t role, uint32_t killer) {
             im->onInstanceNpcKilled(instanceId, npcId, role, killer);
@@ -401,6 +407,9 @@ void ZoneServer::update(float deltaTime) {
     }
     if (instanceManager_) {
       instanceManager_->tick();
+    }
+    if (bossController_) {
+      bossController_->tick();  // enrage, entrada em combate e reset (no combat worker)
     }
     tExp = Core::steadyNowMs() - a;
     expZoneTickAccumulator_ = 0.0f;

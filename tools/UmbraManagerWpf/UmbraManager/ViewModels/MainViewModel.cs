@@ -190,6 +190,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
         LoadNpcTemplateFromRow(value);
+        QueueBossConfigLoad(value);  // etapa 5b: sub-aba Chefe
         SelectedLootNpcTemplateId = value.Id;
         SelectedLootNpcTemplateName = value.Name;
         OnPropertyChanged(nameof(LootTargetLabel));

@@ -30,8 +30,25 @@ struct NpcRuntimeInstance {
   uint32_t instanceId = 0;
   /** npc_instances.portal_instance_template_id: NPC portal que leva à instância (0 = não é portal). */
   uint32_t portalInstanceTemplateId = 0;
-  /** Etapa 5: npc_instances.dungeon_role (0 = comum, 1 = trash, 2 = chefe, 3 = chefe final). */
+  /** Etapa 5: npc_instances.dungeon_role (0 = comum, 1 = trash, 2 = chefe, 3 = chefe final, 4 = add). */
   uint8_t dungeonRole = 0;
+
+  // ---- Chefe com fases (etapa 5b; BossController; estado só em memória) ----
+  /** O BossController já guardou as skills base (template tem npc_boss_configs). */
+  bool bossInitialized = false;
+  /** Índice da fase atual (0 = fase 1). */
+  uint8_t bossPhase = 0;
+  bool bossInCombat = false;
+  bool bossEnraged = false;
+  std::chrono::steady_clock::time_point bossCombatStartedAt{};
+  /** Dano recebido é ignorado até aqui (imunidade da transição de fase). */
+  std::chrono::steady_clock::time_point invulnerableUntil{};
+  /** Multiplicadores da fase (e do enrage, em damageMult). */
+  float bossDamageMult = 1.f;
+  float bossSpeedMult = 1.f;
+  float bossAttackCooldownMult = 1.f;
+  /** Add chamado por um chefe (despawn no reset do dono). */
+  uint32_t bossOwnerNpcId = 0;
   float x = 0.f;
   float y = 0.f;
   float z = 0.f;
@@ -146,6 +163,8 @@ struct NpcRuntimeInstance {
     std::chrono::steady_clock::time_point lastUsedAt{};
   };
   std::vector<NpcBoundSkill> boundSkills;
+  /** Etapa 5b: skills do template (as fases trocam boundSkills e voltam para estas no reset). */
+  std::vector<NpcBoundSkill> baseBoundSkills;
   std::chrono::steady_clock::time_point lastBroadcastAt{};
   float lastBroadcastX = 0.f;
   float lastBroadcastY = 0.f;
@@ -265,6 +284,16 @@ public:
   /** Camada do NPC (0 se mundo aberto ou não encontrado). */
   uint32_t layerOf(uint32_t npcInstanceId) const;
 
+  // ---- Etapa 5b (chefes com fases). Mudanças estruturais: chamar no combat worker. ----
+  /**
+   * Clona `count` NPCs do template em volta de (x, y, z) na camada (adds do chefe). Usa um protótipo do
+   * template lido do DB (cache). Retorna os IDs novos (vazio se o template não existe).
+   */
+  std::vector<uint32_t> spawnTemplateClones(uint32_t npcTemplateId, uint32_t layer, float x, float y, float z,
+                                            uint32_t count, float radius, uint32_t ownerNpcId, uint32_t aggroPlayerId);
+  /** Remove os adds de um chefe. Retorna os IDs removidos. */
+  std::vector<uint32_t> removeBossAdds(uint32_t ownerNpcId);
+
   struct PortalInfo {
     uint32_t instanceTemplateId = 0;
     uint32_t layer = 0;
@@ -297,6 +326,10 @@ private:
   mutable std::mutex mu_;
   std::vector<NpcRuntimeInstance> instances_;
   std::unordered_map<uint32_t, size_t> indexById_;
+  /** Etapa 5b: protótipo por template (adds), lido do DB sob demanda. */
+  bool loadTemplatePrototypeLocked(uint32_t npcTemplateId, NpcRuntimeInstance& out);
+  std::unordered_map<uint32_t, NpcRuntimeInstance> templatePrototypes_;
+
   /** instance_template_id -> NPCs do molde (posição local; nunca entram em instances_). */
   std::unordered_map<uint32_t, std::vector<NpcRuntimeInstance>> moldesByTemplate_;
   uint32_t nextCloneId_ = kCloneIdBase;
