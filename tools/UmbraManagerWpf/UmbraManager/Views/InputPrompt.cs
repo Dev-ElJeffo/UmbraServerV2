@@ -12,13 +12,17 @@ public static class InputPrompt
         {
             Title = title,
             Width = 420,
-            Height = 200,
+            // Altura pelo conteúdo (antes 200 fixos cortavam o campo com contorno)
+            SizeToContent = SizeToContent.Height,
+            FontFamily = Application.Current?.TryFindResource("Umbra.Font") as System.Windows.Media.FontFamily
+                         ?? new System.Windows.Media.FontFamily("Segoe UI"),
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize,
             Owner = Application.Current?.MainWindow,
             Background = Application.Current?.TryFindResource("MaterialDesign.Brush.Background") as System.Windows.Media.Brush
         };
-        var panel = new StackPanel { Margin = new Thickness(16) };
+        Helpers.DarkTitleBar.Attach(w);
+        var panel = new StackPanel { Margin = new Thickness(20) };
         panel.Children.Add(new TextBlock
         {
             Text = prompt,

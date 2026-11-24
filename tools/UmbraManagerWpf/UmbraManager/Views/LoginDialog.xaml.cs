@@ -15,6 +15,7 @@ public partial class LoginDialog : Window
     public LoginDialog()
     {
         InitializeComponent();
+        Helpers.DarkTitleBar.Attach(this);
         UsernameBox.Focus();
     }
 

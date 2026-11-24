@@ -19,7 +19,11 @@ public partial class MainViewModel
     public ObservableCollection<SkillEffectEditorRow> SelectedRankEffects { get; } = new();
     public IReadOnlyList<string> CanonicalItemStats => SchemaCatalogService.CanonicalItemStats;
 
-    [ObservableProperty] private int _selectedNavIndex;
+    /// <summary>Tela atual (chave da rota = Tag do TabItem em MainWindow.xaml).</summary>
+    [ObservableProperty] private string _selectedNavKey = "dashboard";
+    [ObservableProperty] private string _currentPageTitle = "Dashboard";
+    [ObservableProperty] private string _currentPageGroup = "Visão geral";
+    [ObservableProperty] private string _currentPageIcon = "ViewDashboard";
     [ObservableProperty] private bool _isNavCollapsed;
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private string _busyText = "";
@@ -32,59 +36,147 @@ public partial class MainViewModel
     [ObservableProperty] private string _ueReloadHint = "Itens e classes no cliente UE exigem relogin ou recarregar o mapa para refletir o cache.";
 
     private string _editorSnapshot = "";
-    public double NavWidth => IsNavCollapsed ? 56 : 220;
+    public double NavWidth => IsNavCollapsed ? 64 : 236;
     [RelayCommand] private void ToggleNav() => IsNavCollapsed = !IsNavCollapsed;
     public string CurrentUserLabel =>
         $"{AppConfig.Instance.AdminUsername} ({AppConfig.Instance.AdminRole})";
+    public string CurrentUserName => AppConfig.Instance.AdminUsername ?? "";
+    public string CurrentUserRole => AppConfig.Instance.AdminRole ?? "";
+    public string AppVersion =>
+        "v" + (typeof(MainViewModel).Assembly.GetName().Version?.ToString(3) ?? "1.0.0");
 
     public bool IsEditorDirty => CaptureEditorSnapshot() != _editorSnapshot;
 
     partial void OnIsNavCollapsedChanged(bool value) => OnPropertyChanged(nameof(NavWidth));
-    partial void OnSelectedNavIndexChanged(int value)
+
+    /// <summary>Avisos rápidos no canto (snackbar). Erros continuam em MessageBox.</summary>
+    public MaterialDesignThemes.Wpf.SnackbarMessageQueue Toasts { get; } = new(TimeSpan.FromSeconds(3));
+
+    private static readonly string[] ToastWords =
+        { "salv", "criad", "removid", "excluíd", "recarregad", "atualizad", "enviad", "aplicad" };
+
+    /// <summary>Mensagens de sucesso na barra de status também viram toast (sem mexer em cada tela).</summary>
+    partial void OnStatusTextChanged(string value)
     {
-            var route = NavRoutes.FirstOrDefault(r => r.TabIndex == value);
-            if (route != null)
-                Breadcrumb = $"{route.Group} / {route.Title}";
+        if (string.IsNullOrWhiteSpace(value)) return;
+        var lower = value.ToLowerInvariant();
+        if (lower.StartsWith("falha") || lower.StartsWith("erro")) return;
+        if (ToastWords.Any(w => lower.Contains(w))) Toasts.Enqueue(value);
+    }
+
+    partial void OnSelectedNavKeyChanged(string value)
+    {
+        var route = NavRoutes.FirstOrDefault(r => r.Key == value);
+        if (route == null) return;
+        Breadcrumb = $"{route.Group} / {route.Title}";
+        CurrentPageTitle = route.Title;
+        CurrentPageGroup = route.Group;
+        CurrentPageIcon = route.Icon;
+    }
+
+    /// <summary>Busca do menu: filtra as telas pelo título, grupo ou palavras-chave.</summary>
+    partial void OnGlobalSearchChanged(string value) => ApplyNavVisibility();
+
+    /// <summary>Enter na busca: abre a primeira tela visível.</summary>
+    [RelayCommand]
+    private void OpenFirstSearchResult()
+    {
+        var first = NavRoutes.FirstOrDefault(r => r.Visibility == Visibility.Visible);
+        if (first == null) return;
+        NavigateTo(first.Key);
+        GlobalSearch = "";
+    }
+
+    /// <summary>Abre a tela pela chave da rota (não depende da ordem das abas).</summary>
+    public void NavigateTo(string key)
+    {
+        var route = NavRoutes.FirstOrDefault(r => r.Key == key);
+        if (route != null && route.RoleAllowed) SelectedNavKey = route.Key;
+    }
+
+    [RelayCommand]
+    private void Navigate(string? key)
+    {
+        if (!string.IsNullOrEmpty(key)) NavigateTo(key);
+    }
+
+    // Atalhos: F5 atualiza e Ctrl+S salva a tela atual (comandos já existentes de cada tela).
+    private static readonly Dictionary<string, string> RefreshCommandByPage = new()
+    {
+        ["accounts"] = "RefreshAccountsCommand", ["items"] = "RefreshItemsCommand",
+        ["crafting"] = "RefreshCraftRecipesCommand", ["enchants"] = "RefreshEnchantConfigCommand",
+        ["skills"] = "RefreshSkillsCommand", ["mobskills"] = "RefreshNpcSkillsCommand",
+        ["classes"] = "RefreshGameClassesCommand", ["appearance"] = "RefreshAppearancePartsCommand",
+        ["progression"] = "RefreshProgressionCommand", ["npcs"] = "RefreshNpcTemplatesCommand",
+        ["rates"] = "RefreshGameRatesCommand", ["companions"] = "RefreshCompanionTemplatesCommand",
+        ["guildmissions"] = "RefreshGuildMissionTemplatesCommand", ["instances"] = "RefreshInstanceTemplatesCommand",
+        ["formulas"] = "RefreshCombatFormulasCommand", ["pvp"] = "RefreshPvpSettingsCommand",
+    };
+    private static readonly Dictionary<string, string> SaveCommandByPage = new()
+    {
+        ["crafting"] = "SaveCraftRecipeCommand", ["enchants"] = "SaveEnchantConfigCommand",
+        ["skills"] = "SaveSkillCommand", ["mobskills"] = "SaveNpcSkillCommand",
+        ["classes"] = "SaveGameClassCommand", ["appearance"] = "SaveAppearancePartCommand",
+        ["progression"] = "SaveProgressionCommand", ["rates"] = "SaveGameRatesCommand",
+        ["companions"] = "SaveCompanionTemplateCommand", ["guildmissions"] = "SaveGuildMissionTemplateCommand",
+        ["instances"] = "SaveInstanceTemplateCommand", ["formulas"] = "SaveCombatFormulasCommand",
+        ["pvp"] = "SavePvpSettingsCommand",
+    };
+
+    /// <summary>Executa o comando da tela atual pelo nome (F5/Ctrl+S). False = a tela não tem.</summary>
+    public bool ExecutePageCommand(bool save)
+    {
+        var map = save ? SaveCommandByPage : RefreshCommandByPage;
+        if (!map.TryGetValue(SelectedNavKey, out var name)) return false;
+        foreach (var target in new object?[] { this, ItemsFeature })
+        {
+            if (target?.GetType().GetProperty(name)?.GetValue(target) is System.Windows.Input.ICommand cmd)
+            {
+                if (cmd.CanExecute(null)) cmd.Execute(null);
+                return true;
+            }
+        }
+        return false;
     }
 
     public void BuildNavRoutes()
     {
         NavRoutes.Clear();
-        void Add(string key, string title, string group, int tab, string role, string icon)
+        // Ordem = ordem no menu (agrupado). A tela é achada pela chave, não pela posição.
+        void Add(string key, string title, string group, string role, string icon, string keywords = "")
             => NavRoutes.Add(new NavRoute
             {
-                Key = key, Title = title, Group = group, TabIndex = tab,
-                RequiredRole = role, Icon = icon,
-                Visibility = RoleAllows(role)
+                Key = key, Title = title, Group = group, RequiredRole = role, Icon = icon, Keywords = keywords,
             });
 
-        Add("dashboard", "Dashboard", "Visão geral", 0, "any", "ViewDashboard");
-        Add("servers", "Servidores", "Operação", 1, "ops", "Server");
-        Add("zones", "Zones", "Operação", 2, "ops", "Map");
-        Add("players", "Players", "Operação", 3, "ops", "Account");
-        Add("logs", "Logs", "Operação", 4, "ops", "TextBox");
-        Add("accounts", "Contas", "Administração", 5, "super", "AccountCog");
-        Add("items", "Itens", "Conteúdo", 6, "content", "TreasureChest");
-        Add("crafting", "Crafting", "Conteúdo", 7, "content", "HammerWrench");
-        Add("enchants", "Encantamentos", "Conteúdo", 8, "content", "AutoFix");
-        Add("skills", "Skills", "Conteúdo", 9, "content", "Star");
-        Add("mobskills", "Mob Skills", "Conteúdo", 10, "content", "Skull");
-        Add("classes", "Classes", "Conteúdo", 11, "content", "AccountGroup");
-        Add("appearance", "Appearance", "Conteúdo", 12, "content", "Hanger");
-        Add("progression", "Progressão", "Conteúdo", 13, "content", "ChartLine");
-        Add("npcs", "NPCs e mundo", "NPC e mundo", 14, "content", "AccountCowboy");
-        Add("adminhub", "Admin Hub", "Administração", 15, "content", "ShieldAccount");
-        Add("config", "Config", "Sistema", 16, "super", "Cog");
-        Add("rates", "Rates", "Administração", 17, "super", "Percent");
-        Add("audit", "Audit", "Operação", 18, "ops", "ClipboardText");
-        Add("gm", "GM Console", "Operação", 19, "ops", "Console");
-        Add("scheduler", "Scheduler", "Sistema", 20, "super", "ClockOutline");
-        Add("companions", "Companheiros", "Conteúdo", 21, "content", "Paw");
-        Add("guildmissions", "Missões de guilda", "Conteúdo", 22, "content", "ShieldStar");
-        Add("instances", "Instâncias", "NPC e mundo", 23, "content", "Castle");
-        Add("formulas", "Fórmulas de combate", "Administração", 24, "super", "Calculator");
-        Add("pvp", "PvP e duelo", "Administração", 25, "super", "SwordCross");
+        Add("dashboard", "Dashboard", "Visão geral", "any", "ViewDashboardOutline", "inicio resumo");
+        Add("servers", "Servidores", "Operação", "ops", "ServerOutline", "processos iniciar parar");
+        Add("zones", "Zones", "Operação", "ops", "MapOutline", "mapa");
+        Add("players", "Players", "Operação", "ops", "AccountMultipleOutline", "jogadores online");
+        Add("logs", "Logs", "Operação", "ops", "TextBoxOutline", "erros");
+        Add("audit", "Audit", "Operação", "ops", "ClipboardTextOutline", "auditoria historico");
+        Add("gm", "GM Console", "Operação", "ops", "Console", "comandos teleport kick");
+        Add("items", "Itens", "Conteúdo", "content", "TreasureChestOutline", "equipamento arma armadura");
+        Add("crafting", "Crafting", "Conteúdo", "content", "HammerWrench", "receitas");
+        Add("enchants", "Encantamentos", "Conteúdo", "content", "AutoFix", "refino");
+        Add("skills", "Skills", "Conteúdo", "content", "StarFourPointsOutline", "habilidades");
+        Add("mobskills", "Mob Skills", "Conteúdo", "content", "Skull", "npc habilidades");
+        Add("classes", "Classes", "Conteúdo", "content", "AccountGroupOutline");
+        Add("appearance", "Appearance", "Conteúdo", "content", "Hanger", "aparencia visual cabelo");
+        Add("progression", "Progressão", "Conteúdo", "content", "ChartLine", "exp nivel");
+        Add("companions", "Companheiros", "Conteúdo", "content", "Paw", "pet elemental");
+        Add("guildmissions", "Missões de guilda", "Conteúdo", "content", "ShieldStarOutline", "guilda");
+        Add("npcs", "NPCs e mundo", "NPC e mundo", "content", "AccountCowboyHatOutline", "mob chefe loot vendor quest spawn");
+        Add("instances", "Instâncias", "NPC e mundo", "content", "Castle", "dungeon masmorra");
+        Add("adminhub", "Admin Hub", "Administração", "content", "ShieldAccountOutline", "inspetor guildas leilao correio");
+        Add("accounts", "Contas", "Administração", "super", "AccountCogOutline", "usuarios admin");
+        Add("rates", "Rates", "Administração", "super", "Percent", "exp drop taxa");
+        Add("formulas", "Fórmulas de combate", "Administração", "super", "Calculator", "critico duplo defesa dano");
+        Add("pvp", "PvP e duelo", "Administração", "super", "SwordCross", "duelo arena");
+        Add("config", "Config", "Sistema", "super", "CogOutline", "server json configuracao");
+        Add("scheduler", "Scheduler", "Sistema", "super", "ClockOutline", "agendador tarefas");
         ApplyNavVisibility();
+        OnSelectedNavKeyChanged(SelectedNavKey);
     }
 
     private Visibility RoleAllows(string required)
@@ -103,9 +195,61 @@ public partial class MainViewModel
     public void ApplyNavVisibility()
     {
         foreach (var route in NavRoutes)
-            route.Visibility = RoleAllows(route.RequiredRole);
-        OnPropertyChanged(nameof(NavRoutes));
+        {
+            route.RoleAllowed = RoleAllows(route.RequiredRole) == Visibility.Visible;
+            route.Visibility = route.RoleAllowed && route.Matches(GlobalSearch)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
         OnPropertyChanged(nameof(CurrentUserLabel));
+        OnPropertyChanged(nameof(CurrentUserName));
+        OnPropertyChanged(nameof(CurrentUserRole));
+    }
+
+    /// <summary>
+    /// Preview do server.json sem segredos: valores de chaves com password/secret/token viram "••••••".
+    /// Antes o preview mostrava a senha do banco e o jwt_secret em texto puro (o formulário já mascarava).
+    /// </summary>
+    public static string MaskSecretsForPreview(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return json;
+        try
+        {
+            var root = JsonNode.Parse(json);
+            if (root == null) return json;
+            MaskNode(root);
+            return root.ToJsonString(new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            });
+        }
+        catch
+        {
+            return "(JSON inválido: corrija o arquivo para ver o preview)";
+        }
+
+        static void MaskNode(JsonNode node)
+        {
+            if (node is JsonObject obj)
+            {
+                foreach (var key in obj.Select(p => p.Key).ToList())
+                {
+                    var child = obj[key];
+                    var lower = key.ToLowerInvariant();
+                    var sensitive = lower.Contains("password") || lower.Contains("secret") || lower.Contains("token");
+                    if (sensitive && child is JsonValue v && v.TryGetValue<string>(out var s) && s.Length > 0)
+                        obj[key] = "••••••";
+                    else if (child != null)
+                        MaskNode(child);
+                }
+            }
+            else if (node is JsonArray arr)
+            {
+                foreach (var item in arr)
+                    if (item != null) MaskNode(item);
+            }
+        }
     }
 
     public bool ConfirmDiscardChanges()

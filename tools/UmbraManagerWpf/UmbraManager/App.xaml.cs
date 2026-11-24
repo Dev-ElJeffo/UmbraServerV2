@@ -18,6 +18,24 @@ public partial class App : Application
 
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
+        // Ferramenta de desenvolvimento: UmbraManager.exe --snapshots <pasta> [LxA] (sem login, sem rede).
+        if (e.Args.Length >= 2 && e.Args[0] == "--snapshots")
+        {
+            var width = 1366;
+            var height = 768;
+            if (e.Args.Length >= 3)
+            {
+                var parts = e.Args[2].Split('x');
+                if (parts.Length == 2 && int.TryParse(parts[0], out var w) && int.TryParse(parts[1], out var h))
+                {
+                    width = w;
+                    height = h;
+                }
+            }
+            Helpers.SnapshotRunner.Run(this, e.Args[1], width, height);
+            return;
+        }
+
         ServiceProvider? provider = null;
         MainViewModel? vm = null;
         try

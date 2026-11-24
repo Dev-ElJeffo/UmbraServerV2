@@ -2,247 +2,307 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
-        xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
+        xmlns:helpers="clr-namespace:UmbraManager.Helpers"
         xmlns:views="clr-namespace:UmbraManager.Views"
         xmlns:ops="clr-namespace:UmbraManager.Views.Operations"
         xmlns:npcviews="clr-namespace:UmbraManager.Views.Npcs"
         xmlns:adminv="clr-namespace:UmbraManager.Views.Admin"
         xmlns:sysviews="clr-namespace:UmbraManager.Views.SystemPages"
-        Title="UmbraManager — UmbraEternum"
-        Height="800" Width="1280" MinWidth="1100" MinHeight="700"
-        Background="{DynamicResource MaterialDesign.Brush.Background}">
+        Title="Umbra Manager"
+        Height="860" Width="1440" MinWidth="1100" MinHeight="700"
+        FontFamily="{StaticResource Umbra.Font}"
+        TextElement.Foreground="{StaticResource Umbra.Brush.Text}"
+        Background="{StaticResource Umbra.Brush.Bg}">
+    <Window.Resources>
+        <helpers:IconKindConverter x:Key="IconKind"/>
+        <helpers:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility"/>
+        <helpers:StringEqualsConverter x:Key="StringEquals"/>
+        <CollectionViewSource x:Key="NavGroups">
+            <CollectionViewSource.GroupDescriptions>
+                <PropertyGroupDescription PropertyName="Group"/>
+            </CollectionViewSource.GroupDescriptions>
+        </CollectionViewSource>
+
+        <!-- Item do menu: barra dourada à esquerda quando selecionado -->
+        <Style x:Key="NavItemButton" TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.TextMuted}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="6"
+                                Margin="8,1" Padding="10,8">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="{StaticResource Umbra.Brush.Hover}"/>
+                                <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Text}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Window.InputBindings>
+        <KeyBinding Key="K" Modifiers="Control" Command="{Binding FocusSearchCommand, RelativeSource={RelativeSource AncestorType=Window}}"/>
+    </Window.InputBindings>
+
     <materialDesign:DialogHost Identifier="RootDialog">
-    <DockPanel>
-        <StatusBar DockPanel.Dock="Bottom">
-            <StatusBarItem Content="{Binding StatusText}"/>
-            <StatusBarItem HorizontalAlignment="Right" Content="{Binding CurrentUserLabel}"/>
-        </StatusBar>
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
 
-        <Border DockPanel.Dock="Top" Background="{StaticResource ManagerBrush.SurfaceAlt}" Padding="12,8" BorderBrush="{StaticResource ManagerBrush.Border}" BorderThickness="0,0,0,1">
+        <!-- ================= Menu lateral ================= -->
+        <Border Grid.Column="0" Grid.Row="0" Grid.RowSpan="2" Width="{Binding NavWidth}"
+                Background="{StaticResource Umbra.Brush.Surface}"
+                BorderBrush="{StaticResource Umbra.Brush.Border}" BorderThickness="0,0,1,0">
             <DockPanel>
-                <Button DockPanel.Dock="Left" Content="☰" Command="{Binding ToggleNavCommand}" Width="40" Margin="0,0,8,0"
-                        Style="{StaticResource ManagerCompactButton}"
-                        AutomationProperties.Name="Recolher navegação"/>
-                <TextBlock DockPanel.Dock="Left" Text="{Binding Breadcrumb}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,16,0"/>
-                <TextBlock DockPanel.Dock="Right" Text="{Binding AdminConnectedSummary}" VerticalAlignment="Center" Opacity="0.8"/>
-                <TextBox Width="240" HorizontalAlignment="Right" Margin="0,0,16,0"
+                <!-- Logo + recolher -->
+                <Grid DockPanel.Dock="Top" Height="60" Margin="12,0,8,0">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                                Visibility="{Binding IsNavCollapsed, Converter={StaticResource InverseBoolToVisibility}}">
+                        <Border Width="30" Height="30" CornerRadius="7" Background="{StaticResource Umbra.Brush.Wine}">
+                            <TextBlock Text="U" FontFamily="{StaticResource Umbra.Font.Display}" FontWeight="Bold"
+                                       FontSize="17" Foreground="{StaticResource Umbra.Brush.Gold}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="UMBRA" FontFamily="{StaticResource Umbra.Font.Display}" FontWeight="Bold"
+                                       FontSize="15" Foreground="{StaticResource Umbra.Brush.Gold}"/>
+                            <TextBlock Text="Manager" FontSize="11" Foreground="{StaticResource Umbra.Brush.TextMuted}" Margin="0,-3,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <Button HorizontalAlignment="Right" VerticalAlignment="Center" Command="{Binding ToggleNavCommand}"
+                            Style="{StaticResource Umbra.Button.Icon}" ToolTip="Recolher / expandir o menu"
+                            AutomationProperties.Name="Recolher menu">
+                        <materialDesign:PackIcon Kind="MenuOpen" Width="20" Height="20"/>
+                    </Button>
+                </Grid>
+
+                <!-- Busca de telas (Ctrl+K) -->
+                <TextBox x:Name="NavSearch" DockPanel.Dock="Top" Margin="12,0,12,8"
                          Text="{Binding GlobalSearch, UpdateSourceTrigger=PropertyChanged}"
-                         materialDesign:HintAssist.Hint="Busca"
-                         materialDesign:HintAssist.IsFloating="True"/>
+                         materialDesign:HintAssist.Hint="Buscar tela (Ctrl+K)"
+                         materialDesign:HintAssist.IsFloating="False"
+                         materialDesign:TextFieldAssist.HasLeadingIcon="True"
+                         materialDesign:TextFieldAssist.LeadingIcon="Magnify"
+                         materialDesign:TextFieldAssist.HasClearButton="True"
+                         Visibility="{Binding IsNavCollapsed, Converter={StaticResource InverseBoolToVisibility}}">
+                    <TextBox.InputBindings>
+                        <KeyBinding Key="Enter" Command="{Binding OpenFirstSearchResultCommand}"/>
+                    </TextBox.InputBindings>
+                </TextBox>
+
+                <!-- Rodapé do menu: usuário -->
+                <Border DockPanel.Dock="Bottom" BorderBrush="{StaticResource Umbra.Brush.Border}" BorderThickness="0,1,0,0"
+                        Padding="12,10">
+                    <StackPanel Orientation="Horizontal">
+                        <Border Width="30" Height="30" CornerRadius="15" Background="{StaticResource Umbra.Brush.Elevated}">
+                            <materialDesign:PackIcon Kind="ShieldAccount" Width="18" Height="18"
+                                                     Foreground="{StaticResource Umbra.Brush.Gold}"
+                                                     HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <StackPanel Margin="10,0,0,0" VerticalAlignment="Center"
+                                    Visibility="{Binding IsNavCollapsed, Converter={StaticResource InverseBoolToVisibility}}">
+                            <TextBlock Text="{Binding CurrentUserName}" FontWeight="SemiBold" FontSize="12"/>
+                            <TextBlock Text="{Binding CurrentUserRole}" FontSize="11" Foreground="{StaticResource Umbra.Brush.TextMuted}"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                              materialDesign:ScrollViewerAssist.IsAutoHideEnabled="True">
+                    <ItemsControl ItemsSource="{Binding Source={StaticResource NavGroups}}" Margin="0,0,0,8">
+                        <ItemsControl.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" FontSize="10" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource Umbra.Brush.Gold}" Opacity="0.8"
+                                                   Margin="20,12,0,4"
+                                                   Visibility="{Binding DataContext.IsNavCollapsed, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource InverseBoolToVisibility}}"/>
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                        </ItemsControl.GroupStyle>
+                        <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="ContentPresenter">
+                                <Setter Property="Visibility" Value="{Binding Visibility}"/>
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        CommandParameter="{Binding Key}" ToolTip="{Binding Title}"
+                                        AutomationProperties.Name="{Binding Title}">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource NavItemButton}">
+                                            <Style.Triggers>
+                                                <DataTrigger Value="True">
+                                                    <DataTrigger.Binding>
+                                                        <MultiBinding Converter="{StaticResource StringEquals}">
+                                                            <Binding Path="Key"/>
+                                                            <Binding Path="DataContext.SelectedNavKey" RelativeSource="{RelativeSource AncestorType=Window}"/>
+                                                        </MultiBinding>
+                                                    </DataTrigger.Binding>
+                                                    <Setter Property="Background" Value="{StaticResource Umbra.Brush.GoldSoft}"/>
+                                                    <Setter Property="Foreground" Value="{StaticResource Umbra.Brush.Gold}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="{Binding Icon, Converter={StaticResource IconKind}}"
+                                                                 Width="19" Height="19" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding Title}" Margin="12,0,0,0" VerticalAlignment="Center"
+                                                   FontSize="13" TextTrimming="CharacterEllipsis"
+                                                   Visibility="{Binding DataContext.IsNavCollapsed, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource InverseBoolToVisibility}}"/>
+                                    </StackPanel>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
             </DockPanel>
         </Border>
 
-        <Border DockPanel.Dock="Left" Width="{Binding NavWidth}" Background="{StaticResource ManagerBrush.SurfaceAlt}"
-                BorderBrush="{StaticResource ManagerBrush.Border}" BorderThickness="0,0,1,0">
-            <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="UmbraManager" FontWeight="Bold" Margin="12,12,12,8"/>
-                <ListBox ItemsSource="{Binding NavRoutes}"
-                         SelectedValue="{Binding SelectedNavIndex}"
-                         SelectedValuePath="TabIndex"
-                         BorderThickness="0" Background="Transparent"
-                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                    <ListBox.ItemContainerStyle>
-                        <Style TargetType="ListBoxItem">
-                            <Setter Property="Visibility" Value="{Binding Visibility}"/>
-                            <Setter Property="MinHeight" Value="36"/>
-                            <Setter Property="Padding" Value="10,6"/>
-                            <Setter Property="AutomationProperties.Name" Value="{Binding Title}"/>
-                        </Style>
-                    </ListBox.ItemContainerStyle>
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel ToolTip="{Binding Title}">
-                                <TextBlock Text="{Binding Group}" FontSize="10" Opacity="0.55">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Setter Property="Visibility" Value="Visible"/>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding DataContext.IsNavCollapsed, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
-                                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
-                                <TextBlock FontWeight="SemiBold">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Setter Property="Text" Value="{Binding Title}"/>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding DataContext.IsNavCollapsed, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
-                                                    <Setter Property="Text" Value="{Binding ShortLabel}"/>
-                                                    <Setter Property="HorizontalAlignment" Value="Center"/>
-                                                    <Setter Property="FontSize" Value="16"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
+        <!-- ================= Conteúdo ================= -->
+        <Grid Grid.Column="1" Grid.Row="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Cabeçalho da tela -->
+            <Border Grid.Row="0" Padding="24,14,20,12" BorderBrush="{StaticResource Umbra.Brush.Border}" BorderThickness="0,0,0,1">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border CornerRadius="12" Padding="10,4" Background="{StaticResource Umbra.Brush.Elevated}"
+                                ToolTip="Serviços com canal de admin conectado / total">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="LanConnect" Width="15" Height="15" VerticalAlignment="Center"
+                                                         Foreground="{StaticResource ManagerBrush.Success}"/>
+                                <TextBlock Text="{Binding AdminConnectedSummary, StringFormat=Admin {0}}" Margin="6,0,0,0"
+                                           FontSize="12" VerticalAlignment="Center"/>
                             </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </DockPanel>
-        </Border>
+                        </Border>
+                        <Button Margin="8,0,0,0" Style="{StaticResource Umbra.Button.Icon}" Click="OnRefreshPageClick"
+                                ToolTip="Atualizar a tela (F5)" AutomationProperties.Name="Atualizar">
+                            <materialDesign:PackIcon Kind="Refresh" Width="20" Height="20"/>
+                        </Button>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <materialDesign:PackIcon Kind="{Binding CurrentPageIcon, Converter={StaticResource IconKind}}"
+                                                 Width="26" Height="26" VerticalAlignment="Center"
+                                                 Foreground="{StaticResource Umbra.Brush.Gold}"/>
+                        <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding CurrentPageGroup}" FontSize="11" Foreground="{StaticResource Umbra.Brush.TextMuted}"/>
+                            <TextBlock Text="{Binding CurrentPageTitle}" Style="{StaticResource ManagerPageHeader}" Margin="0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </DockPanel>
+            </Border>
 
-        <Grid>
-            <TabControl Margin="8" SelectedIndex="{Binding SelectedNavIndex}">
+            <!-- Telas: o TabItem é escolhido pela Tag (= chave da rota), nunca pela posição -->
+            <TabControl x:Name="PageHost" Grid.Row="1" Margin="16,12,16,8" Tag="NavHost">
                 <TabControl.Template>
                     <ControlTemplate TargetType="TabControl">
                         <ContentPresenter ContentSource="SelectedContent"/>
                     </ControlTemplate>
                 </TabControl.Template>
-            <!-- Dashboard -->
-            <TabItem Header="Dashboard">
-                <ops:DashboardView/>
-            </TabItem>
+                <TabItem Tag="dashboard"><ops:DashboardView/></TabItem>
+                <TabItem Tag="servers"><ops:ServersView/></TabItem>
+                <TabItem Tag="zones"><ops:ZonesView/></TabItem>
+                <TabItem Tag="players"><ops:PlayersView/></TabItem>
+                <TabItem Tag="logs"><ops:LogsView/></TabItem>
+                <TabItem Tag="accounts"><adminv:AccountsView/></TabItem>
+                <TabItem Tag="items"><views:ItemsEditorView/></TabItem>
+                <TabItem Tag="crafting"><views:CraftingEditorView/></TabItem>
+                <TabItem Tag="enchants"><views:EnchantmentsEditorView/></TabItem>
+                <TabItem Tag="skills"><views:SkillsEditorView/></TabItem>
+                <TabItem Tag="mobskills"><views:MobSkillsEditorView/></TabItem>
+                <TabItem Tag="classes"><views:ClassesEditorView/></TabItem>
+                <TabItem Tag="appearance"><views:AppearancePartsEditorView/></TabItem>
+                <TabItem Tag="progression"><views:ProgressionEditorView/></TabItem>
+                <TabItem Tag="npcs"><npcviews:NpcEditorView/></TabItem>
+                <TabItem Tag="adminhub"><adminv:AdminHubView/></TabItem>
+                <TabItem Tag="config"><sysviews:ConfigEditorView/></TabItem>
+                <TabItem Tag="rates"><adminv:RatesView/></TabItem>
+                <TabItem Tag="audit"><adminv:AuditView/></TabItem>
+                <TabItem Tag="gm"><views:GmConsoleView/></TabItem>
+                <TabItem Tag="scheduler"><sysviews:SchedulerView/></TabItem>
+                <TabItem Tag="companions"><views:CompanionsEditorView/></TabItem>
+                <TabItem Tag="guildmissions"><views:GuildMissionsEditorView/></TabItem>
+                <TabItem Tag="instances"><views:InstancesEditorView/></TabItem>
+                <TabItem Tag="formulas"><adminv:CombatFormulasView/></TabItem>
+                <TabItem Tag="pvp"><adminv:PvpView/></TabItem>
+            </TabControl>
 
-            <!-- Servers -->
-            <TabItem Header="Servers" Visibility="{Binding TabVisibilityOps}">
-                <ops:ServersView/>
-            </TabItem>
+            <!-- Erro do editor (topo da área de conteúdo) -->
+            <Border Grid.Row="1" Background="{StaticResource ManagerBrush.Error}" Padding="14,10" Margin="16,12,16,0"
+                    VerticalAlignment="Top" CornerRadius="8" AutomationProperties.Name="Erro do editor">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Visible"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding EditorError}" Value="">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding EditorError}" Value="{x:Null}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <StackPanel Orientation="Horizontal">
+                    <materialDesign:PackIcon Kind="AlertCircleOutline" Width="18" Height="18" Foreground="White" VerticalAlignment="Top"/>
+                    <TextBlock Text="{Binding EditorError}" Foreground="White" TextWrapping="Wrap" Margin="8,0,0,0"/>
+                </StackPanel>
+            </Border>
 
-            <!-- Zones -->
-            <TabItem Header="Zones" Visibility="{Binding TabVisibilityOps}">
-                <ops:ZonesView/>
-            </TabItem>
+            <!-- Carregando -->
+            <Border Grid.Row="0" Grid.RowSpan="2" Background="#AA0E0C0F"
+                    Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}"
+                    AutomationProperties.Name="Carregando">
+                <Border Background="{StaticResource Umbra.Brush.SurfaceAlt}" CornerRadius="12" Padding="28,22"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        BorderBrush="{StaticResource Umbra.Brush.Border}" BorderThickness="1">
+                    <StackPanel>
+                        <ProgressBar Style="{StaticResource MaterialDesignCircularProgressBar}" IsIndeterminate="True"
+                                     Width="36" Height="36" Foreground="{StaticResource Umbra.Brush.Gold}"/>
+                        <TextBlock Text="{Binding BusyText}" Margin="0,12,0,0" HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+            </Border>
 
-            <!-- Players -->
-            <TabItem Header="Players" Visibility="{Binding TabVisibilityOps}">
-                <ops:PlayersView/>
-            </TabItem>
-
-            <!-- Logs -->
-            <TabItem Header="Logs" Visibility="{Binding TabVisibilityOps}">
-                <ops:LogsView/>
-            </TabItem>
-
-            <!-- Accounts -->
-            <TabItem Header="Accounts" Visibility="{Binding TabVisibilitySuper}">
-                <adminv:AccountsView/>
-            </TabItem>
-
-            <!-- Items -->
-            <TabItem Header="Items" Visibility="{Binding TabVisibilityContent}">
-                <views:ItemsEditorView/>
-            </TabItem>
-
-            <TabItem Header="Crafting" Visibility="{Binding TabVisibilityContent}">
-                <views:CraftingEditorView/>
-            </TabItem>
-
-            <TabItem Header="Encantamentos" Visibility="{Binding TabVisibilityContent}">
-                <views:EnchantmentsEditorView/>
-            </TabItem>
-
-            <TabItem Header="Skills" Visibility="{Binding TabVisibilityContent}">
-                <views:SkillsEditorView/>
-            </TabItem>
-            <TabItem Header="Mob Skills" Visibility="{Binding TabVisibilityContent}">
-                <views:MobSkillsEditorView/>
-            </TabItem>
-
-            <TabItem Header="Classes" Visibility="{Binding TabVisibilityContent}">
-                <views:ClassesEditorView/>
-            </TabItem>
-
-            <TabItem Header="Appearance Parts" Visibility="{Binding TabVisibilityContent}">
-                <views:AppearancePartsEditorView/>
-            </TabItem>
-
-            <TabItem Header="Progressão" Visibility="{Binding TabVisibilityContent}">
-                <views:ProgressionEditorView/>
-            </TabItem>
-
-            <!-- NPCs -->
-            <TabItem Header="NPCs" Visibility="{Binding TabVisibilityContent}">
-                <npcviews:NpcEditorView/>
-            </TabItem>
-
-            <TabItem Header="Admin Hub" Visibility="{Binding TabVisibilityContent}">
-                <adminv:AdminHubView/>
-            </TabItem>
-
-            <!-- Config -->
-            <TabItem Header="Config" Visibility="{Binding TabVisibilitySuper}">
-                <sysviews:ConfigEditorView/>
-            </TabItem>
-
-            
-
-            <!-- Rates -->
-            <TabItem Header="Rates" Visibility="{Binding TabVisibilitySuper}">
-                <adminv:RatesView/>
-            </TabItem>
-
-            <!-- Audit -->
-            <TabItem Header="Audit" Visibility="{Binding TabVisibilityOps}">
-                <adminv:AuditView/>
-            </TabItem>
-
-            <!-- GM Console -->
-            <TabItem Header="GM Console" Visibility="{Binding TabVisibilityOps}">
-                <views:GmConsoleView/>
-            </TabItem>
-
-<!-- Scheduler -->
-            <TabItem Header="Scheduler" Visibility="{Binding TabVisibilitySuper}">
-                <sysviews:SchedulerView/>
-            </TabItem>
-
-            <!-- Companheiros (pet/elemental) -->
-            <TabItem Header="Companheiros" Visibility="{Binding TabVisibilityContent}">
-                <views:CompanionsEditorView/>
-            </TabItem>
-
-            <!-- Missões de guilda -->
-            <TabItem Header="Missões de guilda" Visibility="{Binding TabVisibilityContent}">
-                <views:GuildMissionsEditorView/>
-            </TabItem>
-
-            <!-- Instâncias (etapa 4) -->
-            <TabItem Header="Instâncias" Visibility="{Binding TabVisibilityContent}">
-                <views:InstancesEditorView/>
-            </TabItem>
-
-            <!-- ATENÇÃO: a navegação usa o índice da aba (NavRoutes em MainViewModel.Shell.cs).
-                 Aba nova entra SEMPRE no fim, com a rota do mesmo índice. -->
-
-            <!-- 24: Fórmulas de combate -->
-            <TabItem Header="Fórmulas" Visibility="{Binding TabVisibilitySuper}">
-                <adminv:CombatFormulasView/>
-            </TabItem>
-
-            <!-- 25: PvP e duelo (etapa 6) -->
-            <TabItem Header="PvP" Visibility="{Binding TabVisibilitySuper}">
-                <adminv:PvpView/>
-            </TabItem>
-        </TabControl>
-        <Border Background="{StaticResource ManagerBrush.Error}" Padding="12,8" VerticalAlignment="Top"
-                AutomationProperties.Name="Erro do editor">
-            <Border.Style>
-                <Style TargetType="Border">
-                    <Setter Property="Visibility" Value="Visible"/>
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding EditorError}" Value="">
-                            <Setter Property="Visibility" Value="Collapsed"/>
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding EditorError}" Value="{x:Null}">
-                            <Setter Property="Visibility" Value="Collapsed"/>
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </Border.Style>
-            <TextBlock Text="{Binding EditorError}" Foreground="White" TextWrapping="Wrap"/>
-        </Border>
-        <Border Background="#88000000" Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}"
-                AutomationProperties.Name="Carregando">
-            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                <ProgressBar IsIndeterminate="True" Width="220"/>
-                <TextBlock Text="{Binding BusyText}" Margin="0,8,0,0" HorizontalAlignment="Center"/>
-            </StackPanel>
-        </Border>
+            <materialDesign:Snackbar Grid.Row="1" MessageQueue="{Binding Toasts}" HorizontalAlignment="Right"
+                                     Margin="0,0,24,16" Background="{StaticResource Umbra.Brush.Elevated}"
+                                     Foreground="{StaticResource Umbra.Brush.Text}"/>
         </Grid>
-    </DockPanel>
+
+        <!-- ================= Barra de status ================= -->
+        <Border Grid.Column="1" Grid.Row="1" Background="{StaticResource Umbra.Brush.Surface}"
+                BorderBrush="{StaticResource Umbra.Brush.Border}" BorderThickness="0,1,0,0" Padding="16,5">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Right" FontSize="11" Foreground="{StaticResource Umbra.Brush.TextMuted}"
+                           Text="F5 atualizar · Ctrl+S salvar · Ctrl+K buscar"/>
+                <TextBlock DockPanel.Dock="Right" FontSize="11" Foreground="{StaticResource Umbra.Brush.TextMuted}"
+                           Text="{Binding AppVersion}" Margin="0,0,16,0"/>
+                <TextBlock Text="{Binding StatusText}" FontSize="12" TextTrimming="CharacterEllipsis"
+                           ToolTip="{Binding StatusText}"/>
+            </DockPanel>
+        </Border>
+    </Grid>
     </materialDesign:DialogHost>
 </Window>

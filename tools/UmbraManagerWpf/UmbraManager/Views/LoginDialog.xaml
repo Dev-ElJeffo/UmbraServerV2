@@ -2,21 +2,56 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
-        Title="Login Admin — UmbraManager"
-        Height="280" Width="420"
+        Title="Umbra Manager — Entrar"
+        SizeToContent="Height" Width="440"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
-        Background="{DynamicResource MaterialDesign.Brush.Background}">
-    <StackPanel Margin="24">
-        <TextBlock Text="Conta admin (senha + JWT)" Style="{StaticResource MaterialDesignSubtitle1TextBlock}" Margin="0,0,0,8"/>
-        <TextBox x:Name="UsernameBox" materialDesign:HintAssist.Hint="Username" Margin="0,0,0,12"
-                 KeyDown="Input_KeyDown"/>
-        <PasswordBox x:Name="PasswordBox" materialDesign:HintAssist.Hint="Senha" Margin="0,0,0,12"
+        FontFamily="{StaticResource Umbra.Font}"
+        TextElement.Foreground="{StaticResource Umbra.Brush.Text}"
+        Background="{StaticResource Umbra.Brush.Bg}">
+    <Border Margin="20" Padding="28,26" Style="{StaticResource ManagerEditorCard}">
+        <StackPanel>
+            <!-- Marca -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,18">
+                <Border Width="40" Height="40" CornerRadius="9" Background="{StaticResource Umbra.Brush.Wine}">
+                    <TextBlock Text="U" FontFamily="{StaticResource Umbra.Font.Display}" FontWeight="Bold" FontSize="22"
+                               Foreground="{StaticResource Umbra.Brush.Gold}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="UMBRA MANAGER" FontFamily="{StaticResource Umbra.Font.Display}" FontWeight="Bold"
+                               FontSize="17" Foreground="{StaticResource Umbra.Brush.Gold}"/>
+                    <TextBlock Text="Painel de administração do UmbraEternum" FontSize="11"
+                               Foreground="{StaticResource Umbra.Brush.TextMuted}"/>
+                </StackPanel>
+            </StackPanel>
+
+            <TextBox x:Name="UsernameBox" materialDesign:HintAssist.Hint="Usuário admin"
+                     materialDesign:TextFieldAssist.HasLeadingIcon="True"
+                     materialDesign:TextFieldAssist.LeadingIcon="AccountOutline"
                      KeyDown="Input_KeyDown"/>
-        <TextBlock x:Name="ErrorText" Foreground="IndianRed" TextWrapping="Wrap" Margin="0,0,0,8"/>
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="CancelButton" Content="Cancelar" Margin="0,0,8,0" Click="Cancel_Click" Style="{StaticResource MaterialDesignOutlinedButton}"/>
-            <Button x:Name="LoginButton" Content="Entrar" Click="Login_Click" IsDefault="True" Style="{StaticResource MaterialDesignRaisedButton}"/>
+            <PasswordBox x:Name="PasswordBox" materialDesign:HintAssist.Hint="Senha"
+                         materialDesign:TextFieldAssist.HasLeadingIcon="True"
+                         materialDesign:TextFieldAssist.LeadingIcon="LockOutline"
+                         materialDesign:PasswordBoxAssist.IsPasswordRevealed="False"
+                         KeyDown="Input_KeyDown"/>
+
+            <TextBlock x:Name="ErrorText" Foreground="{StaticResource ManagerBrush.Error}" TextWrapping="Wrap"
+                       Margin="0,6,0,0"/>
+
+            <Grid Margin="0,16,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="CancelButton" Grid.Column="0" Content="Cancelar" Click="Cancel_Click"
+                        Style="{StaticResource ManagerFormSecondaryButton}"/>
+                <Button x:Name="LoginButton" Grid.Column="2" Content="Entrar" Click="Login_Click" IsDefault="True"
+                        Style="{StaticResource ManagerFormPrimaryButton}"/>
+            </Grid>
+            <TextBlock Text="Conta admin do banco (senha + JWT com escopo umbra_manager)." FontSize="11"
+                       Foreground="{StaticResource Umbra.Brush.TextMuted}" Margin="0,14,0,0" TextWrapping="Wrap"/>
         </StackPanel>
-    </StackPanel>
+    </Border>
 </Window>
